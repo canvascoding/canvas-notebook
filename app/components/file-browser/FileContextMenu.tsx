@@ -1,0 +1,256 @@
+'use client';
+
+import { useMemo, useState, type ReactNode } from 'react';
+import { Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Folder } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { useFileStore, type FileNode } from '@/app/store/file-store';
+
+interface FileContextMenuProps {
+  node: {
+    path: string;
+    name: string;
+    type: 'file' | 'directory';
+  };
+}
+
+function getParentPath(path: string) {
+  const trimmed = path.replace(/\/+$/, '');
+  const lastSlash = trimmed.lastIndexOf('/');
+  if (lastSlash <= 0) {
+    return '.';
+  }
+  return trimmed.slice(0, lastSlash);
+}
+
+function joinPath(parent: string, name: string) {
+  const normalizedParent = parent === '.' ? '' : parent.replace(/\/+$/, '');
+  const normalizedName = name.replace(/^\/+/, '');
+  if (!normalizedParent) {
+    return normalizedName;
+  }
+  return `${normalizedParent}/${normalizedName}`;
+}
+
+export function FileContextMenu({ node }: FileContextMenuProps) {
+  const [open, setOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState('.');
+  const [moveName, setMoveName] = useState(node.name);
+  const { createPath, deletePath, renamePath, downloadFile, fileTree } =
+    useFileStore();
+  const parentPath = useMemo(() => {
+    if (node.type === 'directory') {
+      return node.path;
+    }
+    return getParentPath(node.path);
+  }, [node]);
+
+  const handleNewFile = async () => {
+    const name = window.prompt('New file name');
+    if (!name) return;
+    await createPath(joinPath(parentPath, name), 'file');
+  };
+
+  const handleNewFolder = async () => {
+    const name = window.prompt('New folder name');
+    if (!name) return;
+    await createPath(joinPath(parentPath, name), 'directory');
+  };
+
+  const handleRename = async () => {
+    const name = window.prompt('Rename to', node.name);
+    if (!name || name === node.name) return;
+    await renamePath(node.path, joinPath(getParentPath(node.path), name));
+  };
+
+  const handleMove = () => {
+    setOpen(false);
+    setMoveName(node.name);
+    setMoveTarget(getParentPath(node.path));
+    setMoveOpen(true);
+  };
+
+  const handleDelete = async () => {
+    const confirmed = window.confirm(`Delete "${node.name}"?`);
+    if (!confirmed) return;
+    await deletePath(node.path);
+  };
+
+  const handleDownload = async () => {
+    await downloadFile(node.path);
+  };
+
+  const handleCopyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(node.path);
+    } catch (err) {
+      console.error('Failed to copy path:', err);
+    }
+  };
+
+  const renderDirectories = (nodes: FileNode[], depth = 0): ReactNode[] => {
+    return nodes.flatMap((entry) => {
+      if (entry.type !== 'directory') return [];
+      const isSelected = moveTarget === entry.path;
+      const row = (
+        <button
+          key={entry.path}
+          type="button"
+          className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
+            isSelected ? 'bg-slate-700 text-slate-100' : 'text-slate-200 hover:bg-slate-800/70'
+          }`}
+          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          onClick={() => setMoveTarget(entry.path)}
+        >
+          <Folder className="h-4 w-4 text-slate-400" />
+          <span className="truncate">{entry.name}</span>
+        </button>
+      );
+      const children = entry.children ? renderDirectories(entry.children, depth + 1) : [];
+      return [row, ...children];
+    });
+  };
+
+  const handleConfirmMove = async () => {
+    const trimmedName = moveName.trim();
+    if (!trimmedName) {
+      toast.error('Please enter a name.');
+      return;
+    }
+    const destination = moveTarget === '.' ? trimmedName : `${moveTarget}/${trimmedName}`;
+    if (destination === node.path) {
+      setMoveOpen(false);
+      return;
+    }
+    if (node.type === 'directory' && destination.startsWith(`${node.path}/`)) {
+      toast.error('Cannot move a folder into itself.');
+      return;
+    }
+    await renamePath(node.path, destination);
+    setMoveOpen(false);
+  };
+
+  return (
+    <>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ml-1 opacity-70 hover:opacity-100 bg-slate-800/40 hover:bg-slate-700/70 border border-slate-700/60"
+            onClick={(event) => {
+              event.stopPropagation();
+              setOpen(true);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            aria-label="File actions"
+          >
+            <MoreHorizontal className="h-4 w-4 text-slate-200" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={6}>
+          <DropdownMenuItem onSelect={handleNewFile}>
+            <FilePlus className="h-4 w-4" />
+            New file
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleNewFolder}>
+            <FolderPlus className="h-4 w-4" />
+            New folder
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={handleCopyPath}>
+            <Copy className="h-4 w-4" />
+            Copy path
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleRename}>
+            <Pencil className="h-4 w-4" />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleMove}>
+            <Move className="h-4 w-4" />
+            Move
+          </DropdownMenuItem>
+          {node.type === 'file' && (
+            <DropdownMenuItem onSelect={handleDownload}>
+              <Download className="h-4 w-4" />
+              Download
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="max-w-xl bg-slate-900 text-slate-100">
+          <DialogHeader>
+            <DialogTitle>{`Move "${node.name}"`}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-slate-400">Destination folder</label>
+              <Input
+                value={moveTarget}
+                onChange={(event) => setMoveTarget(event.target.value)}
+                className="mt-1 bg-slate-950 text-slate-200"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400">Name</label>
+              <Input
+                value={moveName}
+                onChange={(event) => setMoveName(event.target.value)}
+                className="mt-1 bg-slate-950 text-slate-200"
+              />
+            </div>
+            <div className="rounded border border-slate-800 bg-slate-950/60 p-2">
+              <div className="mb-2 text-xs text-slate-400">Choose destination</div>
+              <div className="max-h-56 overflow-auto">
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
+                    moveTarget === '.'
+                      ? 'bg-slate-700 text-slate-100'
+                      : 'text-slate-200 hover:bg-slate-800/70'
+                  }`}
+                  onClick={() => setMoveTarget('.')}
+                >
+                  <Folder className="h-4 w-4 text-slate-400" />
+                  <span className="truncate">/ (root)</span>
+                </button>
+                {renderDirectories(fileTree)}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setMoveOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={handleConfirmMove}>
+              Move
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

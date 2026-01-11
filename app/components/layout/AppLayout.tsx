@@ -1,0 +1,262 @@
+'use client';
+
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+
+interface AppLayoutProps {
+  sidebar: ReactNode;
+  main: ReactNode;
+  terminal: ReactNode;
+  sidebarHidden?: boolean;
+}
+
+const SIDEBAR_MIN = 220;
+const SIDEBAR_MAX = 420;
+const TERMINAL_MIN = 160;
+const TERMINAL_MAX = 420;
+const TERMINAL_COLLAPSED = 84;
+
+export function AppLayout({ sidebar, main, terminal, sidebarHidden = false }: AppLayoutProps) {
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === 'undefined') return 288;
+    const stored = window.localStorage.getItem('canvas.sidebarWidth');
+    const value = stored ? Number(stored) : NaN;
+    return Number.isNaN(value) ? 288 : value;
+  });
+  const [terminalHeight, setTerminalHeight] = useState(() => {
+    if (typeof window === 'undefined') return 240;
+    const stored = window.localStorage.getItem('canvas.terminalHeight');
+    const value = stored ? Number(stored) : NaN;
+    if (Number.isNaN(value)) return 260;
+    return value < TERMINAL_MIN ? 260 : value;
+  });
+  const [terminalFullscreen, setTerminalFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    type: 'sidebar' | 'terminal' | null;
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
+  const lastTerminalHeightRef = useRef<number>(terminalHeight);
+
+  useEffect(() => {
+    window.localStorage.setItem('canvas.sidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem('canvas.terminalHeight', String(terminalHeight));
+    if (terminalHeight > TERMINAL_COLLAPSED) {
+      lastTerminalHeightRef.current = terminalHeight;
+    }
+  }, [terminalHeight]);
+
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent('terminal-fullscreen-state', {
+        detail: { enabled: terminalFullscreen },
+      })
+    );
+  }, [terminalFullscreen]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const body = document.body;
+    const html = document.documentElement;
+    if (terminalFullscreen) {
+      body.style.overflow = 'hidden';
+      html.style.overflow = 'hidden';
+    } else {
+      body.style.overflow = '';
+      html.style.overflow = '';
+    }
+
+    return () => {
+      body.style.overflow = '';
+      html.style.overflow = '';
+    };
+  }, [terminalFullscreen]);
+
+  useEffect(() => {
+    if (!terminalFullscreen) return;
+    const updateHeight = () => {
+      setTerminalHeight(window.innerHeight);
+    };
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, [terminalFullscreen]);
+
+  useEffect(() => {
+    const handleMove = (event: MouseEvent | PointerEvent) => {
+      if (!dragRef.current || !containerRef.current) return;
+      if (terminalFullscreen && dragRef.current.type === 'terminal') return;
+      const { type, startX, startY, startWidth, startHeight } = dragRef.current;
+
+      if (type === 'sidebar') {
+        const nextWidth = Math.min(
+          SIDEBAR_MAX,
+          Math.max(SIDEBAR_MIN, startWidth + (event.clientX - startX))
+        );
+        setSidebarWidth(nextWidth);
+      }
+
+      if (type === 'terminal') {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const delta = event.clientY - startY;
+        const nextHeight = Math.min(
+          TERMINAL_MAX,
+          Math.max(TERMINAL_MIN, startHeight - delta)
+        );
+        const maxAllowed = containerRect.height - 120;
+        setTerminalHeight(Math.min(nextHeight, maxAllowed));
+      }
+    };
+
+    const handleUp = () => {
+      dragRef.current = null;
+    };
+
+    const handleResizeEvent = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !containerRef.current) return;
+      const detail = event.detail as { action?: string; height?: number } | undefined;
+      const action = detail?.action;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const maxAllowed = Math.min(TERMINAL_MAX, containerRect.height - 120);
+
+      if (action === 'minimize') {
+        setTerminalHeight(TERMINAL_COLLAPSED);
+        return;
+      }
+
+      if (action === 'maximize') {
+        setTerminalHeight(maxAllowed);
+        return;
+      }
+
+      if (action === 'restore') {
+        const restored = Math.min(
+          maxAllowed,
+          Math.max(TERMINAL_MIN, lastTerminalHeightRef.current || TERMINAL_MIN)
+        );
+        setTerminalHeight(restored);
+        return;
+      }
+
+      if (action === 'set' && Number.isFinite(detail?.height)) {
+        const next = Math.min(
+          maxAllowed,
+          Math.max(TERMINAL_MIN, detail?.height || TERMINAL_MIN)
+        );
+        setTerminalHeight(next);
+        setTerminalFullscreen(false);
+        return;
+      }
+
+      if (action === 'fullscreen') {
+        setTerminalFullscreen((prev) => {
+          const next = !prev;
+          if (next) {
+            setTerminalHeight(window.innerHeight);
+          } else {
+            const restored = Math.min(
+              maxAllowed,
+              Math.max(TERMINAL_MIN, lastTerminalHeightRef.current || TERMINAL_MIN)
+            );
+            setTerminalHeight(restored);
+          }
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+    window.addEventListener('terminal-resize', handleResizeEvent as EventListener);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+      window.removeEventListener('terminal-resize', handleResizeEvent as EventListener);
+    };
+  }, [terminalFullscreen]);
+
+  return (
+    <div ref={containerRef} className="flex h-full w-full flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1">
+        <div
+          style={{ width: sidebarWidth }}
+          className={terminalFullscreen || sidebarHidden ? 'hidden' : 'shrink-0 min-h-0'}
+        >
+          {sidebar}
+        </div>
+        <div
+          className={
+            terminalFullscreen || sidebarHidden
+              ? 'hidden'
+              : 'w-1 cursor-col-resize bg-slate-800/60 hover:bg-slate-700'
+          }
+          onMouseDown={(event) => {
+            dragRef.current = {
+              type: 'sidebar',
+              startX: event.clientX,
+              startY: event.clientY,
+              startWidth: sidebarWidth,
+              startHeight: terminalHeight,
+            };
+          }}
+          onPointerDown={(event) => {
+            dragRef.current = {
+              type: 'sidebar',
+              startX: event.clientX,
+              startY: event.clientY,
+              startWidth: sidebarWidth,
+              startHeight: terminalHeight,
+            };
+          }}
+        />
+        <div className={terminalFullscreen ? 'hidden' : 'min-w-0 flex-1'}>{main}</div>
+      </div>
+      <div
+        className={
+          terminalFullscreen
+            ? 'fixed inset-0 z-50 bg-slate-950 overflow-hidden overscroll-contain'
+            : 'relative z-30 bg-slate-950 flex-shrink-0'
+        }
+      >
+        {!terminalFullscreen && (
+          <div
+            className="h-1 cursor-row-resize bg-slate-800/60 hover:bg-slate-700"
+            onMouseDown={(event) => {
+              dragRef.current = {
+                type: 'terminal',
+                startX: event.clientX,
+                startY: event.clientY,
+                startWidth: sidebarWidth,
+                startHeight: terminalHeight,
+              };
+            }}
+            onPointerDown={(event) => {
+              dragRef.current = {
+                type: 'terminal',
+                startX: event.clientX,
+                startY: event.clientY,
+                startWidth: sidebarWidth,
+                startHeight: terminalHeight,
+              };
+            }}
+          />
+        )}
+        <div style={{ height: terminalHeight }} className="min-h-0">
+          {terminal}
+        </div>
+      </div>
+    </div>
+  );
+}
