@@ -35,7 +35,7 @@ Eine Next.js Web-App als Online-Notebook (ähnlich wie Obsidian) mit SSH-Integra
 
 **Login:**
 - Username: `admin`
-- Password: `7b&BIfeGW)a[3!AKCOKJ`
+- Password: `canvas2026!`
 
 **Setup Status:**
 - ✅ Traefik Reverse Proxy konfiguriert
