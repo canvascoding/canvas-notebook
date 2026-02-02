@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import { spawn } from 'child_process';
-import { getSession } from '@/app/lib/auth/session';
+import { auth } from '@/app/lib/auth';
 import { validatePath } from '@/app/lib/ssh/sftp-client';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -92,8 +92,8 @@ export async function GET(request: NextRequest) {
       return limited.response;
     }
 
-    const session = await getSession();
-    if (!session.isLoggedIn) {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 

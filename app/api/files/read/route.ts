@@ -1,24 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile, getFileStats } from '@/app/lib/ssh/sftp-client';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { getSession } from '@/app/lib/auth/session';
+import { auth } from '@/app/lib/auth';
+
+const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 
 export async function GET(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const limited = rateLimit(request, {
-      limit: 60,
+      limit: 120,
       windowMs: 60_000,
       keyPrefix: 'files-read',
     });
     if (!limited.ok) {
       return limited.response;
     }
-
-    const session = await getSession();
-    if (!session.isLoggedIn) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
+    
     const { searchParams } = new URL(request.url);
     const path = searchParams.get('path');
 
@@ -28,15 +30,39 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const metaOnly = searchParams.get('meta') === '1';
+    
     const stats = await getFileStats(path);
-    const contentString = metaOnly ? '' : (await readFile(path)).toString('utf-8');
+    const metaOnly = searchParams.get('meta') === '1';
 
+    if (metaOnly) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          path: path,
+          content: '',
+          stats: {
+            size: stats.size,
+            modified: stats.modified,
+            permissions: stats.permissions,
+          },
+        },
+      });
+    }
+    
+    if (stats.size > READ_SIZE_LIMIT) {
+        return NextResponse.json(
+            { success: false, error: 'File is too large to read' },
+            { status: 413 }
+        );
+    }
+
+    const content = await readFile(path);
+    
     return NextResponse.json({
       success: true,
       data: {
-        content: contentString,
+        path: path,
+        content: content.toString('utf-8'),
         stats: {
           size: stats.size,
           modified: stats.modified,
@@ -46,6 +72,15 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('[API] File read error:', error);
+    
+    // If the error is ENOENT (file not found), return a 404 status
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return NextResponse.json(
+        { success: false, error: 'File not found' },
+        { status: 404 }
+      );
+    }
+    
     const message = error instanceof Error ? error.message : 'Failed to read file';
     return NextResponse.json(
       { success: false, error: message },

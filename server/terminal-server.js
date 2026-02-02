@@ -1,7 +1,32 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { WebSocketServer } = require('ws');
 const { createSession, attachClient, handleMessage } = require('./terminal-manager');
-const { getSessionFromRequest } = require('./session');
+const { auth } = require('../app/lib/auth');
+const { getSessionCookieValue } = require('better-auth/cookies');
+
+// Helper to get session from a Node.js HTTP request for WebSockets
+async function getSessionFromUpgradeRequest(req) {
+  try {
+    // Construct a Web API Headers object from the Node.js headers
+    const webHeaders = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === 'string') {
+        webHeaders.append(key, value);
+      } else if (Array.isArray(value)) {
+        for (const v of value) {
+          webHeaders.append(key, v);
+        }
+      }
+    }
+    
+    // Use the official getSession API with the constructed headers
+    const session = await auth.api.getSession({ headers: webHeaders });
+    return session;
+  } catch (e) {
+    console.error('[Terminal Auth] Error verifying session:', e);
+    return null;
+  }
+}
 
 function attachTerminalServer(server) {
   const wss = new WebSocketServer({ noServer: true });
@@ -12,10 +37,11 @@ function attachTerminalServer(server) {
       return;
     }
 
-    getSessionFromRequest(req)
+    getSessionFromUpgradeRequest(req)
       .then((sessionData) => {
-        if (!sessionData || sessionData.isLoggedIn !== true) {
+        if (!sessionData || !sessionData.user) {
           console.warn('[Terminal] Unauthorized connection attempt');
+          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
           socket.destroy();
           return;
         }
@@ -24,7 +50,6 @@ function attachTerminalServer(server) {
           const parts = url.pathname.split('/');
           const sessionId = parts[parts.length - 1] || 'default';
 
-          // Send immediate ACK to keep connection alive during async session creation
           ws.send(JSON.stringify({ type: 'ack' }));
 
           let session;
@@ -46,11 +71,12 @@ function attachTerminalServer(server) {
           ws.send(JSON.stringify({ type: 'ready', data: sessionId }));
         });
       })
-      .catch(() => {
-        console.warn('[Terminal] Failed to read session');
+      .catch((err) => {
+        console.error('[Terminal] Failed to process session on upgrade:', err);
         socket.destroy();
       });
   });
 }
 
 module.exports = { attachTerminalServer };
+

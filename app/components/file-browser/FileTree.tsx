@@ -37,7 +37,8 @@ export function FileTree() {
   const handleSelectNode = (node: FileNodeType) => {
     selectNode(node);
     if (node.type === 'file') {
-      loadFile(node.path);
+      // Always force a refetch when a file is clicked to get the latest content
+      loadFile(node.path, true);
     }
   };
 

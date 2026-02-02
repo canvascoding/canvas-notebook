@@ -186,12 +186,10 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
             <Move className="h-4 w-4" />
             Move
           </DropdownMenuItem>
-          {node.type === 'file' && (
-            <DropdownMenuItem onSelect={handleDownload}>
-              <Download className="h-4 w-4" />
-              Download
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem onSelect={handleDownload}>
+            <Download className="h-4 w-4" />
+            Download
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
             <Trash2 className="h-4 w-4" />

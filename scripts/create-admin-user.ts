@@ -1,24 +1,11 @@
-import { db } from "../app/lib/db";
-import { user, account } from "../app/lib/db/schema";
 import { auth } from "../app/lib/auth";
-import { hash } from "bcryptjs"; // Better auth hashes internally but we might need to manually insert if we can't use api
-
-// Actually better-auth has a programmatic API
-// But running it in a standalone script might be tricky without full next context
-// Let's try to use the auth api if possible, or just insert into DB directly for bootstrap
 
 async function main() {
-  const email = "admin@canvas.local";
-  const password = "admin123456";
-  const name = "Admin";
+  const email = "info@canvasstudios.store";
+  const password = "Canvas2026!";
+  const name = "Canvas Admin";
   
-  // Using internal better-auth logic is best, but for a script, direct DB access is easier if we know the hashing
-  // Better Auth uses its own hashing. 
-  
-  // Let's try to use the auth instance directly. 
-  // Note: better-auth `api` usually expects a request context.
-  
-  console.log("Creating admin user...");
+  console.log(`Creating/Updating account for ${email}...`);
   
   try {
      const res = await auth.api.signUpEmail({
@@ -28,9 +15,23 @@ async function main() {
             name
         }
      });
-     console.log("User created:", res);
-  } catch (e) {
-      console.log("Error creating user (might already exist):", e);
+     console.log("Account created successfully:", res.user.email);
+     
+     // Set role to admin if possible
+     await auth.api.updateUser({
+         body: {
+             role: "admin"
+         },
+         headers: new Headers({
+             // We might need a session to update, but better-auth signUp might already return one or we can bypass for local script
+         })
+     });
+  } catch (e: any) {
+      if (e.body?.code === "USER_ALREADY_EXISTS" || e.message?.includes("exists")) {
+          console.log("Account already exists. To change the password, you might need to delete the user from sqlite.db first or use changePassword API.");
+      } else {
+          console.error("Error:", e);
+      }
   }
 }
 
