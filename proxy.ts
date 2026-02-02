@@ -1,19 +1,27 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getSessionCookie } from "better-auth/cookies";
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/api/auth/login'];
+const PUBLIC_ROUTES = ['/login', '/api/auth'];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public routes
-  if (PUBLIC_ROUTES.some(route => pathname.startsWith(route))) {
+  // Allow public routes and auth API routes
+  if (PUBLIC_ROUTES.some(route => pathname.startsWith(route)) || pathname.includes('/api/auth/')) {
     return NextResponse.next();
   }
 
-  // Check for session cookie
-  const sessionCookie = request.cookies.get('canvas-notebook-session');
+  // Check for session cookie using Better Auth utility
+  const sessionCookie = getSessionCookie(request);
+  
+  console.log('[Middleware] Request URL:', request.url);
+  console.log('[Middleware] Cookies:', request.cookies.getAll().map(c => `${c.name}=${c.value.substring(0, 10)}...`));
+  console.log('[Middleware] Session Cookie Detected:', !!sessionCookie);
+
+  if (!sessionCookie) {
+    console.log('[Middleware] No session cookie found. Redirecting to login.');
+  }
 
   if (!sessionCookie) {
     // Redirect to login for page requests
@@ -62,6 +70,13 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    /*
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public files (images, etc)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
