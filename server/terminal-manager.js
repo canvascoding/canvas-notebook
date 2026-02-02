@@ -15,7 +15,7 @@ const SSH_CONFIG = {
 };
 
 const USE_LOCAL_TERMINAL = process.env.SSH_USE_LOCAL_FS === 'true';
-const LOCAL_SHELL = process.env.SHELL || 'bash';
+const LOCAL_SHELL = process.env.SHELL || '/bin/zsh';
 const LOCAL_CWD = process.env.SSH_BASE_PATH || process.env.HOME || '/';
 
 function getSSHCredentials() {

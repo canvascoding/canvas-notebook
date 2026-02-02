@@ -28,8 +28,7 @@ export default function LoginPage() {
         toast.error(error.message || 'Login failed');
       } else {
         toast.success('Login successful');
-        router.push('/');
-        router.refresh();
+        window.location.href = '/';
       }
     } catch (err) {
       toast.error('An unexpected error occurred');

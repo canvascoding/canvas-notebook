@@ -21,5 +21,17 @@ export const auth = betterAuth({
         defaultValue: "user",
       }
     }
+  },
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60, // 5 minutes cache
+    }
+  },
+  advanced: {
+    defaultCookieAttributes: {
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    }
   }
 });
