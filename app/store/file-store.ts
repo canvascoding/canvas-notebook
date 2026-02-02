@@ -116,9 +116,30 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   autoRefresh: false,
 
   // Actions
-  loadFileTree: async (path = '.', depth?: number) => {
+  loadFileTree: async (path = '.', depth?: number, noCache = false) => {
+    // --- Start of Validation ---
+    const { fileTree, currentDirectory, setCurrentDirectory } = get();
+    // Helper to find a path in the current tree state
+    const findPathInTree = (searchPath: string, tree: FileNode[]): boolean => {
+      for (const node of tree) {
+        if (node.path === searchPath) return true;
+        if (node.children && findPathInTree(searchPath, node.children)) return true;
+      }
+      return false;
+    };
+    
+    let activeDir = path === '.' ? currentDirectory : path;
+
+    // If the active directory is stale (no longer in the tree), reset it.
+    if (activeDir !== '.' && !findPathInTree(activeDir, fileTree)) {
+      console.warn(`Stale active directory "${activeDir}" detected. Resetting to root.`);
+      setCurrentDirectory('.');
+      activeDir = '.';
+    }
+    // --- End of Validation ---
+
     set({ isLoadingTree: true, treeError: null });
-    const activeDir = path === '.' ? get().currentDirectory : path;
+    
     const depthTarget =
       typeof depth === 'number'
         ? depth
@@ -128,10 +149,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           );
 
     try {
-      const response = await fetch(
-        `/api/files/tree?path=${encodeURIComponent(path)}&depth=${depthTarget}`,
-        { credentials: 'include' }
-      );
+      const url = `/api/files/tree?path=${encodeURIComponent(activeDir)}&depth=${depthTarget}${noCache ? `&noCache=${Date.now()}` : ''}`;
+      const response = await fetch(url, {
+        credentials: 'include',
+        cache: noCache ? 'no-store' : 'default',
+      });
 
       if (!response.ok) {
         const error = await response.json();
@@ -150,7 +172,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  loadFile: async (path: string) => {
+  loadFile: async (path: string, noCache = false) => {
     set({ isLoadingFile: true, fileError: null });
 
     try {
@@ -158,12 +180,22 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
       const useMetaOnly = !isText;
 
-      const response = await fetch(
-        `/api/files/read?path=${encodeURIComponent(path)}${useMetaOnly ? '&meta=1' : ''}`,
-        { credentials: 'include' }
-      );
+      let url = `/api/files/read?path=${encodeURIComponent(path)}${useMetaOnly ? '&meta=1' : ''}`;
+      if (noCache) {
+        url += `&t=${Date.now()}`; // Cache-busting parameter
+      }
+      
+      const response = await fetch(url, {
+        credentials: 'include',
+        cache: 'no-store', // Aggressively disable browser caching
+      });
 
       if (!response.ok) {
+        // If the file is not found (404), clear the editor instead of showing an error.
+        if (response.status === 404) {
+          set({ currentFile: null, isLoadingFile: false, fileError: null });
+          return;
+        }
         const error = await response.json();
         throw new Error(error.error || 'Failed to load file');
       }
@@ -257,7 +289,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         throw new Error(error.error || 'Failed to create path');
       }
 
-      await get().loadFileTree();
+      await get().loadFileTree('.', undefined, true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to create path';
@@ -294,7 +326,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         set({ currentFile: null });
       }
 
-      await get().loadFileTree();
+      await get().loadFileTree('.', undefined, true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to delete path';
@@ -325,13 +357,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       const { selectedNode, currentFile } = get();
       if (selectedNode?.path === oldPath) {
-        set({ selectedNode: { path: newPath, type: selectedNode.type } });
+        set({ selectedNode: null });
       }
       if (currentFile?.path === oldPath) {
-        set({ currentFile: { ...currentFile, path: newPath } });
+        set({ currentFile: null, fileError: null });
       }
 
-      await get().loadFileTree();
+      await get().loadFileTree('.', undefined, true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to rename path';
@@ -343,58 +375,52 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   uploadFile: async (file: File | File[], targetDir: string) => {
-    set({ treeError: null });
+    set({ treeError: null, uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
 
+    const formData = new FormData();
+    formData.append('path', targetDir); // Base directory for upload
+    
+    files.forEach(f => {
+      // Use webkitRelativePath for folder structure, fall back to name
+      const path = (f as any).webkitRelativePath || f.name;
+      formData.append('files', f, path);
+    });
+
     try {
-      set({ uploadProgress: 0 });
-      for (let index = 0; index < files.length; index += 1) {
-        const nextFile = files[index];
-        await new Promise<void>((resolve, reject) => {
-          const formData = new FormData();
-          formData.append('file', nextFile);
-          formData.append('path', targetDir);
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/files/upload', true);
+        xhr.withCredentials = true;
 
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/files/upload', true);
-          xhr.withCredentials = true;
-
-          xhr.upload.onprogress = (event) => {
-            if (!event.lengthComputable) return;
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
             const percent = Math.round((event.loaded / event.total) * 100);
-            const overall = Math.round(((index + percent / 100) / files.length) * 100);
-            set({ uploadProgress: overall });
-          };
+            set({ uploadProgress: percent });
+          }
+        };
 
-          xhr.onload = async () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve();
-              return;
-            }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
             try {
               const error = JSON.parse(xhr.responseText);
-              reject(new Error(error.error || 'Failed to upload file'));
+              reject(new Error(error.error || `Upload failed with status ${xhr.status}`));
             } catch {
-              reject(new Error('Failed to upload file'));
+              reject(new Error(`Upload failed with status ${xhr.status}`));
             }
-          };
+          }
+        };
 
-          xhr.onerror = () => {
-            reject(new Error('Failed to upload file'));
-          };
-
-          xhr.send(formData);
-        });
-      }
-
-      await get().loadFileTree();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to upload file';
-      set({
-        treeError: message,
-        uploadProgress: null,
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(formData);
       });
+
+      await get().loadFileTree('.', undefined, true); // Refresh tree on success
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to upload files';
+      set({ treeError: message });
       throw error;
     } finally {
       set({ uploadProgress: null });
@@ -445,6 +471,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
   setSearchQuery: (query: string) => {
     set({ searchQuery: query });
+  },
+  setCurrentDirectory: (path: string) => {
+    set({ currentDirectory: path });
   },
   toggleAutoRefresh: () => {
     set((state) => ({ autoRefresh: !state.autoRefresh }));

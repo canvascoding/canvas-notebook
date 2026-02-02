@@ -231,7 +231,9 @@ export async function createDirectory(dirPath: string): Promise<void> {
   }
 
   return withSftp(async (sftp) => {
-    await sftp.mkdir(fullPath, true); // recursive: true
+    // SFTP mkdir with recursive: true might not be supported by all servers or libraries efficiently.
+    // ssh2-sftp-client supports recursive: true.
+    await sftp.mkdir(fullPath, true); 
   });
 }
 
@@ -271,7 +273,7 @@ export async function renameFile(oldPath: string, newPath: string): Promise<void
 export async function getFileStats(filePath: string) {
   const fullPath = validatePath(filePath);
 
-  if (IS_TEST_MODE) {
+  if (SHOULD_USE_LOCAL_FS) {
     const stats = await fs.stat(fullPath);
     return {
       size: stats.size,
@@ -314,23 +316,44 @@ export async function buildFileTree(
     return a.type === 'directory' ? -1 : 1;
   });
 
-  // Recursively load children for directories (sequential to avoid SFTP channel exhaustion)
+  // Recursively load children for directories
   if (currentDepth < depth - 1) {
-    const withChildren: FileNode[] = [];
-    for (const file of files) {
-      if (file.type === 'directory') {
-        try {
-          const children = await buildFileTree(file.path, depth, currentDepth + 1);
-          withChildren.push({ ...file, children });
-        } catch (error) {
-          console.warn(`Failed to read directory ${file.path}:`, error);
+    if (SHOULD_USE_LOCAL_FS) {
+      // Parallel execution for local FS
+      await Promise.all(
+        files.map(async (file) => {
+          if (file.type === 'directory') {
+            try {
+              const children = await buildFileTree(file.path, depth, currentDepth + 1);
+              file.children = children;
+            } catch (error) {
+              console.warn(`Failed to read directory ${file.path}:`, error);
+              file.children = [];
+            }
+          }
+        })
+      );
+    } else {
+      // Sequential for SFTP to avoid connection limits
+      const withChildren: FileNode[] = [];
+      for (const file of files) {
+        if (file.type === 'directory') {
+          try {
+            const children = await buildFileTree(file.path, depth, currentDepth + 1);
+            withChildren.push({ ...file, children });
+          } catch (error) {
+            console.warn(`Failed to read directory ${file.path}:`, error);
+            withChildren.push(file);
+          }
+        } else {
           withChildren.push(file);
         }
-      } else {
-        withChildren.push(file);
       }
+      return withChildren; // Return logic was different in original, but for local FS we modify in place.
+      // Wait, original returned a new array. Let's align.
     }
-    return withChildren;
+    // Align return for both cases
+    return files;
   }
 
   return files;

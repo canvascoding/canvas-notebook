@@ -33,5 +33,12 @@ export const auth = betterAuth({
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
     }
+  },
+  hooks: {
+    before: async (ctx) => {
+      if (ctx.path === "/sign-up/email") {
+        throw new Error("Sign up is disabled");
+      }
+    }
   }
 });

@@ -106,15 +106,31 @@ export function FileEditor() {
   const saveTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // This effect synchronizes the main file store (useFileStore) 
+    // with the editor's local state (useEditorStore).
     if (!currentFile) {
       clear();
       return;
     }
 
-    if (currentFile.path !== activePath) {
+    const editorState = useEditorStore.getState();
+
+    // Case 1: A completely new file is selected.
+    if (currentFile.path !== editorState.activePath) {
       setActiveFile(currentFile.path, currentFile.content);
+      return;
     }
-  }, [currentFile, activePath, clear, setActiveFile]);
+
+    // Case 2: The same file is being refreshed from the server.
+    // The `currentFile` object is new, but the path is the same.
+    // We only want to update the editor's draft if the user doesn't have unsaved changes.
+    if (currentFile.path === editorState.activePath && !editorState.isDirty) {
+      // If the content from the server is different from the draft, update the editor.
+      if (currentFile.content !== editorState.draft) {
+        setActiveFile(currentFile.path, currentFile.content);
+      }
+    }
+  }, [currentFile, clear, setActiveFile]);
 
   useEffect(() => {
     if (!activePath || !isDirty) return;

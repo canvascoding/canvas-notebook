@@ -1,130 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
-import { getSession } from '@/app/lib/auth/session';
-import { validatePath } from '@/app/lib/ssh/sftp-client';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { getFileStats, createReadStream } from '@/app/lib/ssh/sftp-client';
+import { auth } from '@/app/lib/auth';
+import { Readable } from 'stream';
 
-const MIME_TYPES: Record<string, string> = {
-  // Images
+const MEDIA_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
-  png: 'image/png',
   gif: 'image/gif',
   webp: 'image/webp',
   svg: 'image/svg+xml',
-  ico: 'image/x-icon',
-  // Audio
-  mp3: 'audio/mpeg',
-  wav: 'audio/wav',
-  ogg: 'audio/ogg',
-  m4a: 'audio/mp4',
-  // Video
   mp4: 'video/mp4',
   webm: 'video/webm',
-  avi: 'video/x-msvideo',
+  ogv: 'video/ogg',
   mov: 'video/quicktime',
-  // Documents
-  pdf: 'application/pdf',
+  wav: 'audio/wav',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  ogg: 'audio/ogg',
+  opus: 'audio/opus',
+  flac: 'audio/flac',
 };
 
-function getMimeType(filePath: string): string {
-  const ext = path.extname(filePath).slice(1).toLowerCase();
-  return MIME_TYPES[ext] || 'application/octet-stream';
+function getContentType(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  return MEDIA_TYPES[ext] || 'application/octet-stream';
 }
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  { params }: { params: { path: string[] } }
 ) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const filePath = params.path.join('/');
+  const contentType = getContentType(filePath);
+
   try {
-    // Rate limiting
-    const limited = rateLimit(request, {
-      limit: 120,
-      windowMs: 60_000,
-      keyPrefix: 'media',
-    });
-    if (!limited.ok) {
-      return limited.response;
-    }
+    const stats = await getFileStats(filePath);
+    const fileSize = stats.size;
+    const range = request.headers.get('range');
 
-    // Authentication check
-    const session = await getSession();
-    if (!session.isLoggedIn) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = end - start + 1;
+      
+      const { stream } = await createReadStream(filePath, { start, end });
+      const webStream = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
 
-    // Only works in local FS mode
-    if (process.env.SSH_USE_LOCAL_FS !== 'true') {
-      return NextResponse.json(
-        { success: false, error: 'Media serving requires local filesystem mode.' },
-        { status: 400 }
-      );
-    }
-
-    // Get file path from params
-    const { path: pathSegments } = await params;
-    if (!pathSegments || pathSegments.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Path parameter is required' },
-        { status: 400 }
-      );
-    }
-
-    const filePath = pathSegments.join('/');
-    const fullPath = validatePath(filePath);
-
-    // Check if file exists
-    let stats;
-    try {
-      stats = await fs.stat(fullPath);
-    } catch {
-      return NextResponse.json(
-        { success: false, error: 'File not found' },
-        { status: 404 }
-      );
-    }
-
-    if (!stats.isFile()) {
-      return NextResponse.json(
-        { success: false, error: 'Path is not a file' },
-        { status: 400 }
-      );
-    }
-
-    // Read and serve file
-    const buffer = await fs.readFile(fullPath);
-    const mimeType = getMimeType(filePath);
-    const etag = `W/"${stats.size}-${stats.mtimeMs}"`;
-
-    // Check ETag for caching
-    const requestEtag = request.headers.get('if-none-match');
-    if (requestEtag && requestEtag === etag) {
-      return new NextResponse(null, {
-        status: 304,
-        headers: {
-          ETag: etag,
-          'Cache-Control': 'private, max-age=300',
-        },
+      const headers = new Headers({
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize.toString(),
+        'Content-Type': contentType,
       });
-    }
 
-    // Return file
-    return new NextResponse(buffer, {
-      status: 200,
-      headers: {
-        'Content-Type': mimeType,
-        'Content-Length': stats.size.toString(),
-        'Cache-Control': 'private, max-age=300',
-        ETag: etag,
-      },
-    });
+      return new NextResponse(webStream, { status: 206, headers });
+    } else {
+      const { stream } = await createReadStream(filePath);
+      const webStream = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
+      
+      const headers = new Headers({
+        'Content-Length': fileSize.toString(),
+        'Content-Type': contentType,
+      });
+      return new NextResponse(webStream, { status: 200, headers });
+    }
   } catch (error) {
-    console.error('[API] Media serve error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to serve media';
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    console.error(`[API Media] Error serving ${filePath}:`, error);
+    return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
   }
 }
