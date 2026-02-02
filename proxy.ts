@@ -15,9 +15,10 @@ export async function proxy(request: NextRequest) {
   // Check for session cookie using Better Auth utility
   const sessionCookie = getSessionCookie(request);
   
-  console.log('[Middleware] Request URL:', request.url);
-  console.log('[Middleware] Cookies:', request.cookies.getAll().map(c => `${c.name}=${c.value.substring(0, 10)}...`));
-  console.log('[Middleware] Session Cookie Detected:', !!sessionCookie);
+  // Debug logging disabled for cleaner output
+  // console.log('[Middleware] Request URL:', request.url);
+  // console.log('[Middleware] Cookies:', request.cookies.getAll().map(c => `${c.name}=${c.value.substring(0, 10)}...`));
+  // console.log('[Middleware] Session Cookie Detected:', !!sessionCookie);
 
   if (!sessionCookie) {
     console.log('[Middleware] No session cookie found. Redirecting to login.');

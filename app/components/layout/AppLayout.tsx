@@ -16,19 +16,8 @@ const TERMINAL_MAX = 420;
 const TERMINAL_COLLAPSED = 84;
 
 export function AppLayout({ sidebar, main, terminal, sidebarHidden = false }: AppLayoutProps) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    if (typeof window === 'undefined') return 288;
-    const stored = window.localStorage.getItem('canvas.sidebarWidth');
-    const value = stored ? Number(stored) : NaN;
-    return Number.isNaN(value) ? 288 : value;
-  });
-  const [terminalHeight, setTerminalHeight] = useState(() => {
-    if (typeof window === 'undefined') return 240;
-    const stored = window.localStorage.getItem('canvas.terminalHeight');
-    const value = stored ? Number(stored) : NaN;
-    if (Number.isNaN(value)) return 260;
-    return value < TERMINAL_MIN ? 260 : value;
-  });
+  const [sidebarWidth, setSidebarWidth] = useState(288);
+  const [terminalHeight, setTerminalHeight] = useState(260);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
@@ -39,6 +28,20 @@ export function AppLayout({ sidebar, main, terminal, sidebarHidden = false }: Ap
     startHeight: number;
   } | null>(null);
   const lastTerminalHeightRef = useRef<number>(terminalHeight);
+
+  useEffect(() => {
+    // Set initial values from localStorage on the client
+    const storedSidebarWidth = window.localStorage.getItem('canvas.sidebarWidth');
+    const storedTerminalHeight = window.localStorage.getItem('canvas.terminalHeight');
+    
+    if (storedSidebarWidth) {
+      setSidebarWidth(Number(storedSidebarWidth));
+    }
+    if (storedTerminalHeight) {
+      const value = Number(storedTerminalHeight);
+      setTerminalHeight(value < TERMINAL_MIN ? 260 : value);
+    }
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem('canvas.sidebarWidth', String(sidebarWidth));

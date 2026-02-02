@@ -11,11 +11,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { useFileStore } from '@/app/store/file-store';
+import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
 
 export function FileBrowser() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
   const {
@@ -29,12 +30,28 @@ export function FileBrowser() {
     searchQuery,
     setSearchQuery,
     collapseAllDirectories,
+    fileTree, // <-- Get the fileTree from the store
   } = useFileStore();
 
+  const findPathInTree = (path: string, tree: FileNode[]): boolean => {
+    for (const node of tree) {
+      if (node.path === path) return true;
+      if (node.children && findPathInTree(path, node.children)) return true;
+    }
+    return false;
+  };
+
   const resolveTargetDir = () => {
+    if (currentDirectory && currentDirectory !== '.' && !findPathInTree(currentDirectory, fileTree)) {
+      console.warn(`Target directory "${currentDirectory}" no longer exists. Falling back to root.`);
+      useFileStore.getState().setCurrentDirectory('.');
+      return '.';
+    }
+
     if (currentDirectory) {
       return currentDirectory;
     }
+    
     if (!selectedNode) {
       return '.';
     }
@@ -69,6 +86,10 @@ export function FileBrowser() {
     fileInputRef.current?.click();
   };
 
+  const handleUploadFolderClick = () => {
+    folderInputRef.current?.click();
+  };
+
   const handleUploadChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     if (files.length === 0) return;
@@ -101,6 +122,12 @@ export function FileBrowser() {
     setIsDragging(false);
     const droppedFiles = Array.from(event.dataTransfer.files ?? []);
     if (droppedFiles.length === 0) return;
+    
+    // For dropped directories, we rely on the browser's behavior for webkitGetAsEntry
+    // But since we are using simple File API here, dropped folders might be treated as 0-byte files or handled specially.
+    // Handling full recursive folder drop correctly requires DataTransferItem API which is more complex.
+    // For now, this handles dropped files and flat lists.
+    
     const targetDir = resolveTargetDir();
     await uploadFile(droppedFiles, targetDir);
   };
@@ -157,6 +184,19 @@ export function FileBrowser() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    onClick={handleUploadFolderClick}
+                    aria-label="Upload folder"
+                  >
+                    <FolderPlus className="h-4 w-4 text-blue-400" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Upload folder</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={handleUploadClick}
                     aria-label="Upload files"
                   >
@@ -183,7 +223,13 @@ export function FileBrowser() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => loadFileTree()}
+                    onClick={async () => {
+                      await loadFileTree('.', undefined, true);
+                      const { currentFile } = useFileStore.getState();
+                      if (currentFile) {
+                        useFileStore.getState().loadFile(currentFile.path, true);
+                      }
+                    }}
                     disabled={isLoadingTree}
                     aria-label="Refresh file tree"
                   >
@@ -199,6 +245,14 @@ export function FileBrowser() {
                 type="file"
                 className="hidden"
                 onChange={handleUploadChange}
+                multiple
+              />
+              <input
+                ref={folderInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleUploadChange}
+                {...{ webkitdirectory: "", directory: "" } as any}
                 multiple
               />
             </div>
