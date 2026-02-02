@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, type ChangeEvent, type DragEvent } from 'react';
-import { ChevronsDownUp, FilePlus, FolderPlus, RefreshCw, Search, Upload } from 'lucide-react';
+import { ChevronsDownUp, FilePlus, FolderPlus, RefreshCw, Search, Upload, CheckSquare, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -24,13 +24,18 @@ export function FileBrowser() {
     loadFileTree,
     selectedNode,
     createPath,
+    deletePath,
     uploadFile,
     uploadProgress,
     currentDirectory,
     searchQuery,
     setSearchQuery,
     collapseAllDirectories,
-    fileTree, // <-- Get the fileTree from the store
+    fileTree,
+    isMultiSelectMode,
+    toggleMultiSelectMode,
+    multiSelectPaths,
+    clearMultiSelect,
   } = useFileStore();
 
   const findPathInTree = (path: string, tree: FileNode[]): boolean => {
@@ -123,13 +128,26 @@ export function FileBrowser() {
     const droppedFiles = Array.from(event.dataTransfer.files ?? []);
     if (droppedFiles.length === 0) return;
     
-    // For dropped directories, we rely on the browser's behavior for webkitGetAsEntry
-    // But since we are using simple File API here, dropped folders might be treated as 0-byte files or handled specially.
-    // Handling full recursive folder drop correctly requires DataTransferItem API which is more complex.
-    // For now, this handles dropped files and flat lists.
-    
     const targetDir = resolveTargetDir();
     await uploadFile(droppedFiles, targetDir);
+  };
+
+  const handleDeleteClick = async () => {
+    if (isMultiSelectMode) {
+      const pathsToDelete = Array.from(multiSelectPaths);
+      if (pathsToDelete.length === 0) return;
+      
+      const confirmed = window.confirm(`Are you sure you want to delete ${pathsToDelete.length} items?`);
+      if (confirmed) {
+        await deletePath(pathsToDelete);
+        clearMultiSelect();
+      }
+    } else if (selectedNode) {
+      const confirmed = window.confirm(`Are you sure you want to delete "${selectedNode.name}"?`);
+      if (confirmed) {
+        await deletePath(selectedNode.path);
+      }
+    }
   };
 
   return (
@@ -152,7 +170,20 @@ export function FileBrowser() {
         <div className="flex items-center justify-between px-3 py-2">
           <h2 className="text-sm font-semibold text-slate-200">Files</h2>
           <TooltipProvider delayDuration={300}>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center justify-end gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={toggleMultiSelectMode}
+                    aria-label="Toggle select mode"
+                  >
+                    <CheckSquare className={`h-4 w-4 ${isMultiSelectMode ? 'text-blue-400' : ''}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Select</TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -210,6 +241,20 @@ export function FileBrowser() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    onClick={handleDeleteClick}
+                    disabled={!selectedNode && multiSelectPaths.length === 0}
+                    aria-label="Delete"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Delete</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={collapseAllDirectories}
                     aria-label="Collapse all folders"
                   >
@@ -224,6 +269,7 @@ export function FileBrowser() {
                     variant="ghost"
                     size="icon-sm"
                     onClick={async () => {
+                      useFileStore.getState().setCurrentDirectory('.');
                       await loadFileTree('.', undefined, true);
                       const { currentFile } = useFileStore.getState();
                       if (currentFile) {
@@ -252,12 +298,26 @@ export function FileBrowser() {
                 type="file"
                 className="hidden"
                 onChange={handleUploadChange}
-                {...{ webkitdirectory: "", directory: "" } as any}
+                {...{ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>}
                 multiple
               />
             </div>
           </TooltipProvider>
         </div>
+        {isMultiSelectMode && (
+          <div className="flex items-center justify-between gap-2 border-t border-slate-700 bg-slate-900/50 px-3 py-1 text-xs">
+            <span className="text-slate-400">{multiSelectPaths.length} selected</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-slate-400 hover:text-slate-200"
+              onClick={toggleMultiSelectMode}
+            >
+              <X className="mr-1 h-3 w-3" />
+              Cancel
+            </Button>
+          </div>
+        )}
         <div className="border-t border-slate-700 px-3 py-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-slate-500" />

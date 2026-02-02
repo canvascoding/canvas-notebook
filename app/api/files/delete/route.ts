@@ -15,19 +15,23 @@ export async function DELETE(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { path } = body as { path?: string };
+    const { path } = body as { path?: string | string[] };
 
-    if (!path) {
+    if (!path || (Array.isArray(path) && path.length === 0)) {
       return NextResponse.json(
-        { success: false, error: 'Path is required' },
+        { success: false, error: 'Path(s) are required' },
         { status: 400 }
       );
     }
 
-    await deleteFile(path);
+    const pathsToDelete = Array.isArray(path) ? path : [path];
+
+    // Run deletions in parallel for performance
+    await Promise.all(pathsToDelete.map(p => deleteFile(p)));
+    
     clearFileTreeCache();
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, deleted: pathsToDelete });
   } catch (error) {
     console.error('[API] File delete error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete path';

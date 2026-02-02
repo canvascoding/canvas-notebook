@@ -18,6 +18,9 @@ export function FileTree() {
     toggleDirectory,
     loadFile,
     selectNode,
+    isMultiSelectMode,
+    multiSelectPaths,
+    toggleMultiSelectPath,
   } = useFileStore();
 
   useEffect(() => {
@@ -34,8 +37,8 @@ export function FileTree() {
     return () => window.clearInterval(interval);
   }, [autoRefresh, loadFileTree]);
 
-  const handleSelectNode = (node: FileNodeType) => {
-    selectNode(node);
+  const handleSelectNode = (node: FileNodeType, ctrlOrMeta?: boolean) => {
+    selectNode(node, ctrlOrMeta);
     if (node.type === 'file') {
       // Always force a refetch when a file is clicked to get the latest content
       loadFile(node.path, true);
@@ -88,6 +91,9 @@ export function FileTree() {
           selectedPath={selectedNode?.path ?? null}
           onToggle={toggleDirectory}
           onSelect={handleSelectNode}
+          isMultiSelectMode={isMultiSelectMode}
+          multiSelectPaths={multiSelectPaths}
+          toggleMultiSelectPath={toggleMultiSelectPath}
         />
       ))}
     </div>

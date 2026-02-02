@@ -55,10 +55,7 @@ interface FileStoreState {
   treeError: string | null;
 
   // Selection
-  selectedNode: {
-    path: string;
-    type: 'file' | 'directory';
-  } | null;
+  selectedNode: FileNode | null;
 
   // Current file
   currentFile: {
@@ -80,13 +77,17 @@ interface FileStoreState {
   searchQuery: string;
   autoRefresh: boolean;
 
+  // Multi-select
+  isMultiSelectMode: boolean;
+  multiSelectPaths: string[];
+
   // Actions
-  loadFileTree: (path?: string, depth?: number) => Promise<void>;
-  loadFile: (path: string) => Promise<void>;
+  loadFileTree: (path?: string, depth?: number, noCache?: boolean) => Promise<void>;
+  loadFile: (path: string, noCache?: boolean) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
-  selectNode: (node: FileNode) => void;
+  selectNode: (node: FileNode, ctrlOrMeta?: boolean) => void;
   createPath: (path: string, type: 'file' | 'directory') => Promise<void>;
-  deletePath: (path: string) => Promise<void>;
+  deletePath: (path: string | string[]) => Promise<void>;
   renamePath: (oldPath: string, newPath: string) => Promise<void>;
   uploadFile: (file: File | File[], targetDir: string) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
@@ -94,7 +95,11 @@ interface FileStoreState {
   collapseAllDirectories: () => void;
   clearCurrentFile: () => void;
   setSearchQuery: (query: string) => void;
+  setCurrentDirectory: (path: string) => void;
   toggleAutoRefresh: () => void;
+  clearMultiSelect: () => void;
+  toggleMultiSelectMode: () => void;
+  toggleMultiSelectPath: (path: string) => void;
 }
 
 export const useFileStore = create<FileStoreState>((set, get) => ({
@@ -114,6 +119,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   uploadProgress: null,
   searchQuery: '',
   autoRefresh: false,
+
+  // Multi-select state
+  isMultiSelectMode: false,
+  multiSelectPaths: [],
 
   // Actions
   loadFileTree: async (path = '.', depth?: number, noCache = false) => {
@@ -144,7 +153,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       typeof depth === 'number'
         ? depth
         : Math.max(
-            6,
+            10, // Increased default depth from 6 to 10
             (activeDir === '.' ? 0 : activeDir.split('/').filter(Boolean).length) + 2
           );
 
@@ -201,8 +210,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
 
       const { data } = await response.json();
+      const fileName = path.split('/').pop() || path;
       set({
-        selectedNode: { path, type: 'file' },
+        selectedNode: { path, type: 'file', name: fileName },
         currentFile: {
           path,
           content: data.content,
@@ -258,17 +268,36 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  selectNode: (node: FileNode) => {
-    const nextDir =
-      node.type === 'directory'
-        ? node.path
-        : node.path.includes('/')
-          ? node.path.slice(0, node.path.lastIndexOf('/'))
-          : '.';
-    set({
-      selectedNode: { path: node.path, type: node.type },
-      currentDirectory: nextDir || '.',
-    });
+  selectNode: (node: FileNode, ctrlOrMeta = false) => {
+    const { isMultiSelectMode, toggleMultiSelectMode, toggleMultiSelectPath, multiSelectPaths } = get();
+
+    if (ctrlOrMeta) {
+      // If Ctrl/Meta is pressed, toggle multi-select mode and add/remove current node
+      if (!isMultiSelectMode) {
+        // Here, we also clear any existing selection when entering multi-select mode
+        set({ selectedNode: null, multiSelectPaths: [] });
+        get().toggleMultiSelectMode();
+      }
+      get().toggleMultiSelectPath(node.path);
+    } else if (isMultiSelectMode) {
+      // If in multi-select mode, a regular click toggles selection for this node
+      get().toggleMultiSelectPath(node.path);
+    } else {
+      // Standard single selection
+      const nextDir =
+        node.type === 'directory'
+          ? node.path
+          : node.path.includes('/')
+            ? node.path.slice(0, node.path.lastIndexOf('/'))
+            : '.';
+      set({
+        selectedNode: { path: node.path, type: node.type, name: node.name },
+        currentDirectory: nextDir || '.',
+        // When switching from multi-select to single select, clear multi-select paths
+        multiSelectPaths: [],
+        isMultiSelectMode: false,
+      });
+    }
   },
 
   createPath: async (path: string, type: 'file' | 'directory') => {
@@ -300,30 +329,34 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  deletePath: async (path: string) => {
+  deletePath: async (paths: string | string[]) => {
     set({ treeError: null });
 
+    const pathsToDelete = Array.isArray(paths) ? paths : [paths];
+
     try {
-      const response = await fetch('/api/files/delete', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ path }),
-      });
+      for (const path of pathsToDelete) {
+        const response = await fetch('/api/files/delete', {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ path }),
+        });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to delete path');
-      }
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || `Failed to delete path: ${path}`);
+        }
 
-      const { selectedNode, currentFile } = get();
-      if (selectedNode?.path === path) {
-        set({ selectedNode: null });
-      }
-      if (currentFile?.path === path) {
-        set({ currentFile: null });
+        const { selectedNode, currentFile } = get();
+        if (selectedNode?.path === path) {
+          set({ selectedNode: null });
+        }
+        if (currentFile?.path === path) {
+          set({ currentFile: null });
+        }
       }
 
       await get().loadFileTree('.', undefined, true);
@@ -383,7 +416,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     
     files.forEach(f => {
       // Use webkitRelativePath for folder structure, fall back to name
-      const path = (f as any).webkitRelativePath || f.name;
+      const path = (f as { webkitRelativePath?: string }).webkitRelativePath || f.name;
       formData.append('files', f, path);
     });
 
@@ -477,5 +510,26 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
   toggleAutoRefresh: () => {
     set((state) => ({ autoRefresh: !state.autoRefresh }));
+  },
+
+  // Multi-select actions
+  toggleMultiSelectMode: () => {
+    set((state) => ({ isMultiSelectMode: !state.isMultiSelectMode }));
+  },
+
+  toggleMultiSelectPath: (path: string) => {
+    set((state) => {
+      const newMultiSelectPaths = new Set(state.multiSelectPaths);
+      if (newMultiSelectPaths.has(path)) {
+        newMultiSelectPaths.delete(path);
+      } else {
+        newMultiSelectPaths.add(path);
+      }
+      return { multiSelectPaths: Array.from(newMultiSelectPaths) };
+    });
+  },
+
+  clearMultiSelect: () => {
+    set({ isMultiSelectMode: false, multiSelectPaths: [] });
   },
 }));

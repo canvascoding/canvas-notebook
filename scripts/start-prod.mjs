@@ -22,4 +22,4 @@ try {
 }
 
 const require = createRequire(import.meta.url);
-require('../server.js');
+require('../.next/standalone/server.js');
