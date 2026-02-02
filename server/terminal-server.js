@@ -1,28 +1,25 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { WebSocketServer } = require('ws');
 const { createSession, attachClient, handleMessage } = require('./terminal-manager');
-const { auth } = require('../app/lib/auth.ts');
 
-// Helper to get session from a Node.js HTTP request for WebSockets
+let auth;
+try {
+  const authModule = require('../app/lib/auth.ts');
+  auth = authModule.auth || authModule.default?.auth || authModule;
+} catch (e) {
+  console.error('[Terminal Server] Failed to load auth module:', e.message);
+}
+
 async function getSessionFromUpgradeRequest(req) {
+  if (!auth) return null;
   try {
-    // Construct a Web API Headers object from the Node.js headers
     const webHeaders = new Headers();
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (typeof value === 'string') {
-        webHeaders.append(key, value);
-      } else if (Array.isArray(value)) {
-        for (const v of value) {
-          webHeaders.append(key, v);
-        }
-      }
-    }
+    if (req.headers.cookie) webHeaders.append('cookie', req.headers.cookie);
+    if (req.headers.authorization) webHeaders.append('authorization', req.headers.authorization);
     
-    // Use the official getSession API with the constructed headers
-    const session = await auth.api.getSession({ headers: webHeaders });
-    return session;
+    return await auth.api.getSession({ headers: webHeaders });
   } catch (e) {
-    console.error('[Terminal Auth] Error verifying session:', e);
+    console.error('[Terminal Auth] Error:', e);
     return null;
   }
 }
@@ -30,52 +27,44 @@ async function getSessionFromUpgradeRequest(req) {
 function attachTerminalServer(server) {
   const wss = new WebSocketServer({ noServer: true });
 
-  server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url, 'http://localhost');
+  server.on('upgrade', async (req, socket, head) => {
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    
     if (!url.pathname.startsWith('/api/terminal/')) {
       return;
     }
 
-    getSessionFromUpgradeRequest(req)
-      .then((sessionData) => {
-        if (!sessionData || !sessionData.user) {
-          console.warn('[Terminal] Unauthorized connection attempt');
-          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-          socket.destroy();
-          return;
-        }
+    console.log(`[Terminal] Upgrade Request: ${url.pathname}`);
+    console.log(`[Terminal] Cookies: ${req.headers.cookie ? 'Present' : 'NONE'}`);
 
-        wss.handleUpgrade(req, socket, head, async (ws) => {
-          const parts = url.pathname.split('/');
-          const sessionId = parts[parts.length - 1] || 'default';
+    const sessionData = await getSessionFromUpgradeRequest(req);
+    
+    if (!sessionData || !sessionData.user) {
+      console.warn('[Terminal] Unauthorized connection attempt');
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
 
-          ws.send(JSON.stringify({ type: 'ack' }));
+    console.log(`[Terminal] User ${sessionData.user.email} authorized`);
 
-          let session;
-          try {
-            session = await createSession(sessionId);
-          } catch (err) {
-            console.warn('[Terminal] Failed to create session:', err.message);
-            ws.close(1013, err.message || 'Failed to create terminal session');
-            return;
-          }
+    wss.handleUpgrade(req, socket, head, async (ws) => {
+      const parts = url.pathname.split('/');
+      const sessionId = parts[parts.length - 1] || 'default';
 
-          attachClient(session, ws);
-          console.log(`[Terminal] Session connected: ${sessionId}`);
-
-          ws.on('message', (message) => {
-            handleMessage(session, message);
-          });
-
-          ws.send(JSON.stringify({ type: 'ready', data: sessionId }));
-        });
-      })
-      .catch((err) => {
-        console.error('[Terminal] Failed to process session on upgrade:', err);
-        socket.destroy();
-      });
+      try {
+        const session = await createSession(sessionId);
+        attachClient(session, ws);
+        
+        ws.on('message', (msg) => handleMessage(session, msg));
+        ws.send(JSON.stringify({ type: 'ready', data: sessionId }));
+        console.log(`[Terminal] WS Session ${sessionId} started`);
+      } catch (err) {
+        console.error('[Terminal] Startup Error:', err.message);
+        ws.close(1013, err.message);
+      }
+    });
   });
 }
 
 module.exports = { attachTerminalServer };
-
