@@ -116,12 +116,16 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       socket.addEventListener('close', (event) => {
         if (isIntentionallyClosed.current) return;
 
-        console.log('[Terminal] Connection closed', event.code, event.reason);
+        console.log('[Terminal] Connection closed:', {
+            code: event.code,
+            reason: event.reason,
+            wasClean: event.wasClean
+        });
 
         // Server explicitly rejected (terminal limit, auth failure, etc)
-        if (event.code === 1013 || event.code === 1008 || event.code === 1003) {
-          term.write(`\r\n\x1b[31m[Error: ${event.reason || 'Connection rejected'}]\x1b[0m\r\n`);
-          return; // NO reconnect
+        if (event.code === 1013 || event.code === 1008 || event.code === 1003 || event.code === 1000) {
+          term.write(`\r\n\x1b[31m[Disconnected: ${event.reason || 'Unauthorized or Server closed'}]\x1b[0m\r\n`);
+          return;
         }
 
         // Network issue or server restart - reconnect with backoff
@@ -143,7 +147,11 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       });
 
       socket.addEventListener('error', (err) => {
-        console.error('[Terminal] WebSocket error:', err);
+        // Nur loggen, wenn der Socket nicht bereits im Begriff ist, sich zu öffnen oder offen ist.
+        // Das reduziert das Rauschen durch Doppel-Mounts in Next.js Dev.
+        if (socket.readyState !== WebSocket.OPEN && socket.readyState !== WebSocket.CONNECTING) {
+            console.warn('[Terminal] Transient WebSocket error');
+        }
       });
 
       socket.addEventListener('message', (event) => {
@@ -151,6 +159,9 @@ export function XTerminal({ sessionId }: XTerminalProps) {
           const payload = JSON.parse(event.data);
           if (payload.type === 'output') {
             term.write(payload.data);
+          } else if (payload.type === 'ready') {
+            console.log('[Terminal] Handshake complete, shell ready');
+            term.write('\x1b[32m[Connected]\x1b[0m\r\n');
           }
         } catch {
           // ignore malformed payloads

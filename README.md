@@ -20,19 +20,68 @@ Canvas Notebook ist eine moderne Next.js-Webanwendung, die als Online-Notizbuch 
   - **Image Viewer:** Unterstützung für gängige Bildformate.
   - **Media Player:** Abspielen von Audio- und Videodateien.
 
+### 🤖 Claude AI Agent (Neu)
+- **Integriertes Claude Code CLI:** Claude arbeitet direkt in deinem Workspace.
+- **Autonome Operationen:** Erstellen von Projekten, Ausführen von Shell-Befehlen und Bearbeiten von Code via Chat.
+- **Session-Persistence:** Chat-Verläufe und Kontexte werden in einer SQLite-Datenbank gespeichert.
+- **Bilder-Support:** Direkter Upload von Screenshots zur Analyse durch Claude.
+
 ### 💻 Terminal & System
 - **Integriertes Terminal:** Volle Shell-Erfahrung im Browser (xterm.js + node-pty).
+- **Zero-Latency:** Direkter Zugriff auf lokale PTYs (Pseudo-Terminals) ohne SSH-Overhead in der lokalen Umgebung.
 - **Session Management:** Persistente Terminal-Sitzungen.
-- **Resizable Layout:** Flexibel anpassbare Benutzeroberfläche.
-
-### 🛡️ Sicherheit
-- **Authentifizierung:** Sicheres Login mit iron-session und bcrypt Hashing.
-- **SSH-Sicherheit:** Unterstützung für Key-basierte Authentifizierung (empfohlen).
-- **Schutzmechanismen:** Rate Limiting, CSRF-Schutz und Directory Traversal Protection.
 
 ---
 
-## 🚀 Schnellstart
+## 🚀 Deployment & Produktion (Ubuntu)
+
+Um die Anwendung auf einem Ubuntu-Server in Produktion zu nehmen, befolge diese Schritte:
+
+### 1. System-Voraussetzungen
+Ubuntu benötigt Compiler-Tools, um native Module wie `node-pty` zu bauen:
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential python3
+```
+
+### 2. Installation & Native Module
+Native Module müssen auf dem Zielsystem kompiliert werden. Kopiere **nicht** den `node_modules` Ordner von deinem Mac/Windows auf den Server.
+```bash
+# Auf dem Server im Projektordner:
+npm install
+npm rebuild node-pty --build-from-source
+```
+
+### 3. Umgebungsvariablen (.env)
+Erstelle eine `.env` Datei für die Produktion:
+```bash
+# Wichtige Produktions-Settings
+NODE_ENV=production
+SSH_BASE_PATH=/absoluter/pfad/zum/workspace
+BETTER_AUTH_URL=https://deine-domain.com
+NEXT_PUBLIC_WS_URL=wss://deine-domain.com
+
+# Datenbank
+# SQLite wird automatisch in der Datei sqlite.db erstellt
+```
+
+### 4. Nginx Konfiguration
+Stelle sicher, dass dein Nginx für WebSockets konfiguriert ist. Nutze die Vorlagen in `config/nginx/`. Wichtig sind die Header für das Connection-Upgrade:
+```nginx
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+```
+
+### 5. Start mit PM2 (Empfohlen)
+Baue die Anwendung und starte sie mit einem Prozess-Manager:
+```bash
+npm run build
+pm2 start server.js --name "canvas-notebook"
+```
+
+---
+
+## 🚀 Schnellstart (Development)
 
 ### Voraussetzungen
 - **Node.js:** >= 20.9.0

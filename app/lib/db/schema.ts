@@ -46,3 +46,21 @@ export const verification = sqliteTable("verification", {
   createdAt: integer("created_at", { mode: "timestamp" }),
   updatedAt: integer("updated_at", { mode: "timestamp" })
 });
+
+export const claudeSessions = sqliteTable("claude_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull(),
+  userId: text("user_id").notNull().references(() => user.id),
+  title: text("title"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const claudeMessages = sqliteTable("claude_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  claudeSessionDbId: integer("claude_session_db_id").notNull().references(() => claudeSessions.id),
+  role: text("role").notNull(), // 'user', 'assistant', 'system'
+  content: text("content").notNull(),
+  type: text("type"),
+  attachments: text("attachments"), // JSON string
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});

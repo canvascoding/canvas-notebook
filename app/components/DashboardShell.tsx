@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { PanelLeft } from 'lucide-react';
+import { PanelLeft, MessageSquare, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { AppLayout } from '@/app/components/layout/AppLayout';
+import ClaudeChat from '@/app/components/claude-chat/ClaudeChat';
 
 interface DashboardShellProps {
   username: string;
@@ -16,6 +17,7 @@ interface DashboardShellProps {
 
 export function DashboardShell({ username }: DashboardShellProps) {
   const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [chatVisible, setChatVisible] = useState(true);
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-slate-900 text-white">
@@ -27,26 +29,61 @@ export function DashboardShell({ username }: DashboardShellProps) {
               size="icon-sm"
               onClick={() => setSidebarHidden((prev) => !prev)}
               aria-label={sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+              className="hidden md:flex"
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
             <Image src="/canvas-notebook-logo.png" alt="Canvas Notebook logo" width={32} height={32} />
-            <h1 className="text-2xl font-bold">Canvas Notebook</h1>
+            <h1 className="text-xl md:text-2xl font-bold truncate">Canvas</h1>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-400">Welcome, {username}</span>
+          <div className="flex items-center gap-2 md:gap-4">
+            <Button
+              variant={chatVisible ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setChatVisible(!chatVisible)}
+              className="gap-2"
+            >
+              <MessageSquare className="h-4 w-4" />
+              <span className="hidden sm:inline">Claude Chat</span>
+            </Button>
+            <div className="hidden sm:flex flex-col items-end">
+                <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">User</span>
+                <span className="text-xs text-slate-300">{username}</span>
+            </div>
             <LogoutButton />
           </div>
         </div>
       </header>
 
-      <main className="flex min-h-0 flex-1 overflow-hidden">
+      <main className="flex min-h-0 flex-1 overflow-hidden relative">
         <AppLayout
           sidebar={<FileBrowser />}
           sidebarHidden={sidebarHidden}
           main={
-            <div className="h-full border-l border-slate-700 bg-slate-900/80">
-              <FileEditor />
+            <div className="flex h-full w-full overflow-hidden relative">
+              {/* Main Editor Area */}
+              <div className="flex-1 min-w-0 border-l border-slate-700 bg-slate-900/80">
+                <FileEditor />
+              </div>
+
+              {/* Chat Panel - Responsive Implementation */}
+              <div className={`
+                ${chatVisible ? 'flex' : 'hidden'} 
+                absolute inset-0 z-50 md:relative md:inset-auto 
+                md:w-[380px] lg:w-[420px] flex-shrink-0 
+                bg-slate-950 md:bg-transparent md:border-l md:border-slate-700
+              `}>
+                <div className="flex flex-col w-full h-full relative">
+                    {/* Mobile Close Button */}
+                    <button 
+                        onClick={() => setChatVisible(false)}
+                        className="md:hidden absolute top-2 right-2 z-[60] p-2 bg-slate-800 rounded-full text-white shadow-xl border border-slate-700"
+                    >
+                        <X size={20} />
+                    </button>
+                    <ClaudeChat />
+                </div>
+              </div>
             </div>
           }
           terminal={<TerminalPanel />}

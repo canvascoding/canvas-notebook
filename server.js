@@ -9,12 +9,33 @@ const path = require('path');
 const next = require('next');
 const { attachTerminalServer } = require('./server/terminal-server');
 const { terminateAllSessions } = require('./server/terminal-manager');
-const { getSessionFromRequest } = require('./server/session');
+const { auth } = require('./app/lib/auth');
 
 const port = parseInt(process.env.PORT || '3001', 10);
 const hostname = process.env.HOSTNAME || 'localhost';
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
+
+// Helper to get session from Node.js request using better-auth
+async function getAuthSession(req) {
+  try {
+    const webHeaders = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === 'string') {
+        webHeaders.append(key, value);
+      } else if (Array.isArray(value)) {
+        for (const v of value) {
+          webHeaders.append(key, v);
+        }
+      }
+    }
+    return await auth.api.getSession({ headers: webHeaders });
+  } catch (e) {
+    console.error('[Auth] Error verifying session:', e);
+    return null;
+  }
+}
+
 const MEDIA_ROOT = process.env.SSH_BASE_PATH || '/home/canvas-notebook/workspace';
 const USE_LOCAL_MEDIA = process.env.SSH_USE_LOCAL_FS === 'true';
 const MEDIA_TYPES = {
@@ -179,9 +200,9 @@ app
       const url = new URL(req.url, 'http://localhost');
 
       if (url.pathname.startsWith('/media/')) {
-        getSessionFromRequest(req)
+        getAuthSession(req)
           .then((sessionData) => {
-            if (!sessionData || sessionData.isLoggedIn !== true) {
+            if (!sessionData || !sessionData.user) {
               res.statusCode = 401;
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
@@ -198,9 +219,9 @@ app
       }
 
       if (url.pathname === '/api/terminal/kill' && req.method === 'POST') {
-        getSessionFromRequest(req)
+        getAuthSession(req)
           .then((sessionData) => {
-            if (!sessionData || sessionData.isLoggedIn !== true) {
+            if (!sessionData || !sessionData.user) {
               res.statusCode = 401;
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
