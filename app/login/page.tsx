@@ -5,36 +5,34 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FileText } from 'lucide-react';
+import { authClient } from '@/app/lib/auth-client';
+import { toast } from 'sonner';
 
 export default function LoginPage() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+      const { data, error } = await authClient.signIn.email({
+        email,
+        password,
       });
 
-      const data = await response.json();
-
-      if (data.success) {
+      if (error) {
+        toast.error(error.message || 'Login failed');
+      } else {
+        toast.success('Login successful');
         router.push('/');
         router.refresh();
-      } else {
-        setError(data.error || 'Login failed');
       }
     } catch (err) {
-      setError('An error occurred. Please try again.');
+      toast.error('An unexpected error occurred');
       console.error('Login error:', err);
     } finally {
       setLoading(false);
@@ -51,15 +49,15 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-200 mb-2">
-              Username
+            <label htmlFor="email" className="block text-sm font-medium text-gray-200 mb-2">
+              Email
             </label>
             <Input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter email"
               className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
               required
               autoFocus
@@ -80,12 +78,6 @@ export default function LoginPage() {
               required
             />
           </div>
-
-          {error && (
-            <div className="p-3 bg-red-500/20 border border-red-500/50 rounded text-red-200 text-sm">
-              {error}
-            </div>
-          )}
 
           <Button
             type="submit"
