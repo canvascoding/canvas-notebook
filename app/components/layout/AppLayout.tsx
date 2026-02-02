@@ -29,18 +29,18 @@ export function AppLayout({ sidebar, main, terminal, sidebarHidden = false }: Ap
   } | null>(null);
   const lastTerminalHeightRef = useRef<number>(terminalHeight);
 
+  // This effect runs only once on the client to safely read from localStorage
   useEffect(() => {
-    // Set initial values from localStorage on the client
     const storedSidebarWidth = window.localStorage.getItem('canvas.sidebarWidth');
-    const storedTerminalHeight = window.localStorage.getItem('canvas.terminalHeight');
-    
     if (storedSidebarWidth) {
       setSidebarWidth(Number(storedSidebarWidth));
     }
+    const storedTerminalHeight = window.localStorage.getItem('canvas.terminalHeight');
     if (storedTerminalHeight) {
       const value = Number(storedTerminalHeight);
       setTerminalHeight(value < TERMINAL_MIN ? 260 : value);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

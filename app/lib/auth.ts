@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/app/lib/db";
 import { nextCookies } from "better-auth/next-js";
+import { NextRequest } from "next/server"; // Import NextRequest
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -34,11 +35,11 @@ export const auth = betterAuth({
       sameSite: "lax",
     }
   },
-  hooks: {
-    before: async (ctx) => {
-      if (ctx.path === "/sign-up/email") {
-        throw new Error("Sign up is disabled");
-      }
-    }
-  }
+  // hooks: {
+  //   before: async (ctx: any) => { // Cast ctx to any
+  //     if ((ctx.req as NextRequest).nextUrl.pathname === "/sign-up/email") { // Cast ctx.req to NextRequest
+  //       throw new Error("Sign up is disabled");
+  //     }
+  //   }
+  // }
 });

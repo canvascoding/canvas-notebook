@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { WebSocketServer } = require('ws');
 const { createSession, attachClient, handleMessage } = require('./terminal-manager');
-const { auth } = require('../app/lib/auth');
-const { getSessionCookieValue } = require('better-auth/cookies');
+const { auth } = require('../app/lib/auth.ts');
 
 // Helper to get session from a Node.js HTTP request for WebSockets
 async function getSessionFromUpgradeRequest(req) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Folder } from 'lucide-react';
+import { ChevronRight, Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Folder } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
@@ -18,6 +18,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 
@@ -49,9 +50,17 @@ function joinPath(parent: string, name: string) {
 
 export function FileContextMenu({ node }: FileContextMenuProps) {
   const [open, setOpen] = useState(false);
+  
+  // State for Move Dialog
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveName, setMoveName] = useState(node.name);
+  const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
+
+  // State for Rename Dialog
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+
   const { createPath, deletePath, renamePath, downloadFile, fileTree } =
     useFileStore();
   const parentPath = useMemo(() => {
@@ -73,16 +82,26 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
     await createPath(joinPath(parentPath, name), 'directory');
   };
 
-  const handleRename = async () => {
-    const name = window.prompt('Rename to', node.name);
-    if (!name || name === node.name) return;
-    await renamePath(node.path, joinPath(getParentPath(node.path), name));
+  const handleRename = () => {
+    setOpen(false); // Close dropdown
+    setNewName(node.name);
+    setRenameOpen(true);
+  };
+  
+  const handleConfirmRename = async () => {
+    if (!newName || newName === node.name) {
+      setRenameOpen(false);
+      return;
+    }
+    await renamePath(node.path, joinPath(getParentPath(node.path), newName));
+    setRenameOpen(false);
   };
 
   const handleMove = () => {
     setOpen(false);
     setMoveName(node.name);
     setMoveTarget(getParentPath(node.path));
+    setMoveExpandedDirs(new Set()); // Collapse all on open
     setMoveOpen(true);
   };
 
@@ -104,25 +123,48 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
     }
   };
 
-  const renderDirectories = (nodes: FileNode[], depth = 0): ReactNode[] => {
+  const toggleMoveDir = (path: string) => {
+    setMoveExpandedDirs(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(path)) {
+        newSet.delete(path);
+      } else {
+        newSet.add(path);
+      }
+      return newSet;
+    });
+  };
+
+  const renderMoveDirectories = (nodes: FileNode[], depth = 0): ReactNode[] => {
     return nodes.flatMap((entry) => {
       if (entry.type !== 'directory') return [];
+      
       const isSelected = moveTarget === entry.path;
+      const isExpanded = moveExpandedDirs.has(entry.path);
+      
       const row = (
-        <button
-          key={entry.path}
-          type="button"
-          className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
-            isSelected ? 'bg-slate-700 text-slate-100' : 'text-slate-200 hover:bg-slate-800/70'
-          }`}
-          style={{ paddingLeft: `${depth * 12 + 8}px` }}
-          onClick={() => setMoveTarget(entry.path)}
-        >
-          <Folder className="h-4 w-4 text-slate-400" />
-          <span className="truncate">{entry.name}</span>
-        </button>
+        <div key={entry.path} className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
+          <button
+            type="button"
+            className="p-1 rounded hover:bg-slate-700/70"
+            onClick={() => toggleMoveDir(entry.path)}
+          >
+            <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+          </button>
+          <button
+            type="button"
+            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
+              isSelected ? 'bg-slate-700 text-slate-100' : 'text-slate-200 hover:bg-slate-800/70'
+            }`}
+            onClick={() => setMoveTarget(entry.path)}
+          >
+            <Folder className="h-4 w-4 text-slate-400" />
+            <span className="truncate">{entry.name}</span>
+          </button>
+        </div>
       );
-      const children = entry.children ? renderDirectories(entry.children, depth + 1) : [];
+      
+      const children = isExpanded && entry.children ? renderMoveDirectories(entry.children, depth + 1) : [];
       return [row, ...children];
     });
   };
@@ -148,12 +190,12 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
 
   return (
     <>
-      <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="icon-sm"
-            className="ml-1 opacity-70 hover:opacity-100 bg-slate-800/40 hover:bg-slate-700/70 border border-slate-700/60"
+            className="ml-1 opacity-0 group-hover:opacity-70 hover:opacity-100 bg-slate-800/40 hover:bg-slate-700/70 border border-slate-700/60"
             onClick={(event) => {
               event.stopPropagation();
               setOpen(true);
@@ -198,10 +240,39 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="max-w-md bg-slate-900 text-slate-100">
+          <DialogHeader>
+            <DialogTitle>Rename "{node.name}"</DialogTitle>
+            <DialogDescription>
+              Enter a new name for the item. The new name will be saved in the same directory.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <label htmlFor="newName" className="text-xs text-slate-400">New name</label>
+            <Input
+              id="newName"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="mt-1 bg-slate-950 text-slate-200"
+              onKeyDown={(e) => e.key === 'Enter' && handleConfirmRename()}
+              autoFocus
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setRenameOpen(false)}>Cancel</Button>
+            <Button variant="secondary" onClick={handleConfirmRename}>Rename</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent className="max-w-xl bg-slate-900 text-slate-100">
           <DialogHeader>
             <DialogTitle>{`Move "${node.name}"`}</DialogTitle>
+            <DialogDescription>
+              Select a new destination folder and optionally rename the item.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -235,7 +306,7 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
                   <Folder className="h-4 w-4 text-slate-400" />
                   <span className="truncate">/ (root)</span>
                 </button>
-                {renderDirectories(fileTree)}
+                {renderMoveDirectories(fileTree)}
               </div>
             </div>
           </div>
