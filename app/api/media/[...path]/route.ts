@@ -31,8 +31,9 @@ function getContentType(filePath: string): string {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  context: any
 ) {
+  const { params } = context;
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });

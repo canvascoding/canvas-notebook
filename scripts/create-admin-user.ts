@@ -26,8 +26,9 @@ async function main() {
              // We might need a session to update, but better-auth signUp might already return one or we can bypass for local script
          })
      });
-  } catch (e: any) {
-      if (e.body?.code === "USER_ALREADY_EXISTS" || e.message?.includes("exists")) {
+  } catch (e: unknown) {
+      const error = e as { body?: { code?: string }; message?: string };
+      if (error.body?.code === "USER_ALREADY_EXISTS" || error.message?.includes("exists")) {
           console.log("Account already exists. To change the password, you might need to delete the user from sqlite.db first or use changePassword API.");
       } else {
           console.error("Error:", e);
