@@ -1,4 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+const { loadEnvConfig } = require('@next/env');
+const dev = process.env.NODE_ENV !== 'production';
+loadEnvConfig(process.cwd(), dev);
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -8,7 +12,6 @@ const { terminateAllSessions } = require('./server/terminal-manager');
 const { getSessionFromRequest } = require('./server/session');
 
 const port = parseInt(process.env.PORT || '3001', 10);
-const dev = process.env.NODE_ENV !== 'production';
 const hostname = process.env.HOSTNAME || 'localhost';
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();

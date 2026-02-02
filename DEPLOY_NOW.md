@@ -15,7 +15,7 @@ Die Canvas Notebook App ist **live** und läuft in Production.
 
 **Login:**
 - Username: `admin`
-- Password: `7b&BIfeGW)a[3!AKCOKJ`
+- Password: `change-me`
 
 ---
 
