@@ -4,12 +4,11 @@ const nextConfig: NextConfig = {
   // Wichtig für node-pty: Als external markieren im Server Bundle
   webpack: (config, { isServer }) => {
     if (isServer) {
-      config.externals.push('node-pty', 'ssh2', 'ssh2-sftp-client');
+      config.externals.push('node-pty', 'ssh2', 'ssh2-sftp-client', 'better-sqlite3', 'better-auth', 'drizzle-orm');
     }
     return config;
   },
-  serverExternalPackages: ['node-pty', 'ssh2', 'ssh2-sftp-client'],
-  output: 'standalone',
+  serverExternalPackages: ['node-pty', 'ssh2', 'ssh2-sftp-client', 'better-sqlite3', 'better-auth', 'drizzle-orm'],
   poweredByHeader: false,
   compress: true,
 
