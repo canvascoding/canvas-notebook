@@ -52,8 +52,8 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
     if (!univerRef.current || !updateDraft || extension !== 'xlsx') return;
     
     try {
-        const univer = univerRef.current;
-        const workbook = univer.getUniverInstance(UniverInstanceType.UNIVER_SHEET);
+        const univer = univerRef.current as any;
+        const workbook = univer.getUniverInstance?.(UniverInstanceType.UNIVER_SHEET) ?? univer.__getInjector?.().get?.('IUniverInstanceService')?.getUnit?.(UniverInstanceType.UNIVER_SHEET);
         if (!workbook) return;
 
         const snapshot = workbook.save();

@@ -13,8 +13,8 @@ function parseSetCookie(value: string) {
 }
 
 test('login and load dashboard', async ({ page }) => {
-  const response = await page.request.post(`${baseUrl}/api/auth/login`, {
-    data: { username: 'admin', password: 'admin' },
+  const response = await page.request.post(`${baseUrl}/api/auth/sign-in/email`, {
+    data: { email: 'info@canvasstudios.store', password: 'Canvas2026!' },
   });
 
   expect(response.ok()).toBeTruthy();

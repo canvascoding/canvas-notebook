@@ -105,4 +105,19 @@ function handleMessage(session, message) {
   } catch (e) {}
 }
 
-module.exports = { createSession, attachClient, handleMessage };
+function terminateAllSessions() {
+  let closed = 0;
+  for (const [id, session] of sessions) {
+    if (session.stream) {
+      try { session.stream.kill(); } catch (e) {}
+    }
+    session.clients.forEach(c => {
+      try { c.close(); } catch (e) {}
+    });
+    sessions.delete(id);
+    closed++;
+  }
+  return { closed };
+}
+
+module.exports = { createSession, attachClient, handleMessage, terminateAllSessions };
