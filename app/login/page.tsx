@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { FileText } from 'lucide-react';
 import { authClient } from '@/app/lib/auth-client';
 import { toast } from 'sonner';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -41,7 +42,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <div className="w-full max-w-md p-8 bg-white/10 backdrop-blur-lg rounded-lg shadow-2xl border border-white/20">
         <div className="flex items-center justify-center mb-8">
-          <FileText className="w-12 h-12 text-blue-400 mr-3" />
+          <Image src="/logo.jpg" alt="Canvas Logo" width={48} height={48} className="rounded-lg mr-3 shadow-lg" />
           <h1 className="text-3xl font-bold text-white">Canvas Notebook</h1>
         </div>
 

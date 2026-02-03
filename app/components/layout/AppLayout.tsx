@@ -7,6 +7,7 @@ interface AppLayoutProps {
   main: ReactNode;
   terminal: ReactNode;
   sidebarHidden?: boolean;
+  terminalVisible?: boolean;
 }
 
 const SIDEBAR_MIN = 220;
@@ -15,7 +16,13 @@ const TERMINAL_MIN = 160;
 const TERMINAL_MAX = 420;
 const TERMINAL_COLLAPSED = 84;
 
-export function AppLayout({ sidebar, main, terminal, sidebarHidden = false }: AppLayoutProps) {
+export function AppLayout({ 
+  sidebar, 
+  main, 
+  terminal, 
+  sidebarHidden = false,
+  terminalVisible = true 
+}: AppLayoutProps) {
   const [sidebarWidth, setSidebarWidth] = useState(288);
   const [terminalHeight, setTerminalHeight] = useState(260);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
@@ -226,40 +233,43 @@ export function AppLayout({ sidebar, main, terminal, sidebarHidden = false }: Ap
         />
         <div className={terminalFullscreen ? 'hidden' : 'min-w-0 flex-1'}>{main}</div>
       </div>
-      <div
-        className={
-          terminalFullscreen
-            ? 'fixed inset-0 z-50 bg-slate-950 overflow-hidden overscroll-contain'
-            : 'relative z-30 bg-slate-950 flex-shrink-0'
-        }
-      >
-        {!terminalFullscreen && (
-          <div
-            className="h-1 cursor-row-resize bg-slate-800/60 hover:bg-slate-700"
-            onMouseDown={(event) => {
-              dragRef.current = {
-                type: 'terminal',
-                startX: event.clientX,
-                startY: event.clientY,
-                startWidth: sidebarWidth,
-                startHeight: terminalHeight,
-              };
-            }}
-            onPointerDown={(event) => {
-              dragRef.current = {
-                type: 'terminal',
-                startX: event.clientX,
-                startY: event.clientY,
-                startWidth: sidebarWidth,
-                startHeight: terminalHeight,
-              };
-            }}
-          />
-        )}
-        <div style={{ height: terminalHeight }} className="min-h-0">
-          {terminal}
+      
+      {terminalVisible && (
+        <div
+          className={
+            terminalFullscreen
+              ? 'fixed inset-0 z-50 bg-slate-950 overflow-hidden overscroll-contain'
+              : 'relative z-30 bg-slate-950 flex-shrink-0'
+          }
+        >
+          {!terminalFullscreen && (
+            <div
+              className="h-1 cursor-row-resize bg-slate-800/60 hover:bg-slate-700"
+              onMouseDown={(event) => {
+                dragRef.current = {
+                  type: 'terminal',
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startWidth: sidebarWidth,
+                  startHeight: terminalHeight,
+                };
+              }}
+              onPointerDown={(event) => {
+                dragRef.current = {
+                  type: 'terminal',
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startWidth: sidebarWidth,
+                  startHeight: terminalHeight,
+                };
+              }}
+            />
+          )}
+          <div style={{ height: terminalHeight }} className="min-h-0">
+            {terminal}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
