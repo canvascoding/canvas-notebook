@@ -1,6 +1,0 @@
-datetime;price;shares;amount;tax;fee;type;assettype;identifier;currency;holdingname
-2025-12-26T12:49:00.000Z;1,56;561,152596;875,5;0;1;Buy;Crypto;XRP;EUR;XRP
-2025-12-26T07:00:00.000Z;104,9;1,922338;201,65;0;0,01;Buy;Crypto;SOL;EUR;Solana
-2025-12-26T07:00:00.000Z;2513,06;0,082533;207,41;0;0,01;Buy;Crypto;ETH;EUR;Ethereum
-2025-12-26T07:00:00.000Z;73657,12;0,003109;229;0;0,13;Buy;Crypto;BTC;EUR;Bitcoin
-2025-12-26T07:00:00.000Z;65,43;3,224681;210,99;0;0,01;Buy;Crypto;LTC;EUR;Litecoin
