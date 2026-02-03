@@ -22,6 +22,15 @@ const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.Offi
   ),
 });
 
+const DocxViewer = dynamic(() => import('./DocxViewer').then(mod => mod.DocxViewer), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center bg-slate-900">
+      <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+    </div>
+  ),
+});
+
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
 const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'csv']);
 const IMAGE_EXTENSIONS = new Set([
@@ -296,7 +305,7 @@ export function FileEditor() {
           )}
         </div>
       </div>
-      <div className={isVideo ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-auto'}>
+      <div className={isVideo ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-slate-400">
               <FileText className="h-8 w-8" />
@@ -308,8 +317,10 @@ export function FileEditor() {
             </div>
           ) : isImage ? (
             <ImageViewer path={currentFile.path} />
+          ) : extension === 'docx' ? (
+            <DocxViewer path={currentFile.path} />
           ) : isOffice ? (
-            <OfficeEditor key={currentFile.path} path={currentFile.path} extension={extension} />
+            <OfficeEditor key={currentFile.path} path={currentFile.path} extension={extension} updateDraft={updateDraft} />
           ) : isPdf ? (
             <PdfViewer path={currentFile.path} />
           ) : isAudio ? (
