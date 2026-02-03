@@ -1,5 +1,21 @@
 'use client';
-import { ChevronRight, ChevronDown, File, Folder, FolderOpen, Square, CheckSquare } from 'lucide-react';
+import { 
+  ChevronRight, 
+  ChevronDown, 
+  File, 
+  Folder, 
+  FolderOpen, 
+  Square, 
+  CheckSquare,
+  FileCode,
+  FileText,
+  Image as ImageIcon,
+  FileVideo,
+  FileAudio,
+  FileSpreadsheet,
+  FileDigit,
+  Database
+} from 'lucide-react';
 import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
 import { FileContextMenu } from './FileContextMenu';
@@ -68,6 +84,49 @@ export function FileNode({
         <Folder className="w-4 h-4 text-blue-400" />
       );
     }
+
+    const ext = node.name.split('.').pop()?.toLowerCase();
+
+    // Code & Scripts
+    if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'scss', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'php', 'sh', 'bash', 'zsh', 'yml', 'yaml', 'toml'].includes(ext || '')) {
+      return <FileCode className="w-4 h-4 text-emerald-400" />;
+    }
+
+    // Documents
+    if (['md', 'mdx', 'markdown', 'txt', 'log'].includes(ext || '')) {
+      return <FileText className="w-4 h-4 text-slate-300" />;
+    }
+    if (ext === 'pdf') {
+      return <FileText className="w-4 h-4 text-rose-400" />;
+    }
+    if (['doc', 'docx'].includes(ext || '')) {
+      return <FileText className="w-4 h-4 text-blue-500" />;
+    }
+
+    // Data & Config
+    if (['json', 'env', 'gitignore'].includes(ext || '')) {
+      return <FileDigit className="w-4 h-4 text-yellow-400" />;
+    }
+    if (['sql', 'db', 'sqlite'].includes(ext || '')) {
+      return <Database className="w-4 h-4 text-orange-400" />;
+    }
+
+    // Spreadsheet
+    if (['xls', 'xlsx', 'csv'].includes(ext || '')) {
+      return <FileSpreadsheet className="w-4 h-4 text-green-500" />;
+    }
+
+    // Media
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext || '')) {
+      return <ImageIcon className="w-4 h-4 text-purple-400" />;
+    }
+    if (['mp4', 'webm', 'ogv', 'mov'].includes(ext || '')) {
+      return <FileVideo className="w-4 h-4 text-pink-400" />;
+    }
+    if (['wav', 'mp3', 'm4a', 'aac', 'ogg', 'opus', 'flac'].includes(ext || '')) {
+      return <FileAudio className="w-4 h-4 text-cyan-400" />;
+    }
+
     return <File className="w-4 h-4 text-slate-400" />;
   };
 

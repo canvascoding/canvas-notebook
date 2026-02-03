@@ -11,8 +11,19 @@ import { CodeEditor } from './CodeEditor';
 import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { MediaViewer } from './MediaViewer';
+import dynamic from 'next/dynamic';
+
+const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.OfficeEditor), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center bg-slate-900">
+      <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+    </div>
+  ),
+});
 
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
+const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'csv']);
 const IMAGE_EXTENSIONS = new Set([
   'png',
   'jpg',
@@ -178,12 +189,13 @@ export function FileEditor() {
   }, [currentFile]);
 
   const isMarkdown = MARKDOWN_EXTENSIONS.has(extension);
+  const isOffice = OFFICE_EXTENSIONS.has(extension);
   const isImage = IMAGE_EXTENSIONS.has(extension);
   const isPdf = PDF_EXTENSIONS.has(extension);
   const isAudio = AUDIO_EXTENSIONS.has(extension);
   const isVideo = VIDEO_EXTENSIONS.has(extension);
   const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
-  const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isAudio && !isVideo;
+  const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isAudio && !isVideo && !isOffice;
   const savedTime = formatTimestamp(lastSavedAt);
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const mediaMimeType = MEDIA_MIME_TYPES[extension];
@@ -296,6 +308,8 @@ export function FileEditor() {
             </div>
           ) : isImage ? (
             <ImageViewer path={currentFile.path} />
+          ) : isOffice ? (
+            <OfficeEditor key={currentFile.path} path={currentFile.path} extension={extension} />
           ) : isPdf ? (
             <PdfViewer path={currentFile.path} />
           ) : isAudio ? (

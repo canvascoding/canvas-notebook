@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { PanelLeft, MessageSquare, X } from 'lucide-react';
+import { PanelLeft, MessageSquare, X, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
@@ -18,6 +18,7 @@ interface DashboardShellProps {
 export function DashboardShell({ username }: DashboardShellProps) {
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [chatVisible, setChatVisible] = useState(true);
+  const [terminalVisible, setTerminalVisible] = useState(false);
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-slate-900 text-white">
@@ -33,10 +34,19 @@ export function DashboardShell({ username }: DashboardShellProps) {
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
-            <Image src="/canvas-notebook-logo.png" alt="Canvas Notebook logo" width={32} height={32} />
-            <h1 className="text-xl md:text-2xl font-bold truncate">Canvas</h1>
+            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="rounded-md" />
+            <h1 className="text-xl md:text-2xl font-bold truncate">CANVAS STUDIOS</h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
+            <Button
+              variant={terminalVisible ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setTerminalVisible(!terminalVisible)}
+              className="gap-2"
+            >
+              <Terminal className="h-4 w-4" />
+              <span className="hidden sm:inline">Terminal</span>
+            </Button>
             <Button
               variant={chatVisible ? "default" : "ghost"}
               size="sm"
@@ -59,6 +69,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
         <AppLayout
           sidebar={<FileBrowser />}
           sidebarHidden={sidebarHidden}
+          terminalVisible={terminalVisible}
           main={
             <div className="flex h-full w-full overflow-hidden relative">
               {/* Main Editor Area */}
