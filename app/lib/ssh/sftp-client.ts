@@ -266,6 +266,10 @@ export async function renameFile(oldPath: string, newPath: string): Promise<void
   }
 
   return withSftp(async (sftp) => {
+    // Ensure the parent directory for the new path exists
+    const newDir = path.dirname(fullNewPath);
+    await createDirectory(newDir); // createDirectory already handles recursive and local/remote FS
+
     await sftp.rename(fullOldPath, fullNewPath);
   });
 }

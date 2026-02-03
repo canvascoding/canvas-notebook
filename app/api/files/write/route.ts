@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { path, content } = body;
+    let { path, content } = body;
 
     if (!path || content === undefined) {
       return NextResponse.json(
@@ -24,7 +24,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await writeFile(path, content);
+    // Check if content is base64 encoded (prefix with base64: to distinguish from plain text)
+    let finalContent: Buffer | string = content;
+    if (typeof content === 'string' && content.startsWith('base64:')) {
+      finalContent = Buffer.from(content.substring(7), 'base64');
+    }
+
+    await writeFile(path, finalContent);
     clearFileTreeCache();
 
     return NextResponse.json({ success: true });
