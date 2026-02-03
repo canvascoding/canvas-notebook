@@ -36,18 +36,66 @@ import { defaultTheme } from '@univerjs/design';
 interface OfficeEditorProps {
   path: string;
   extension: string;
+  updateDraft?: (content: string) => void;
 }
 
-export function OfficeEditor({ path, extension }: OfficeEditorProps) {
+export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<Univer | null>(null);
+  const isInitialized = useRef(false); // New flag to track if Univer has been initialized
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isInitializing = useRef(false);
 
+  // Helper to sync Univer data to editor draft
+  const syncToDraft = () => {
+    if (!univerRef.current || !updateDraft || extension !== 'xlsx') return;
+    
+    try {
+        const univer = univerRef.current;
+        const workbook = univer.getUniverInstance(UniverInstanceType.UNIVER_SHEET);
+        if (!workbook) return;
+
+        const snapshot = workbook.save();
+        const sheet = snapshot.sheets['sheet-1'];
+        if (!sheet || !sheet.cellData) return;
+
+        // Convert Univer cellData back to XLSX format
+        const data: any[][] = [];
+        Object.entries(sheet.cellData).forEach(([rStr, row]: [string, any]) => {
+            const r = parseInt(rStr);
+            if (!data[r]) data[r] = [];
+            Object.entries(row).forEach(([cStr, cell]: [string, any]) => {
+                const c = parseInt(cStr);
+                data[r][c] = cell.v;
+            });
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, sheet.name || 'Sheet1');
+        
+        const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+        updateDraft('base64:' + wbout);
+    } catch (e) {
+        console.error('[OfficeEditor] Sync error:', e);
+    }
+  };
+
   useEffect(() => {
-    if (!containerRef.current || isInitializing.current) return;
-    isInitializing.current = true;
+    if (!containerRef.current) return;
+
+    // Use the isInitialized ref to prevent multiple initializations in StrictMode
+    if (isInitialized.current) {
+      return;
+    }
+
+    isInitialized.current = true; // Mark as initialized for this component instance
+
+    // Use a local variable to track if this effect instance is still "alive"
+    let alive = true;
+    let univer: Univer | null = null;
+    const parent = containerRef.current;
 
     // Create a dedicated container element
     const el = document.createElement('div');
@@ -56,10 +104,7 @@ export function OfficeEditor({ path, extension }: OfficeEditorProps) {
     el.style.width = '100%';
     el.style.position = 'absolute';
     el.style.inset = '0';
-    containerRef.current.appendChild(el);
-
-    let alive = true;
-    let univer: Univer | null = null;
+    parent.appendChild(el);
 
     const init = async () => {
       try {
@@ -88,6 +133,7 @@ export function OfficeEditor({ path, extension }: OfficeEditorProps) {
           footer: true,
         });
 
+        // Global registration for input capture
         univer.registerPlugin(UniverDocsPlugin);
         univer.registerPlugin(UniverDocsUIPlugin);
 
@@ -129,7 +175,7 @@ export function OfficeEditor({ path, extension }: OfficeEditorProps) {
           if (!alive) return;
 
           univer.createUnit(UniverInstanceType.UNIVER_SHEET, {
-            id: 'workbook-' + Date.now(),
+            id: 'workbook-instance',
             name: sheetName,
             sheets: {
               'sheet-1': { 
@@ -145,16 +191,24 @@ export function OfficeEditor({ path, extension }: OfficeEditorProps) {
           // Better text extraction for DOCX
           const result = await mammoth.extractRawText({ arrayBuffer });
           const text = (result.value || '').replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+          
+          // Split into paragraphs for better rendering and scrolling
+          const lines = text.split('\r');
+          const paragraphs = [];
+          let currentPos = 0;
+          
+          for (const line of lines) {
+            currentPos += line.length + 1;
+            paragraphs.push({
+              startIndex: currentPos - 1,
+            });
+          }
 
           univer.createUnit(UniverInstanceType.UNIVER_DOC, {
-            id: 'doc-' + Date.now(),
+            id: 'doc-instance',
             body: { 
-                dataStream: text + '\r\n\0',
-                paragraphs: [
-                    {
-                        startIndex: text.length,
-                    }
-                ]
+                dataStream: text + '\r',
+                paragraphs: paragraphs
             }
           });
         }
@@ -164,6 +218,7 @@ export function OfficeEditor({ path, extension }: OfficeEditorProps) {
           setLoading(false);
           // Auto-focus the editor area
           setTimeout(() => {
+            if (!alive) return;
             const canvas = el.querySelector('canvas');
             if (canvas) {
                 canvas.focus();
@@ -171,7 +226,7 @@ export function OfficeEditor({ path, extension }: OfficeEditorProps) {
                 canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
                 canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
             }
-          }, 800);
+          }, 500);
         }
       } catch (err) {
         console.error('[OfficeEditor] Error:', err);
@@ -186,20 +241,38 @@ export function OfficeEditor({ path, extension }: OfficeEditorProps) {
 
     return () => {
       alive = false;
-      isInitializing.current = false;
       const toDispose = univer;
-      const parent = containerRef.current;
-      setTimeout(() => {
+      if (toDispose) {
         try { 
-          if (toDispose) toDispose.dispose(); 
-          if (parent && parent.contains(el)) parent.removeChild(el);
-        } catch (e) {}
-      }, 200);
+          setTimeout(() => {
+            toDispose.dispose();
+          }, 0); 
+        } catch (e) {
+          console.error('[OfficeEditor] Error disposing Univer instance:', e);
+        }
+      } else {
+      }
+      if (parent && parent.contains(el)) {
+        parent.removeChild(el);
+      }
     };
   }, [path, extension]);
 
   return (
     <div className="flex flex-col h-full w-full bg-[#1e1e1e] relative overflow-hidden">
+      {/* Header for Save Button */}
+      <div className="absolute top-2 right-12 z-[70] flex gap-2">
+        <button 
+            onClick={(e) => {
+                e.stopPropagation();
+                syncToDraft();
+            }}
+            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded shadow-lg transition-colors"
+        >
+            Update Changes
+        </button>
+      </div>
+
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900 z-[60]">
           <div className="flex flex-col items-center gap-2">
@@ -220,12 +293,14 @@ export function OfficeEditor({ path, extension }: OfficeEditorProps) {
       <div 
         ref={containerRef} 
         className="flex-1 w-full h-full relative"
-        style={{ minHeight: '500px' }}
       />
 
       <style jsx global>{`
         .univer-instance-container {
           background: #1e1e1e;
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
         }
         .univer-app-container {
           width: 100% !important;
