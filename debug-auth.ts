@@ -1,0 +1,28 @@
+
+import { config } from 'dotenv';
+config({ path: '.env.local' });
+
+import { auth } from './app/lib/auth';
+
+async function testLogin() {
+  console.log('Attempting login...');
+  try {
+    const res = await auth.api.signInEmail({
+        body: {
+            email: "admin@canvas.local",
+            password: "canvas2026!"
+        }
+    });
+    console.log('Login result:', res);
+  } catch (error: any) {
+    console.error('Login error details:', error);
+    if (error && typeof error === 'object' && 'cause' in error) {
+        console.error('Cause:', error.cause);
+    }
+    if (error && typeof error === 'object' && 'stack' in error) {
+        console.error('Stack:', error.stack);
+    }
+  }
+}
+
+testLogin();
