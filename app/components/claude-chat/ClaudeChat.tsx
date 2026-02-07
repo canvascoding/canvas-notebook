@@ -1,8 +1,7 @@
-// app/components/claude-chat/ClaudeChat.tsx
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Paperclip, X, Image as ImageIcon, History, Plus, MessageSquare, ChevronLeft, ArrowDown } from 'lucide-react';
+import { Paperclip, X, Image as ImageIcon, History, Plus, MessageSquare, ChevronLeft, ArrowDown, AlertTriangle, Cpu, Sparkles, Code } from 'lucide-react';
 
 interface Attachment {
   name: string;
@@ -19,10 +18,11 @@ interface ChatMessage {
   attachments?: Attachment[];
 }
 
-interface ClaudeSession {
+interface AISession {
   id: number;
   sessionId: string;
   title: string;
+  model: string;
   createdAt: string;
 }
 
@@ -47,9 +47,12 @@ interface ChatEvent {
   sessionId?: string;
   success?: boolean;
   initialEvent?: ChatEvent;
+  content?: string; // Codex support
 }
 
 type UpdateFunction = (content: string, type?: string, status?: ChatMessage['status']) => void;
+
+type AIModel = 'claude' | 'gemini' | 'codex';
 
 export default function ClaudeChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -59,8 +62,9 @@ export default function ClaudeChat() {
   const [queue, setQueue] = useState<{text: string, attachments: Attachment[]}[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState<ClaudeSession[]>([]);
+  const [history, setHistory] = useState<AISession[]>([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [model, setModel] = useState<AIModel>('claude');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -70,12 +74,9 @@ export default function ClaudeChat() {
     messagesEndRef.current?.scrollIntoView({ behavior });
   };
 
-  // Handle scroll events to detect if user is at bottom
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
-    
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    // Use a small buffer (100px) for detection
     const atBottom = scrollHeight - scrollTop - clientHeight < 100;
     setIsAtBottom(atBottom);
   }, []);
@@ -88,13 +89,9 @@ export default function ClaudeChat() {
     }
   }, [handleScroll]);
 
-  // Auto-scroll logic
   useEffect(() => {
     if (messages.length === 0) return;
-
     const lastMessage = messages[messages.length - 1];
-    
-    // Only scroll if we were already at bottom, or if the last message is from user
     if (isAtBottom || lastMessage.role === 'user') {
       scrollToBottom(lastMessage.role === 'user' ? 'smooth' : 'auto');
     }
@@ -107,7 +104,8 @@ export default function ClaudeChat() {
   }, []);
 
   const handleEvent = useCallback((event: ChatEvent, msgId: string, updateFn: UpdateFunction) => {
-    if (event.type === 'assistant' && event.message?.content) {
+    // Claude & Gemini Format
+    if ((event.type === 'assistant' || event.type === 'message') && event.message?.content) {
       for (const part of event.message.content) {
         if (part.type === 'text') {
           updateFn(part.text || '', 'text');
@@ -121,6 +119,10 @@ export default function ClaudeChat() {
         }
       }
     } 
+    // Codex Format or simple text event
+    else if (event.type === 'text' && event.content) {
+       updateFn(event.content, 'text');
+    }
     else if (event.type === 'user' && event.tool_use_result) {
       const result = event.tool_use_result;
       if (result.stdout || result.stderr) {
@@ -138,13 +140,11 @@ export default function ClaudeChat() {
     if (event.sessionId) setSessionId(event.sessionId);
   }, []);
 
-  const fetchHistory = useCallback(async () => {
+  const fetchHistory = useCallback(async (selectedModel: AIModel) => {
     try {
-      const res = await fetch('/api/claude/sessions');
+      const res = await fetch(`/api/sessions?model=${selectedModel}`);
       const data = await res.json();
-      if (data.success) {
-          setHistory(data.sessions);
-      }
+      if (data.success) setHistory(data.sessions);
     } catch (err) {
       console.error('Failed to fetch history', err);
     }
@@ -158,14 +158,14 @@ export default function ClaudeChat() {
 
   const loadSession = useCallback(async (id: string) => {
     setSessionId(id);
-    setMessages([{ id: 'system', role: 'system', content: `Loading session ${id.substring(0,8)}...` }]);
+    setMessages([{ id: 'system', role: 'system', content: `Loading ${model} session...` }]);
     setShowHistory(false);
 
     try {
-      const res = await fetch(`/api/claude/sessions/messages?sessionId=${id}`);
+      const res = await fetch(`/api/sessions/messages?sessionId=${id}&model=${model}`);
       const data = await res.json();
       if (data.success && data.messages) {
-        setMessages(data.messages.map((m: any) => ({
+        setMessages(data.messages.map((m: {id: any, role: any, content: string, type: string}) => ({
           id: m.id.toString(),
           role: m.role,
           content: m.content,
@@ -177,7 +177,7 @@ export default function ClaudeChat() {
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: 'Failed to load message history.' }]);
     }
-  }, []);
+  }, [model]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -222,17 +222,17 @@ export default function ClaudeChat() {
 
   const processMessage = useCallback(async (text: string, currentAttachments: Attachment[]) => {
     setIsProcessing(true);
-    let messageToClaude = text;
+    let messageToAI = text;
     if (currentAttachments.length > 0) {
       const attachmentRefs = currentAttachments.map(a => `[Attached Image: ${a.path}]`).join('\n');
-      messageToClaude = `${text}\n\n${attachmentRefs}`.trim();
+      messageToAI = `${text}\n\n${attachmentRefs}`.trim();
     }
 
     try {
-      const response = await fetch('/api/claude/chat', {
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageToClaude, sessionId })
+        body: JSON.stringify({ message: messageToAI, sessionId, model })
       });
 
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
@@ -274,7 +274,13 @@ export default function ClaudeChat() {
                     updateAssistantMessage(assistantMsgId, fullContent, type, status);
                 });
             }
-          } catch (e) {}
+          } catch (e) {
+              // Try to handle raw text if not JSON
+              if (line.trim()) {
+                  fullContent += line + '\n';
+                  updateAssistantMessage(assistantMsgId, fullContent, 'text', 'sending');
+              }
+          }
         }
       }
       
@@ -290,7 +296,7 @@ export default function ClaudeChat() {
     } finally {
       setIsProcessing(false);
     }
-  }, [sessionId, handleEvent, updateAssistantMessage]);
+  }, [sessionId, model, handleEvent, updateAssistantMessage]);
 
   useEffect(() => {
     if (!isProcessing && queue.length > 0) {
@@ -300,6 +306,13 @@ export default function ClaudeChat() {
     }
   }, [isProcessing, queue, processMessage]);
 
+  const handleModelChange = (newModel: AIModel) => {
+      setModel(newModel);
+      setSessionId(null);
+      setMessages([]);
+      setShowHistory(false);
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 relative overflow-hidden">
       {/* Header */}
@@ -308,18 +321,45 @@ export default function ClaudeChat() {
             {showHistory ? (
                 <button onClick={() => setShowHistory(false)} className="p-1 hover:bg-slate-700 rounded"><ChevronLeft /></button>
             ) : (
-                <button onClick={() => { setShowHistory(true); fetchHistory(); }} className="p-1 hover:bg-slate-700 rounded"><History size={20} /></button>
+                <button onClick={() => { setShowHistory(true); fetchHistory(model); }} className="p-1 hover:bg-slate-700 rounded"><History size={20} /></button>
             )}
-            <span className="text-sm font-bold tracking-tight">{showHistory ? 'History' : (sessionId ? `Session ${sessionId.substring(0,6)}` : 'New Chat')}</span>
+            <div className="flex flex-col">
+                <span className="text-[10px] uppercase font-bold text-slate-500 leading-none mb-0.5">{showHistory ? 'History' : 'Chat'}</span>
+                <div className="flex items-center gap-1.5">
+                    <select 
+                        value={model} 
+                        onChange={(e) => handleModelChange(e.target.value as AIModel)}
+                        className="bg-transparent text-xs font-bold focus:outline-none appearance-none cursor-pointer hover:text-blue-400"
+                    >
+                        <option value="claude">Claude</option>
+                        <option value="gemini">Gemini</option>
+                        <option value="codex">Codex</option>
+                    </select>
+                    {!showHistory && sessionId && <span className="text-[10px] text-slate-600">#{sessionId.substring(0,4)}</span>}
+                </div>
+            </div>
         </div>
-        <button onClick={startNewChat} className="p-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg transition-all" title="New Chat"><Plus size={18} /></button>
+        <div className="flex items-center gap-1">
+            <button onClick={startNewChat} className="p-1.5 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 rounded-lg transition-all" title="New Chat"><Plus size={18} /></button>
+        </div>
       </div>
+
+      {/* Model Disclaimer */}
+      {(model === 'gemini' || model === 'codex') && !showHistory && (
+          <div className="bg-amber-950/30 border-b border-amber-900/50 p-1.5 px-3 flex items-center gap-2 text-[10px] text-amber-200/70">
+              <AlertTriangle size={12} className="text-amber-500" />
+              <span>Note: {model === 'gemini' ? 'Gemini' : 'Codex'} integration is experimental and may contain bugs.</span>
+          </div>
+      )}
 
       <div className="flex-1 relative">
         {/* History View */}
         {showHistory && (
             <div className="absolute inset-0 bg-slate-900 z-20 overflow-y-auto p-2 space-y-1">
-                {history.length === 0 && <div className="text-center p-8 text-slate-500 text-sm italic">No recent sessions</div>}
+                <div className="px-2 py-1 text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                    <History size={10} /> {model} sessions
+                </div>
+                {history.length === 0 && <div className="text-center p-8 text-slate-500 text-sm italic">No recent sessions for {model}</div>}
                 {history.map((s) => (
                     <button 
                         key={s.id} 
@@ -340,8 +380,13 @@ export default function ClaudeChat() {
         >
             {messages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-4 opacity-40">
-                    <MessageSquare size={48} />
-                    <p className="text-sm text-center px-8 italic">Ask Claude to help with your project</p>
+                    {model === 'claude' && <Sparkles size={48} />}
+                    {model === 'gemini' && <Cpu size={48} />}
+                    {model === 'codex' && <Code size={48} />}
+                    <div className="text-center">
+                        <p className="text-sm font-bold uppercase tracking-widest mb-1">{model} Agent</p>
+                        <p className="text-[11px] italic px-8">Ask {model} to help with your project</p>
+                    </div>
                 </div>
             )}
             {messages.map((msg) => (
@@ -351,11 +396,11 @@ export default function ClaudeChat() {
                 msg.role === 'assistant' ? 'bg-slate-800 border border-slate-700' : 'bg-red-900/30 border border-red-800/50'
                 }`}> 
                 <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">{msg.role}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">{msg.role === 'assistant' ? model : msg.role}</span>
                     {msg.status === 'sending' && <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />} 
                 </div>
                 <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">
-                    {msg.content || (msg.status === 'sending' ? 'Claude is processing...' : '')}
+                    {msg.content || (msg.status === 'sending' ? `${model} is processing...` : '')}
                 </div>
                 {msg.attachments && msg.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -400,6 +445,7 @@ export default function ClaudeChat() {
           <button 
             onClick={() => fileInputRef.current?.click()}
             className="p-2.5 hover:bg-slate-700 rounded-lg transition-colors text-slate-400"
+            disabled={model === 'codex'} // Codex might not support images in headless mode as easily
           >
             <Paperclip className="h-5 w-5" />
           </button>
@@ -413,7 +459,7 @@ export default function ClaudeChat() {
                 handleSend();
               }
             }}
-            placeholder="Ask Claude..."
+            placeholder={`Ask ${model}...`}
             className="flex-1 bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px] max-h-32"
           />
           <button

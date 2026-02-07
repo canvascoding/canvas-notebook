@@ -95,7 +95,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
               className="gap-2"
             >
               <MessageSquare className="h-4 w-4" />
-              <span className="hidden sm:inline">Claude Chat</span>
+              <span className="hidden sm:inline">AI Chat</span>
             </Button>
             <div className="hidden sm:flex flex-col items-end">
                 <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">User</span>

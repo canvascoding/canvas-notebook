@@ -64,3 +64,22 @@ export const claudeMessages = sqliteTable("claude_messages", {
   attachments: text("attachments"), // JSON string
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+export const aiSessions = sqliteTable("ai_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull(),
+  userId: text("user_id").notNull().references(() => user.id),
+  model: text("model").notNull(), // 'claude', 'gemini', 'codex'
+  title: text("title"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const aiMessages = sqliteTable("ai_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  aiSessionDbId: integer("ai_session_db_id").notNull().references(() => aiSessions.id),
+  role: text("role").notNull(), // 'user', 'assistant', 'system'
+  content: text("content").notNull(),
+  type: text("type"),
+  attachments: text("attachments"), // JSON string
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
