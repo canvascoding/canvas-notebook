@@ -54,7 +54,11 @@ type UpdateFunction = (content: string, type?: string, status?: ChatMessage['sta
 
 type AIModel = 'claude' | 'gemini' | 'codex';
 
-export default function ClaudeChat() {
+interface ClaudeChatProps {
+  onClose?: () => void;
+}
+
+export default function ClaudeChat({ onClose }: ClaudeChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -356,37 +360,53 @@ export default function ClaudeChat() {
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 relative overflow-hidden">
       {/* Header */}
       <div className="p-2 border-b border-slate-700 flex justify-between items-center bg-slate-800/50 backdrop-blur-sm z-10">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
             {showHistory ? (
-                <button onClick={() => setShowHistory(false)} className="p-1 hover:bg-slate-700 rounded"><ChevronLeft /></button>
+                <button onClick={() => setShowHistory(false)} className="p-1 hover:bg-slate-700 rounded transition-colors"><ChevronLeft /></button>
             ) : (
-                <button onClick={() => { setShowHistory(true); fetchHistory(model); }} className="p-1 hover:bg-slate-700 rounded"><History size={20} /></button>
+                <button onClick={() => { setShowHistory(true); fetchHistory(model); }} className="p-1 hover:bg-slate-700 rounded transition-colors"><History size={20} /></button>
             )}
-            <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-bold text-slate-500 leading-none mb-0.5">{showHistory ? 'History' : 'Chat'}</span>
-                <div className="flex items-center gap-1.5">
+            <div className="flex flex-col min-w-0">
+                <span className="text-[10px] uppercase font-bold text-slate-500 leading-none mb-1">{showHistory ? 'History' : 'Chat'}</span>
+                <div className="flex items-center gap-1.5 bg-slate-950/50 px-2 py-0.5 rounded-full border border-slate-700/50">
                     <select 
                         value={model} 
                         onChange={(e) => handleModelChange(e.target.value as AIModel)}
-                        className="bg-transparent text-xs font-bold focus:outline-none appearance-none cursor-pointer hover:text-blue-400"
+                        className="bg-transparent text-xs font-bold focus:outline-none appearance-none cursor-pointer hover:text-blue-400 pr-1"
                     >
                         <option value="claude">Claude</option>
                         <option value="gemini">Gemini</option>
                         <option value="codex">Codex</option>
                     </select>
-                    {!showHistory && sessionId && <span className="text-[10px] text-slate-600">#{sessionId.substring(0,4)}</span>}
+                    {!showHistory && sessionId && <span className="text-[10px] text-slate-600 border-l border-slate-800 pl-1.5">#{sessionId.substring(0,4)}</span>}
                 </div>
             </div>
         </div>
         <div className="flex items-center gap-1">
-            <button onClick={startNewChat} className="p-1.5 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 rounded-lg transition-all" title="New Chat"><Plus size={18} /></button>
+            <button 
+              onClick={startNewChat} 
+              className="p-1.5 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 rounded-lg transition-all flex items-center gap-1.5 group" 
+              title="New Chat"
+            >
+              <Plus size={18} />
+              <span className="text-xs font-bold hidden sm:inline group-hover:inline-block">New</span>
+            </button>
+            {onClose && (
+              <button 
+                onClick={onClose}
+                className="p-1.5 hover:bg-slate-700 text-slate-400 rounded-lg transition-all"
+                title="Close Chat"
+              >
+                <X size={18} />
+              </button>
+            )}
         </div>
       </div>
 
       {/* Model Disclaimer */}
       {model === 'gemini' && !showHistory && (
           <div className="bg-amber-950/30 border-b border-amber-900/50 p-1.5 px-3 flex items-center gap-2 text-[10px] text-amber-200/70">
-              <AlertTriangle size={12} className="text-amber-500" />
+              <AlertTriangle size={12} className="text-amber-500 shrink-0" />
               <span>Note: Gemini integration is experimental and may contain bugs.</span>
           </div>
       )}
@@ -394,8 +414,8 @@ export default function ClaudeChat() {
       <div className="flex-1 relative">
         {/* History View */}
         {showHistory && (
-            <div className="absolute inset-0 bg-slate-900 z-20 overflow-y-auto p-2 space-y-1">
-                <div className="px-2 py-1 text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
+            <div className="absolute inset-0 bg-slate-900 z-20 overflow-y-auto p-2 space-y-1 pb-20">
+                <div className="px-2 py-2 text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2 tracking-widest border-b border-slate-800 mb-2">
                     <History size={10} /> {model} sessions
                 </div>
                 {history.length === 0 && <div className="text-center p-8 text-slate-500 text-sm italic">No recent sessions for {model}</div>}
@@ -403,18 +423,18 @@ export default function ClaudeChat() {
                     <button 
                         key={s.id} 
                         onClick={() => loadSession(s.sessionId)}
-                        className="w-full text-left p-3 hover:bg-slate-800 rounded-xl border border-transparent hover:border-slate-700 transition-all group flex justify-between items-center"
+                        className="w-full text-left p-3 hover:bg-slate-800 rounded-xl border border-transparent hover:border-slate-700 transition-all group flex justify-between items-center bg-slate-800/30 mb-1"
                     >
                         <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium truncate group-hover:text-blue-400">{s.title || 'Untitled Session'}</div>
+                            <div className="text-sm font-medium truncate group-hover:text-blue-400 text-slate-200">{s.title || 'Untitled Session'}</div>
                             <div className="text-[10px] text-slate-500 mt-1">{new Date(s.createdAt).toLocaleString()}</div>
                         </div>
                         <div 
                             onClick={(e) => deleteSession(e, s.sessionId)}
-                            className="p-2 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-red-400/10"
+                            className="p-2.5 text-slate-500 hover:text-red-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-red-400/10 ml-2 shrink-0"
                             title="Delete Session"
                         >
-                            <Trash2 size={14} />
+                            <Trash2 size={16} />
                         </div>
                     </button>
                 ))}
