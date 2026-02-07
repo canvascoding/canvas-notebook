@@ -195,7 +195,7 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="ml-1 opacity-0 group-hover:opacity-70 hover:opacity-100 bg-slate-800/40 hover:bg-slate-700/70 border border-slate-700/60"
+            className="ml-1 opacity-100 md:opacity-0 md:group-hover:opacity-70 hover:opacity-100 bg-slate-800/40 hover:bg-slate-700/70 border border-slate-700/60 transition-opacity"
             onClick={(event) => {
               event.stopPropagation();
               setOpen(true);

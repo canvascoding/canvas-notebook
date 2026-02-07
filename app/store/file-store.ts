@@ -126,10 +126,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
   // Actions
   loadFileTree: async (path = '.', depth?: number, noCache = false) => {
-    // --- Start of Validation ---
     const { fileTree, currentDirectory, setCurrentDirectory } = get();
+    
     // Helper to find a path in the current tree state
     const findPathInTree = (searchPath: string, tree: FileNode[]): boolean => {
+      if (searchPath === '.') return true;
       for (const node of tree) {
         if (node.path === searchPath) return true;
         if (node.children && findPathInTree(searchPath, node.children)) return true;
@@ -137,15 +138,17 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return false;
     };
     
+    // Determine which directory to actually fetch. 
+    // If path is '.', we use the currentDirectory state if it's still valid.
     let activeDir = path === '.' ? currentDirectory : path;
 
-    // If the active directory is stale (no longer in the tree), reset it.
-    if (activeDir !== '.' && !findPathInTree(activeDir, fileTree)) {
-      console.warn(`Stale active directory "${activeDir}" detected. Resetting to root.`);
-      setCurrentDirectory('.');
+    // Validation: If the active directory is NOT the root AND it's not in our current tree,
+    // it MIGHT be stale. However, we only reset to root if we already have a tree and the path is missing.
+    if (activeDir !== '.' && fileTree.length > 0 && !findPathInTree(activeDir, fileTree)) {
+      console.warn(`Directory "${activeDir}" not found in current tree. Fetching from root.`);
       activeDir = '.';
+      setCurrentDirectory('.');
     }
-    // --- End of Validation ---
 
     set({ isLoadingTree: true, treeError: null });
     
@@ -153,7 +156,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       typeof depth === 'number'
         ? depth
         : Math.max(
-            10, // Increased default depth from 6 to 10
+            10,
             (activeDir === '.' ? 0 : activeDir.split('/').filter(Boolean).length) + 2
           );
 
@@ -170,7 +173,28 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
 
       const { data } = await response.json();
-      set({ fileTree: data, isLoadingTree: false });
+      
+      // If we fetched a subdirectory, we merge it into the existing tree or replace?
+      // For now, the API returns the tree starting from the requested path.
+      // If activeDir is '.', we replace the whole tree.
+      if (activeDir === '.') {
+        set({ fileTree: data, isLoadingTree: false });
+      } else {
+        // Advanced: Merge subdirectory data into the existing tree.
+        // For simplicity and correctness (to avoid UI bugs), we often just reload from root but with higher depth.
+        // Or we just set the fileTree to what the server returned if the server returned the WHOLE tree context.
+        // Since buildFileTree currently only returns from the path downwards, 
+        // we'll reload from root but with NO CACHE to ensure we see the changes.
+        
+        const rootUrl = `/api/files/tree?path=.&depth=${depthTarget}${noCache ? `&noCache=${Date.now()}` : ''}`;
+        const rootResponse = await fetch(rootUrl, { credentials: 'include' });
+        if (rootResponse.ok) {
+          const rootData = await rootResponse.json();
+          set({ fileTree: rootData.data, isLoadingTree: false });
+        } else {
+          set({ fileTree: data, isLoadingTree: false });
+        }
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to load file tree';
@@ -318,7 +342,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         throw new Error(error.error || 'Failed to create path');
       }
 
-      await get().loadFileTree('.', undefined, true);
+      // Refresh from parent directory
+      const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
+      await get().loadFileTree(parentDir, undefined, true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to create path';
@@ -333,6 +359,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ treeError: null });
 
     const pathsToDelete = Array.isArray(paths) ? paths : [paths];
+    let deepestCommonParent = '.';
+    
+    if (pathsToDelete.length > 0) {
+      // Find parent of the first path as a starting point
+      const firstPath = pathsToDelete[0];
+      deepestCommonParent = firstPath.includes('/') ? firstPath.substring(0, firstPath.lastIndexOf('/')) : '.';
+    }
 
     try {
       for (const path of pathsToDelete) {
@@ -350,7 +383,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           throw new Error(error.error || `Failed to delete path: ${path}`);
         }
 
-        const { selectedNode, currentFile } = get();
+        const { selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
+        
+        // If we deleted the current directory or a parent of it, reset current directory
+        if (currentDirectory === path || currentDirectory.startsWith(path + '/')) {
+          const newDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
+          setCurrentDirectory(newDir);
+        }
+
         if (selectedNode?.path === path) {
           set({ selectedNode: null });
         }
@@ -359,7 +399,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         }
       }
 
-      await get().loadFileTree('.', undefined, true);
+      // Clear multi-select after successful deletion
+      set({ multiSelectPaths: [], isMultiSelectMode: false });
+
+      // Refresh from the common parent to keep context
+      await get().loadFileTree(deepestCommonParent, undefined, true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to delete path';
@@ -388,7 +432,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         throw new Error(error.error || 'Failed to rename path');
       }
 
-      const { selectedNode, currentFile } = get();
+      const { selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
+      
+      if (currentDirectory === oldPath || currentDirectory.startsWith(oldPath + '/')) {
+        const updatedDir = currentDirectory.replace(oldPath, newPath);
+        setCurrentDirectory(updatedDir);
+      }
+
       if (selectedNode?.path === oldPath) {
         set({ selectedNode: null });
       }
@@ -396,7 +446,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         set({ currentFile: null, fileError: null });
       }
 
-      await get().loadFileTree('.', undefined, true);
+      const parentDir = oldPath.includes('/') ? oldPath.substring(0, oldPath.lastIndexOf('/')) : '.';
+      await get().loadFileTree(parentDir, undefined, true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to rename path';

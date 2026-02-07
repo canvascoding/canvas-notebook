@@ -61,6 +61,13 @@ export function AppLayout({
     }
   }, [terminalHeight]);
 
+  // Reset fullscreen when terminal is hidden
+  useEffect(() => {
+    if (!terminalVisible) {
+      setTerminalFullscreen(false);
+    }
+  }, [terminalVisible]);
+
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent('terminal-fullscreen-state', {
@@ -238,7 +245,7 @@ export function AppLayout({
         <div
           className={
             terminalFullscreen
-              ? 'fixed inset-0 z-50 bg-slate-950 overflow-hidden overscroll-contain'
+              ? 'fixed inset-0 z-[100] bg-slate-950 overflow-hidden overscroll-contain'
               : 'relative z-30 bg-slate-950 flex-shrink-0'
           }
         >

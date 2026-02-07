@@ -151,8 +151,15 @@ export function FileNode({
         onContextMenu={handleContextMenu}
       >
         {isMultiSelectMode ? (
-          <button onClick={handleCheckboxClick} className="flex-shrink-0 p-0.5">
-            {isMultiSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4 text-slate-500" />}
+          <button 
+            onClick={handleCheckboxClick} 
+            className="flex-shrink-0 p-1 mr-1 rounded hover:bg-slate-600 transition-colors"
+          >
+            {isMultiSelected ? (
+              <CheckSquare className="w-4 h-4 text-blue-400" />
+            ) : (
+              <Square className="w-4 h-4 text-slate-500" />
+            )}
           </button>
         ) : isDirectory ? (
           <span className="flex-shrink-0">

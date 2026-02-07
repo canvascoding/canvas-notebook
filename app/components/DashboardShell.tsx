@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Image from 'next/image';
-import { PanelLeft, MessageSquare, X, Terminal } from 'lucide-react';
+import { PanelLeft, MessageSquare, X, Terminal as TerminalIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
@@ -16,11 +16,18 @@ interface DashboardShellProps {
 }
 
 export function DashboardShell({ username }: DashboardShellProps) {
-  const [sidebarHidden, setSidebarHidden] = useState(false);
-  const [chatVisible, setChatVisible] = useState(true);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [chatVisible, setChatVisible] = useState(false);
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [chatWidth, setChatWidth] = useState(420);
   const isResizing = useRef(false);
+
+  // Initialize visibility based on screen size
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setSidebarVisible(false);
+    }
+  }, []);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;
@@ -36,7 +43,6 @@ export function DashboardShell({ username }: DashboardShellProps) {
     document.body.style.userSelect = 'auto';
   }, []);
 
-  // Use useEffect to manage global listeners when resizing is active
   useEffect(() => {
     const handleMouseUp = () => {
       if (isResizing.current) stopResizing();
@@ -63,41 +69,40 @@ export function DashboardShell({ username }: DashboardShellProps) {
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-slate-900 text-white">
-      <header className="z-40 h-16 flex-shrink-0 border-b border-slate-700 bg-slate-800/80 backdrop-blur-sm">
+      <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-slate-700 bg-slate-800/80 backdrop-blur-sm">
         <div className="mx-auto flex h-full items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <Button
-              variant="ghost"
+              variant={sidebarVisible ? "default" : "ghost"}
               size="icon-sm"
-              onClick={() => setSidebarHidden((prev) => !prev)}
-              aria-label={sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
-              className="hidden md:flex"
+              onClick={() => setSidebarVisible((prev) => !prev)}
+              aria-label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
-            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="rounded-md" />
-            <h1 className="text-xl md:text-2xl font-bold truncate">CANVAS STUDIOS</h1>
+            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="rounded-md shrink-0" />
+            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">CANVAS STUDIOS</h1>
           </div>
-          <div className="flex items-center gap-2 md:gap-4">
+          <div className="flex items-center gap-1.5 md:gap-4">
             <Button
               variant={terminalVisible ? "default" : "ghost"}
               size="sm"
               onClick={() => setTerminalVisible(!terminalVisible)}
-              className="gap-2"
+              className="gap-2 px-2 sm:px-3"
             >
-              <Terminal className="h-4 w-4" />
+              <TerminalIcon className="h-4 w-4" />
               <span className="hidden sm:inline">Terminal</span>
             </Button>
             <Button
               variant={chatVisible ? "default" : "ghost"}
               size="sm"
               onClick={() => setChatVisible(!chatVisible)}
-              className="gap-2"
+              className="gap-2 px-2 sm:px-3"
             >
               <MessageSquare className="h-4 w-4" />
               <span className="hidden sm:inline">AI Chat</span>
             </Button>
-            <div className="hidden sm:flex flex-col items-end">
+            <div className="hidden lg:flex flex-col items-end shrink-0">
                 <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">User</span>
                 <span className="text-xs text-slate-300">{username}</span>
             </div>
@@ -107,65 +112,112 @@ export function DashboardShell({ username }: DashboardShellProps) {
       </header>
 
       <main className="flex min-h-0 flex-1 overflow-hidden relative">
-        <AppLayout
-          sidebar={<FileBrowser />}
-          sidebarHidden={sidebarHidden}
-          terminalVisible={terminalVisible}
-          main={
-            <div className="flex h-full w-full overflow-hidden relative">
-              {/* Main Editor Area */}
-              <div className="flex-1 min-w-0 border-l border-slate-700 bg-slate-900/80">
-                <FileEditor />
-              </div>
+        {/* Mobile Sidebar Overlay */}
+        {sidebarVisible && (
+          <div 
+            className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] transition-opacity duration-300"
+            onClick={() => setSidebarVisible(false)}
+          />
+        )}
 
-              {/* Mobile Backdrop Overlay */}
-              {chatVisible && (
-                <div 
-                  className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[45] transition-opacity duration-300"
-                  onClick={() => setChatVisible(false)}
-                />
-              )}
+        {/* Sidebar Container - Sliding on mobile, fixed on desktop */}
+        <div className={`
+          fixed md:relative top-0 left-0 bottom-0 z-[80] md:z-auto
+          w-[280px] flex-shrink-0 bg-slate-900 border-r border-slate-700
+          transition-all duration-300 ease-in-out
+          ${sidebarVisible 
+            ? 'translate-x-0 opacity-100' 
+            : '-translate-x-full md:hidden opacity-0 pointer-events-none'
+          }
+        `}>
+          <div className="flex flex-col h-full">
+            <div className="md:hidden p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+              <span className="font-bold text-sm tracking-widest uppercase opacity-50 text-white">Files</span>
+              <button onClick={() => setSidebarVisible(false)} className="p-1 hover:bg-slate-700 rounded-full">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <FileBrowser />
+            </div>
+          </div>
+        </div>
 
-              {/* Resize Handle - Desktop Only */}
-              {chatVisible && (
+        <div className="flex-1 min-w-0 h-full flex flex-col relative">
+          <AppLayout
+            sidebar={<div />} // Handled manually for better mobile control
+            sidebarHidden={true}
+            terminalVisible={terminalVisible && (typeof window === 'undefined' || window.innerWidth >= 768)}
+            main={
+              <div className="flex h-full w-full overflow-hidden relative">
+                {/* Main Editor Area */}
+                <div className="flex-1 min-w-0 bg-slate-900/80">
+                  <FileEditor />
+                </div>
+
+                {/* Mobile Chat Backdrop Overlay */}
+                {chatVisible && (
+                  <div 
+                    className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] transition-opacity duration-300"
+                    onClick={() => setChatVisible(false)}
+                  />
+                )}
+
+                {/* Resize Handle - Desktop Only */}
+                {chatVisible && (
+                  <div 
+                    onMouseDown={startResizing}
+                    className="hidden md:flex w-1 hover:w-1.5 bg-slate-700 hover:bg-blue-500 cursor-col-resize z-50 transition-all items-center justify-center"
+                  >
+                    <div className="w-0.5 h-8 bg-slate-500 rounded-full" />
+                  </div>
+                )}
+
+                {/* Chat Panel - Responsive Sliding Implementation */}
                 <div 
-                  onMouseDown={startResizing}
-                  className="hidden md:flex w-1 hover:w-1.5 bg-slate-700 hover:bg-blue-500 cursor-col-resize z-50 transition-all items-center justify-center"
+                  style={{ 
+                    width: typeof window !== 'undefined' && window.innerWidth < 768 ? 'min(90%, 400px)' : (chatVisible ? `${chatWidth}px` : '0px')
+                  }}
+                  className={`
+                    fixed md:relative top-0 right-0 bottom-0 z-[80] md:z-auto
+                    flex-shrink-0 bg-slate-950 md:bg-transparent md:border-l md:border-slate-700
+                    transition-all duration-300 ease-in-out
+                    ${chatVisible 
+                      ? 'translate-x-0 opacity-100' 
+                      : 'translate-x-full md:translate-x-0 opacity-0 md:opacity-100 overflow-hidden pointer-events-none md:w-0 md:border-none'
+                    }
+                  `}
                 >
-                  <div className="w-0.5 h-8 bg-slate-500 rounded-full" />
+                  <div className="flex flex-col w-full h-full relative">
+                      <ClaudeChat onClose={() => setChatVisible(false)} />
+                  </div>
                 </div>
-              )}
+              </div>
+            }
+            terminal={<TerminalPanel />}
+          />
 
-              {/* Chat Panel - Responsive Sliding Implementation */}
-              <div 
-                style={{ 
-                  width: typeof window !== 'undefined' && window.innerWidth < 768 ? 'min(90%, 400px)' : (chatVisible ? `${chatWidth}px` : '0px')
-                }}
-                className={`
-                  fixed md:relative top-0 right-0 bottom-0 z-50 md:z-auto
-                  flex-shrink-0 bg-slate-950 md:bg-transparent md:border-l md:border-slate-700
-                  transition-all duration-300 ease-in-out
-                  ${chatVisible 
-                    ? 'translate-x-0 opacity-100' 
-                    : 'translate-x-full md:translate-x-0 opacity-0 md:opacity-100 overflow-hidden pointer-events-none md:w-0 md:border-none'
-                  }
-                `}
-              >
-                <div className="flex flex-col w-full h-full relative">
-                    {/* Mobile Close Button */}
-                    <button 
-                        onClick={() => setChatVisible(false)}
-                        className="md:hidden absolute top-3 right-3 z-[60] p-2 bg-slate-800/90 hover:bg-slate-700 rounded-full text-white shadow-xl border border-slate-700 backdrop-blur-md transition-transform active:scale-95"
-                    >
-                        <X size={18} />
-                    </button>
-                    <ClaudeChat />
+          {/* Fullscreen Mobile Terminal */}
+          {terminalVisible && (
+            <div className="md:hidden fixed inset-0 z-[100] bg-slate-950 flex flex-col">
+              <div className="flex items-center justify-between p-2 bg-slate-900 border-b border-slate-700">
+                <div className="flex items-center gap-2 px-2">
+                  <TerminalIcon size={14} className="text-blue-400" />
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Terminal</span>
                 </div>
+                <button 
+                  onClick={() => setTerminalVisible(false)}
+                  className="p-2 hover:bg-slate-800 rounded-full text-slate-400"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden pb-safe">
+                <TerminalPanel />
               </div>
             </div>
-          }
-          terminal={<TerminalPanel />}
-        />
+          )}
+        </div>
       </main>
     </div>
   );
