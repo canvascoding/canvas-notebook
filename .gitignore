@@ -58,6 +58,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# AI Chat Screenshots
+temp/screenshots/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/workspace

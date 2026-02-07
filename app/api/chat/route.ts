@@ -17,11 +17,22 @@ export async function POST(request: NextRequest) {
     const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'ai-chat' });
     if (!limited.ok) return limited.response;
 
-    const { message, sessionId, model = 'claude' } = await request.json();
-    if (!message) return NextResponse.json({ success: false, error: 'Message required' }, { status: 400 });
+    const { message, sessionId, model = 'claude', attachments = [] } = await request.json();
+    if (!message && (!attachments || attachments.length === 0)) {
+      return NextResponse.json({ success: false, error: 'Message or attachment required' }, { status: 400 });
+    }
     
     const userWorkspacePath = getWorkspacePath(); 
     await ensureWorkspaceExists(userWorkspacePath);
+
+    // Prepare final message with attachment references
+    let finalPrompt = message || '';
+    if (attachments && attachments.length > 0) {
+      const attachmentContext = attachments
+        .map((a: any) => `[Attachment: ${a.name} at path ${a.path}]`)
+        .join('\n');
+      finalPrompt = `${finalPrompt}\n\nAttachments:\n${attachmentContext}\n\nPlease analyze the images/files at the absolute paths provided above.`.trim();
+    }
 
     let command = '';
     let args: string[] = [];
@@ -29,7 +40,7 @@ export async function POST(request: NextRequest) {
     if (model === 'claude') {
       command = 'claude';
       args = [
-        '-p', message,
+        '-p', finalPrompt,
         '--output-format', 'stream-json',
         '--verbose',
         '--dangerously-skip-permissions',
