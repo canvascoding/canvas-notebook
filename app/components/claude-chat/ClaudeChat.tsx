@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Paperclip, X, Image as ImageIcon, History, Plus, MessageSquare, ChevronLeft, ArrowDown, AlertTriangle, Cpu, Sparkles, Code } from 'lucide-react';
+import { Paperclip, X, Image as ImageIcon, History, Plus, MessageSquare, ChevronLeft, ArrowDown, AlertTriangle, Cpu, Sparkles, Code, Trash2 } from 'lucide-react';
 
 interface Attachment {
   name: string;
@@ -183,6 +183,26 @@ export default function ClaudeChat() {
       setMessages([{ id: 'error', role: 'system', content: 'Failed to load message history.' }]);
     }
   }, [model]);
+
+  const deleteSession = useCallback(async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this session?')) return;
+
+    try {
+      const res = await fetch(`/api/sessions?sessionId=${id}&model=${model}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setHistory(prev => prev.filter(s => s.sessionId !== id));
+        if (sessionId === id) {
+          startNewChat();
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete session', err);
+    }
+  }, [model, sessionId, startNewChat]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -369,10 +389,19 @@ export default function ClaudeChat() {
                     <button 
                         key={s.id} 
                         onClick={() => loadSession(s.sessionId)}
-                        className="w-full text-left p-3 hover:bg-slate-800 rounded-xl border border-transparent hover:border-slate-700 transition-all group"
+                        className="w-full text-left p-3 hover:bg-slate-800 rounded-xl border border-transparent hover:border-slate-700 transition-all group flex justify-between items-center"
                     >
-                        <div className="text-sm font-medium truncate group-hover:text-blue-400">{s.title || 'Untitled Session'}</div>
-                        <div className="text-[10px] text-slate-500 mt-1">{new Date(s.createdAt).toLocaleString()}</div>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium truncate group-hover:text-blue-400">{s.title || 'Untitled Session'}</div>
+                            <div className="text-[10px] text-slate-500 mt-1">{new Date(s.createdAt).toLocaleString()}</div>
+                        </div>
+                        <div 
+                            onClick={(e) => deleteSession(e, s.sessionId)}
+                            className="p-2 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-red-400/10"
+                            title="Delete Session"
+                        >
+                            <Trash2 size={14} />
+                        </div>
                     </button>
                 ))}
             </div>
