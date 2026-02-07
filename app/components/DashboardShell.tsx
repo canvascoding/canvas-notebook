@@ -118,7 +118,15 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 <FileEditor />
               </div>
 
-              {/* Resize Handle */}
+              {/* Mobile Backdrop Overlay */}
+              {chatVisible && (
+                <div 
+                  className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[45] transition-opacity duration-300"
+                  onClick={() => setChatVisible(false)}
+                />
+              )}
+
+              {/* Resize Handle - Desktop Only */}
               {chatVisible && (
                 <div 
                   onMouseDown={startResizing}
@@ -128,24 +136,28 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 </div>
               )}
 
-              {/* Chat Panel - Responsive Implementation */}
+              {/* Chat Panel - Responsive Sliding Implementation */}
               <div 
-                style={{ width: chatVisible ? (typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : `${chatWidth}px`) : '0px' }}
+                style={{ 
+                  width: typeof window !== 'undefined' && window.innerWidth < 768 ? 'min(90%, 400px)' : (chatVisible ? `${chatWidth}px` : '0px')
+                }}
                 className={`
-                  ${chatVisible ? 'flex' : 'hidden'} 
-                  absolute inset-0 z-50 md:relative md:inset-auto 
-                  flex-shrink-0 
-                  bg-slate-950 md:bg-transparent md:border-l md:border-slate-700
-                  transition-[width] duration-0
+                  fixed md:relative top-0 right-0 bottom-0 z-50 md:z-auto
+                  flex-shrink-0 bg-slate-950 md:bg-transparent md:border-l md:border-slate-700
+                  transition-all duration-300 ease-in-out
+                  ${chatVisible 
+                    ? 'translate-x-0 opacity-100' 
+                    : 'translate-x-full md:translate-x-0 opacity-0 md:opacity-100 overflow-hidden pointer-events-none md:w-0 md:border-none'
+                  }
                 `}
               >
                 <div className="flex flex-col w-full h-full relative">
                     {/* Mobile Close Button */}
                     <button 
                         onClick={() => setChatVisible(false)}
-                        className="md:hidden absolute top-2 right-2 z-[60] p-2 bg-slate-800 rounded-full text-white shadow-xl border border-slate-700"
+                        className="md:hidden absolute top-3 right-3 z-[60] p-2 bg-slate-800/90 hover:bg-slate-700 rounded-full text-white shadow-xl border border-slate-700 backdrop-blur-md transition-transform active:scale-95"
                     >
-                        <X size={20} />
+                        <X size={18} />
                     </button>
                     <ClaudeChat />
                 </div>

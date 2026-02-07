@@ -123,6 +123,9 @@ export default function ClaudeChat() {
     else if (event.type === 'text' && event.content) {
        updateFn(event.content, 'text');
     }
+    else if (event.type === 'error' && (event as any).message) {
+       updateFn(`[Error] ${(event as any).message}`, 'system', 'error');
+    }
     else if (event.type === 'user' && event.tool_use_result) {
       const result = event.tool_use_result;
       if (result.stdout || result.stderr) {
