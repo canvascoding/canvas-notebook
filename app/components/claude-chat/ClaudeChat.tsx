@@ -204,15 +204,12 @@ export default function ClaudeChat() {
     }
   }, [model, sessionId, startNewChat]);
 
-  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const handleFileUpload = useCallback(async (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/claude/upload', { method: 'POST', body: formData });
+      const res = await fetch('/api/upload/screenshot', { method: 'POST', body: formData });
       const data = await res.json();
       if (data.success) {
         setAttachments(prev => [...prev, { name: data.name, path: data.path, type: file.type }]);
@@ -220,8 +217,30 @@ export default function ClaudeChat() {
     } catch (err) {
       console.error('Upload failed', err);
     }
-    if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
+
+  const onFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFileUpload(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [handleFileUpload]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        if (file) {
+          // Rename file to a more useful name if it's generic 'image.png'
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const renamedFile = new File([file], `screenshot-${timestamp}.png`, { type: file.type });
+          handleFileUpload(renamedFile);
+        }
+      }
+    }
+  }, [handleFileUpload]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
@@ -247,17 +266,12 @@ export default function ClaudeChat() {
 
   const processMessage = useCallback(async (text: string, currentAttachments: Attachment[]) => {
     setIsProcessing(true);
-    let messageToAI = text;
-    if (currentAttachments.length > 0) {
-      const attachmentRefs = currentAttachments.map(a => `[Attached Image: ${a.path}]`).join('\n');
-      messageToAI = `${text}\n\n${attachmentRefs}`.trim();
-    }
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageToAI, sessionId, model })
+        body: JSON.stringify({ message: text, sessionId, model, attachments: currentAttachments })
       });
 
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
@@ -479,21 +493,22 @@ export default function ClaudeChat() {
           <button 
             onClick={() => fileInputRef.current?.click()}
             className="p-2.5 hover:bg-slate-700 rounded-lg transition-colors text-slate-400"
-            disabled={model === 'codex'} // Codex might not support images in headless mode as easily
+            disabled={model === 'codex'} // Keep as requested
           >
             <Paperclip className="h-5 w-5" />
           </button>
-          <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
+          <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*" />
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
               }
             }}
-            placeholder={`Ask ${model}...`}
+            placeholder={`Ask ${model}... (Paste images supported)`}
             className="flex-1 bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px] max-h-32"
           />
           <button
