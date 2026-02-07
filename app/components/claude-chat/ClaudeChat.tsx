@@ -141,6 +141,8 @@ export default function ClaudeChat() {
     
     if (event.session_id) setSessionId(event.session_id);
     if (event.sessionId) setSessionId(event.sessionId);
+    if ((event as any).thread_id) setSessionId((event as any).thread_id);
+    if ((event as any).threadId) setSessionId((event as any).threadId);
   }, []);
 
   const fetchHistory = useCallback(async (selectedModel: AIModel) => {
@@ -348,10 +350,10 @@ export default function ClaudeChat() {
       </div>
 
       {/* Model Disclaimer */}
-      {(model === 'gemini' || model === 'codex') && !showHistory && (
+      {model === 'gemini' && !showHistory && (
           <div className="bg-amber-950/30 border-b border-amber-900/50 p-1.5 px-3 flex items-center gap-2 text-[10px] text-amber-200/70">
               <AlertTriangle size={12} className="text-amber-500" />
-              <span>Note: {model === 'gemini' ? 'Gemini' : 'Codex'} integration is experimental and may contain bugs.</span>
+              <span>Note: Gemini integration is experimental and may contain bugs.</span>
           </div>
       )}
 

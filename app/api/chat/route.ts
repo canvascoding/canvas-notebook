@@ -100,22 +100,28 @@ export async function POST(request: NextRequest) {
 
               // 1. Session Extraction
               if (model === 'claude' || model === 'gemini') {
-                if (event.session_id) extractedSessionId = event.session_id;
+                if (event.session_id) {
+                  extractedSessionId = event.session_id;
+                  console.log(`[${model}] Captured session_id: ${extractedSessionId}`);
+                }
                 if (event.type === 'result' && event.result) finalResultText = event.result;
               } else if (model === 'codex') {
-                if (event.type === 'thread.started' && event.thread_id) {
+                if ((event.type === 'thread.started' || event.type === 'thread.resumed') && event.thread_id) {
                   extractedSessionId = event.thread_id;
+                  console.log(`[Codex] Captured thread_id: ${extractedSessionId}`);
                 }
               }
 
               // 2. Initial Success Header
               if (!hasSentHeader) {
-                push(JSON.stringify({
+                const header = JSON.stringify({
                   success: true,
                   sessionId: extractedSessionId || sessionId || 'new',
                   model,
                   initialEvent: event
-                }) + '\n');
+                });
+                console.log(`[${model}] Sending initial header: ${header}`);
+                push(header + '\n');
                 hasSentHeader = true;
               }
 
@@ -125,17 +131,18 @@ export async function POST(request: NextRequest) {
                   finalResultText += event.content.text;
                   push(JSON.stringify({ 
                     type: 'assistant', 
-                    message: { content: [{ type: 'text', text: event.content.text }] } 
+                    message: { content: [{ type: 'text', text: event.content.text }] },
+                    thread_id: extractedSessionId
                   }) + '\n');
                   continue; 
                 }
                 if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item.text) {
-                  // Only push if we haven't accumulated content via deltas (or push as final sync)
                   if (!finalResultText) {
                     finalResultText = event.item.text;
                     push(JSON.stringify({ 
                       type: 'assistant', 
-                      message: { content: [{ type: 'text', text: event.item.text }] } 
+                      message: { content: [{ type: 'text', text: event.item.text }] },
+                      thread_id: extractedSessionId
                     }) + '\n');
                   }
                   continue;
@@ -150,6 +157,7 @@ export async function POST(request: NextRequest) {
             } catch (e) {
               // Handle potential raw text (progress indicators etc)
               if (line.trim()) {
+                console.log(`[${model} RAW] ${line}`);
                 // If it looks like an error, treat it as one
                 if (line.includes('ERROR')) {
                    push(JSON.stringify({ type: 'error', message: line }) + '\n');
@@ -157,7 +165,8 @@ export async function POST(request: NextRequest) {
                    // Otherwise stream as text delta
                    push(JSON.stringify({ 
                      type: 'assistant', 
-                     message: { content: [{ type: 'text', text: line + '\n' }] } 
+                     message: { content: [{ type: 'text', text: line + '\n' }] },
+                     thread_id: extractedSessionId
                    }) + '\n');
                 }
               }
@@ -179,6 +188,7 @@ export async function POST(request: NextRequest) {
           try {
             let dbSessionId: number | null = null;
             const targetSessionId = extractedSessionId || sessionId;
+            console.log(`[${model}] Final persistence check. targetSessionId: ${targetSessionId}, model: ${model}`);
             
             if (targetSessionId) {
               const existingSessions = await db
@@ -189,7 +199,9 @@ export async function POST(request: NextRequest) {
 
               if (existingSessions.length > 0) {
                 dbSessionId = existingSessions[0].id;
+                console.log(`[${model}] Found existing session in DB: ${dbSessionId}`);
               } else {
+                console.log(`[${model}] Creating NEW session in DB for ID: ${targetSessionId}`);
                 const result = await db.insert(aiSessions).values({
                   sessionId: targetSessionId,
                   userId: session.user.id,
@@ -202,6 +214,7 @@ export async function POST(request: NextRequest) {
             }
 
             if (dbSessionId) {
+              console.log(`[${model}] Saving user message to DB session ${dbSessionId}`);
               await db.insert(aiMessages).values({
                 aiSessionDbId: dbSessionId,
                 role: 'user',
@@ -210,6 +223,7 @@ export async function POST(request: NextRequest) {
               });
 
               if (finalResultText) {
+                console.log(`[${model}] Saving assistant message to DB (length: ${finalResultText.length})`);
                 await db.insert(aiMessages).values({
                   aiSessionDbId: dbSessionId,
                   role: 'assistant',
