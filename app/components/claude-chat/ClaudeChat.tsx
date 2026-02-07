@@ -1,8 +1,8 @@
 // app/components/claude-chat/ClaudeChat.tsx
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Paperclip, X, Image as ImageIcon, History, Plus, MessageSquare, ChevronLeft } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Paperclip, X, Image as ImageIcon, History, Plus, MessageSquare, ChevronLeft, ArrowDown } from 'lucide-react';
 
 interface Attachment {
   name: string;
@@ -26,6 +26,31 @@ interface ClaudeSession {
   createdAt: string;
 }
 
+interface ChatEvent {
+  type: string;
+  message?: {
+    content: Array<{
+      type: string;
+      text?: string;
+      name?: string;
+      input?: {
+        command: string;
+      };
+    }>;
+  };
+  tool_use_result?: {
+    stdout?: string;
+    stderr?: string;
+  };
+  result?: string;
+  session_id?: string;
+  sessionId?: string;
+  success?: boolean;
+  initialEvent?: ChatEvent;
+}
+
+type UpdateFunction = (content: string, type?: string, status?: ChatMessage['status']) => void;
+
 export default function ClaudeChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
@@ -35,43 +60,103 @@ export default function ClaudeChat() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<ClaudeSession[]>([]);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  // Handle scroll events to detect if user is at bottom
+  const handleScroll = useCallback(() => {
+    if (!scrollContainerRef.current) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    // Use a small buffer (100px) for detection
+    const atBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setIsAtBottom(atBottom);
+  }, []);
 
   useEffect(() => {
-    if (!isProcessing && queue.length > 0) {
-      const next = queue[0];
-      setQueue(prev => prev.slice(1));
-      processMessage(next.text, next.attachments);
+    const scrollContainer = scrollContainerRef.current;
+    if (scrollContainer) {
+      scrollContainer.addEventListener('scroll', handleScroll);
+      return () => scrollContainer.removeEventListener('scroll', handleScroll);
     }
-  }, [isProcessing, queue]);
+  }, [handleScroll]);
 
-  const fetchHistory = async () => {
+  // Auto-scroll logic
+  useEffect(() => {
+    if (messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+    
+    // Only scroll if we were already at bottom, or if the last message is from user
+    if (isAtBottom || lastMessage.role === 'user') {
+      scrollToBottom(lastMessage.role === 'user' ? 'smooth' : 'auto');
+    }
+  }, [messages, isAtBottom]);
+
+  const updateAssistantMessage = useCallback((id: string, content: string, type?: string, status?: ChatMessage['status']) => {
+    setMessages(prev => prev.map(m => 
+      m.id === id ? { ...m, content, type: type || m.type, status: status || m.status } : m
+    ));
+  }, []);
+
+  const handleEvent = useCallback((event: ChatEvent, msgId: string, updateFn: UpdateFunction) => {
+    if (event.type === 'assistant' && event.message?.content) {
+      for (const part of event.message.content) {
+        if (part.type === 'text') {
+          updateFn(part.text || '', 'text');
+        } else if (part.type === 'tool_use') {
+          if (part.name === 'Bash' && part.input) {
+            const cmd = part.input.command;
+            updateFn('\n```bash\n$ ' + cmd + '\n```\n', 'tool_use');
+          } else {
+            updateFn('\n[Tool: ' + part.name + ']\n', 'tool_use');
+          }
+        }
+      }
+    } 
+    else if (event.type === 'user' && event.tool_use_result) {
+      const result = event.tool_use_result;
+      if (result.stdout || result.stderr) {
+        const out = result.stdout || result.stderr;
+        updateFn('\n```text\n' + out + '\n```\n', 'tool_result');
+      } else {
+        updateFn('\n[Success]\n', 'tool_result');
+      }
+    }
+    else if (event.type === 'result' && event.result) {
+       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: event.result as string, status: 'sent', type: 'result' } : m));
+    }
+    
+    if (event.session_id) setSessionId(event.session_id);
+    if (event.sessionId) setSessionId(event.sessionId);
+  }, []);
+
+  const fetchHistory = useCallback(async () => {
     try {
       const res = await fetch('/api/claude/sessions');
       const data = await res.json();
-      if (data.success) setHistory(data.sessions);
+      if (data.success) {
+          setHistory(data.sessions);
+      }
     } catch (err) {
       console.error('Failed to fetch history', err);
     }
-  };
+  }, []);
 
-  const startNewChat = () => {
+  const startNewChat = useCallback(() => {
     setSessionId(null);
     setMessages([]);
     setShowHistory(false);
-  };
+  }, []);
 
-  const loadSession = async (id: string) => {
+  const loadSession = useCallback(async (id: string) => {
     setSessionId(id);
     setMessages([{ id: 'system', role: 'system', content: `Loading session ${id.substring(0,8)}...` }]);
     setShowHistory(false);
@@ -92,9 +177,9 @@ export default function ClaudeChat() {
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: 'Failed to load message history.' }]);
     }
-  };
+  }, []);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -111,13 +196,13 @@ export default function ClaudeChat() {
       console.error('Upload failed', err);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+  }, []);
 
-  const removeAttachment = (index: number) => {
+  const removeAttachment = useCallback((index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
+  }, []);
 
-  const handleSend = () => {
+  const handleSend = useCallback(() => {
     if (!input.trim() && attachments.length === 0) return;
     const text = input.trim();
     const currentAttachments = [...attachments];
@@ -133,9 +218,9 @@ export default function ClaudeChat() {
     }]);
     
     setQueue(prev => [...prev, { text, attachments: currentAttachments }]);
-  };
+  }, [input, attachments]);
 
-  const processMessage = async (text: string, currentAttachments: Attachment[]) => {
+  const processMessage = useCallback(async (text: string, currentAttachments: Attachment[]) => {
     setIsProcessing(true);
     let messageToClaude = text;
     if (currentAttachments.length > 0) {
@@ -205,45 +290,15 @@ export default function ClaudeChat() {
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [sessionId, handleEvent, updateAssistantMessage]);
 
-  const handleEvent = (event: any, msgId: string, updateFn: (content: string, type?: string, status?: any) => void) => {
-    if (event.type === 'assistant' && event.message?.content) {
-      for (const part of event.message.content) {
-        if (part.type === 'text') {
-          updateFn(part.text, 'text');
-        } else if (part.type === 'tool_use') {
-          if (part.name === 'Bash') {
-            const cmd = part.input.command;
-            updateFn('\n```bash\n$ ' + cmd + '\n```\n', 'tool_use');
-          } else {
-            updateFn('\n[Tool: ' + part.name + ']\n', 'tool_use');
-          }
-        }
-      }
-    } 
-    else if (event.type === 'user' && event.tool_use_result) {
-      const result = event.tool_use_result;
-      if (result.stdout || result.stderr) {
-        const out = result.stdout || result.stderr;
-        updateFn('\n```text\n' + out + '\n```\n', 'tool_result');
-      } else {
-        updateFn('\n[Success]\n', 'tool_result');
-      }
+  useEffect(() => {
+    if (!isProcessing && queue.length > 0) {
+      const next = queue[0];
+      setQueue(prev => prev.slice(1));
+      processMessage(next.text, next.attachments);
     }
-    else if (event.type === 'result' && event.result) {
-       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: event.result, status: 'sent', type: 'result' } : m));
-    }
-    
-    if (event.session_id) setSessionId(event.session_id);
-    if (event.sessionId) setSessionId(event.sessionId);
-  };
-
-  const updateAssistantMessage = (id: string, content: string, type?: string, status?: any) => {
-    setMessages(prev => prev.map(m => 
-      m.id === id ? { ...m, content, type: type || m.type, status: status || m.status } : m
-    ));
-  };
+  }, [isProcessing, queue, processMessage]);
 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-slate-100 relative overflow-hidden">
@@ -279,7 +334,10 @@ export default function ClaudeChat() {
         )}
 
         {/* Messages View */}
-        <div className="absolute inset-0 overflow-y-auto p-4 space-y-4 pb-24">
+        <div 
+          ref={scrollContainerRef}
+          className="absolute inset-0 overflow-y-auto p-4 space-y-4 pb-24 scroll-smooth"
+        >
             {messages.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-4 opacity-40">
                     <MessageSquare size={48} />
@@ -313,10 +371,21 @@ export default function ClaudeChat() {
             ))}
             <div ref={messagesEndRef} />
         </div>
+
+        {/* Scroll to Bottom Button */}
+        {!isAtBottom && messages.length > 0 && (
+          <button 
+            onClick={() => scrollToBottom()}
+            className="absolute bottom-28 right-4 p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-full shadow-lg z-30 transition-all animate-bounce border border-blue-400/30"
+            title="Scroll to bottom"
+          >
+            <ArrowDown size={20} />
+          </button>
+        )}
       </div>
 
       {/* Input Area */}
-      <div className="p-3 bg-slate-800/80 backdrop-blur-md border-t border-slate-700 absolute bottom-0 left-0 right-0">
+      <div className="p-3 bg-slate-800/80 backdrop-blur-md border-t border-slate-700 absolute bottom-0 left-0 right-0 z-20">
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-950/40 rounded-lg">
             {attachments.map((a, i) => (
