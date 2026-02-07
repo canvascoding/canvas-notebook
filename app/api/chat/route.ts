@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
       args = [
         '-p', message,
         '--output-format', 'stream-json',
+        '--verbose',
         '--dangerously-skip-permissions',
         '--permission-mode', 'bypassPermissions',
         '--allowedTools', 'read', '--allowedTools', 'ls', '--allowedTools', 'bash', 
@@ -43,25 +44,31 @@ export async function POST(request: NextRequest) {
       args = [
         '-p', message,
         '--output-format', 'stream-json',
-        '--yolo', // Automatically accept all actions for headless mode
+        '--verbose',
+        '--yolo',
         '--approval-mode', 'yolo'
       ];
       if (sessionId) args.push('--resume', sessionId);
     } else if (model === 'codex') {
       command = 'codex';
+      // We don't specify model to let it use the server default for ChatGPT accounts
       args = [
         'exec',
         '--json',
-        '--dangerously-bypass-approvals-and-sandbox',
         '--skip-git-repo-check',
-        message
+        '--dangerously-bypass-approvals-and-sandbox',
       ];
-      // Codex resume logic might differ, for now we just pass the prompt
+      
+      if (sessionId) {
+        args.push('resume', sessionId, message);
+      } else {
+        args.push(message);
+      }
     } else {
       return NextResponse.json({ success: false, error: 'Invalid model' }, { status: 400 });
     }
 
-    console.log(`[AI Chat] Model: ${model}, Workspace: ${userWorkspacePath}, Session: ${sessionId || 'new'}`);
+    console.log(`[AI Chat] Executing: ${command} ${args.join(' ')}`);
 
     const aiProcess = spawn(command, args, {
       cwd: userWorkspacePath,
@@ -87,30 +94,21 @@ export async function POST(request: NextRequest) {
 
           for (const line of lines) {
             if (!line.trim()) continue;
+            console.log(`[${model} STDOUT] ${line}`);
             try {
               const event = JSON.parse(line);
 
-              // Extract Session ID for Claude and Gemini
+              // 1. Session Extraction
               if (model === 'claude' || model === 'gemini') {
-                if ((event.type === 'system' && event.subtype === 'init') || event.type === 'result') {
-                  if (event.session_id) extractedSessionId = event.session_id;
-                }
-                if (event.type === 'result' && event.result) {
-                  finalResultText = event.result;
-                }
-              } 
-              // Extract for Codex
-              else if (model === 'codex') {
-                // Codex JSONL events might differ, we need to map them to a common format
-                // For now, if it's text, we collect it
-                if (event.type === 'message' && event.message?.content) {
-                   // Map codex message to common format
-                }
-                if (event.type === 'final_response' || event.type === 'success') {
-                    finalResultText = event.content || event.message || finalResultText;
+                if (event.session_id) extractedSessionId = event.session_id;
+                if (event.type === 'result' && event.result) finalResultText = event.result;
+              } else if (model === 'codex') {
+                if (event.type === 'thread.started' && event.thread_id) {
+                  extractedSessionId = event.thread_id;
                 }
               }
 
+              // 2. Initial Success Header
               if (!hasSentHeader) {
                 push(JSON.stringify({
                   success: true,
@@ -119,39 +117,84 @@ export async function POST(request: NextRequest) {
                   initialEvent: event
                 }) + '\n');
                 hasSentHeader = true;
+              }
+
+              // 3. Mapping Codex events to Claude-like format for the UI
+              if (model === 'codex') {
+                if (event.type === 'item.agentMessage.delta' && event.content?.text) {
+                  finalResultText += event.content.text;
+                  push(JSON.stringify({ 
+                    type: 'assistant', 
+                    message: { content: [{ type: 'text', text: event.content.text }] } 
+                  }) + '\n');
+                  continue; 
+                }
+                if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item.text) {
+                  // Only push if we haven't accumulated content via deltas (or push as final sync)
+                  if (!finalResultText) {
+                    finalResultText = event.item.text;
+                    push(JSON.stringify({ 
+                      type: 'assistant', 
+                      message: { content: [{ type: 'text', text: event.item.text }] } 
+                    }) + '\n');
+                  }
+                  continue;
+                }
+                if (event.type === 'error' || event.type === 'turn.failed') {
+                   push(JSON.stringify({ type: 'error', message: event.message || event.error?.message || 'Codex error' }) + '\n');
+                }
               } else {
+                // For Claude/Gemini, just push original events
                 push(line + '\n');
               }
             } catch (e) {
-              // Non-JSON output (maybe progress indicators)
-              push(JSON.stringify({ type: 'text', content: line }) + '\n');
+              // Handle potential raw text (progress indicators etc)
+              if (line.trim()) {
+                // If it looks like an error, treat it as one
+                if (line.includes('ERROR')) {
+                   push(JSON.stringify({ type: 'error', message: line }) + '\n');
+                } else {
+                   // Otherwise stream as text delta
+                   push(JSON.stringify({ 
+                     type: 'assistant', 
+                     message: { content: [{ type: 'text', text: line + '\n' }] } 
+                   }) + '\n');
+                }
+              }
             }
           }
         });
 
         aiProcess.stderr.on('data', (data: Buffer) => {
-          push(JSON.stringify({ type: 'error', message: data.toString() }) + '\n');
+          const errStr = data.toString();
+          console.error(`[${model} STDERR] ${errStr}`);
+          // Many CLI tools write progress/warnings to stderr
+          if (errStr.toLowerCase().includes('error')) {
+            push(JSON.stringify({ type: 'error', message: errStr }) + '\n');
+          }
         });
 
         aiProcess.on('close', async (code: number | null) => {
+          console.log(`[${model} PROCESS] Closed with code ${code}`);
           try {
             let dbSessionId: number | null = null;
-
-            if (extractedSessionId) {
+            const targetSessionId = extractedSessionId || sessionId;
+            
+            if (targetSessionId) {
               const existingSessions = await db
                 .select()
                 .from(aiSessions)
-                .where(and(eq(aiSessions.sessionId, extractedSessionId), eq(aiSessions.model, model)))
+                .where(and(eq(aiSessions.sessionId, targetSessionId), eq(aiSessions.model, model)))
                 .limit(1);
 
               if (existingSessions.length > 0) {
                 dbSessionId = existingSessions[0].id;
               } else {
                 const result = await db.insert(aiSessions).values({
-                  sessionId: extractedSessionId,
+                  sessionId: targetSessionId,
                   userId: session.user.id,
                   model: model,
-                  title: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
+                  title: message.substring(0, 40) + (message.length > 40 ? '...' : ''),
                   createdAt: new Date(),
                 }).returning({ id: aiSessions.id });
                 dbSessionId = result[0].id;
@@ -178,10 +221,6 @@ export async function POST(request: NextRequest) {
             }
           } catch (dbErr) {
             console.error('[AI Chat] DB Persistence Error:', dbErr);
-          }
-
-          if (stdoutBuffer.trim()) {
-            push(JSON.stringify({ type: 'text', content: stdoutBuffer }) + '\n');
           }
           controller.close();
         });
