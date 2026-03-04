@@ -1,20 +1,51 @@
 const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+const loginEmail = process.env.TEST_LOGIN_EMAIL;
+const loginPassword = process.env.TEST_LOGIN_PASSWORD;
 
-async function run() {
-  const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+function getCookieHeader(response) {
+  const setCookies = typeof response.headers.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : [response.headers.get('set-cookie')].filter(Boolean);
+
+  if (!setCookies.length) {
+    return '';
+  }
+
+  return setCookies.map((cookie) => cookie.split(';', 1)[0]).join('; ');
+}
+
+async function signIn() {
+  if (!loginEmail || !loginPassword) {
+    throw new Error('Missing TEST_LOGIN_EMAIL or TEST_LOGIN_PASSWORD');
+  }
+
+  const loginResponse = await fetch(`${baseUrl}/api/auth/sign-in/email`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'admin', password: 'admin' }),
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: baseUrl,
+    },
+    body: JSON.stringify({
+      email: loginEmail,
+      password: loginPassword,
+    }),
   });
 
   if (!loginResponse.ok) {
-    throw new Error(`Login failed: ${loginResponse.status}`);
+    const text = await loginResponse.text();
+    throw new Error(`Login failed: ${loginResponse.status} ${text}`);
   }
 
-  const cookie = loginResponse.headers.get('set-cookie');
+  const cookie = getCookieHeader(loginResponse);
   if (!cookie) {
-    throw new Error('Missing session cookie');
+    throw new Error('Missing auth cookies');
   }
+
+  return cookie;
+}
+
+async function run() {
+  const cookie = await signIn();
 
   const treeResponse = await fetch(`${baseUrl}/api/files/tree?path=.&depth=1`, {
     headers: { cookie },

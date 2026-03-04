@@ -1,4 +1,6 @@
 const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+const loginEmail = process.env.TEST_LOGIN_EMAIL;
+const loginPassword = process.env.TEST_LOGIN_PASSWORD;
 
 async function request(path, options = {}) {
   const response = await fetch(`${baseUrl}${path}`, options);
@@ -7,21 +9,49 @@ async function request(path, options = {}) {
   return { response, body };
 }
 
-async function run() {
-  const login = await request('/api/auth/login', {
+function getCookieHeader(response) {
+  const setCookies = typeof response.headers.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : [response.headers.get('set-cookie')].filter(Boolean);
+
+  if (!setCookies.length) {
+    return '';
+  }
+
+  return setCookies.map((cookie) => cookie.split(';', 1)[0]).join('; ');
+}
+
+async function signIn() {
+  if (!loginEmail || !loginPassword) {
+    throw new Error('Missing TEST_LOGIN_EMAIL or TEST_LOGIN_PASSWORD');
+  }
+
+  const login = await request('/api/auth/sign-in/email', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'admin', password: 'admin' }),
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: baseUrl,
+    },
+    body: JSON.stringify({
+      email: loginEmail,
+      password: loginPassword,
+    }),
   });
 
   if (!login.response.ok) {
     throw new Error(`Login failed: ${login.response.status}`);
   }
 
-  const cookie = login.response.headers.get('set-cookie');
+  const cookie = getCookieHeader(login.response);
   if (!cookie) {
-    throw new Error('Missing session cookie');
+    throw new Error('Missing auth cookies');
   }
+
+  return cookie;
+}
+
+async function run() {
+  const cookie = await signIn();
 
   const testId = Date.now();
   const initialPath = `codex-integration-${testId}.txt`;

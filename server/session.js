@@ -2,8 +2,6 @@
 const { unsealData } = require('iron-session');
 
 const COOKIE_NAME = 'canvas-notebook-session';
-const DEFAULT_SECRET =
-  'change_this_to_a_random_32_character_secret_key_in_production';
 const SESSION_TTL = 60 * 60 * 24 * 7;
 
 function parseCookies(header) {
@@ -23,11 +21,14 @@ function parseCookies(header) {
 async function getSessionFromRequest(req) {
   const cookies = parseCookies(req.headers.cookie || '');
   const seal = cookies[COOKIE_NAME];
+  const sessionSecret = process.env.SESSION_SECRET || process.env.BETTER_AUTH_SECRET;
+
+  if (!sessionSecret) return null;
   if (!seal) return null;
 
   try {
     const session = await unsealData(seal, {
-      password: process.env.SESSION_SECRET || DEFAULT_SECRET,
+      password: sessionSecret,
       ttl: SESSION_TTL,
     });
     return session || null;
