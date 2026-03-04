@@ -1,14 +1,13 @@
 # Canvas Notebook 📔
 
-Canvas Notebook ist eine moderne Next.js-Webanwendung, die als Online-Notizbuch fungiert – ähnlich wie Obsidian, aber mit tiefer SSH-Integration, einem leistungsfähigen Datei-Browser und einem integrierten Terminal.
+Canvas Notebook ist eine moderne Next.js-Webanwendung, die als Online-Notizbuch fungiert – ähnlich wie Obsidian, mit leistungsfähigem Datei-Browser und integriertem Terminal.
 
 ## ✨ Features
 
 ### 📁 Datei-Management & Browser
-- **Hybrider Zugriff:** Unterstützung für lokales Dateisystem oder Remote-Zugriff via SSH/SFTP.
+- **Lokaler Workspace:** Direkter Zugriff auf das lokale Dateisystem im Workspace.
 - **Vollständige Operationen:** Erstellen, Umbenennen, Verschieben und Löschen von Dateien und Ordnern.
 - **Upload/Download:** Einfacher Dateitransfer zwischen lokalem Rechner und Workspace.
-- **Connection Pooling:** Optimierte SSH-Verbindungen für hohe Performance.
 
 ### 📝 Editor & Viewer
 - **Vielseitige Editoren:** 
@@ -28,7 +27,7 @@ Canvas Notebook ist eine moderne Next.js-Webanwendung, die als Online-Notizbuch 
 
 ### 💻 Terminal & System
 - **Integriertes Terminal:** Volle Shell-Erfahrung im Browser (xterm.js + node-pty).
-- **Zero-Latency:** Direkter Zugriff auf lokale PTYs (Pseudo-Terminals) ohne SSH-Overhead in der lokalen Umgebung.
+- **Zero-Latency:** Direkter Zugriff auf lokale PTYs (Pseudo-Terminals).
 - **Session Management:** Persistente Terminal-Sitzungen.
 
 ---
@@ -57,7 +56,7 @@ Erstelle eine `.env` Datei für die Produktion:
 ```bash
 # Wichtige Produktions-Settings
 NODE_ENV=production
-SSH_BASE_PATH=/absoluter/pfad/zum/workspace
+WORKSPACE_DIR=/absoluter/pfad/zum/workspace
 BETTER_AUTH_URL=https://deine-domain.com
 NEXT_PUBLIC_WS_URL=wss://deine-domain.com
 
@@ -98,9 +97,8 @@ pm2 start server.js --name "canvas-notebook"
 Erstellen Sie eine `.env.local` Datei im Wurzelverzeichnis (siehe `.env.example` oder bestehende Dokumentation):
 
 ```bash
-# File System Modus
-SSH_USE_LOCAL_FS=true
-SSH_BASE_PATH=/pfad/zu/deinem/workspace
+# Workspace
+WORKSPACE_DIR=./workspace
 
 # App Login
 APP_USERNAME=admin
@@ -122,7 +120,6 @@ Die App ist nun unter [http://localhost:3000](http://localhost:3000) erreichbar.
 - **Styling:** Tailwind CSS, shadcn/ui, Radix UI, Lucide Icons
 - **State:** Zustand
 - **Backend:** Next.js API Routes, Node.js Custom Server (für WebSockets)
-- **SSH/SFTP:** ssh2, ssh2-sftp-client
 - **Terminal:** xterm.js, node-pty
 
 ---
@@ -142,7 +139,7 @@ Das Projekt verfügt über eine umfassende Test-Suite:
 
 - `app/`: Next.js App Router (Pages & API Routes)
 - `components/`: UI-Komponenten (shadcn/ui & Custom Components)
-- `lib/`: Hilfsfunktionen für SSH, Auth und Utilities
+- `lib/`: Hilfsfunktionen für Dateisystem, Auth und Utilities
 - `server/`: Custom Server-Logik für Terminals und Sessions
 - `store/`: Zustandshaltung mit Zustand
 - `scripts/`: Hilfsskripte für Deployment und Setup

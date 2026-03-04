@@ -1,5 +1,7 @@
+'use client';
+
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 
 interface TerminalSession {
   id: string;
@@ -23,6 +25,12 @@ function generateId() {
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
+
+const noopStorage: StateStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
 
 export const useTerminalStore = create<TerminalState>()(
   persist(
@@ -55,7 +63,9 @@ export const useTerminalStore = create<TerminalState>()(
     }),
     {
       name: 'canvas.terminalSessions',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => (
+        typeof window !== 'undefined' ? window.localStorage : noopStorage
+      )),
       partialize: (state) => ({
         sessions: state.sessions,
         activeSessionId: state.activeSessionId,

@@ -7,14 +7,14 @@ export default defineConfig({
   timeout: 30_000,
   retries: 0,
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:3001',
+    baseURL: process.env.BASE_URL || 'http://localhost:3000',
     viewport: { width: 1280, height: 720 },
   },
   webServer: useExternalServer
     ? undefined
     : {
-        command: 'PORT=3001 npm run build && PORT=3001 npm run start',
-        port: 3001,
+        command: 'npm run build && npm run start',
+        port: 3000,
         reuseExistingServer: true,
       },
 });

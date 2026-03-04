@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import {
   ChevronRight,
   File,
@@ -44,12 +44,12 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     toggleMultiSelectPath,
   } = useFileStore();
 
-  const [isOpen, setIsOpen] = useState(expandedDirs.has(node.path));
   const isDirectory = node.type === 'directory';
   const hasChildren = node.children && node.children.length > 0;
   const isExpanded = expandedDirs.has(node.path);
   const isSelected = selectedNode?.path === node.path;
   const isMultiSelected = multiSelectPaths.includes(node.path);
+  const isRowActive = isSelected || isMultiSelected;
 
   // Sync internal state with external expanded state for directories
   const handleToggle = useCallback(() => {
@@ -152,42 +152,42 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
         <SidebarMenuItem>
           <div
             className={cn(
-              'group relative flex w-full items-center rounded-md',
-              (isSelected || isMultiSelected) && 'bg-accent/50'
+              'group relative flex w-full items-center rounded-md px-2 py-0.5 text-slate-200 transition-colors',
+              isRowActive ? 'bg-slate-700/70' : 'hover:bg-slate-700/50'
             )}
             onContextMenu={handleContextMenu}
           >
             {isMultiSelectMode && (
               <button
                 onClick={handleCheckboxClick}
-                className="ml-1 flex-shrink-0 rounded-sm p-1 hover:bg-accent"
+                className="mr-1 flex-shrink-0 rounded-sm p-1 hover:bg-slate-700/60"
               >
                 {isMultiSelected ? (
-                  <CheckSquare className="h-4 w-4 text-primary" />
+                  <CheckSquare className="h-4 w-4 text-sky-400" />
                 ) : (
-                  <Square className="h-4 w-4 text-muted-foreground" />
+                  <Square className="h-4 w-4 text-slate-500" />
                 )}
               </button>
             )}
             <CollapsibleTrigger asChild>
               <SidebarMenuButton
                 className={cn(
-                  'flex-1 justify-start gap-2 transition-colors',
-                  isSelected && !isMultiSelectMode && 'bg-accent text-accent-foreground'
+                  'flex-1 justify-start gap-2 bg-transparent text-slate-200 hover:!bg-transparent hover:text-slate-100 active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+                  isRowActive && 'text-slate-100'
                 )}
                 onClick={handleSelect}
               >
                 <ChevronRight
                   className={cn(
-                    'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                    'h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200',
                     isExpanded && 'rotate-90'
                   )}
                 />
                 {getFileIcon()}
                 <span className="flex-1 truncate text-sm">{node.name}</span>
-                <FileContextMenu node={node} />
               </SidebarMenuButton>
             </CollapsibleTrigger>
+            <FileContextMenu node={node} isRowActive={isRowActive} />
           </div>
         </SidebarMenuItem>
         <CollapsibleContent>
@@ -206,27 +206,27 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     <SidebarMenuItem>
       <div
         className={cn(
-          'group relative flex w-full items-center rounded-md',
-          (isSelected || isMultiSelected) && 'bg-accent/50'
+          'group relative flex w-full items-center rounded-md px-2 py-0.5 text-slate-200 transition-colors',
+          isRowActive ? 'bg-slate-700/70' : 'hover:bg-slate-700/50'
         )}
         onContextMenu={handleContextMenu}
       >
         {isMultiSelectMode && (
           <button
             onClick={handleCheckboxClick}
-            className="ml-1 flex-shrink-0 rounded-sm p-1 hover:bg-accent"
+            className="mr-1 flex-shrink-0 rounded-sm p-1 hover:bg-slate-700/60"
           >
             {isMultiSelected ? (
-              <CheckSquare className="h-4 w-4 text-primary" />
+              <CheckSquare className="h-4 w-4 text-sky-400" />
             ) : (
-              <Square className="h-4 w-4 text-muted-foreground" />
+              <Square className="h-4 w-4 text-slate-500" />
             )}
           </button>
         )}
         <SidebarMenuButton
           className={cn(
-            'flex-1 justify-start gap-2 transition-colors',
-            isSelected && !isMultiSelectMode && 'bg-accent text-accent-foreground'
+            'flex-1 justify-start gap-2 bg-transparent text-slate-200 hover:!bg-transparent hover:text-slate-100 active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+            isRowActive && 'text-slate-100'
           )}
           onClick={handleSelect}
         >
@@ -239,12 +239,12 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
           {getFileIcon()}
           <span className="flex-1 truncate text-sm">{node.name}</span>
           {!isDirectory && node.size !== undefined && (
-            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            <span className="ml-auto shrink-0 text-xs text-slate-400">
               {formatSize(node.size)}
             </span>
           )}
-          <FileContextMenu node={node} />
         </SidebarMenuButton>
+        <FileContextMenu node={node} isRowActive={isRowActive} />
       </div>
     </SidebarMenuItem>
   );

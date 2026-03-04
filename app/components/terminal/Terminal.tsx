@@ -66,6 +66,16 @@ export function TerminalPanel() {
   }, [hydrated, sessions, activeSessionId, setActiveSession]);
 
   useEffect(() => {
+    if (!hydrated) return;
+    const MAX_SAVED_SESSIONS = 3;
+    if (sessions.length > MAX_SAVED_SESSIONS) {
+      sessions.slice(MAX_SAVED_SESSIONS).forEach((session) => {
+        closeSession(session.id);
+      });
+    }
+  }, [hydrated, sessions, closeSession]);
+
+  useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       // Only intercept Ctrl+T if target is not in terminal
       const target = event.target as HTMLElement;
@@ -373,15 +383,9 @@ export function TerminalPanel() {
             No active terminal
           </div>
         ) : (
-          sessions.map((session) => (
-            <div
-              key={session.id}
-              className="h-full w-full"
-              style={{ display: session.id === activeSessionId ? 'block' : 'none' }}
-            >
-              <XTerminal sessionId={session.id} />
-            </div>
-          ))
+          <div className="h-full w-full">
+            <XTerminal sessionId={activeSessionId ?? sessions[0].id} />
+          </div>
         )}
       </div>
     </section>

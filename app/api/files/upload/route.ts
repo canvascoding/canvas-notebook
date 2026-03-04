@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
-import { writeFile, createDirectory } from '@/app/lib/ssh/sftp-client';
+import { writeFile, createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 

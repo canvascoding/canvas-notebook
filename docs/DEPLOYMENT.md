@@ -45,7 +45,5 @@ server {
 Ensure these are set (systemd uses `.env.systemd`, app also loads `.env.local`):
 
 - `SESSION_SECRET` (>= 32 chars)
-- `SSH_BASE_PATH`
-- `SSH_USE_LOCAL_FS=true` (recommended when the workspace is on the same server)
-- `SSH_HOST`, `SSH_USER`, `SSH_PASSWORD` or `SSH_KEY_PATH` (only if not using local FS)
+- `WORKSPACE_DIR` (recommended: `./workspace`)
 - `MAX_TERMINALS_PER_USER` and `TERMINAL_IDLE_TIMEOUT`

@@ -24,15 +24,9 @@
 .DS_Store
 *.pem
 
-# SSH Keys (NEVER commit these!)
+# Key material (NEVER commit these!)
 *.key
 *.pub
-id_rsa*
-id_ed25519*
-id_ecdsa*
-id_dsa*
-.ssh/
-ssh-keys/
 keys/
 
 # Security-sensitive files
@@ -61,8 +55,10 @@ yarn-error.log*
 # AI Chat Screenshots
 temp/screenshots/
 
+# workspace data (keep directory, ignore content)
+/workspace/*
+!/workspace/.gitkeep
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-/workspace

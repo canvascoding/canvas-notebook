@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildFileTree } from '@/app/lib/ssh/sftp-client';
+import { buildFileTree } from '@/app/lib/filesystem/workspace-files';
 import { fileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 

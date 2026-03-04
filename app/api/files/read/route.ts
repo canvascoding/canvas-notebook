@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile, getFileStats } from '@/app/lib/ssh/sftp-client';
+import { readFile, getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
 

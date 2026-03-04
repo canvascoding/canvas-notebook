@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getFileStats, createReadStream } from '@/app/lib/ssh/sftp-client';
+import { getFileStats, createReadStream } from '@/app/lib/filesystem/workspace-files';
 import { auth } from '@/app/lib/auth';
 import { Readable } from 'stream';
 
@@ -31,15 +31,15 @@ function getContentType(filePath: string): string {
 
 export async function GET(
   request: NextRequest,
-  context: any
+  context: { params: Promise<{ path: string[] }> }
 ) {
-  const { params } = context;
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  const filePath = params.path.join('/');
+  const { path: pathParts } = await context.params;
+  const filePath = pathParts.join('/');
   const contentType = getContentType(filePath);
 
   try {

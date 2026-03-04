@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import { spawn } from 'child_process';
 import { auth } from '@/app/lib/auth';
-import { validatePath } from '@/app/lib/ssh/sftp-client';
+import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 const CACHE_ROOT = process.env.MEDIA_CACHE_PATH || '/tmp/canvas-media-cache';
@@ -95,13 +95,6 @@ export async function GET(request: NextRequest) {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (process.env.SSH_USE_LOCAL_FS !== 'true') {
-      return NextResponse.json(
-        { success: false, error: 'Preview requires local filesystem mode.' },
-        { status: 400 }
-      );
     }
 
     const { searchParams } = new URL(request.url);

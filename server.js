@@ -11,7 +11,7 @@ const { attachTerminalServer } = require('./server/terminal-server');
 const { terminateAllSessions } = require('./server/terminal-manager');
 const { auth } = require('./app/lib/auth');
 
-const port = parseInt(process.env.PORT || '3001', 10);
+const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = process.env.HOSTNAME || 'localhost';
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
@@ -36,8 +36,7 @@ async function getAuthSession(req) {
   }
 }
 
-const MEDIA_ROOT = process.env.SSH_BASE_PATH || '/home/canvas-notebook/workspace';
-const USE_LOCAL_MEDIA = process.env.SSH_USE_LOCAL_FS === 'true';
+const MEDIA_ROOT = process.env.WORKSPACE_DIR || path.resolve(process.cwd(), 'workspace');
 const MEDIA_TYPES = {
   pdf: 'application/pdf',
   png: 'image/png',
@@ -74,12 +73,6 @@ function getContentType(filePath) {
 }
 
 function serveMedia(req, res) {
-  if (!USE_LOCAL_MEDIA) {
-    res.statusCode = 404;
-    res.end('Not found');
-    return;
-  }
-
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.statusCode = 405;
     res.setHeader('Allow', 'GET, HEAD');
