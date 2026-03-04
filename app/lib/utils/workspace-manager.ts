@@ -1,16 +1,17 @@
 import path from 'path';
 import { promises as fs } from 'fs';
 
-// Nutze die Umgebungsvariable SSH_BASE_PATH oder falle auf das lokale 'workspace' Verzeichnis zurück
-const WORKSPACE_BASE_DIR = process.env.SSH_BASE_PATH 
-  ? path.resolve(process.env.SSH_BASE_PATH) 
+// Nutze die Umgebungsvariable WORKSPACE_DIR oder falle auf das lokale 'workspace' Verzeichnis zurück
+const WORKSPACE_BASE_DIR = process.env.WORKSPACE_DIR
+  ? path.resolve(process.env.WORKSPACE_DIR)
   : path.resolve(process.cwd(), 'workspace');
 
 /**
  * Returns the absolute path for the workspace.
  * In this setup, we always use the base workspace directory to keep it consistent with the app.
  */
-export function getWorkspacePath(sessionId?: string): string {
+export function getWorkspacePath(_sessionId?: string): string {
+  void _sessionId;
   // Wir ignorieren die sessionId für den Pfad, um im selben Verzeichnis wie die App zu bleiben,
   // es sei denn, wir wollen explizit Isolation (hier vom User nicht gewünscht).
   return WORKSPACE_BASE_DIR;

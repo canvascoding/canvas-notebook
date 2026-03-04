@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile } from '@/app/lib/ssh/sftp-client';
+import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    let { path, content } = body;
+    const { path, content } = body;
 
     if (!path || content === undefined) {
       return NextResponse.json(

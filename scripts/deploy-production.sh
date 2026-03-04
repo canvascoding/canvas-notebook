@@ -19,7 +19,7 @@ echo ""
 # Config
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOMAIN="chat.canvasstudios.store"
-APP_PORT="3001"
+APP_PORT="3000"
 
 echo -e "${YELLOW}Projekt-Verzeichnis: ${PROJECT_DIR}${NC}"
 echo -e "${YELLOW}Domain: ${DOMAIN}${NC}"
@@ -110,7 +110,7 @@ fi
 echo ""
 echo -e "${GREEN}🔥 Firewall (UFW) konfigurieren...${NC}"
 if command -v ufw &> /dev/null; then
-    sudo ufw allow 22/tcp comment 'SSH'
+    sudo ufw allow 22/tcp comment 'Admin Access'
     sudo ufw allow 80/tcp comment 'HTTP'
     sudo ufw allow 443/tcp comment 'HTTPS'
 
@@ -133,13 +133,8 @@ if [ ! -f "${PROJECT_DIR}/.env.local" ]; then
     echo "Bitte erstelle .env.local mit:"
     echo "  - APP_PASSWORD_HASH"
     echo "  - SESSION_SECRET"
-    echo "  - SSH_KEY_PATH"
+    echo "  - WORKSPACE_DIR"
     exit 1
-fi
-
-# Prüfe ob sichere Credentials gesetzt sind
-if grep -q "admin" "${PROJECT_DIR}/.env.local" | grep -q "SSH_PASSWORD"; then
-    echo -e "${YELLOW}⚠️  Warnung: SSH_PASSWORD noch auf 'admin'!${NC}"
 fi
 
 if grep -q "change_this" "${PROJECT_DIR}/.env.local"; then
@@ -227,7 +222,6 @@ echo "5. App neustarten:"
 echo "   pm2 restart canvas-notebook"
 echo ""
 echo -e "${YELLOW}🔒 Security Reminder:${NC}"
-echo "  - SSH_PASSWORD aus .env.local entfernen"
 echo "  - APP_PASSWORD (plain) aus .env.local entfernen"
 echo "  - Fail2ban installieren: sudo apt install fail2ban"
 echo ""

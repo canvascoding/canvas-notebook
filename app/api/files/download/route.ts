@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
-import { createReadStream, getFileStats, validatePath } from '@/app/lib/ssh/sftp-client';
+import { createReadStream, getFileStats, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { Readable } from 'stream';
 import { auth } from '@/app/lib/auth';
 import archiver from 'archiver';

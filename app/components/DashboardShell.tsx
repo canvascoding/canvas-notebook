@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import Image from 'next/image';
 import { PanelLeft, MessageSquare, X, Terminal as TerminalIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SidebarProvider } from '@/components/ui/sidebar';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { FileEditor } from '@/app/components/editor/FileEditor';
@@ -138,7 +139,9 @@ export function DashboardShell({ username }: DashboardShellProps) {
               </button>
             </div>
             <div className="flex-1 overflow-hidden">
-              <FileBrowser />
+              <SidebarProvider className="h-full min-h-0">
+                <FileBrowser />
+              </SidebarProvider>
             </div>
           </div>
         </div>
