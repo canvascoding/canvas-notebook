@@ -267,7 +267,7 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
                 e.stopPropagation();
                 syncToDraft();
             }}
-            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded shadow-lg transition-colors"
+            className="border border-border bg-primary px-3 py-1 text-xs text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
         >
             Update Changes
         </button>
@@ -276,15 +276,15 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background z-[60]">
           <div className="flex flex-col items-center gap-2">
-            <div className="h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="h-8 w-8 animate-spin border-2 border-primary border-t-transparent"></div>
             <span className="text-xs text-muted-foreground">Opening {extension.toUpperCase()}...</span>
           </div>
         </div>
       )}
       
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-red-950/10 z-50 p-4">
-          <div className="text-red-400 text-sm border border-red-500/20 bg-red-500/5 p-3 rounded-lg">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-destructive/10 p-4">
+          <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             {error}
           </div>
         </div>

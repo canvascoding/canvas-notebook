@@ -66,7 +66,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
-      <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/90 backdrop-blur-sm">
+      <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
         <div className="mx-auto flex h-full items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <Button
@@ -77,7 +77,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
-            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="rounded-md shrink-0" />
+            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="shrink-0 border border-border" />
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">CANVAS STUDIOS</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
@@ -113,7 +113,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
         {/* Mobile Sidebar Overlay */}
         {sidebarVisible && (
           <div 
-            className="md:hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] transition-opacity duration-300"
+            className="md:hidden fixed inset-0 bg-background/70 z-[70] transition-opacity duration-300"
             onClick={() => setSidebarVisible(false)}
           />
         )}
@@ -131,7 +131,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
           <div className="flex flex-col h-full">
             <div className="md:hidden p-4 border-b border-border flex justify-between items-center bg-muted/40">
               <span className="font-bold text-sm tracking-widest uppercase opacity-70 text-foreground">Files</span>
-              <button onClick={() => setSidebarVisible(false)} className="p-1 hover:bg-accent rounded-full">
+              <button onClick={() => setSidebarVisible(false)} className="border border-transparent p-1 hover:border-border hover:bg-accent">
                 <X size={18} />
               </button>
             </div>
@@ -158,7 +158,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 {/* Mobile Chat Backdrop Overlay */}
                 {chatVisible && (
                   <div 
-                    className="md:hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] transition-opacity duration-300"
+                    className="md:hidden fixed inset-0 bg-background/70 z-[70] transition-opacity duration-300"
                     onClick={() => setChatVisible(false)}
                   />
                 )}
@@ -169,7 +169,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     onMouseDown={startResizing}
                     className="hidden md:flex w-1 hover:w-1.5 bg-border hover:bg-primary/60 cursor-col-resize z-50 transition-all items-center justify-center"
                   >
-                    <div className="w-0.5 h-8 bg-muted-foreground/60 rounded-full" />
+                    <div className="h-8 w-0.5 bg-muted-foreground/60" />
                   </div>
                 )}
 
@@ -202,12 +202,12 @@ export function DashboardShell({ username }: DashboardShellProps) {
             <div className="md:hidden fixed inset-0 z-[100] bg-background flex flex-col">
               <div className="flex items-center justify-between p-2 bg-card border-b border-border">
                 <div className="flex items-center gap-2 px-2">
-                  <TerminalIcon size={14} className="text-blue-400" />
+                  <TerminalIcon size={14} className="text-primary" />
                   <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Terminal</span>
                 </div>
                 <button 
                   onClick={() => setTerminalVisible(false)}
-                  className="p-2 hover:bg-accent rounded-full text-muted-foreground"
+                  className="border border-transparent p-2 text-muted-foreground hover:border-border hover:bg-accent"
                 >
                   <X size={20} />
                 </button>

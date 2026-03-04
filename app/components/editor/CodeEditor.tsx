@@ -159,35 +159,21 @@ export function CodeEditor({ value, onChange, readOnly = false }: CodeEditorProp
           padding: 16px 0;
         }
         .codemirror-wrapper .cm-gutters {
-          background-color: #f8fafc;
-          color: #64748b;
-          border-right: 1px solid #e2e8f0;
+          background-color: var(--muted);
+          color: var(--muted-foreground);
+          border-right: 1px solid var(--border);
         }
         .codemirror-wrapper .cm-activeLineGutter {
-          background-color: #e2e8f0;
+          background-color: color-mix(in oklab, var(--accent) 55%, transparent);
         }
         .codemirror-wrapper .cm-activeLine {
-          background-color: #f1f5f9;
+          background-color: color-mix(in oklab, var(--accent) 36%, transparent);
         }
         .codemirror-wrapper .cm-selectionBackground {
-          background-color: #3b82f6 !important;
+          background-color: color-mix(in oklab, var(--primary) 30%, transparent) !important;
         }
         .codemirror-wrapper .cm-cursor {
-          border-left-color: #0f172a;
-        }
-        .dark .codemirror-wrapper .cm-gutters {
-          background-color: #1e293b;
-          color: #94a3b8;
-          border-right: 1px solid #334155;
-        }
-        .dark .codemirror-wrapper .cm-activeLineGutter {
-          background-color: #334155;
-        }
-        .dark .codemirror-wrapper .cm-activeLine {
-          background-color: #1e293b;
-        }
-        .dark .codemirror-wrapper .cm-cursor {
-          border-left-color: #f8fafc;
+          border-left-color: var(--foreground);
         }
       `}</style>
     </div>

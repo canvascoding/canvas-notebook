@@ -29,6 +29,7 @@ export function AppLayout({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
     type: 'sidebar' | 'terminal' | null;
+    pointerId: number | null;
     startX: number;
     startY: number;
     startWidth: number;
@@ -40,6 +41,7 @@ export function AppLayout({
   useEffect(() => {
     const storedSidebarWidth = window.localStorage.getItem('canvas.sidebarWidth');
     if (storedSidebarWidth) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSidebarWidth(Number(storedSidebarWidth));
     }
     const storedTerminalHeight = window.localStorage.getItem('canvas.terminalHeight');
@@ -47,7 +49,6 @@ export function AppLayout({
       const value = Number(storedTerminalHeight);
       setTerminalHeight(value < TERMINAL_MIN ? 260 : value);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -64,6 +65,7 @@ export function AppLayout({
   // Reset fullscreen when terminal is hidden
   useEffect(() => {
     if (!terminalVisible) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTerminalFullscreen(false);
     }
   }, [terminalVisible]);
@@ -108,6 +110,9 @@ export function AppLayout({
     const handleMove = (event: MouseEvent | PointerEvent) => {
       if (!dragRef.current || !containerRef.current) return;
       if (terminalFullscreen && dragRef.current.type === 'terminal') return;
+      if ('pointerId' in event && dragRef.current.pointerId !== null && event.pointerId !== dragRef.current.pointerId) {
+        return;
+      }
       const { type, startX, startY, startWidth, startHeight } = dragRef.current;
 
       if (type === 'sidebar') {
@@ -130,8 +135,16 @@ export function AppLayout({
       }
     };
 
-    const handleUp = () => {
+    const handleUp = (event?: PointerEvent | Event) => {
+      if (event instanceof PointerEvent) {
+        const pointerId = dragRef.current?.pointerId;
+        if (pointerId !== null && pointerId !== undefined && event.pointerId !== pointerId) {
+          return;
+        }
+      }
       dragRef.current = null;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
     };
 
     const handleResizeEvent = (event: Event) => {
@@ -187,20 +200,20 @@ export function AppLayout({
       }
     };
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
     window.addEventListener('pointermove', handleMove);
     window.addEventListener('pointerup', handleUp);
     window.addEventListener('pointercancel', handleUp);
+    window.addEventListener('blur', handleUp);
     window.addEventListener('terminal-resize', handleResizeEvent as EventListener);
 
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
       window.removeEventListener('pointercancel', handleUp);
+      window.removeEventListener('blur', handleUp);
       window.removeEventListener('terminal-resize', handleResizeEvent as EventListener);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
     };
   }, [terminalFullscreen]);
 
@@ -217,20 +230,17 @@ export function AppLayout({
           className={
             terminalFullscreen || sidebarHidden
               ? 'hidden'
-              : 'w-1 cursor-col-resize bg-border/70 hover:bg-border'
+              : 'w-1 cursor-col-resize bg-border/70 hover:bg-border touch-none'
           }
-          onMouseDown={(event) => {
-            dragRef.current = {
-              type: 'sidebar',
-              startX: event.clientX,
-              startY: event.clientY,
-              startWidth: sidebarWidth,
-              startHeight: terminalHeight,
-            };
-          }}
           onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'col-resize';
             dragRef.current = {
               type: 'sidebar',
+              pointerId: event.pointerId,
               startX: event.clientX,
               startY: event.clientY,
               startWidth: sidebarWidth,
@@ -251,19 +261,16 @@ export function AppLayout({
         >
           {!terminalFullscreen && (
             <div
-              className="h-1 cursor-row-resize bg-border/70 hover:bg-border"
-              onMouseDown={(event) => {
-                dragRef.current = {
-                  type: 'terminal',
-                  startX: event.clientX,
-                  startY: event.clientY,
-                  startWidth: sidebarWidth,
-                  startHeight: terminalHeight,
-                };
-              }}
+              className="h-2 cursor-row-resize bg-border/70 hover:bg-border touch-none"
               onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor = 'row-resize';
                 dragRef.current = {
                   type: 'terminal',
+                  pointerId: event.pointerId,
                   startX: event.clientX,
                   startY: event.clientY,
                   startWidth: sidebarWidth,

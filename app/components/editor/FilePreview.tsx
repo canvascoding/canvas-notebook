@@ -17,8 +17,8 @@ export function FilePreview() {
   if (fileError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <AlertCircle className="h-6 w-6 text-red-400" />
-        <p className="text-sm text-red-500">{fileError}</p>
+        <AlertCircle className="h-6 w-6 text-destructive" />
+        <p className="text-sm text-destructive">{fileError}</p>
       </div>
     );
   }
