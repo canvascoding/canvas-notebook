@@ -1,37 +1,45 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/app/lib/auth-client';
 import { toast } from 'sonner';
 import Image from 'next/image';
 
-export default function LoginPage() {
+export default function SignUpForm() {
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { error } = await authClient.signIn.email({
+      const { error } = await authClient.signUp.email({
+        name,
         email,
         password,
       });
 
       if (error) {
-        toast.error(error.message || 'Login failed');
+        toast.error(error.message || 'Sign up failed');
       } else {
-        toast.success('Login successful');
+        toast.success('Account created successfully');
         window.location.href = '/';
       }
     } catch (err) {
       toast.error('An unexpected error occurred');
-      console.error('Login error:', err);
+      console.error('Sign-up error:', err);
     } finally {
       setLoading(false);
     }
@@ -42,10 +50,26 @@ export default function LoginPage() {
       <div className="w-full max-w-md p-8 bg-white/10 backdrop-blur-lg rounded-lg shadow-2xl border border-white/20">
         <div className="flex items-center justify-center mb-8">
           <Image src="/logo.jpg" alt="Canvas Logo" width={48} height={48} className="rounded-lg mr-3 shadow-lg" />
-          <h1 className="text-3xl font-bold text-white">Canvas Notebook</h1>
+          <h1 className="text-3xl font-bold text-white">Create Account</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium text-gray-200 mb-2">
+              Name
+            </label>
+            <Input
+              id="name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
+              required
+              autoFocus
+            />
+          </div>
+
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-200 mb-2">
               Email
@@ -55,10 +79,9 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter email"
+              placeholder="you@example.com"
               className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
               required
-              autoFocus
             />
           </div>
 
@@ -71,9 +94,26 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
+              placeholder="Minimum 8 characters"
               className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
               required
+              minLength={8}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-200 mb-2">
+              Confirm password
+            </label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Repeat password"
+              className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
+              required
+              minLength={8}
             />
           </div>
 
@@ -82,17 +122,9 @@ export default function LoginPage() {
             className="w-full bg-blue-500 hover:bg-blue-600 text-white"
             disabled={loading}
           >
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Creating account...' : 'Create account'}
           </Button>
         </form>
-
-        <p className="mt-6 text-center text-sm text-gray-300">
-          Need an initial account? Enable sign-up and open{' '}
-          <Link href="/sign-up" className="underline hover:text-white">
-            /sign-up
-          </Link>
-          .
-        </p>
       </div>
     </div>
   );

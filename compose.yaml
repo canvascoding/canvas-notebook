@@ -1,0 +1,21 @@
+services:
+  canvas-notebook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: canvas-notebook:local
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    environment:
+      HOSTNAME: 0.0.0.0
+      WORKSPACE_DIR: /data/workspace
+      SQLITE_PATH: /data/sqlite.db
+      ALLOW_SIGNUP: "false"
+    volumes:
+      - canvas_notebook_data:/data
+    restart: unless-stopped
+
+volumes:
+  canvas_notebook_data:
