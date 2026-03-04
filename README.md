@@ -137,6 +137,10 @@ Das Projekt verfügt über eine umfassende Test-Suite:
 - **E2E Tests:** `npm run test:e2e` (Vollständige UI-Tests mit Playwright)
 - **All-in-One:** `npm run test:all`
 
+Für `test:smoke` und `test:integration` werden Login-Credentials via
+`TEST_LOGIN_EMAIL` und `TEST_LOGIN_PASSWORD` erwartet.
+`test:all` setzt dafür automatisch einen Bootstrap-Admin, falls nicht bereits gesetzt.
+
 ---
 
 ## 🐳 Docker

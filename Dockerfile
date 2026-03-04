@@ -1,26 +1,31 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-bookworm-slim AS deps
+ARG NPM_VERSION=11.11.0
+
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 
 # Required for native modules (node-pty, better-sqlite3)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
+RUN npm install -g npm@${NPM_VERSION}
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM node:20-bookworm-slim AS builder
+FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 ENV NODE_ENV=production
+RUN npm install -g npm@${NPM_VERSION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM node:20-bookworm-slim AS runner
+FROM node:24-bookworm-slim AS runner
 WORKDIR /app
+RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \
     PORT=3000 \

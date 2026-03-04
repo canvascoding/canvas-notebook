@@ -1,5 +1,4 @@
 import { eq } from 'drizzle-orm';
-import { auth } from '../app/lib/auth';
 import { db } from '../app/lib/db';
 import { user } from '../app/lib/db/schema';
 
@@ -29,6 +28,10 @@ async function main() {
     console.log('[bootstrap-admin] Skipped (BOOTSTRAP_ADMIN_EMAIL/BOOTSTRAP_ADMIN_PASSWORD not set).');
     return;
   }
+
+  // Bootstrap should work even when public sign-up is disabled.
+  process.env.ALLOW_SIGNUP = 'true';
+  const { auth } = await import('../app/lib/auth');
 
   try {
     const res = await auth.api.signUpEmail({

@@ -1,7 +1,37 @@
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 
 const defaultPorts = [3000, 3001, 3002];
 let baseUrl = process.env.BASE_URL;
+
+function resolveTestCredentials() {
+  const testEmail = process.env.TEST_LOGIN_EMAIL;
+  const testPassword = process.env.TEST_LOGIN_PASSWORD;
+  const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
+  const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+
+  if ((testEmail && !testPassword) || (!testEmail && testPassword)) {
+    throw new Error('Set TEST_LOGIN_EMAIL and TEST_LOGIN_PASSWORD together');
+  }
+
+  if ((bootstrapEmail && !bootstrapPassword) || (!bootstrapEmail && bootstrapPassword)) {
+    throw new Error('Set BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD together');
+  }
+
+  if (testEmail && testPassword) {
+    return { email: testEmail, password: testPassword };
+  }
+
+  if (bootstrapEmail && bootstrapPassword) {
+    return { email: bootstrapEmail, password: bootstrapPassword };
+  }
+
+  const suffix = randomBytes(6).toString('hex');
+  return {
+    email: `test-admin-${suffix}@local.test`,
+    password: `T3st!${randomBytes(12).toString('base64url')}`,
+  };
+}
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -45,6 +75,7 @@ async function run() {
 
   const port = process.env.PORT || (await findAvailablePort());
   const resolvedBaseUrl = baseUrl || `http://localhost:${port}`;
+  const credentials = resolveTestCredentials();
   baseUrl = resolvedBaseUrl;
 
   const server = spawn('npm', ['run', 'start'], {
@@ -53,6 +84,12 @@ async function run() {
       ...process.env,
       PORT: port,
       BASE_URL: resolvedBaseUrl,
+      BETTER_AUTH_BASE_URL: process.env.BETTER_AUTH_BASE_URL || resolvedBaseUrl,
+      BOOTSTRAP_ADMIN_EMAIL: process.env.BOOTSTRAP_ADMIN_EMAIL || credentials.email,
+      BOOTSTRAP_ADMIN_PASSWORD: process.env.BOOTSTRAP_ADMIN_PASSWORD || credentials.password,
+      BOOTSTRAP_ADMIN_NAME: process.env.BOOTSTRAP_ADMIN_NAME || 'Test Admin',
+      TEST_LOGIN_EMAIL: credentials.email,
+      TEST_LOGIN_PASSWORD: credentials.password,
     },
   });
 
@@ -79,10 +116,20 @@ async function run() {
 
   try {
     await runCommand('npm', ['run', 'test:smoke'], {
-      env: { ...process.env, BASE_URL: resolvedBaseUrl },
+      env: {
+        ...process.env,
+        BASE_URL: resolvedBaseUrl,
+        TEST_LOGIN_EMAIL: credentials.email,
+        TEST_LOGIN_PASSWORD: credentials.password,
+      },
     });
     await runCommand('npm', ['run', 'test:integration'], {
-      env: { ...process.env, BASE_URL: resolvedBaseUrl },
+      env: {
+        ...process.env,
+        BASE_URL: resolvedBaseUrl,
+        TEST_LOGIN_EMAIL: credentials.email,
+        TEST_LOGIN_PASSWORD: credentials.password,
+      },
     });
     await runCommand('npm', ['run', 'test:e2e'], {
       env: {

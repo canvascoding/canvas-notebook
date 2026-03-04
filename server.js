@@ -37,6 +37,7 @@ async function getAuthSession(req) {
 }
 
 const MEDIA_ROOT = process.env.WORKSPACE_DIR || path.resolve(process.cwd(), 'data', 'workspace');
+const SQLITE_PATH = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : null;
 const MEDIA_TYPES = {
   pdf: 'application/pdf',
   png: 'image/png',
@@ -70,6 +71,24 @@ function resolveMediaPath(requestPath) {
 function getContentType(filePath) {
   const ext = path.extname(filePath).slice(1).toLowerCase();
   return MEDIA_TYPES[ext] || 'application/octet-stream';
+}
+
+function ensureRuntimeDirectories() {
+  try {
+    fs.mkdirSync(path.resolve(MEDIA_ROOT), { recursive: true });
+  } catch (error) {
+    console.error(`[Startup] Failed to create WORKSPACE_DIR at ${MEDIA_ROOT}:`, error);
+    throw error;
+  }
+
+  if (SQLITE_PATH) {
+    try {
+      fs.mkdirSync(path.dirname(SQLITE_PATH), { recursive: true });
+    } catch (error) {
+      console.error(`[Startup] Failed to create SQLite directory for ${SQLITE_PATH}:`, error);
+      throw error;
+    }
+  }
 }
 
 function serveMedia(req, res) {
@@ -185,6 +204,8 @@ function serveMedia(req, res) {
     stream.pipe(res);
   });
 }
+
+ensureRuntimeDirectories();
 
 app
   .prepare()
