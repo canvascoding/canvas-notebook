@@ -12,7 +12,9 @@ export interface FileNode {
   children?: FileNode[];
 }
 
-const WORKSPACE_BASE_DIR = path.resolve(process.env.WORKSPACE_DIR || path.join(process.cwd(), 'workspace'));
+const WORKSPACE_BASE_DIR = path.resolve(
+  process.env.WORKSPACE_DIR || path.join(process.cwd(), 'data', 'workspace')
+);
 
 export function validatePath(userPath: string): string {
   const normalizedBase = path.normalize(WORKSPACE_BASE_DIR);

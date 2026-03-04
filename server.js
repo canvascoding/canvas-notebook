@@ -36,7 +36,7 @@ async function getAuthSession(req) {
   }
 }
 
-const MEDIA_ROOT = process.env.WORKSPACE_DIR || path.resolve(process.cwd(), 'workspace');
+const MEDIA_ROOT = process.env.WORKSPACE_DIR || path.resolve(process.cwd(), 'data', 'workspace');
 const MEDIA_TYPES = {
   pdf: 'application/pdf',
   png: 'image/png',

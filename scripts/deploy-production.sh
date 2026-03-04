@@ -131,15 +131,27 @@ echo -e "${GREEN}🔐 Environment-Variablen prüfen...${NC}"
 if [ ! -f "${PROJECT_DIR}/.env.local" ]; then
     echo -e "${RED}❌ .env.local nicht gefunden!${NC}"
     echo "Bitte erstelle .env.local mit:"
-    echo "  - APP_PASSWORD_HASH"
-    echo "  - SESSION_SECRET"
+    echo "  - BETTER_AUTH_SECRET"
+    echo "  - BETTER_AUTH_BASE_URL (oder BASE_URL)"
     echo "  - WORKSPACE_DIR"
     exit 1
 fi
 
-if grep -q "change_this" "${PROJECT_DIR}/.env.local"; then
-    echo -e "${RED}❌ SESSION_SECRET ist noch Platzhalter!${NC}"
-    echo "Generiere mit: node scripts/generate-password-hash.js --generate"
+if ! grep -Eq '^[[:space:]]*BETTER_AUTH_SECRET=' "${PROJECT_DIR}/.env.local" || \
+   grep -Eq '^[[:space:]]*BETTER_AUTH_SECRET=[[:space:]]*$' "${PROJECT_DIR}/.env.local"; then
+    echo -e "${RED}❌ BETTER_AUTH_SECRET fehlt oder ist leer!${NC}"
+    echo "Generiere mit: openssl rand -base64 32"
+    exit 1
+fi
+
+if ! grep -Eq '^[[:space:]]*WORKSPACE_DIR=' "${PROJECT_DIR}/.env.local" || \
+   grep -Eq '^[[:space:]]*WORKSPACE_DIR=[[:space:]]*$' "${PROJECT_DIR}/.env.local"; then
+    echo -e "${RED}❌ WORKSPACE_DIR fehlt oder ist leer!${NC}"
+    exit 1
+fi
+
+if ! grep -Eq '^[[:space:]]*(BETTER_AUTH_BASE_URL|BETTER_AUTH_URL|BASE_URL)=' "${PROJECT_DIR}/.env.local"; then
+    echo -e "${RED}❌ Auth/Base URL fehlt (BETTER_AUTH_BASE_URL oder BASE_URL)!${NC}"
     exit 1
 fi
 
@@ -222,7 +234,7 @@ echo "5. App neustarten:"
 echo "   pm2 restart canvas-notebook"
 echo ""
 echo -e "${YELLOW}🔒 Security Reminder:${NC}"
-echo "  - APP_PASSWORD (plain) aus .env.local entfernen"
+echo "  - BETTER_AUTH_SECRET sicher und lang halten"
 echo "  - Fail2ban installieren: sudo apt install fail2ban"
 echo ""
 echo -e "${GREEN}✅ Fertig!${NC}"

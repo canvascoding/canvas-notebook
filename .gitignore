@@ -58,6 +58,11 @@ temp/screenshots/
 # workspace data (keep directory, ignore content)
 /workspace/*
 !/workspace/.gitkeep
+/data/*
+!/data/.gitkeep
+!/data/workspace/
+/data/workspace/*
+!/data/workspace/.gitkeep
 
 # typescript
 *.tsbuildinfo

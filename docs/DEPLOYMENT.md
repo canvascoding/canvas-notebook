@@ -44,6 +44,9 @@ server {
 ## Environment
 Ensure these are set (systemd uses `.env.systemd`, app also loads `.env.local`):
 
-- `SESSION_SECRET` (>= 32 chars)
-- `WORKSPACE_DIR` (recommended: `./workspace`)
+- `BETTER_AUTH_SECRET` (>= 32 chars)
+- `BETTER_AUTH_BASE_URL` (or fallback `BASE_URL`)
+- `WORKSPACE_DIR` (recommended: `./data/workspace`)
+- `SQLITE_PATH` (recommended: `./data/sqlite.db`)
+- `ALLOW_SIGNUP=false` (set `true` only for initial onboarding)
 - `MAX_TERMINALS_PER_USER` and `TERMINAL_IDLE_TIMEOUT`

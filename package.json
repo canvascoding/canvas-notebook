@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "tsx server.js",
-    "build": "next build",
+    "build": "next build --webpack",
     "postbuild": "node scripts/prepare-standalone.mjs",
-    "start": "NODE_ENV=production tsx server.js",
+    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
+    "start": "NODE_ENV=production ALLOW_SIGNUP=true tsx scripts/bootstrap-admin.ts && NODE_ENV=production tsx server.js",
     "lint": "eslint",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:integration": "node scripts/integration-test.mjs",

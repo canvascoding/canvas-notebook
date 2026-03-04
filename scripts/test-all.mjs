@@ -52,7 +52,6 @@ async function run() {
     env: {
       ...process.env,
       PORT: port,
-      SESSION_SECURE_COOKIES: process.env.SESSION_SECURE_COOKIES || 'false',
       BASE_URL: resolvedBaseUrl,
     },
   });
