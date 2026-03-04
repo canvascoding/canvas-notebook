@@ -187,6 +187,21 @@ docker run --rm -p 3000:3000 \
 docker compose up -d --build
 ```
 
+### Deployment wie n8n (vorgebautes GHCR-Image)
+Wenn EasyPanel nur ein Docker-Image pullen soll (ohne Build auf dem Server), nutze das GitHub-Workflow-File:
+`/.github/workflows/build-and-push-ghcr.yml`
+
+Der Flow:
+1. Push nach `main`
+2. GitHub Actions baut das Image
+3. Push nach `ghcr.io/<github-user>/<repo>` mit Tags wie `latest` und `sha-...`
+4. EasyPanel nutzt als Source `Docker image` statt `GitHub`
+
+Wichtige Hinweise:
+- Das in EasyPanel eingetragene Image ist z. B. `ghcr.io/<github-user>/<repo>:latest`.
+- Wenn dein EasyPanel-Dialog nur öffentliche Images erlaubt, stelle das GHCR-Package auf `Public`.
+- Bei `Source: Docker image` wird in EasyPanel nicht erneut gebaut, sondern nur gepullt und gestartet.
+
 ### Codex + Claude Code CLI beim Container-Start
 Der Container installiert beim Start automatisch die neuesten Versionen von:
 `npm i -g @openai/codex@latest @anthropic-ai/claude-code@latest`
