@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 
-const defaultPorts = [3001, 3002, 3003];
+const defaultPorts = [3000, 3001, 3002];
 let baseUrl = process.env.BASE_URL;
 
 function runCommand(command, args, options = {}) {
@@ -41,9 +41,7 @@ async function findAvailablePort() {
 }
 
 async function run() {
-  await runCommand('npx', ['next', 'build', '--webpack'], {
-    env: { ...process.env, NEXT_DISABLE_TURBOPACK: '1' },
-  });
+  await runCommand('npx', ['next', 'build']);
 
   const port = process.env.PORT || (await findAvailablePort());
   const resolvedBaseUrl = baseUrl || `http://localhost:${port}`;
@@ -54,8 +52,6 @@ async function run() {
     env: {
       ...process.env,
       PORT: port,
-      NODE_OPTIONS: process.env.NODE_OPTIONS || '--max-old-space-size=4096',
-      SSH_TEST_MODE: process.env.SSH_TEST_MODE || '1',
       SESSION_SECURE_COOKIES: process.env.SESSION_SECURE_COOKIES || 'false',
       BASE_URL: resolvedBaseUrl,
     },

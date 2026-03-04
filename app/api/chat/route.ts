@@ -1,11 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getWorkspacePath, ensureWorkspaceExists } from '@/app/lib/utils/workspace-manager';
 import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages } from '@/app/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
+
+const cliAvailability = new Map<string, boolean>();
+
+interface ChatAttachment {
+  name: string;
+  path: string;
+}
+
+function isChatAttachment(value: unknown): value is ChatAttachment {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const maybeAttachment = value as Record<string, unknown>;
+  return typeof maybeAttachment.name === 'string' && typeof maybeAttachment.path === 'string';
+}
+
+function checkCliAvailability(command: string): boolean {
+  const cached = cliAvailability.get(command);
+  if (typeof cached === 'boolean') {
+    return cached;
+  }
+
+  try {
+    execSync(`command -v ${command}`, { stdio: 'ignore' });
+    cliAvailability.set(command, true);
+    return true;
+  } catch {
+    cliAvailability.set(command, false);
+    return false;
+  }
+}
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -18,7 +50,12 @@ export async function POST(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const { message, sessionId, model = 'claude', attachments = [] } = await request.json();
-    if (!message && (!attachments || attachments.length === 0)) {
+    const promptText = typeof message === 'string' ? message : '';
+    const parsedAttachments = Array.isArray(attachments)
+      ? attachments.filter(isChatAttachment)
+      : [];
+    const hasAttachments = parsedAttachments.length > 0;
+    if (!promptText && !hasAttachments) {
       return NextResponse.json({ success: false, error: 'Message or attachment required' }, { status: 400 });
     }
     
@@ -26,10 +63,10 @@ export async function POST(request: NextRequest) {
     await ensureWorkspaceExists(userWorkspacePath);
 
     // Prepare final message with attachment references
-    let finalPrompt = message || '';
-    if (attachments && attachments.length > 0) {
-      const attachmentContext = attachments
-        .map((a: any) => `[Attachment: ${a.name} at path ${a.path}]`)
+    let finalPrompt = promptText;
+    if (hasAttachments) {
+      const attachmentContext = parsedAttachments
+        .map((attachment) => `[Attachment: ${attachment.name} at path ${attachment.path}]`)
         .join('\n');
       finalPrompt = `${finalPrompt}\n\nAttachments:\n${attachmentContext}\n\nPlease analyze the images/files at the absolute paths provided above.`.trim();
     }
@@ -53,7 +90,7 @@ export async function POST(request: NextRequest) {
     } else if (model === 'gemini') {
       command = 'gemini';
       args = [
-        '-p', message,
+        '-p', finalPrompt,
         '--output-format', 'stream-json',
         '--verbose',
         '--yolo',
@@ -71,12 +108,19 @@ export async function POST(request: NextRequest) {
       ];
       
       if (sessionId) {
-        args.push('resume', sessionId, message);
+        args.push('resume', sessionId, finalPrompt);
       } else {
-        args.push(message);
+        args.push(finalPrompt);
       }
     } else {
       return NextResponse.json({ success: false, error: 'Invalid model' }, { status: 400 });
+    }
+
+    if (!checkCliAvailability(command)) {
+      return NextResponse.json(
+        { success: false, error: `${model} CLI not found (${command}). Please install it or choose another model.` },
+        { status: 500 }
+      );
     }
 
     console.log(`[AI Chat] Executing: ${command} ${args.join(' ')}`);
@@ -90,13 +134,26 @@ export async function POST(request: NextRequest) {
     let hasSentHeader = false;
     let stdoutBuffer = '';
     let finalResultText = '';
+    let streamClosed = false;
 
     const encoder = new TextEncoder();
     const responseStream = new ReadableStream({
       start(controller) {
+        const safeClose = () => {
+          if (streamClosed) return;
+          streamClosed = true;
+          controller.close();
+        };
+
         const push = (text: string) => {
           try { controller.enqueue(encoder.encode(text)); } catch {}
         };
+
+        aiProcess.on('error', (processError: Error) => {
+          console.error(`[${model} PROCESS] Failed to start`, processError);
+          push(JSON.stringify({ type: 'error', message: `${model} CLI failed to start: ${processError.message}` }) + '\n');
+          safeClose();
+        });
 
         aiProcess.stdout.on('data', (chunk: Buffer) => {
           stdoutBuffer += chunk.toString();
@@ -165,7 +222,7 @@ export async function POST(request: NextRequest) {
                 // For Claude/Gemini, just push original events
                 push(line + '\n');
               }
-            } catch (e) {
+            } catch {
               // Handle potential raw text (progress indicators etc)
               if (line.trim()) {
                 console.log(`[${model} RAW] ${line}`);
@@ -213,11 +270,12 @@ export async function POST(request: NextRequest) {
                 console.log(`[${model}] Found existing session in DB: ${dbSessionId}`);
               } else {
                 console.log(`[${model}] Creating NEW session in DB for ID: ${targetSessionId}`);
+                const titleSource = promptText || (hasAttachments ? 'Attachment analysis' : 'New chat');
                 const result = await db.insert(aiSessions).values({
                   sessionId: targetSessionId,
                   userId: session.user.id,
                   model: model,
-                  title: message.substring(0, 40) + (message.length > 40 ? '...' : ''),
+                  title: titleSource.substring(0, 40) + (titleSource.length > 40 ? '...' : ''),
                   createdAt: new Date(),
                 }).returning({ id: aiSessions.id });
                 dbSessionId = result[0].id;
@@ -229,7 +287,7 @@ export async function POST(request: NextRequest) {
               await db.insert(aiMessages).values({
                 aiSessionDbId: dbSessionId,
                 role: 'user',
-                content: message,
+                content: promptText,
                 createdAt: new Date(),
               });
 
@@ -247,7 +305,10 @@ export async function POST(request: NextRequest) {
           } catch (dbErr) {
             console.error('[AI Chat] DB Persistence Error:', dbErr);
           }
-          controller.close();
+          if (code !== 0 && !hasSentHeader) {
+            push(JSON.stringify({ type: 'error', message: `${model} CLI exited with code ${String(code)}` }) + '\n');
+          }
+          safeClose();
         });
       },
     });

@@ -21,6 +21,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { cn } from '@/lib/utils';
 
 interface FileContextMenuProps {
   node: {
@@ -28,6 +29,7 @@ interface FileContextMenuProps {
     name: string;
     type: 'file' | 'directory';
   };
+  isRowActive?: boolean;
 }
 
 function getParentPath(path: string) {
@@ -48,7 +50,7 @@ function joinPath(parent: string, name: string) {
   return `${normalizedParent}/${normalizedName}`;
 }
 
-export function FileContextMenu({ node }: FileContextMenuProps) {
+export function FileContextMenu({ node, isRowActive = false }: FileContextMenuProps) {
   const [open, setOpen] = useState(false);
   
   // State for Move Dialog
@@ -195,7 +197,15 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="ml-1 opacity-100 md:opacity-0 md:group-hover:opacity-70 hover:opacity-100 bg-slate-800/40 hover:bg-slate-700/70 border border-slate-700/60 transition-opacity"
+            className={cn(
+              'ml-1 text-slate-200 transition-opacity',
+              isRowActive || open
+                ? 'opacity-100'
+                : 'opacity-100 md:opacity-0 md:group-hover:opacity-70 hover:opacity-100',
+              isRowActive
+                ? 'bg-transparent border-transparent hover:!bg-transparent active:!bg-transparent'
+                : 'bg-transparent border-transparent hover:!bg-slate-700/60 active:!bg-slate-700/60'
+            )}
             onClick={(event) => {
               event.stopPropagation();
               setOpen(true);
@@ -241,13 +251,13 @@ export function FileContextMenu({ node }: FileContextMenuProps) {
       </DropdownMenu>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="max-w-md bg-slate-900 text-slate-100">
-          <DialogHeader>
-            <DialogTitle>Rename "{node.name}"</DialogTitle>
-            <DialogDescription>
-              Enter a new name for the item. The new name will be saved in the same directory.
-            </DialogDescription>
-          </DialogHeader>
+          <DialogContent className="max-w-md bg-slate-900 text-slate-100">
+            <DialogHeader>
+              <DialogTitle>{`Rename "${node.name}"`}</DialogTitle>
+              <DialogDescription>
+                Enter a new name for the item. The new name will be saved in the same directory.
+              </DialogDescription>
+            </DialogHeader>
           <div className="py-4">
             <label htmlFor="newName" className="text-xs text-slate-400">New name</label>
             <Input

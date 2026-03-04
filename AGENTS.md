@@ -4,7 +4,7 @@
 - `app/`: Next.js App Router pages, API routes, and UI components.
   - `app/api/`: REST endpoints for auth, files, and downloads.
   - `app/components/`: UI building blocks (file browser, editor, terminal).
-  - `app/lib/`: auth, SSH/local filesystem, utilities.
+  - `app/lib/`: auth, local filesystem, utilities.
   - `app/store/`: Zustand state stores.
 - `components/ui/`: shadcn/ui primitives (button, dialog, tooltip, etc.).
 - `docs/`: deployment, security, monitoring guides.
@@ -41,6 +41,5 @@
 
 ## Security & Configuration Tips
 - Production uses `systemd` (`canvas-notebook.service`).
-- Local filesystem mode is supported: `SSH_USE_LOCAL_FS=true` and `SSH_BASE_PATH=/home/canvas-notebook/workspace`.
-- For remote SSH/SFTP, set `SSH_HOST`, `SSH_USER`, and `SSH_KEY_PATH`.
+- Workspace path is configured via `WORKSPACE_DIR` (default: `./workspace`).
 - Keep secrets in `.env.local` / `.env.systemd` and out of git.

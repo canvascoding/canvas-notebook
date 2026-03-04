@@ -1,4 +1,4 @@
-const baseUrl = process.env.BASE_URL || 'http://localhost:3002';
+const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
 
 async function run() {
   const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
