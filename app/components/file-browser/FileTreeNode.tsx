@@ -86,9 +86,9 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
   const getFileIcon = () => {
     if (isDirectory) {
       return isExpanded ? (
-        <FolderOpen className="h-4 w-4 text-blue-400" />
+        <FolderOpen className="h-4 w-4 text-primary" />
       ) : (
-        <Folder className="h-4 w-4 text-blue-400" />
+        <Folder className="h-4 w-4 text-primary" />
       );
     }
 
@@ -98,7 +98,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     if (
       ['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'scss', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'php', 'sh', 'bash', 'zsh', 'yml', 'yaml', 'toml'].includes(ext)
     ) {
-      return <FileCode className="h-4 w-4 text-emerald-400" />;
+      return <FileCode className="h-4 w-4 text-chart-2" />;
     }
 
     // Documents
@@ -106,34 +106,34 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
       return <FileText className="h-4 w-4 text-muted-foreground" />;
     }
     if (ext === 'pdf') {
-      return <FileText className="h-4 w-4 text-rose-400" />;
+      return <FileText className="h-4 w-4 text-destructive" />;
     }
     if (['doc', 'docx'].includes(ext)) {
-      return <FileText className="h-4 w-4 text-blue-500" />;
+      return <FileText className="h-4 w-4 text-primary" />;
     }
 
     // Data & Config
     if (['json', 'env', 'gitignore'].includes(ext)) {
-      return <FileDigit className="h-4 w-4 text-yellow-400" />;
+      return <FileDigit className="h-4 w-4 text-chart-3" />;
     }
     if (['sql', 'db', 'sqlite'].includes(ext)) {
-      return <Database className="h-4 w-4 text-orange-400" />;
+      return <Database className="h-4 w-4 text-chart-4" />;
     }
 
     // Spreadsheet
     if (['xls', 'xlsx', 'csv'].includes(ext)) {
-      return <FileSpreadsheet className="h-4 w-4 text-green-500" />;
+      return <FileSpreadsheet className="h-4 w-4 text-chart-2" />;
     }
 
     // Media
     if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext)) {
-      return <ImageIcon className="h-4 w-4 text-purple-400" />;
+      return <ImageIcon className="h-4 w-4 text-chart-5" />;
     }
     if (['mp4', 'webm', 'ogv', 'mov'].includes(ext)) {
-      return <FileVideo className="h-4 w-4 text-pink-400" />;
+      return <FileVideo className="h-4 w-4 text-chart-4" />;
     }
     if (['wav', 'mp3', 'm4a', 'aac', 'ogg', 'opus', 'flac'].includes(ext)) {
-      return <FileAudio className="h-4 w-4 text-cyan-400" />;
+      return <FileAudio className="h-4 w-4 text-chart-1" />;
     }
 
     return <File className="h-4 w-4 text-muted-foreground" />;
@@ -152,7 +152,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
         <SidebarMenuItem>
           <div
             className={cn(
-              'group relative flex w-full items-center rounded-md px-2 py-0.5 text-foreground transition-colors',
+              'group relative flex w-full items-center px-2 py-0.5 text-foreground transition-colors',
               isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
             )}
             onContextMenu={handleContextMenu}
@@ -160,10 +160,10 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
             {isMultiSelectMode && (
               <button
                 onClick={handleCheckboxClick}
-                className="mr-1 flex-shrink-0 rounded-sm p-1 hover:bg-accent/70"
+                className="mr-1 flex-shrink-0 p-1 hover:bg-accent/70"
               >
                 {isMultiSelected ? (
-                  <CheckSquare className="h-4 w-4 text-sky-400" />
+                  <CheckSquare className="h-4 w-4 text-primary" />
                 ) : (
                   <Square className="h-4 w-4 text-muted-foreground" />
                 )}
@@ -206,7 +206,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     <SidebarMenuItem>
       <div
         className={cn(
-          'group relative flex w-full items-center rounded-md px-2 py-0.5 text-foreground transition-colors',
+          'group relative flex w-full items-center px-2 py-0.5 text-foreground transition-colors',
           isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
         )}
         onContextMenu={handleContextMenu}
@@ -214,10 +214,10 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
         {isMultiSelectMode && (
           <button
             onClick={handleCheckboxClick}
-            className="mr-1 flex-shrink-0 rounded-sm p-1 hover:bg-accent/70"
+            className="mr-1 flex-shrink-0 p-1 hover:bg-accent/70"
           >
             {isMultiSelected ? (
-              <CheckSquare className="h-4 w-4 text-sky-400" />
+              <CheckSquare className="h-4 w-4 text-primary" />
             ) : (
               <Square className="h-4 w-4 text-muted-foreground" />
             )}

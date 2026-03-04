@@ -56,7 +56,7 @@ function attachTerminalServer(server) {
         const session = await createSession(sessionId);
         attachClient(session, ws);
         
-        ws.on('message', (msg) => handleMessage(session, msg));
+        ws.on('message', (msg) => handleMessage(session, ws, msg));
         ws.send(JSON.stringify({ type: 'ready', data: sessionId }));
         console.log(`[Terminal] WS Session ${sessionId} started`);
       } catch (err) {

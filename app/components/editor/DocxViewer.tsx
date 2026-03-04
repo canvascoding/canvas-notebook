@@ -57,7 +57,7 @@ export function DocxViewer({ path }: DocxViewerProps) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-2">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <span className="text-xs text-muted-foreground">Rendering document...</span>
         </div>
       </div>
@@ -67,7 +67,7 @@ export function DocxViewer({ path }: DocxViewerProps) {
   if (error) {
     return (
       <div className="flex h-full items-center justify-center bg-background p-4">
-        <div className="flex flex-col items-center gap-2 text-red-400 text-sm max-w-md text-center">
+        <div className="flex max-w-md flex-col items-center gap-2 text-center text-sm text-destructive">
           <AlertCircle className="h-8 w-8" />
           <p>{error}</p>
         </div>
@@ -76,15 +76,15 @@ export function DocxViewer({ path }: DocxViewerProps) {
   }
 
   return (
-    <div className="h-full w-full bg-muted/40 overflow-auto custom-scrollbar">
-      <div className="max-w-[850px] mx-auto my-8 p-12 bg-white text-black shadow-xl min-h-[calc(100%-4rem)] docx-content">
+    <div className="custom-scrollbar h-full w-full overflow-auto bg-muted/40">
+      <div className="docx-content mx-auto my-8 min-h-[calc(100%-4rem)] max-w-[850px] border border-border bg-white p-12 text-black shadow-sm">
         <style jsx global>{`
           .docx-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; }
           .docx-content h2 { font-size: 1.5em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; }
           .docx-content h3 { font-size: 1.25em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; }
           .docx-content p { margin-bottom: 1em; line-height: 1.6; }
           .docx-content table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
-          .docx-content table, .docx-content th, .docx-content td { border: 1px solid #ddd; padding: 8px; }
+          .docx-content table, .docx-content th, .docx-content td { border: 1px solid var(--border); padding: 8px; }
           .docx-content ul, .docx-content ol { margin-bottom: 1em; padding-left: 2em; }
           .docx-content li { margin-bottom: 0.5em; }
           .docx-content img { max-width: 100%; height: auto; }
@@ -98,7 +98,6 @@ export function DocxViewer({ path }: DocxViewerProps) {
           }
           .custom-scrollbar::-webkit-scrollbar-thumb {
             background: var(--border);
-            border-radius: 5px;
             border: 2px solid var(--muted);
           }
           .custom-scrollbar::-webkit-scrollbar-thumb:hover {
