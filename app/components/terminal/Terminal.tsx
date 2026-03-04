@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   Bot,
-  ChevronDown,
-  ChevronUp,
   Clipboard,
   Code,
   Maximize2,
@@ -50,13 +48,6 @@ export function TerminalPanel() {
   const [selectMode, setSelectMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isKilling, setIsKilling] = useState(false);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    if (sessions.length === 0) {
-      createSession();
-    }
-  }, [hydrated, sessions.length, createSession]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -239,7 +230,7 @@ export function TerminalPanel() {
                     aria-label="Stop process"
                     disabled={!activeSessionId}
                   >
-                    <OctagonX className="h-4 w-4 text-red-500" />
+                    <OctagonX className="h-4 w-4 text-destructive" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Stop running process</TooltipContent>
@@ -263,7 +254,7 @@ export function TerminalPanel() {
                     aria-label="Run Claude"
                     disabled={!activeSessionId}
                   >
-                    <Bot className="h-4 w-4 text-emerald-400" />
+                    <Bot className="h-4 w-4 text-chart-2" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Run Claude</TooltipContent>
@@ -287,7 +278,7 @@ export function TerminalPanel() {
                     aria-label="Run Codex"
                     disabled={!activeSessionId}
                   >
-                    <Code className="h-4 w-4 text-blue-400" />
+                    <Code className="h-4 w-4 text-primary" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Run Codex</TooltipContent>
@@ -311,7 +302,7 @@ export function TerminalPanel() {
                     aria-label="Run Gemini"
                     disabled={!activeSessionId}
                   >
-                    <Bot className="h-4 w-4 text-purple-400" />
+                    <Bot className="h-4 w-4 text-chart-3" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Run Gemini</TooltipContent>
@@ -339,7 +330,7 @@ export function TerminalPanel() {
                     aria-label="Kill all terminals"
                     disabled={sessions.length === 0 || isKilling}
                   >
-                    <Skull className="h-4 w-4 hover:text-red-500 transition-colors" />
+                    <Skull className="h-4 w-4 transition-colors hover:text-destructive" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Kill all terminals</TooltipContent>
@@ -348,39 +339,49 @@ export function TerminalPanel() {
           </div>
         </TooltipProvider>
       </div>
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 overflow-x-auto no-scrollbar bg-muted/20">
-        {sessions.map((session) => (
-          <button
-            key={session.id}
-            onClick={() => setActiveSession(session.id)}
-            className={cn(
-              'group flex items-center gap-2 rounded-md px-2.5 py-1 transition-all min-w-max border',
-              activeSessionId === session.id
-                ? 'bg-accent text-accent-foreground border-border shadow-sm'
-                : 'text-muted-foreground hover:bg-accent/70 border-transparent'
-            )}
-          >
-            <span className="text-xs font-medium">{session.title}</span>
-            <span
-              className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-              onClick={(event) => {
-                event.stopPropagation();
-                closeSession(session.id);
-              }}
-              onPointerDown={(event) => event.stopPropagation()}
-              role="button"
-              aria-label={`Close ${session.title}`}
-              title="Close terminal"
+      {sessions.length > 0 && (
+        <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 overflow-x-auto no-scrollbar bg-muted/20">
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              onClick={() => setActiveSession(session.id)}
+              className={cn(
+                'group flex min-w-max items-center gap-2 border px-2.5 py-1 transition-all',
+                activeSessionId === session.id
+                  ? 'bg-accent text-accent-foreground border-border shadow-sm'
+                  : 'text-muted-foreground hover:bg-accent/70 border-transparent'
+              )}
             >
-              <X className="h-3 w-3" />
-            </span>
-          </button>
-        ))}
-      </div>
+              <span className="text-xs font-medium">{session.title}</span>
+              <span
+                className="flex h-4 w-4 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  closeSession(session.id);
+                }}
+                onPointerDown={(event) => event.stopPropagation()}
+                role="button"
+                aria-label={`Close ${session.title}`}
+                title="Close terminal"
+              >
+                <X className="h-3 w-3" />
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex-1 min-h-0 relative">
         {sessions.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            No active terminal
+          <div className="flex h-full items-center justify-center p-4">
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={createSession}
+              className="h-14 px-8 text-base font-semibold"
+            >
+              <Plus className="h-5 w-5 mr-2" />
+              Neues Terminalfenster öffnen
+            </Button>
           </div>
         ) : (
           <div className="h-full w-full">

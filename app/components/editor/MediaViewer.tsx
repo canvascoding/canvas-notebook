@@ -55,7 +55,7 @@ export function MediaViewer({ path, kind, mimeType, size }: MediaViewerProps) {
 
   const toolbar = (
     <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-xs text-muted-foreground">
-      <span className="rounded bg-muted px-2 py-0.5 uppercase tracking-wide text-foreground">
+      <span className="bg-muted px-2 py-0.5 uppercase tracking-wide text-foreground">
         {kind}
       </span>
       <span>{durationLabel ? `Duration ${durationLabel}` : 'Duration --:--'}</span>

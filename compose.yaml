@@ -15,8 +15,9 @@ services:
       ALLOW_SIGNUP: "false"
       CODEX_AUTO_INSTALL: "true"
     volumes:
-      - canvas_notebook_data:/data
+      - ./data:/data
+      - canvas_notebook_home:/home/node
     restart: unless-stopped
 
 volumes:
-  canvas_notebook_data:
+  canvas_notebook_home:

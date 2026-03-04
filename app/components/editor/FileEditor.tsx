@@ -251,8 +251,8 @@ export function FileEditor() {
   if (fileError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <AlertCircle className="h-6 w-6 text-red-400" />
-        <p className="text-sm text-red-500">{fileError}</p>
+        <AlertCircle className="h-6 w-6 text-destructive" />
+        <p className="text-sm text-destructive">{fileError}</p>
       </div>
     );
   }
@@ -281,7 +281,7 @@ export function FileEditor() {
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {isImage && <span className="rounded bg-muted px-2 py-0.5 text-foreground">Read-only</span>}
+          {isImage && <span className="bg-muted px-2 py-0.5 text-foreground">Read-only</span>}
           {saveError ? (
             <span className="flex items-center gap-1 text-destructive">
               <AlertCircle className="h-3.5 w-3.5" />
@@ -298,7 +298,7 @@ export function FileEditor() {
               Unsaved changes
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+            <span className="flex items-center gap-1 text-primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {savedTime ? `Saved ${savedTime}` : 'Saved'}
             </span>

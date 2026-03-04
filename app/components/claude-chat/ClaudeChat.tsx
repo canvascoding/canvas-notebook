@@ -359,16 +359,16 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
   return (
     <div className="flex flex-col h-full bg-card text-card-foreground relative overflow-hidden">
       {/* Header */}
-      <div className="p-2 border-b border-border flex justify-between items-center bg-background/80 backdrop-blur-sm z-10">
+      <div className="z-10 flex items-center justify-between border-b border-border bg-background/95 p-2">
         <div className="flex items-center gap-2 min-w-0">
             {showHistory ? (
-                <button onClick={() => setShowHistory(false)} className="p-1 hover:bg-accent rounded transition-colors"><ChevronLeft /></button>
+                <button onClick={() => setShowHistory(false)} className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"><ChevronLeft /></button>
             ) : (
-                <button onClick={() => { setShowHistory(true); fetchHistory(model); }} className="p-1 hover:bg-accent rounded transition-colors"><History size={20} /></button>
+                <button onClick={() => { setShowHistory(true); fetchHistory(model); }} className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"><History size={20} /></button>
             )}
             <div className="flex flex-col min-w-0">
                 <span className="text-[10px] uppercase font-bold text-muted-foreground leading-none mb-1">{showHistory ? 'History' : 'Chat'}</span>
-                <div className="flex items-center gap-1.5 bg-muted/70 px-2 py-0.5 rounded-full border border-border">
+                <div className="flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-0.5">
                     <select 
                         value={model} 
                         onChange={(e) => handleModelChange(e.target.value as AIModel)}
@@ -385,7 +385,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
         <div className="flex items-center gap-1">
             <button 
               onClick={startNewChat} 
-              className="p-1.5 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 rounded-lg transition-all flex items-center gap-1.5 group" 
+              className="group flex items-center gap-1.5 border border-primary/30 bg-primary/15 p-1.5 text-primary transition-all hover:bg-primary/25" 
               title="New Chat"
             >
               <Plus size={18} />
@@ -394,7 +394,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
             {onClose && (
               <button 
                 onClick={onClose}
-                className="p-1.5 hover:bg-accent text-muted-foreground rounded-lg transition-all"
+                className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent"
                 title="Close Chat"
               >
                 <X size={18} />
@@ -405,8 +405,8 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
 
       {/* Model Disclaimer */}
       {model === 'gemini' && !showHistory && (
-          <div className="bg-amber-950/30 border-b border-amber-900/50 p-1.5 px-3 flex items-center gap-2 text-[10px] text-amber-200/70">
-              <AlertTriangle size={12} className="text-amber-500 shrink-0" />
+          <div className="flex items-center gap-2 border-b border-border bg-accent/35 p-1.5 px-3 text-[10px] text-muted-foreground">
+              <AlertTriangle size={12} className="shrink-0 text-primary" />
               <span>Note: Gemini integration is experimental and may contain bugs.</span>
           </div>
       )}
@@ -423,7 +423,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
                     <button 
                         key={s.id} 
                         onClick={() => loadSession(s.sessionId)}
-                        className="w-full text-left p-3 hover:bg-accent rounded-xl border border-transparent hover:border-border transition-all group flex justify-between items-center bg-muted/30 mb-1"
+                        className="group mb-1 flex w-full items-center justify-between border border-transparent bg-muted/30 p-3 text-left transition-all hover:border-border hover:bg-accent"
                     >
                         <div className="min-w-0 flex-1">
                             <div className="text-sm font-medium truncate group-hover:text-primary text-foreground">{s.title || 'Untitled Session'}</div>
@@ -431,7 +431,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
                         </div>
                         <div 
                             onClick={(e) => deleteSession(e, s.sessionId)}
-                            className="p-2.5 text-muted-foreground hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all rounded-lg hover:bg-red-500/10 ml-2 shrink-0"
+                            className="ml-2 shrink-0 border border-transparent p-2.5 text-muted-foreground opacity-100 transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
                             title="Delete Session"
                         >
                             <Trash2 size={16} />
@@ -459,24 +459,24 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
             )}
             {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[95%] sm:max-w-[90%] p-3 rounded-2xl ${ 
-                msg.role === 'user' ? 'bg-blue-600 text-white shadow-lg' : 
-                msg.role === 'assistant' ? 'bg-muted border border-border' : 'bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300'
+                <div className={`max-w-[95%] border p-3 sm:max-w-[90%] ${ 
+                msg.role === 'user' ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 
+                msg.role === 'assistant' ? 'bg-muted border-border text-foreground' : 'border-destructive/40 bg-destructive/10 text-destructive'
                 }`}> 
                 <div className="flex items-center gap-2 mb-1">
                     <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">{msg.role === 'assistant' ? model : msg.role}</span>
-                    {msg.status === 'sending' && <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />} 
+                    {msg.status === 'sending' && <span className="h-1.5 w-1.5 animate-pulse bg-primary" />} 
                 </div>
                 <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">
                     {msg.content || (msg.status === 'sending' ? `${model} is processing...` : '')}
                 </div>
                 {msg.attachments && msg.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                    {msg.attachments.map((a, i) => (
-                        <div key={i} className="flex items-center gap-1.5 bg-background/50 p-1.5 px-2.5 rounded-md text-[10px] border border-border">
-                        <ImageIcon className="h-3 w-3" /> {a.name}
-                        </div>
-                    ))}
+                      {msg.attachments.map((a, i) => (
+                          <div key={i} className="flex items-center gap-1.5 border border-border bg-background/50 p-1.5 px-2.5 text-[10px]">
+                          <ImageIcon className="h-3 w-3" /> {a.name}
+                          </div>
+                      ))}
                     </div>
                 )}
                 </div>
@@ -489,7 +489,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
         {!isAtBottom && messages.length > 0 && (
           <button 
             onClick={() => scrollToBottom()}
-            className="absolute bottom-28 right-4 p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-full shadow-lg z-30 transition-all animate-bounce border border-blue-400/30"
+            className="absolute bottom-28 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
             title="Scroll to bottom"
           >
             <ArrowDown size={20} />
@@ -498,13 +498,13 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
       </div>
 
       {/* Input Area */}
-      <div className="p-3 bg-background/85 backdrop-blur-md border-t border-border absolute bottom-0 left-0 right-0 z-20">
+      <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 p-3">
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2 p-2 bg-muted/60 rounded-lg">
+          <div className="mb-2 flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
             {attachments.map((a, i) => (
-              <div key={i} className="flex items-center gap-2 bg-accent/70 p-1 px-2 rounded-md text-xs">
+              <div key={i} className="flex items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
                  <ImageIcon className="h-3.5 w-3.5" /> {a.name}
-                 <button onClick={() => removeAttachment(i)} className="hover:text-red-400"><X className="h-3 w-3" /></button>
+                 <button onClick={() => removeAttachment(i)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
               </div>
             ))}
           </div>
@@ -512,7 +512,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
         <div className="flex gap-2 items-end">
           <button 
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 hover:bg-accent rounded-lg transition-colors text-muted-foreground"
+            className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
             disabled={model === 'codex'} // Keep as requested
           >
             <Paperclip className="h-5 w-5" />
@@ -529,11 +529,11 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
               }
             }}
             placeholder={`Ask ${model}... (Paste images supported)`}
-            className="flex-1 bg-background border border-border rounded-xl p-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px] max-h-32 placeholder:text-muted-foreground"
+            className="max-h-32 min-h-[44px] flex-1 resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <button
             onClick={handleSend}
-            className="bg-blue-600 hover:bg-blue-500 text-white p-2.5 rounded-xl transition-all disabled:opacity-30 flex-shrink-0"
+            className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
             disabled={!input.trim() && attachments.length === 0}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5">
@@ -543,7 +543,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
         </div>
         {queue.length > 0 && (
           <div className="mt-2 text-[10px] text-muted-foreground flex items-center gap-2 px-1">
-            <span className="w-1 h-1 bg-blue-500 rounded-full animate-ping" />
+            <span className="h-1 w-1 animate-ping bg-primary" />
             {queue.length} in queue
           </div>
         )}

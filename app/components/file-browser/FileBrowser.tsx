@@ -162,11 +162,11 @@ export function FileBrowser() {
       onDrop={handleDrop}
     >
       {isDragging && (
-        <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded border-2 border-dashed border-border bg-background/90 text-sm text-foreground">
+        <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center border-2 border-dashed border-border bg-background/95 text-sm text-foreground">
           Drop files to upload
         </div>
       )}
-      <div className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
+      <div className="sticky top-0 z-20 border-b border-border bg-background/95">
         <div className="flex items-center justify-between px-3 py-2">
           <h2 className="text-sm font-semibold text-foreground">Files</h2>
           <TooltipProvider delayDuration={300}>
@@ -329,9 +329,9 @@ export function FileBrowser() {
             />
           </div>
           {uploadProgress !== null && (
-            <div className="mt-2 h-1 w-full overflow-hidden rounded bg-muted">
+            <div className="mt-2 h-1 w-full overflow-hidden bg-muted">
               <div
-                className="h-full bg-sky-500 transition-all"
+                className="h-full bg-primary transition-all"
                 style={{ width: `${uploadProgress}%` }}
               />
             </div>

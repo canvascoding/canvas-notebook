@@ -14,53 +14,53 @@ interface XTerminalProps {
 function getTerminalTheme(isDark: boolean) {
   if (isDark) {
     return {
-      background: '#0f172a',
-      foreground: '#e2e8f0',
-      cursor: '#f8fafc',
-      selectionBackground: 'rgba(148, 163, 184, 0.35)',
-      selectionForeground: '#f8fafc',
-      selectionInactiveBackground: 'rgba(148, 163, 184, 0.2)',
-      black: '#475569',
-      red: '#ef4444',
-      green: '#22c55e',
-      yellow: '#eab308',
-      blue: '#3b82f6',
-      magenta: '#a855f7',
-      cyan: '#06b6d4',
-      white: '#e2e8f0',
-      brightBlack: '#94a3b8',
-      brightRed: '#f87171',
-      brightGreen: '#4ade80',
-      brightYellow: '#fde047',
-      brightBlue: '#60a5fa',
-      brightMagenta: '#c084fc',
-      brightCyan: '#67e8f9',
-      brightWhite: '#f8fafc',
+      background: '#0f151d',
+      foreground: '#d9e5f0',
+      cursor: '#d9e5f0',
+      selectionBackground: 'rgba(124, 180, 230, 0.32)',
+      selectionForeground: '#eaf2f9',
+      selectionInactiveBackground: 'rgba(124, 180, 230, 0.2)',
+      black: '#2d3a49',
+      red: '#cf5f63',
+      green: '#74a57f',
+      yellow: '#c0a256',
+      blue: '#7cb4e6',
+      magenta: '#9f8bad',
+      cyan: '#6bb0bf',
+      white: '#d9e5f0',
+      brightBlack: '#6d7e91',
+      brightRed: '#e18488',
+      brightGreen: '#8dcf9a',
+      brightYellow: '#d8be78',
+      brightBlue: '#9bccf4',
+      brightMagenta: '#bda9cb',
+      brightCyan: '#89cad8',
+      brightWhite: '#f3f8fc',
     };
   }
 
   return {
-    background: '#f8fafc',
-    foreground: '#0f172a',
-    cursor: '#0f172a',
-    selectionBackground: 'rgba(59, 130, 246, 0.28)',
-    selectionForeground: '#0f172a',
-    selectionInactiveBackground: 'rgba(59, 130, 246, 0.18)',
-    black: '#334155',
-    red: '#b91c1c',
-    green: '#166534',
-    yellow: '#a16207',
-    blue: '#1d4ed8',
-    magenta: '#7e22ce',
-    cyan: '#0e7490',
-    white: '#e2e8f0',
-    brightBlack: '#64748b',
-    brightRed: '#dc2626',
-    brightGreen: '#16a34a',
-    brightYellow: '#ca8a04',
-    brightBlue: '#2563eb',
-    brightMagenta: '#9333ea',
-    brightCyan: '#0891b2',
+    background: '#f4f7fa',
+    foreground: '#1a2735',
+    cursor: '#1a2735',
+    selectionBackground: 'rgba(56, 108, 158, 0.22)',
+    selectionForeground: '#0f1b28',
+    selectionInactiveBackground: 'rgba(56, 108, 158, 0.14)',
+    black: '#324354',
+    red: '#b44c52',
+    green: '#2f7a49',
+    yellow: '#8a6d24',
+    blue: '#2a5f99',
+    magenta: '#705685',
+    cyan: '#2d7383',
+    white: '#dfe8f0',
+    brightBlack: '#5e7287',
+    brightRed: '#d05f67',
+    brightGreen: '#459863',
+    brightYellow: '#a7893c',
+    brightBlue: '#3f78b8',
+    brightMagenta: '#8969a4',
+    brightCyan: '#3d8ea3',
     brightWhite: '#ffffff',
   };
 }
@@ -71,7 +71,8 @@ export function XTerminal({ sessionId }: XTerminalProps) {
   const socketRef = useRef<WebSocket | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const reconnectAttempts = useRef(0);
-  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keepAliveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const isIntentionallyClosed = useRef(false);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
@@ -134,28 +135,50 @@ export function XTerminal({ sessionId }: XTerminalProps) {
     term.focus();
 
     // WebSocket connection with smart reconnect
-    const connectWebSocket = (isReconnect = false) => {
+    const sendResize = () => {
+      fitAddon.fit();
+      const dimensions = fitAddon.proposeDimensions();
+      const currentSocket = socketRef.current;
+      if (dimensions && currentSocket && currentSocket.readyState === WebSocket.OPEN) {
+        currentSocket.send(
+          JSON.stringify({
+            type: 'resize',
+            data: { cols: dimensions.cols, rows: dimensions.rows },
+          })
+        );
+      }
+    };
+
+    const connectWebSocket = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/api/terminal/${sessionId}`;
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
       socket.addEventListener('open', () => {
-        console.log('[Terminal] Connected');
         reconnectAttempts.current = 0;
-        if (isReconnect) {
-          term.write('\r\n\x1b[32m[Reconnected]\x1b[0m\r\n');
+        if (reconnectTimeout.current) {
+          clearTimeout(reconnectTimeout.current);
+          reconnectTimeout.current = null;
         }
+        if (keepAliveInterval.current) {
+          clearInterval(keepAliveInterval.current);
+        }
+        keepAliveInterval.current = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 15000);
+        sendResize();
       });
 
       socket.addEventListener('close', (event) => {
         if (isIntentionallyClosed.current) return;
 
-        console.log('[Terminal] Connection closed:', {
-            code: event.code,
-            reason: event.reason,
-            wasClean: event.wasClean
-        });
+        if (keepAliveInterval.current) {
+          clearInterval(keepAliveInterval.current);
+          keepAliveInterval.current = null;
+        }
 
         // Server explicitly rejected (terminal limit, auth failure, etc)
         if (event.code === 1013 || event.code === 1008 || event.code === 1003 || event.code === 1000) {
@@ -165,28 +188,19 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
         // Network issue or server restart - reconnect with backoff
         if (event.code === 1001 || event.code === 1006 || event.code === 1011) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
           reconnectAttempts.current++;
-
-          // Show message only after 2nd attempt (reduces spam)
-          if (reconnectAttempts.current > 1) {
-            term.write(`\r\n\x1b[33m[Reconnecting...]\x1b[0m\r\n`);
-          }
 
           reconnectTimeout.current = setTimeout(() => {
             if (!isIntentionallyClosed.current) {
-              connectWebSocket(true);
+              connectWebSocket();
             }
           }, delay);
         }
       });
 
-      socket.addEventListener('error', (err) => {
-        // Nur loggen, wenn der Socket nicht bereits im Begriff ist, sich zu öffnen oder offen ist.
-        // Das reduziert das Rauschen durch Doppel-Mounts in Next.js Dev.
-        if (socket.readyState !== WebSocket.OPEN && socket.readyState !== WebSocket.CONNECTING) {
-            console.warn('[Terminal] Transient WebSocket error');
-        }
+      socket.addEventListener('error', () => {
+        // handled via close + reconnect
       });
 
       socket.addEventListener('message', (event) => {
@@ -194,9 +208,6 @@ export function XTerminal({ sessionId }: XTerminalProps) {
           const payload = JSON.parse(event.data);
           if (payload.type === 'output') {
             term.write(payload.data);
-          } else if (payload.type === 'ready') {
-            console.log('[Terminal] Handshake complete, shell ready');
-            term.write('\x1b[32m[Connected]\x1b[0m\r\n');
           }
         } catch {
           // ignore malformed payloads
@@ -206,7 +217,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       return socket;
     };
 
-    connectWebSocket(false);
+    connectWebSocket();
 
     // Handle custom terminal events
     const handleSignal = (event: Event) => {
@@ -338,17 +349,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
     // Handle terminal resize
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-      const dimensions = fitAddon.proposeDimensions();
-      const currentSocket = socketRef.current;
-      if (dimensions && currentSocket && currentSocket.readyState === WebSocket.OPEN) {
-        currentSocket.send(
-          JSON.stringify({
-            type: 'resize',
-            data: { cols: dimensions.cols, rows: dimensions.rows },
-          })
-        );
-      }
+      sendResize();
     });
 
     resizeObserver.observe(container);
@@ -383,6 +384,9 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       isIntentionallyClosed.current = true;
       if (reconnectTimeout.current) {
         clearTimeout(reconnectTimeout.current);
+      }
+      if (keepAliveInterval.current) {
+        clearInterval(keepAliveInterval.current);
       }
       resizeObserver.disconnect();
       container.removeEventListener('click', handleFocus);

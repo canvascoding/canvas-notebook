@@ -130,9 +130,15 @@ function attachClient(session, ws) {
   });
 }
 
-function handleMessage(session, message) {
+function handleMessage(session, ws, message) {
   try {
     const payload = JSON.parse(message.toString());
+    if (payload.type === 'ping') {
+      if (ws?.readyState === 1) {
+        try { ws.send(JSON.stringify({ type: 'pong' })); } catch {}
+      }
+      return;
+    }
     if (payload.type === 'input' && session.stream) {
       const input = payload.data || '';
       session.stream.write(input);

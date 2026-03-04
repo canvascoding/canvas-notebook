@@ -46,10 +46,10 @@ export default function SignUpForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted/40 to-background p-4">
-      <div className="w-full max-w-md p-8 bg-card/95 backdrop-blur-lg rounded-lg shadow-xl border border-border">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="w-full max-w-md border border-border bg-card p-8 shadow-sm">
         <div className="flex items-center justify-center mb-8">
-          <Image src="/logo.jpg" alt="Canvas Logo" width={48} height={48} className="rounded-lg mr-3 shadow-lg" />
+          <Image src="/logo.jpg" alt="Canvas Logo" width={48} height={48} className="mr-3 border border-border" />
           <h1 className="text-3xl font-bold text-foreground">Create Account</h1>
         </div>
 
@@ -119,7 +119,7 @@ export default function SignUpForm() {
 
           <Button
             type="submit"
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white"
+            className="w-full"
             disabled={loading}
           >
             {loading ? 'Creating account...' : 'Create account'}
