@@ -1,10 +1,10 @@
 import path from 'path';
 import { promises as fs } from 'fs';
 
-// Nutze die Umgebungsvariable WORKSPACE_DIR oder falle auf das lokale 'workspace' Verzeichnis zurück
+// Nutze die Umgebungsvariable WORKSPACE_DIR oder falle auf das lokale data/workspace Verzeichnis zurück
 const WORKSPACE_BASE_DIR = process.env.WORKSPACE_DIR
   ? path.resolve(process.env.WORKSPACE_DIR)
-  : path.resolve(process.cwd(), 'workspace');
+  : path.resolve(process.cwd(), 'data', 'workspace');
 
 /**
  * Returns the absolute path for the workspace.

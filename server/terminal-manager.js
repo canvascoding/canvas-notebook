@@ -10,7 +10,7 @@ const MAX_TERMINALS = Number(process.env.MAX_TERMINALS_PER_USER || 3);
 
 const LOCAL_CWD = process.env.WORKSPACE_DIR
   ? path.resolve(process.env.WORKSPACE_DIR)
-  : path.resolve(process.cwd(), 'workspace');
+  : path.resolve(process.cwd(), 'data', 'workspace');
 
 function getShellPath() {
   if (process.platform === 'darwin') return '/bin/zsh';

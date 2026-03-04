@@ -57,11 +57,14 @@ Erstelle eine `.env` Datei für die Produktion:
 # Wichtige Produktions-Settings
 NODE_ENV=production
 WORKSPACE_DIR=/absoluter/pfad/zum/workspace
-BETTER_AUTH_URL=https://deine-domain.com
-NEXT_PUBLIC_WS_URL=wss://deine-domain.com
+SQLITE_PATH=/absoluter/pfad/zur/sqlite.db
+BETTER_AUTH_SECRET=dein_langer_random_secret
+BETTER_AUTH_BASE_URL=https://deine-domain.com
+BASE_URL=https://deine-domain.com
+ALLOW_SIGNUP=false
 
 # Datenbank
-# SQLite wird automatisch in der Datei sqlite.db erstellt
+# SQLite wird unter SQLITE_PATH erstellt (Verzeichnis muss beschreibbar sein)
 ```
 
 ### 4. Nginx Konfiguration
@@ -98,12 +101,13 @@ Erstellen Sie eine `.env.local` Datei im Wurzelverzeichnis (siehe `.env.example`
 
 ```bash
 # Workspace
-WORKSPACE_DIR=./workspace
+WORKSPACE_DIR=./data/workspace
+SQLITE_PATH=./data/sqlite.db
 
-# App Login
-APP_USERNAME=admin
-APP_PASSWORD_HASH=your_bcrypt_hash
-SESSION_SECRET=your_32_character_secret
+# Auth
+BETTER_AUTH_SECRET=your_32_byte_secret
+BETTER_AUTH_BASE_URL=http://localhost:3000
+ALLOW_SIGNUP=false
 ```
 
 ### Development-Server starten
@@ -132,6 +136,91 @@ Das Projekt verfügt über eine umfassende Test-Suite:
 - **Integration Tests:** `npm run test:integration` (API-Tests)
 - **E2E Tests:** `npm run test:e2e` (Vollständige UI-Tests mit Playwright)
 - **All-in-One:** `npm run test:all`
+
+---
+
+## 🐳 Docker
+
+### Image bauen
+```bash
+docker build -t canvas-notebook:local .
+```
+
+### Warum `sqlite.db` in `.dockerignore` steht
+`sqlite.db` wird absichtlich **nicht** ins Image eingebaut.
+Die Datenbank liegt zur Laufzeit unter `/data/sqlite.db` und bleibt über ein Volume oder Bind-Mount persistent.
+
+### Container lokal starten (Bind-Mount auf `./data`)
+```bash
+docker run --rm -p 3000:3000 \
+  --env-file .env.local \
+  -e HOSTNAME=0.0.0.0 \
+  -e BETTER_AUTH_SECRET=change-me-long-random-secret \
+  -e WORKSPACE_DIR=/data/workspace \
+  -e SQLITE_PATH=/data/sqlite.db \
+  -e ALLOW_SIGNUP=false \
+  -v "$(pwd)/data:/data" \
+  canvas-notebook:local
+```
+
+### Container lokal starten (Named Volume)
+```bash
+docker volume create canvas_notebook_data
+
+docker run --rm -p 3000:3000 \
+  --env-file .env.local \
+  -e HOSTNAME=0.0.0.0 \
+  -e BETTER_AUTH_SECRET=change-me-long-random-secret \
+  -e WORKSPACE_DIR=/data/workspace \
+  -e SQLITE_PATH=/data/sqlite.db \
+  -e ALLOW_SIGNUP=false \
+  --mount source=canvas_notebook_data,target=/data \
+  canvas-notebook:local
+```
+
+### Mit Docker Compose (empfohlen)
+```bash
+docker compose up -d --build
+```
+
+### Initiales User-Onboarding (ohne UI-Benutzermanagement)
+Es gibt zwei Wege für den ersten Account:
+
+1. Einmalig Signup aktivieren, dann wieder deaktivieren
+```bash
+docker run --rm -p 3000:3000 \
+  --env-file .env.local \
+  -e HOSTNAME=0.0.0.0 \
+  -e BETTER_AUTH_SECRET=change-me-long-random-secret \
+  -e WORKSPACE_DIR=/data/workspace \
+  -e SQLITE_PATH=/data/sqlite.db \
+  -e ALLOW_SIGNUP=true \
+  -v "$(pwd)/data:/data" \
+  canvas-notebook:local
+```
+Danach Account über `http://localhost:3000/sign-up` erstellen und `ALLOW_SIGNUP` wieder auf `false` setzen.
+
+2. Admin beim Start automatisch anlegen (idempotent)
+```bash
+docker run --rm -p 3000:3000 \
+  --env-file .env.local \
+  -e HOSTNAME=0.0.0.0 \
+  -e BETTER_AUTH_SECRET=change-me-long-random-secret \
+  -e WORKSPACE_DIR=/data/workspace \
+  -e SQLITE_PATH=/data/sqlite.db \
+  -e ALLOW_SIGNUP=false \
+  -e BOOTSTRAP_ADMIN_EMAIL=admin@example.com \
+  -e BOOTSTRAP_ADMIN_PASSWORD=change-me \
+  -e BOOTSTRAP_ADMIN_NAME=Administrator \
+  -v "$(pwd)/data:/data" \
+  canvas-notebook:local
+```
+Der Bootstrap läuft bei jedem Start, legt den User aber nur an, wenn er fehlt.
+
+### Kurzer Funktionstest
+```bash
+curl -I http://localhost:3000/login
+```
 
 ---
 
