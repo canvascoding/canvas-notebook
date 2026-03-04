@@ -150,7 +150,7 @@ if ! grep -Eq '^[[:space:]]*WORKSPACE_DIR=' "${PROJECT_DIR}/.env.local" || \
     exit 1
 fi
 
-if ! grep -Eq '^[[:space:]]*(BETTER_AUTH_BASE_URL|BETTER_AUTH_URL|BASE_URL)=' "${PROJECT_DIR}/.env.local"; then
+if ! grep -Eq '^[[:space:]]*(BETTER_AUTH_BASE_URL|BASE_URL)=' "${PROJECT_DIR}/.env.local"; then
     echo -e "${RED}❌ Auth/Base URL fehlt (BETTER_AUTH_BASE_URL oder BASE_URL)!${NC}"
     exit 1
 fi
