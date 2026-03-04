@@ -16,8 +16,8 @@ import dynamic from 'next/dynamic';
 const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.OfficeEditor), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center bg-slate-900">
-      <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+    <div className="flex h-full items-center justify-center bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
     </div>
   ),
 });
@@ -25,8 +25,8 @@ const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.Offi
 const DocxViewer = dynamic(() => import('./DocxViewer').then(mod => mod.DocxViewer), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center bg-slate-900">
-      <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+    <div className="flex h-full items-center justify-center bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
     </div>
   ),
 });
@@ -243,7 +243,7 @@ export function FileEditor() {
   if (isLoadingFile) {
     return (
       <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -252,14 +252,14 @@ export function FileEditor() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <AlertCircle className="h-6 w-6 text-red-400" />
-        <p className="text-sm text-red-300">{fileError}</p>
+        <p className="text-sm text-red-500">{fileError}</p>
       </div>
     );
   }
 
   if (!currentFile) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-400">
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
         <FileText className="h-6 w-6" />
         <p className="text-sm">Select a file to preview.</p>
       </div>
@@ -268,9 +268,9 @@ export function FileEditor() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2 text-sm text-slate-300">
-        <div className="flex min-w-0 items-center gap-2 text-xs text-slate-400">
-          <span className="text-slate-300">File</span>
+      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-sm text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <span className="text-foreground">File</span>
           <div className="flex min-w-0 items-center gap-1 truncate">
             {breadcrumbs.map((segment, index) => (
               <span key={`${segment}-${index}`} className="truncate">
@@ -280,10 +280,10 @@ export function FileEditor() {
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          {isImage && <span className="rounded bg-slate-800 px-2 py-0.5">Read-only</span>}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {isImage && <span className="rounded bg-muted px-2 py-0.5 text-foreground">Read-only</span>}
           {saveError ? (
-            <span className="flex items-center gap-1 text-red-300">
+            <span className="flex items-center gap-1 text-destructive">
               <AlertCircle className="h-3.5 w-3.5" />
               {saveError}
             </span>
@@ -298,7 +298,7 @@ export function FileEditor() {
               Unsaved changes
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-emerald-300">
+            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {savedTime ? `Saved ${savedTime}` : 'Saved'}
             </span>
@@ -307,7 +307,7 @@ export function FileEditor() {
       </div>
       <div className={isVideo ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-slate-400">
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText className="h-8 w-8" />
               <p className="text-sm">Binary file preview is not available.</p>
               <Button variant="secondary" onClick={() => downloadFile(currentFile.path)}>
