@@ -2,6 +2,8 @@
 const { WebSocketServer } = require('ws');
 const { createSession, attachClient, handleMessage } = require('./terminal-manager');
 
+const terminalDebug = process.env.TERMINAL_DEBUG === 'true';
+
 let auth;
 try {
   const authModule = require('../app/lib/auth.ts');
@@ -34,8 +36,10 @@ function attachTerminalServer(server) {
       return;
     }
 
-    console.log(`[Terminal] Upgrade Request: ${url.pathname}`);
-    console.log(`[Terminal] Cookies: ${req.headers.cookie ? 'Present' : 'NONE'}`);
+    if (terminalDebug) {
+      console.log(`[Terminal] Upgrade Request: ${url.pathname}`);
+      console.log(`[Terminal] Cookies: ${req.headers.cookie ? 'Present' : 'NONE'}`);
+    }
 
     const sessionData = await getSessionFromUpgradeRequest(req);
     
@@ -46,7 +50,9 @@ function attachTerminalServer(server) {
       return;
     }
 
-    console.log(`[Terminal] User ${sessionData.user.email} authorized`);
+    if (terminalDebug) {
+      console.log(`[Terminal] User ${sessionData.user.email} authorized`);
+    }
 
     wss.handleUpgrade(req, socket, head, async (ws) => {
       const parts = url.pathname.split('/');
@@ -57,8 +63,15 @@ function attachTerminalServer(server) {
         attachClient(session, ws);
         
         ws.on('message', (msg) => handleMessage(session, ws, msg));
+        ws.on('close', (code, reasonBuffer) => {
+          if (!terminalDebug) return;
+          const reason = reasonBuffer?.toString?.() || '';
+          console.log(`[Terminal] WS Session ${sessionId} closed (code=${code}${reason ? ` reason="${reason}"` : ''})`);
+        });
         ws.send(JSON.stringify({ type: 'ready', data: sessionId }));
-        console.log(`[Terminal] WS Session ${sessionId} started`);
+        if (terminalDebug) {
+          console.log(`[Terminal] WS Session ${sessionId} started`);
+        }
       } catch (err) {
         console.error('[Terminal] Startup Error:', err.message);
         ws.close(1013, err.message);

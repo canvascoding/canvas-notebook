@@ -6,7 +6,7 @@
     "dev": "tsx server.js",
     "build": "next build --webpack",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
-    "start": "NODE_ENV=production tsx scripts/bootstrap-admin.ts && NODE_ENV=production tsx server.js",
+    "start": "NODE_ENV=production tsx scripts/bootstrap-admin.ts || echo \"[bootstrap-admin] continuing startup despite failure\"; NODE_ENV=production tsx server.js",
     "lint": "eslint",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:integration": "node scripts/integration-test.mjs",

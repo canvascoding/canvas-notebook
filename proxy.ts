@@ -20,8 +20,9 @@ export async function proxy(request: NextRequest) {
   // console.log('[Middleware] Cookies:', request.cookies.getAll().map(c => `${c.name}=${c.value.substring(0, 10)}...`));
   // console.log('[Middleware] Session Cookie Detected:', !!sessionCookie);
 
-  if (!sessionCookie) {
-    console.log('[Middleware] No session cookie found. Redirecting to login.');
+  const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
+  if (!sessionCookie && logMissingSession) {
+    console.log(`[Middleware] No session cookie for ${pathname}. Redirecting/denying.`);
   }
 
   if (!sessionCookie) {
