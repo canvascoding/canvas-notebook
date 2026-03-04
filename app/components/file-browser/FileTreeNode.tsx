@@ -103,7 +103,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
 
     // Documents
     if (['md', 'mdx', 'markdown', 'txt', 'log'].includes(ext)) {
-      return <FileText className="h-4 w-4 text-slate-300" />;
+      return <FileText className="h-4 w-4 text-muted-foreground" />;
     }
     if (ext === 'pdf') {
       return <FileText className="h-4 w-4 text-rose-400" />;
@@ -136,7 +136,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
       return <FileAudio className="h-4 w-4 text-cyan-400" />;
     }
 
-    return <File className="h-4 w-4 text-slate-400" />;
+    return <File className="h-4 w-4 text-muted-foreground" />;
   };
 
   const formatSize = (bytes?: number) => {
@@ -152,34 +152,34 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
         <SidebarMenuItem>
           <div
             className={cn(
-              'group relative flex w-full items-center rounded-md px-2 py-0.5 text-slate-200 transition-colors',
-              isRowActive ? 'bg-slate-700/70' : 'hover:bg-slate-700/50'
+              'group relative flex w-full items-center rounded-md px-2 py-0.5 text-foreground transition-colors',
+              isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
             )}
             onContextMenu={handleContextMenu}
           >
             {isMultiSelectMode && (
               <button
                 onClick={handleCheckboxClick}
-                className="mr-1 flex-shrink-0 rounded-sm p-1 hover:bg-slate-700/60"
+                className="mr-1 flex-shrink-0 rounded-sm p-1 hover:bg-accent/70"
               >
                 {isMultiSelected ? (
                   <CheckSquare className="h-4 w-4 text-sky-400" />
                 ) : (
-                  <Square className="h-4 w-4 text-slate-500" />
+                  <Square className="h-4 w-4 text-muted-foreground" />
                 )}
               </button>
             )}
             <CollapsibleTrigger asChild>
               <SidebarMenuButton
                 className={cn(
-                  'flex-1 justify-start gap-2 bg-transparent text-slate-200 hover:!bg-transparent hover:text-slate-100 active:!bg-transparent data-[state=open]:hover:!bg-transparent',
-                  isRowActive && 'text-slate-100'
+                  'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+                  isRowActive && 'text-foreground'
                 )}
                 onClick={handleSelect}
               >
                 <ChevronRight
                   className={cn(
-                    'h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200',
+                    'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
                     isExpanded && 'rotate-90'
                   )}
                 />
@@ -206,27 +206,27 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     <SidebarMenuItem>
       <div
         className={cn(
-          'group relative flex w-full items-center rounded-md px-2 py-0.5 text-slate-200 transition-colors',
-          isRowActive ? 'bg-slate-700/70' : 'hover:bg-slate-700/50'
+          'group relative flex w-full items-center rounded-md px-2 py-0.5 text-foreground transition-colors',
+          isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
         )}
         onContextMenu={handleContextMenu}
       >
         {isMultiSelectMode && (
           <button
             onClick={handleCheckboxClick}
-            className="mr-1 flex-shrink-0 rounded-sm p-1 hover:bg-slate-700/60"
+            className="mr-1 flex-shrink-0 rounded-sm p-1 hover:bg-accent/70"
           >
             {isMultiSelected ? (
               <CheckSquare className="h-4 w-4 text-sky-400" />
             ) : (
-              <Square className="h-4 w-4 text-slate-500" />
+              <Square className="h-4 w-4 text-muted-foreground" />
             )}
           </button>
         )}
         <SidebarMenuButton
           className={cn(
-            'flex-1 justify-start gap-2 bg-transparent text-slate-200 hover:!bg-transparent hover:text-slate-100 active:!bg-transparent data-[state=open]:hover:!bg-transparent',
-            isRowActive && 'text-slate-100'
+            'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+            isRowActive && 'text-foreground'
           )}
           onClick={handleSelect}
         >
@@ -239,7 +239,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
           {getFileIcon()}
           <span className="flex-1 truncate text-sm">{node.name}</span>
           {!isDirectory && node.size !== undefined && (
-            <span className="ml-auto shrink-0 text-xs text-slate-400">
+            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
               {formatSize(node.size)}
             </span>
           )}

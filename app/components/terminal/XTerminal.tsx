@@ -5,9 +5,64 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
+import { useTheme } from 'next-themes';
 
 interface XTerminalProps {
   sessionId: string;
+}
+
+function getTerminalTheme(isDark: boolean) {
+  if (isDark) {
+    return {
+      background: '#0f172a',
+      foreground: '#e2e8f0',
+      cursor: '#f8fafc',
+      selectionBackground: 'rgba(148, 163, 184, 0.35)',
+      selectionForeground: '#f8fafc',
+      selectionInactiveBackground: 'rgba(148, 163, 184, 0.2)',
+      black: '#475569',
+      red: '#ef4444',
+      green: '#22c55e',
+      yellow: '#eab308',
+      blue: '#3b82f6',
+      magenta: '#a855f7',
+      cyan: '#06b6d4',
+      white: '#e2e8f0',
+      brightBlack: '#94a3b8',
+      brightRed: '#f87171',
+      brightGreen: '#4ade80',
+      brightYellow: '#fde047',
+      brightBlue: '#60a5fa',
+      brightMagenta: '#c084fc',
+      brightCyan: '#67e8f9',
+      brightWhite: '#f8fafc',
+    };
+  }
+
+  return {
+    background: '#f8fafc',
+    foreground: '#0f172a',
+    cursor: '#0f172a',
+    selectionBackground: 'rgba(59, 130, 246, 0.28)',
+    selectionForeground: '#0f172a',
+    selectionInactiveBackground: 'rgba(59, 130, 246, 0.18)',
+    black: '#334155',
+    red: '#b91c1c',
+    green: '#166534',
+    yellow: '#a16207',
+    blue: '#1d4ed8',
+    magenta: '#7e22ce',
+    cyan: '#0e7490',
+    white: '#e2e8f0',
+    brightBlack: '#64748b',
+    brightRed: '#dc2626',
+    brightGreen: '#16a34a',
+    brightYellow: '#ca8a04',
+    brightBlue: '#2563eb',
+    brightMagenta: '#9333ea',
+    brightCyan: '#0891b2',
+    brightWhite: '#ffffff',
+  };
 }
 
 export function XTerminal({ sessionId }: XTerminalProps) {
@@ -18,10 +73,13 @@ export function XTerminal({ sessionId }: XTerminalProps) {
   const reconnectAttempts = useRef(0);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
   const isIntentionallyClosed = useRef(false);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    const initialIsDark = document.documentElement.classList.contains('dark');
 
     // Create terminal with full configuration
     const term = new Terminal({
@@ -31,30 +89,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       fontWeight: 500,
       fontWeightBold: 700,
       minimumContrastRatio: 7,
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#f5f5f5',
-        cursor: '#ffffff',
-        selectionBackground: 'rgba(255, 255, 255, 0.25)',
-        selectionForeground: '#111111',
-        selectionInactiveBackground: 'rgba(255, 255, 255, 0.18)',
-        black: '#5c5c5c',
-        red: '#cc0000',
-        green: '#4e9a06',
-        yellow: '#c4a000',
-        blue: '#3465a4',
-        magenta: '#75507b',
-        cyan: '#06989a',
-        white: '#d3d7cf',
-        brightBlack: '#9da3a6',
-        brightRed: '#ef2929',
-        brightGreen: '#8ae234',
-        brightYellow: '#fce94f',
-        brightBlue: '#729fcf',
-        brightMagenta: '#ad7fa8',
-        brightCyan: '#34e2e2',
-        brightWhite: '#eeeeec',
-      },
+      theme: getTerminalTheme(initialIsDark),
       cursorBlink: true,
       allowProposedApi: true,
       convertEol: false,
@@ -368,6 +403,12 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       term.dispose();
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.options.theme = getTerminalTheme(isDark);
+  }, [isDark]);
 
   return (
     <div

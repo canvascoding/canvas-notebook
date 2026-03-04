@@ -153,8 +153,8 @@ export function FileBrowser() {
   return (
     <section
       className={cn(
-        'relative flex h-full flex-col border-r border-slate-700 bg-slate-800/30 overflow-y-auto',
-        isDragging && 'bg-slate-800/60'
+        'relative flex h-full flex-col border-r border-border bg-sidebar/50 overflow-y-auto',
+        isDragging && 'bg-accent/50'
       )}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -162,13 +162,13 @@ export function FileBrowser() {
       onDrop={handleDrop}
     >
       {isDragging && (
-        <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded border-2 border-dashed border-slate-400 bg-slate-950/70 text-sm text-slate-200">
+        <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded border-2 border-dashed border-border bg-background/90 text-sm text-foreground">
           Drop files to upload
         </div>
       )}
-      <div className="sticky top-0 z-20 border-b border-slate-700 bg-slate-800/90 backdrop-blur">
+      <div className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
         <div className="flex items-center justify-between px-3 py-2">
-          <h2 className="text-sm font-semibold text-slate-200">Files</h2>
+          <h2 className="text-sm font-semibold text-foreground">Files</h2>
           <TooltipProvider delayDuration={300}>
             <div className="flex flex-wrap items-center justify-end gap-1">
               <Tooltip>
@@ -179,7 +179,7 @@ export function FileBrowser() {
                     onClick={toggleMultiSelectMode}
                     aria-label="Toggle select mode"
                   >
-                    <CheckSquare className={`h-4 w-4 ${isMultiSelectMode ? 'text-blue-400' : ''}`} />
+                    <CheckSquare className={`h-4 w-4 ${isMultiSelectMode ? 'text-primary' : ''}`} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Select</TooltipContent>
@@ -218,7 +218,7 @@ export function FileBrowser() {
                     onClick={handleUploadFolderClick}
                     aria-label="Upload folder"
                   >
-                    <FolderPlus className="h-4 w-4 text-blue-400" />
+                    <FolderPlus className="h-4 w-4 text-primary" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Upload folder</TooltipContent>
@@ -305,12 +305,12 @@ export function FileBrowser() {
           </TooltipProvider>
         </div>
         {isMultiSelectMode && (
-          <div className="flex items-center justify-between gap-2 border-t border-slate-700 bg-slate-900/50 px-3 py-1 text-xs">
-            <span className="text-slate-400">{multiSelectPaths.length} selected</span>
+          <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1 text-xs">
+            <span className="text-muted-foreground">{multiSelectPaths.length} selected</span>
             <Button
               variant="ghost"
               size="sm"
-              className="text-slate-400 hover:text-slate-200"
+              className="text-muted-foreground hover:text-foreground"
               onClick={toggleMultiSelectMode}
             >
               <X className="mr-1 h-3 w-3" />
@@ -318,18 +318,18 @@ export function FileBrowser() {
             </Button>
           </div>
         )}
-        <div className="border-t border-slate-700 px-3 py-2">
+        <div className="border-t border-border px-3 py-2">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-slate-500" />
+            <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search files"
-              className="h-9 bg-slate-900 pl-8 text-slate-200 placeholder:text-slate-500"
+              className="h-9 bg-background pl-8 placeholder:text-muted-foreground"
             />
           </div>
           {uploadProgress !== null && (
-            <div className="mt-2 h-1 w-full overflow-hidden rounded bg-slate-800">
+            <div className="mt-2 h-1 w-full overflow-hidden rounded bg-muted">
               <div
                 className="h-full bg-sky-500 transition-all"
                 style={{ width: `${uploadProgress}%` }}

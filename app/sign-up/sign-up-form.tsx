@@ -46,16 +46,16 @@ export default function SignUpForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="w-full max-w-md p-8 bg-white/10 backdrop-blur-lg rounded-lg shadow-2xl border border-white/20">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted/40 to-background p-4">
+      <div className="w-full max-w-md p-8 bg-card/95 backdrop-blur-lg rounded-lg shadow-xl border border-border">
         <div className="flex items-center justify-center mb-8">
           <Image src="/logo.jpg" alt="Canvas Logo" width={48} height={48} className="rounded-lg mr-3 shadow-lg" />
-          <h1 className="text-3xl font-bold text-white">Create Account</h1>
+          <h1 className="text-3xl font-bold text-foreground">Create Account</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-200 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-foreground/90 mb-2">
               Name
             </label>
             <Input
@@ -64,14 +64,14 @@ export default function SignUpForm() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Your name"
-              className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
+              className="placeholder:text-muted-foreground"
               required
               autoFocus
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-200 mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-foreground/90 mb-2">
               Email
             </label>
             <Input
@@ -80,13 +80,13 @@ export default function SignUpForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
+              className="placeholder:text-muted-foreground"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-200 mb-2">
+            <label htmlFor="password" className="block text-sm font-medium text-foreground/90 mb-2">
               Password
             </label>
             <Input
@@ -95,14 +95,14 @@ export default function SignUpForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Minimum 8 characters"
-              className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
+              className="placeholder:text-muted-foreground"
               required
               minLength={8}
             />
           </div>
 
           <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-200 mb-2">
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-foreground/90 mb-2">
               Confirm password
             </label>
             <Input
@@ -111,7 +111,7 @@ export default function SignUpForm() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Repeat password"
-              className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
+              className="placeholder:text-muted-foreground"
               required
               minLength={8}
             />

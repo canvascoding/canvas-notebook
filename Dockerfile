@@ -50,7 +50,9 @@ COPY --from=builder /app/proxy.ts ./proxy.ts
 COPY --from=builder /app/scripts ./scripts
 
 RUN mkdir -p /data/workspace
+RUN chmod +x ./scripts/docker-entrypoint.sh
 
 EXPOSE 3000
 VOLUME ["/data"]
+ENTRYPOINT ["./scripts/docker-entrypoint.sh"]
 CMD ["npm", "run", "start"]

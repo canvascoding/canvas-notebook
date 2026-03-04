@@ -54,8 +54,8 @@ export function MediaViewer({ path, kind, mimeType, size }: MediaViewerProps) {
   );
 
   const toolbar = (
-    <div className="flex flex-wrap items-center gap-3 border-b border-slate-800 px-4 py-2 text-xs text-slate-300">
-      <span className="rounded bg-slate-800 px-2 py-0.5 uppercase tracking-wide">
+    <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+      <span className="rounded bg-muted px-2 py-0.5 uppercase tracking-wide text-foreground">
         {kind}
       </span>
       <span>{durationLabel ? `Duration ${durationLabel}` : 'Duration --:--'}</span>
@@ -65,7 +65,7 @@ export function MediaViewer({ path, kind, mimeType, size }: MediaViewerProps) {
 
   if (kind === 'audio') {
     return (
-      <div className="flex h-full flex-col bg-slate-950">
+      <div className="flex h-full flex-col bg-background">
         {toolbar}
         <div className="flex flex-1 items-center justify-center p-6">
           <audio
@@ -83,7 +83,7 @@ export function MediaViewer({ path, kind, mimeType, size }: MediaViewerProps) {
   }
 
   return (
-    <div className="flex h-full max-h-screen flex-col overflow-hidden bg-slate-950">
+    <div className="flex h-full max-h-screen flex-col overflow-hidden bg-background">
       {toolbar}
       <div className="flex flex-1 items-center justify-center overflow-hidden p-4">
       <video

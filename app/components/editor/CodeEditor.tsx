@@ -15,6 +15,7 @@ import { cpp } from '@codemirror/lang-cpp';
 import { java } from '@codemirror/lang-java';
 import { xml } from '@codemirror/lang-xml';
 import { useFileStore } from '@/app/store/file-store';
+import { useTheme } from 'next-themes';
 
 interface CodeEditorProps {
   value: string;
@@ -87,6 +88,7 @@ function getLanguageExtension(path: string) {
 
 export function CodeEditor({ value, onChange, readOnly = false }: CodeEditorProps) {
   const { currentFile } = useFileStore();
+  const { resolvedTheme } = useTheme();
 
   const extensions = currentFile ? [getLanguageExtension(currentFile.path)] : [];
 
@@ -108,7 +110,7 @@ export function CodeEditor({ value, onChange, readOnly = false }: CodeEditorProp
       <CodeMirror
         value={value}
         height="100%"
-        theme="dark"
+        theme={resolvedTheme === 'light' ? 'light' : 'dark'}
         extensions={extensions}
         onChange={onChange}
         editable={!readOnly}
@@ -157,20 +159,34 @@ export function CodeEditor({ value, onChange, readOnly = false }: CodeEditorProp
           padding: 16px 0;
         }
         .codemirror-wrapper .cm-gutters {
-          background-color: #1e293b;
+          background-color: #f8fafc;
           color: #64748b;
-          border-right: 1px solid #334155;
+          border-right: 1px solid #e2e8f0;
         }
         .codemirror-wrapper .cm-activeLineGutter {
-          background-color: #334155;
+          background-color: #e2e8f0;
         }
         .codemirror-wrapper .cm-activeLine {
-          background-color: #1e293b;
+          background-color: #f1f5f9;
         }
         .codemirror-wrapper .cm-selectionBackground {
           background-color: #3b82f6 !important;
         }
         .codemirror-wrapper .cm-cursor {
+          border-left-color: #0f172a;
+        }
+        .dark .codemirror-wrapper .cm-gutters {
+          background-color: #1e293b;
+          color: #94a3b8;
+          border-right: 1px solid #334155;
+        }
+        .dark .codemirror-wrapper .cm-activeLineGutter {
+          background-color: #334155;
+        }
+        .dark .codemirror-wrapper .cm-activeLine {
+          background-color: #1e293b;
+        }
+        .dark .codemirror-wrapper .cm-cursor {
           border-left-color: #f8fafc;
         }
       `}</style>

@@ -148,19 +148,19 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
         <div key={entry.path} className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
           <button
             type="button"
-            className="p-1 rounded hover:bg-slate-700/70"
+            className="p-1 rounded hover:bg-accent/70"
             onClick={() => toggleMoveDir(entry.path)}
           >
-            <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+            <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
           </button>
           <button
             type="button"
             className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
-              isSelected ? 'bg-slate-700 text-slate-100' : 'text-slate-200 hover:bg-slate-800/70'
+              isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/70'
             }`}
             onClick={() => setMoveTarget(entry.path)}
           >
-            <Folder className="h-4 w-4 text-slate-400" />
+            <Folder className="h-4 w-4 text-muted-foreground" />
             <span className="truncate">{entry.name}</span>
           </button>
         </div>
@@ -198,13 +198,13 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             variant="ghost"
             size="icon-sm"
             className={cn(
-              'ml-1 text-slate-200 transition-opacity',
+              'ml-1 text-foreground transition-opacity',
               isRowActive || open
                 ? 'opacity-100'
                 : 'opacity-100 md:opacity-0 md:group-hover:opacity-70 hover:opacity-100',
               isRowActive
                 ? 'bg-transparent border-transparent hover:!bg-transparent active:!bg-transparent'
-                : 'bg-transparent border-transparent hover:!bg-slate-700/60 active:!bg-slate-700/60'
+                : 'bg-transparent border-transparent hover:!bg-accent/70 active:!bg-accent/70'
             )}
             onClick={(event) => {
               event.stopPropagation();
@@ -213,7 +213,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             onPointerDown={(event) => event.stopPropagation()}
             aria-label="File actions"
           >
-            <MoreHorizontal className="h-4 w-4 text-slate-200" />
+            <MoreHorizontal className="h-4 w-4 text-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={6}>
@@ -251,7 +251,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       </DropdownMenu>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-          <DialogContent className="max-w-md bg-slate-900 text-slate-100">
+          <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>{`Rename "${node.name}"`}</DialogTitle>
               <DialogDescription>
@@ -259,12 +259,12 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
               </DialogDescription>
             </DialogHeader>
           <div className="py-4">
-            <label htmlFor="newName" className="text-xs text-slate-400">New name</label>
+            <label htmlFor="newName" className="text-xs text-muted-foreground">New name</label>
             <Input
               id="newName"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              className="mt-1 bg-slate-950 text-slate-200"
+              className="mt-1"
               onKeyDown={(e) => e.key === 'Enter' && handleConfirmRename()}
               autoFocus
             />
@@ -277,7 +277,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       </Dialog>
 
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
-        <DialogContent className="max-w-xl bg-slate-900 text-slate-100">
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{`Move "${node.name}"`}</DialogTitle>
             <DialogDescription>
@@ -286,34 +286,34 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-slate-400">Destination folder</label>
+              <label className="text-xs text-muted-foreground">Destination folder</label>
               <Input
                 value={moveTarget}
                 onChange={(event) => setMoveTarget(event.target.value)}
-                className="mt-1 bg-slate-950 text-slate-200"
+                className="mt-1"
               />
             </div>
             <div>
-              <label className="text-xs text-slate-400">Name</label>
+              <label className="text-xs text-muted-foreground">Name</label>
               <Input
                 value={moveName}
                 onChange={(event) => setMoveName(event.target.value)}
-                className="mt-1 bg-slate-950 text-slate-200"
+                className="mt-1"
               />
             </div>
-            <div className="rounded border border-slate-800 bg-slate-950/60 p-2">
-              <div className="mb-2 text-xs text-slate-400">Choose destination</div>
+            <div className="rounded border border-border bg-muted/40 p-2">
+              <div className="mb-2 text-xs text-muted-foreground">Choose destination</div>
               <div className="max-h-56 overflow-auto">
                 <button
                   type="button"
                   className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
                     moveTarget === '.'
-                      ? 'bg-slate-700 text-slate-100'
-                      : 'text-slate-200 hover:bg-slate-800/70'
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-foreground hover:bg-accent/70'
                   }`}
                   onClick={() => setMoveTarget('.')}
                 >
-                  <Folder className="h-4 w-4 text-slate-400" />
+                  <Folder className="h-4 w-4 text-muted-foreground" />
                   <span className="truncate">/ (root)</span>
                 </button>
                 {renderMoveDirectories(fileTree)}

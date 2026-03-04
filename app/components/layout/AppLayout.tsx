@@ -217,7 +217,7 @@ export function AppLayout({
           className={
             terminalFullscreen || sidebarHidden
               ? 'hidden'
-              : 'w-1 cursor-col-resize bg-slate-800/60 hover:bg-slate-700'
+              : 'w-1 cursor-col-resize bg-border/70 hover:bg-border'
           }
           onMouseDown={(event) => {
             dragRef.current = {
@@ -245,13 +245,13 @@ export function AppLayout({
         <div
           className={
             terminalFullscreen
-              ? 'fixed inset-0 z-[100] bg-slate-950 overflow-hidden overscroll-contain'
-              : 'relative z-30 bg-slate-950 flex-shrink-0'
+              ? 'fixed inset-0 z-[100] bg-background overflow-hidden overscroll-contain'
+              : 'relative z-30 bg-background flex-shrink-0'
           }
         >
           {!terminalFullscreen && (
             <div
-              className="h-1 cursor-row-resize bg-slate-800/60 hover:bg-slate-700"
+              className="h-1 cursor-row-resize bg-border/70 hover:bg-border"
               onMouseDown={(event) => {
                 dragRef.current = {
                   type: 'terminal',

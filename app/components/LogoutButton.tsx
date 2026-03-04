@@ -28,7 +28,7 @@ export function LogoutButton() {
       onClick={handleLogout}
       variant="outline"
       size="sm"
-      className="gap-2 bg-slate-800 text-white border-slate-700 hover:bg-slate-700"
+      className="gap-2"
     >
       <LogOut className="w-4 h-4" />
       Logout

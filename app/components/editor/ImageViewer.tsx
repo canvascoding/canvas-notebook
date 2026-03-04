@@ -17,9 +17,9 @@ export function ImageViewer({ path }: ImageViewerProps) {
   const [src, setSrc] = useState(previewSrc);
 
   return (
-    <div className="relative flex h-full items-center justify-center bg-slate-900">
+    <div className="relative flex h-full items-center justify-center bg-background">
       {hasError ? (
-        <div className="flex items-center gap-2 text-sm text-slate-400">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <AlertCircle className="h-4 w-4" />
           Failed to load image.
         </div>
