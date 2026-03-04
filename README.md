@@ -187,6 +187,16 @@ docker run --rm -p 3000:3000 \
 docker compose up -d --build
 ```
 
+### Codex + Claude Code CLI beim Container-Start
+Der Container installiert beim Start automatisch die neuesten Versionen von:
+`npm i -g @openai/codex@latest @anthropic-ai/claude-code@latest`
+
+Das Login kann danach manuell im Container erfolgen (z. B. per `codex login` und `claude`).
+Falls du den Auto-Install deaktivieren willst, setze (deaktiviert beide):
+```bash
+-e CODEX_AUTO_INSTALL=false
+```
+
 ### Initiales User-Onboarding (ohne UI-Benutzermanagement)
 Es gibt zwei Wege für den ersten Account:
 
@@ -241,4 +251,4 @@ curl -I http://localhost:3000/login
 
 ## 📄 Lizenz
 
-Privates Projekt - Canvas Studios. Alle Rechte vorbehalten.
+Privates Projekt - Canvas Notebook. Alle Rechte vorbehalten.

@@ -55,10 +55,10 @@ export function DocxViewer({ path }: DocxViewerProps) {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#1e1e1e]">
+      <div className="flex h-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-          <span className="text-xs text-slate-400">Rendering document...</span>
+          <span className="text-xs text-muted-foreground">Rendering document...</span>
         </div>
       </div>
     );
@@ -66,7 +66,7 @@ export function DocxViewer({ path }: DocxViewerProps) {
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#1e1e1e] p-4">
+      <div className="flex h-full items-center justify-center bg-background p-4">
         <div className="flex flex-col items-center gap-2 text-red-400 text-sm max-w-md text-center">
           <AlertCircle className="h-8 w-8" />
           <p>{error}</p>
@@ -76,7 +76,7 @@ export function DocxViewer({ path }: DocxViewerProps) {
   }
 
   return (
-    <div className="h-full w-full bg-[#1e1e1e] overflow-auto custom-scrollbar">
+    <div className="h-full w-full bg-muted/40 overflow-auto custom-scrollbar">
       <div className="max-w-[850px] mx-auto my-8 p-12 bg-white text-black shadow-xl min-h-[calc(100%-4rem)] docx-content">
         <style jsx global>{`
           .docx-content h1 { font-size: 2em; font-weight: bold; margin-bottom: 0.5em; }
@@ -94,15 +94,15 @@ export function DocxViewer({ path }: DocxViewerProps) {
             height: 10px;
           }
           .custom-scrollbar::-webkit-scrollbar-track {
-            background: #1e1e1e;
+            background: var(--muted);
           }
           .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #333;
+            background: var(--border);
             border-radius: 5px;
-            border: 2px solid #1e1e1e;
+            border: 2px solid var(--muted);
           }
           .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: #444;
+            background: var(--muted-foreground);
           }
         `}</style>
         <div dangerouslySetInnerHTML={{ __html: html }} />

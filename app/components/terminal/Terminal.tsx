@@ -31,7 +31,7 @@ import { cn } from '@/lib/utils';
 const XTerminal = dynamic(() => import('./XTerminal').then(mod => ({ default: mod.XTerminal })), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
       Loading terminal...
     </div>
   ),
@@ -127,9 +127,9 @@ export function TerminalPanel() {
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col border-t border-slate-700 bg-slate-950">
-      <div className="flex items-center justify-between border-b border-slate-800 px-3 py-1.5 min-h-[44px]">
-        <div className="hidden sm:flex items-center gap-2 text-sm text-slate-400 font-bold uppercase tracking-widest shrink-0">
+    <section className="flex h-full min-h-0 flex-col border-t border-border bg-background">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 min-h-[44px]">
+        <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground font-bold uppercase tracking-widest shrink-0">
           Terminal
         </div>
         <TooltipProvider delayDuration={300}>
@@ -316,7 +316,7 @@ export function TerminalPanel() {
                 </TooltipTrigger>
                 <TooltipContent>Run Gemini</TooltipContent>
               </Tooltip>
-              <div className="w-px h-4 bg-slate-800 mx-1" />
+              <div className="w-px h-4 bg-border mx-1" />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -348,7 +348,7 @@ export function TerminalPanel() {
           </div>
         </TooltipProvider>
       </div>
-      <div className="flex items-center gap-1.5 border-b border-slate-800 px-3 py-1.5 overflow-x-auto no-scrollbar bg-slate-900/30">
+      <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 overflow-x-auto no-scrollbar bg-muted/20">
         {sessions.map((session) => (
           <button
             key={session.id}
@@ -356,13 +356,13 @@ export function TerminalPanel() {
             className={cn(
               'group flex items-center gap-2 rounded-md px-2.5 py-1 transition-all min-w-max border',
               activeSessionId === session.id
-                ? 'bg-slate-800 text-slate-100 border-slate-700 shadow-sm'
-                : 'text-slate-500 hover:bg-slate-800/60 border-transparent'
+                ? 'bg-accent text-accent-foreground border-border shadow-sm'
+                : 'text-muted-foreground hover:bg-accent/70 border-transparent'
             )}
           >
             <span className="text-xs font-medium">{session.title}</span>
             <span
-              className="flex h-4 w-4 items-center justify-center rounded-full text-slate-500 hover:bg-slate-700 hover:text-slate-100 transition-colors"
+              className="flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               onClick={(event) => {
                 event.stopPropagation();
                 closeSession(session.id);
@@ -379,7 +379,7 @@ export function TerminalPanel() {
       </div>
       <div className="flex-1 min-h-0 relative">
         {sessions.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             No active terminal
           </div>
         ) : (

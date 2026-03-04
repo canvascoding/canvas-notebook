@@ -13,7 +13,7 @@ export function PdfViewer({ path }: PdfViewerProps) {
     <iframe
       title={path}
       src={src}
-      className="h-full w-full bg-slate-900"
+      className="h-full w-full bg-background"
     />
   );
 }
