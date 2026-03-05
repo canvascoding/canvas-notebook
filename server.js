@@ -59,6 +59,10 @@ const MEDIA_TYPES = {
   flac: 'audio/flac',
 };
 
+function setNoIndexHeader(res) {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate');
+}
+
 function resolveMediaPath(requestPath) {
   const basePath = path.resolve(MEDIA_ROOT);
   const normalized = path.resolve(basePath, requestPath);
@@ -92,6 +96,8 @@ function ensureRuntimeDirectories() {
 }
 
 function serveMedia(req, res) {
+  setNoIndexHeader(res);
+
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.statusCode = 405;
     res.setHeader('Allow', 'GET, HEAD');
@@ -219,6 +225,7 @@ app
             if (!sessionData || !sessionData.user) {
               res.statusCode = 401;
               res.setHeader('Content-Type', 'application/json');
+              setNoIndexHeader(res);
               res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
               return;
             }
@@ -227,6 +234,7 @@ app
           .catch(() => {
             res.statusCode = 401;
             res.setHeader('Content-Type', 'application/json');
+            setNoIndexHeader(res);
             res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
           });
         return;
@@ -238,6 +246,7 @@ app
             if (!sessionData || !sessionData.user) {
               res.statusCode = 401;
               res.setHeader('Content-Type', 'application/json');
+              setNoIndexHeader(res);
               res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
               return;
             }
@@ -245,11 +254,13 @@ app
             const result = terminateAllSessions();
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
+            setNoIndexHeader(res);
             res.end(JSON.stringify({ success: true, closed: result.closed }));
           })
           .catch(() => {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
+            setNoIndexHeader(res);
             res.end(JSON.stringify({ success: false, error: 'Internal server error' }));
           });
         return;

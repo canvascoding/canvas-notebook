@@ -5,8 +5,9 @@ const { existsSync } = require('fs');
 const path = require('path');
 
 const sessions = new Map();
-const DEFAULT_IDLE_TIMEOUT = Number(process.env.TERMINAL_IDLE_TIMEOUT || 30 * 60 * 1000);
-const MAX_TERMINALS = Number(process.env.MAX_TERMINALS_PER_USER || 4);
+const DEFAULT_IDLE_TIMEOUT = 30 * 60 * 1000;
+const MAX_TERMINALS = 4;
+const OUTPUT_BUFFER_LIMIT = Number(process.env.TERMINAL_OUTPUT_BUFFER_LIMIT || 200_000);
 const DEFAULT_OWNER_ID = 'anonymous';
 
 const LOCAL_CWD = process.env.WORKSPACE_DIR
@@ -14,8 +15,7 @@ const LOCAL_CWD = process.env.WORKSPACE_DIR
   : path.resolve(process.cwd(), 'data', 'workspace');
 
 function getShellPath() {
-  if (process.platform === 'darwin') return '/bin/zsh';
-  return process.env.SHELL || '/bin/bash';
+  return '/bin/bash';
 }
 
 function normalizeOwnerId(ownerId) {
@@ -72,8 +72,15 @@ async function createSessionForOwner(sessionId, ownerId) {
     stream: null,
     clients: new Set(),
     idleTimer: null,
+    outputBuffer: '',
     broadcast: (data) => {
-      const payload = JSON.stringify({ type: 'output', data: data.toString() });
+      const chunk = data.toString();
+      session.outputBuffer += chunk;
+      if (session.outputBuffer.length > OUTPUT_BUFFER_LIMIT) {
+        session.outputBuffer = session.outputBuffer.slice(-OUTPUT_BUFFER_LIMIT);
+      }
+
+      const payload = JSON.stringify({ type: 'output', data: chunk });
       session.clients.forEach(c => {
           if (c.readyState === 1) try { c.send(payload); } catch {}
       });
@@ -165,6 +172,13 @@ async function createSessionForOwner(sessionId, ownerId) {
 function attachClient(session, ws) {
   session.clients.add(ws);
   if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null; }
+
+  if (session.outputBuffer && ws.readyState === 1) {
+    try {
+      ws.send(JSON.stringify({ type: 'output', data: session.outputBuffer }));
+    } catch {}
+  }
+
   ws.on('close', () => {
     session.clients.delete(ws);
     if (session.clients.size === 0) {
