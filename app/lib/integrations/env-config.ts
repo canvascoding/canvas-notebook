@@ -268,3 +268,22 @@ export async function getNanoBananaApiKeyFromIntegrations(): Promise<string | nu
     null
   );
 }
+
+export async function getImageGenerationApiKeyFromIntegrations(): Promise<string | null> {
+  const state = await readIntegrationsEnvState();
+  const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
+
+  return (
+    byKey.get('IMAGE_GENERATION_API_KEY') ||
+    byKey.get('NANO_BANANA_API_KEY') ||
+    byKey.get('GOOGLE_API_KEY') ||
+    byKey.get('API_KEY') ||
+    byKey.get('GEMINI_API_KEY') ||
+    process.env.IMAGE_GENERATION_API_KEY ||
+    process.env.NANO_BANANA_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    null
+  );
+}

@@ -24,7 +24,8 @@ const suiteApps: SuiteApp[] = [
   {
     title: 'Image Generation',
     description: 'Bilder erzeugen und direkt im Workspace speichern.',
-    status: 'planned',
+    status: 'ready',
+    href: '/image-generation',
     icon: ImageIcon,
   },
   {
