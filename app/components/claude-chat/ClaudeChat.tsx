@@ -63,6 +63,8 @@ type UpdateFunction = (content: string, type?: string, status?: ChatMessage['sta
 
 interface ClaudeChatProps {
   onClose?: () => void;
+  initialPrompt?: string | null;
+  initialPromptStorageKey?: string;
 }
 
 type SessionMessagePayload = {
@@ -74,7 +76,7 @@ type SessionMessagePayload = {
 
 const DEFAULT_AGENT_LABEL = 'main-agent';
 
-export default function ClaudeChat({ onClose }: ClaudeChatProps) {
+export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorageKey }: ClaudeChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -89,6 +91,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const initialPromptConsumedRef = useRef(false);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
@@ -311,23 +314,54 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   }, []);
 
+  const queueMessage = useCallback((text: string, messageAttachments: Attachment[]) => {
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      role: 'user',
+      content: text,
+      status: 'pending',
+      attachments: messageAttachments
+    }]);
+
+    setQueue(prev => [...prev, { text, attachments: messageAttachments }]);
+  }, []);
+
   const handleSend = useCallback(() => {
     if (!input.trim() && attachments.length === 0) return;
     const text = input.trim();
     const currentAttachments = [...attachments];
     setInput('');
     setAttachments([]);
+    queueMessage(text, currentAttachments);
+  }, [input, attachments, queueMessage]);
 
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      role: 'user',
-      content: text,
-      status: 'pending',
-      attachments: currentAttachments
-    }]);
+  useEffect(() => {
+    if (initialPromptConsumedRef.current) {
+      return;
+    }
 
-    setQueue(prev => [...prev, { text, attachments: currentAttachments }]);
-  }, [input, attachments]);
+    const candidatePrompt = (initialPrompt || '').trim();
+
+    if (candidatePrompt) {
+      initialPromptConsumedRef.current = true;
+      queueMessage(candidatePrompt, []);
+      return;
+    }
+
+    if (!initialPromptStorageKey || typeof window === 'undefined') {
+      return;
+    }
+
+    const storedPrompt = window.sessionStorage.getItem(initialPromptStorageKey);
+    const normalizedStoredPrompt = (storedPrompt || '').trim();
+    if (!normalizedStoredPrompt) {
+      return;
+    }
+
+    initialPromptConsumedRef.current = true;
+    window.sessionStorage.removeItem(initialPromptStorageKey);
+    queueMessage(normalizedStoredPrompt, []);
+  }, [initialPrompt, initialPromptStorageKey, queueMessage]);
 
   const processMessage = useCallback(async (text: string, currentAttachments: Attachment[]) => {
     setIsProcessing(true);

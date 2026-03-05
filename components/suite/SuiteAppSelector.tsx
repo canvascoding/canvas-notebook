@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { ChevronRight, Clapperboard, FileText, Globe, ImageIcon, NotebookPen, Sparkles, Terminal, Workflow } from 'lucide-react';
+import { ChevronRight, Clapperboard, FileText, Globe, ImageIcon, MessageSquare, NotebookPen, Sparkles, Terminal, Workflow } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -20,6 +20,13 @@ const suiteApps: SuiteApp[] = [
     status: 'ready',
     href: '/notebook',
     icon: NotebookPen,
+  },
+  {
+    title: 'Canvas Chat',
+    description: 'Vollbild-Chat mit Session-Historie und Main-Agent-Workflow.',
+    status: 'ready',
+    href: '/chat',
+    icon: MessageSquare,
   },
   {
     title: 'Terminal',
