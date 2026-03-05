@@ -11,6 +11,17 @@
 - `server/`: custom Node server for WebSocket terminal.
 - `scripts/`: build/deploy/test helpers.
 
+## TASK: agent implementieren
+- Diese Regeln gelten für alle Arbeiten an der neuen Agent-Logik.
+- Vor, während und nach Änderungen immer den aktuellen Stand der To-dos synchronisieren und prüfen:
+  - Datei: `docs/agent-implementation-todo.json`
+  - Befehl: `npm run todos:sync:agent`
+- Bei jeder Umsetzung die betroffenen To-dos in `docs/agent-implementation-todo.json` auf Aktualität prüfen.
+- UI- und End-to-End-Prüfungen mit Playwright oder Chrome DevTools durchführen.
+- Für manuelle Tests immer einen Container auf Port `3000` verwenden.
+- Sicherstellen, dass nie mehrere Test-Container parallel laufen.
+- Test-Container bei neuem Testlauf immer mit aktuellem Stand neu laden (recreate/rebuild), statt alte Container weiterzuverwenden.
+
 ## Build, Test, and Development Commands
 - `npm run dev`: local dev server (set `PORT=3001` if needed).
 - `npm run build`: production build.
