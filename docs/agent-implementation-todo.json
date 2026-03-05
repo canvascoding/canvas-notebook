@@ -1,14 +1,14 @@
 {
   "title": "Agent Implementation Todo",
   "sourceFile": "docs/agent_implementation_plan.md",
-  "generatedAt": "2026-03-05T12:37:37.861Z",
+  "generatedAt": "2026-03-05T12:51:29.973Z",
   "taskCount": 139,
   "tasks": [
     {
       "id": "agent-001",
       "order": 1,
       "title": "`GET /api/agents/config`",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -21,7 +21,7 @@
       "id": "agent-002",
       "order": 2,
       "title": "Liefert sanitised runtime config + readiness.",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -34,7 +34,7 @@
       "id": "agent-003",
       "order": 3,
       "title": "`PUT /api/agents/config`",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -47,7 +47,7 @@
       "id": "agent-004",
       "order": 4,
       "title": "Validiert und speichert zentrale JSON-Konfig.",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -60,7 +60,7 @@
       "id": "agent-005",
       "order": 5,
       "title": "`POST /api/agents/doctor`",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -73,7 +73,7 @@
       "id": "agent-006",
       "order": 6,
       "title": "Lokale Checks:",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -86,7 +86,7 @@
       "id": "agent-007",
       "order": 7,
       "title": "CLI `command -v`",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -99,7 +99,7 @@
       "id": "agent-008",
       "order": 8,
       "title": "OpenRouter key verfügbar",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -112,7 +112,7 @@
       "id": "agent-009",
       "order": 9,
       "title": "Modellstring plausibel",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -125,7 +125,7 @@
       "id": "agent-010",
       "order": 10,
       "title": "Optionaler Live-Ping (timeout, Warnung statt Hard-Fail).",
-      "status": "pending",
+      "status": "done",
       "section": "5.1 Agent Config APIs",
       "category": "api",
       "source": {
@@ -1113,7 +1113,7 @@
       "id": "agent-086",
       "order": 86,
       "title": "Neue Lib für Agent-Storage unter `app/lib/agents/`.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 1 - Storage + Bootstrap",
       "category": "implementation",
       "source": {
@@ -1191,7 +1191,7 @@
       "id": "agent-092",
       "order": 92,
       "title": "`/api/agents/config`",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 2 - Runtime + APIs",
       "category": "implementation",
       "source": {
@@ -1204,7 +1204,7 @@
       "id": "agent-093",
       "order": 93,
       "title": "`/api/agents/doctor`",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 2 - Runtime + APIs",
       "category": "implementation",
       "source": {
