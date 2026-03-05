@@ -13,7 +13,7 @@ services:
       WORKSPACE_DIR: /data/workspace
       SQLITE_PATH: /data/sqlite.db
       ALLOW_SIGNUP: "false"
-      CODEX_AUTO_INSTALL: "false"
+      AI_CLI_AUTO_INSTALL: "true"
     volumes:
       - ./data:/data
       - canvas_notebook_home:/home/node

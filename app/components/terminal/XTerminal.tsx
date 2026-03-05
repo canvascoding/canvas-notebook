@@ -108,11 +108,6 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
     term.open(container);
 
-    // iOS needs time to calculate dimensions
-    setTimeout(() => {
-      fitAddon.fit();
-    }, 100);
-
     terminalRef.current = term;
     fitRef.current = fitAddon;
 
@@ -134,19 +129,43 @@ export function XTerminal({ sessionId }: XTerminalProps) {
     // Focus terminal immediately
     term.focus();
 
+    const scheduledResizeTimers: ReturnType<typeof setTimeout>[] = [];
+
     // WebSocket connection with smart reconnect
     const sendResize = () => {
-      fitAddon.fit();
-      const dimensions = fitAddon.proposeDimensions();
+      const host = containerRef.current;
+      if (!host || host.clientWidth < 40 || host.clientHeight < 24) return;
+
+      try {
+        fitAddon.fit();
+      } catch {
+        return;
+      }
+
+      const cols = term.cols;
+      const rows = term.rows;
+      if (cols < 2 || rows < 1) return;
+
       const currentSocket = socketRef.current;
-      if (dimensions && currentSocket && currentSocket.readyState === WebSocket.OPEN) {
+      if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
         currentSocket.send(
           JSON.stringify({
             type: 'resize',
-            data: { cols: dimensions.cols, rows: dimensions.rows },
+            data: { cols, rows },
           })
         );
       }
+    };
+
+    const scheduleResizeSync = (delays: number[]) => {
+      delays.forEach((delay) => {
+        const timer = setTimeout(() => {
+          if (!isIntentionallyClosed.current) {
+            sendResize();
+          }
+        }, delay);
+        scheduledResizeTimers.push(timer);
+      });
     };
 
     const connectWebSocket = () => {
@@ -169,7 +188,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
             socket.send(JSON.stringify({ type: 'ping' }));
           }
         }, 15000);
-        sendResize();
+        scheduleResizeSync([0, 80, 220]);
       });
 
       socket.addEventListener('close', (event) => {
@@ -208,6 +227,8 @@ export function XTerminal({ sessionId }: XTerminalProps) {
           const payload = JSON.parse(event.data);
           if (payload.type === 'output') {
             term.write(payload.data);
+          } else if (payload.type === 'ready') {
+            scheduleResizeSync([0, 80, 220, 500]);
           }
         } catch {
           // ignore malformed payloads
@@ -218,6 +239,12 @@ export function XTerminal({ sessionId }: XTerminalProps) {
     };
 
     connectWebSocket();
+    scheduleResizeSync([0, 100, 300, 700]);
+    if (document.fonts?.ready) {
+      document.fonts.ready
+        .then(() => scheduleResizeSync([0, 120]))
+        .catch(() => {});
+    }
 
     // Handle custom terminal events
     const handleSignal = (event: Event) => {
@@ -374,6 +401,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         term.focus();
+        scheduleResizeSync([0, 120]);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -388,6 +416,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       if (keepAliveInterval.current) {
         clearInterval(keepAliveInterval.current);
       }
+      scheduledResizeTimers.forEach((timer) => clearTimeout(timer));
       resizeObserver.disconnect();
       container.removeEventListener('click', handleFocus);
       container.removeEventListener('pointerdown', handlePointerDown);

@@ -59,3 +59,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trigger EasyPanel deploy webhook
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        env:
+          EASYPANEL_DEPLOY_WEBHOOK_URL: ${{ secrets.EASYPANEL_DEPLOY_WEBHOOK_URL }}
+        run: |
+          if [ -z "${EASYPANEL_DEPLOY_WEBHOOK_URL}" ]; then
+            echo "EASYPANEL_DEPLOY_WEBHOOK_URL secret is missing."
+            exit 1
+          fi
+
+          curl --fail --show-error --silent --location \
+            --request POST \
+            "${EASYPANEL_DEPLOY_WEBHOOK_URL}"

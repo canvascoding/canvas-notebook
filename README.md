@@ -201,6 +201,7 @@ Wichtige Hinweise:
 - Das in EasyPanel eingetragene Image ist z. B. `ghcr.io/<github-user>/<repo>:latest`.
 - Wenn dein EasyPanel-Dialog nur öffentliche Images erlaubt, stelle das GHCR-Package auf `Public`.
 - Bei `Source: Docker image` wird in EasyPanel nicht erneut gebaut, sondern nur gepullt und gestartet.
+- Optionaler Auto-Deploy: Lege in GitHub unter `Settings -> Secrets and variables -> Actions` ein Secret `EASYPANEL_DEPLOY_WEBHOOK_URL` an. Nach erfolgreichem GHCR-Build triggert der Workflow dann automatisch den EasyPanel Deploy-Webhook.
 
 ### Codex + Claude Code CLI beim Container-Start
 Der Container installiert beim Start automatisch die neuesten Versionen von:
@@ -209,8 +210,9 @@ Der Container installiert beim Start automatisch die neuesten Versionen von:
 Das Login kann danach manuell im Container erfolgen (z. B. per `codex login` und `claude`).
 Falls du den Auto-Install deaktivieren willst, setze (deaktiviert beide):
 ```bash
--e CODEX_AUTO_INSTALL=false
+-e AI_CLI_AUTO_INSTALL=false
 ```
+Legacy bleibt kompatibel: `CODEX_AUTO_INSTALL` wird weiterhin als Fallback unterstützt.
 
 ### Initiales User-Onboarding (ohne UI-Benutzermanagement)
 Es gibt zwei Wege für den ersten Account:

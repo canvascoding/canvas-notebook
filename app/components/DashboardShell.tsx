@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, type CSSProperties } from 'react';
 import Image from 'next/image';
 import { PanelLeft, MessageSquare, X, Terminal as TerminalIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,14 +17,46 @@ interface DashboardShellProps {
   username: string;
 }
 
+const LEFT_SIDEBAR_MIN = 220;
+const MIN_EDITOR_WIDTH = 360;
+
+function getSidebarMaxWidth() {
+  if (typeof window === 'undefined') {
+    return LEFT_SIDEBAR_MIN;
+  }
+
+  return Math.max(LEFT_SIDEBAR_MIN, window.innerWidth - MIN_EDITOR_WIDTH);
+}
+
+function clampSidebarWidth(width: number) {
+  return Math.min(getSidebarMaxWidth(), Math.max(LEFT_SIDEBAR_MIN, width));
+}
+
 export function DashboardShell({ username }: DashboardShellProps) {
-  const [sidebarVisible, setSidebarVisible] = useState(() =>
-    typeof window === 'undefined' ? true : window.innerWidth >= 768
-  );
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
   const [chatVisible, setChatVisible] = useState(false);
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [chatWidth, setChatWidth] = useState(420);
   const isResizing = useRef(false);
+  const isSidebarResizing = useRef(false);
+  const viewportInitializedRef = useRef(false);
+  const sidebarResizeRef = useRef<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const storedWidth = Number(window.localStorage.getItem('canvas.leftSidebarWidth'));
+    if (!Number.isFinite(storedWidth)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSidebarWidth(clampSidebarWidth(storedWidth));
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('canvas.leftSidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;
@@ -40,13 +72,58 @@ export function DashboardShell({ username }: DashboardShellProps) {
     document.body.style.userSelect = 'auto';
   }, []);
 
+  const handleSidebarMouseMove = useCallback((e: MouseEvent) => {
+    if (!isSidebarResizing.current || !sidebarResizeRef.current) return;
+    const nextWidth = clampSidebarWidth(
+      sidebarResizeRef.current.startWidth + (e.clientX - sidebarResizeRef.current.startX)
+    );
+    setSidebarWidth(nextWidth);
+  }, []);
+
+  const stopSidebarResizing = useCallback(() => {
+    isSidebarResizing.current = false;
+    sidebarResizeRef.current = null;
+    document.body.style.cursor = 'default';
+    document.body.style.userSelect = 'auto';
+  }, []);
+
+  useEffect(() => {
+    const handleViewport = () => {
+      const isMobile = window.innerWidth < 768;
+      setIsMobileViewport(isMobile);
+      setSidebarWidth((prev) => clampSidebarWidth(prev));
+      if (!viewportInitializedRef.current) {
+        setSidebarVisible(!isMobile);
+        viewportInitializedRef.current = true;
+        return;
+      }
+      if (!isMobile) {
+        setSidebarVisible(true);
+      }
+    };
+
+    handleViewport();
+    window.addEventListener('resize', handleViewport);
+    return () => window.removeEventListener('resize', handleViewport);
+  }, []);
+
   useEffect(() => {
     const handleMouseUp = () => {
-      if (isResizing.current) stopResizing();
+      if (isResizing.current) {
+        stopResizing();
+      }
+      if (isSidebarResizing.current) {
+        stopSidebarResizing();
+      }
     };
 
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (isResizing.current) handleMouseMove(e);
+      if (isResizing.current) {
+        handleMouseMove(e);
+      }
+      if (isSidebarResizing.current) {
+        handleSidebarMouseMove(e);
+      }
     };
 
     document.addEventListener('mousemove', handleGlobalMouseMove);
@@ -56,7 +133,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
       document.removeEventListener('mousemove', handleGlobalMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [handleMouseMove, stopResizing]);
+  }, [handleMouseMove, handleSidebarMouseMove, stopResizing, stopSidebarResizing]);
 
   const startResizing = useCallback(() => {
     isResizing.current = true;
@@ -119,15 +196,18 @@ export function DashboardShell({ username }: DashboardShellProps) {
         )}
 
         {/* Sidebar Container - Sliding on mobile, fixed on desktop */}
-        <div className={`
+        <div
+          style={{ '--desktop-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+          className={`
           fixed md:relative top-0 left-0 bottom-0 z-[80] md:z-auto
-          w-[280px] flex-shrink-0 bg-card border-r border-border
-          transition-all duration-300 ease-in-out
+          w-[280px] md:w-[var(--desktop-sidebar-width)] flex-shrink-0 bg-card border-r border-border
+          transition-all duration-300 ease-in-out md:transition-none
           ${sidebarVisible 
             ? 'translate-x-0 opacity-100' 
             : '-translate-x-full md:hidden opacity-0 pointer-events-none'
           }
-        `}>
+        `}
+        >
           <div className="flex flex-col h-full">
             <div className="md:hidden p-4 border-b border-border flex justify-between items-center bg-muted/40">
               <span className="font-bold text-sm tracking-widest uppercase opacity-70 text-foreground">Files</span>
@@ -135,7 +215,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 <X size={18} />
               </button>
             </div>
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 min-w-0 overflow-hidden">
               <SidebarProvider className="h-full min-h-0">
                 <FileBrowser />
               </SidebarProvider>
@@ -143,11 +223,30 @@ export function DashboardShell({ username }: DashboardShellProps) {
           </div>
         </div>
 
+        {sidebarVisible && (
+          <div
+            aria-label="Resize file tree"
+            className="hidden md:flex w-1 hover:w-1.5 bg-border hover:bg-primary/60 cursor-col-resize z-50 transition-all items-center justify-center"
+            onMouseDown={(event) => {
+              if (event.button !== 0) return;
+              isSidebarResizing.current = true;
+              document.body.style.cursor = 'col-resize';
+              document.body.style.userSelect = 'none';
+              sidebarResizeRef.current = {
+                startX: event.clientX,
+                startWidth: sidebarWidth,
+              };
+            }}
+          >
+            <div className="h-8 w-0.5 bg-muted-foreground/60" />
+          </div>
+        )}
+
         <div className="flex-1 min-w-0 h-full flex flex-col relative">
           <AppLayout
             sidebar={<div />} // Handled manually for better mobile control
             sidebarHidden={true}
-            terminalVisible={terminalVisible && (typeof window === 'undefined' || window.innerWidth >= 768)}
+            terminalVisible={terminalVisible && !isMobileViewport}
             main={
               <div className="flex h-full w-full overflow-hidden relative">
                 {/* Main Editor Area */}
@@ -176,7 +275,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 {/* Chat Panel - Responsive Sliding Implementation */}
                 <div 
                   style={{ 
-                    width: typeof window !== 'undefined' && window.innerWidth < 768 ? 'min(90%, 400px)' : (chatVisible ? `${chatWidth}px` : '0px')
+                    width: isMobileViewport ? 'min(90%, 400px)' : (chatVisible ? `${chatWidth}px` : '0px')
                   }}
                   className={`
                     fixed md:relative top-0 right-0 bottom-0 z-[80] md:z-auto
@@ -198,8 +297,8 @@ export function DashboardShell({ username }: DashboardShellProps) {
           />
 
           {/* Fullscreen Mobile Terminal */}
-          {terminalVisible && (
-            <div className="md:hidden fixed inset-0 z-[100] bg-background flex flex-col">
+          {terminalVisible && isMobileViewport && (
+            <div className="fixed inset-0 z-[100] bg-background flex flex-col">
               <div className="flex items-center justify-between p-2 bg-card border-b border-border">
                 <div className="flex items-center gap-2 px-2">
                   <TerminalIcon size={14} className="text-primary" />

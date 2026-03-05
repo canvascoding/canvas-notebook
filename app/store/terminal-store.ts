@@ -70,12 +70,6 @@ export const useTerminalStore = create<TerminalState>()(
         sessions: state.sessions,
         activeSessionId: state.activeSessionId,
       }),
-      onRehydrateStorage: () => (state, error) => {
-        if (error) {
-          console.error('[Terminal] Failed to rehydrate sessions', error);
-        }
-        state?.setHydrated(true);
-      },
     }
   )
 );
