@@ -57,6 +57,7 @@ COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/proxy.ts ./proxy.ts
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/docs ./docs
 
 RUN mkdir -p /data/workspace
 RUN chmod +x ./scripts/docker-entrypoint.sh
