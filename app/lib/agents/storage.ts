@@ -16,6 +16,25 @@ const DEFAULT_MAIN_AGENT = 'canvas-main-agent';
 const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4.5';
 const DEFAULT_DOCTOR_TIMEOUT_MS = 2500;
+const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
+  'AGENTS.md': `# AGENTS
+
+- Main agent: canvas-main-agent
+- Scope: Canvas Notebook runtime behavior and guardrails
+`,
+  'MEMORY.md': `# MEMORY
+
+- Persistent notes and long-lived decisions for the main agent.
+`,
+  'SOUL.md': `# SOUL
+
+- Tone and interaction style for the main agent in Canvas Notebook.
+`,
+  'TOOLS.md': `# TOOLS
+
+- Preferred tools and execution constraints for the main agent.
+`,
+};
 
 type RecordLike = Record<string, unknown>;
 
@@ -64,6 +83,8 @@ export type OpenRouterApiKeyResolution = {
   last4: string | null;
   warnings: string[];
 };
+
+export type AgentManagedFiles = Record<AgentManagedFileName, string>;
 
 export type ProviderReadiness = {
   id: AgentProviderId;
@@ -432,6 +453,10 @@ function normalizePersistedConfig(input: unknown): AgentRuntimeConfig {
   };
 }
 
+function resolveManagedFilePath(fileName: AgentManagedFileName): string {
+  return path.join(AGENT_STORAGE_DIR, fileName);
+}
+
 function firstCommandToken(command: string): string {
   return command.trim().split(/\s+/)[0] || '';
 }
@@ -451,6 +476,13 @@ async function readOpenRouterKeyFromIntegrations(): Promise<string | null> {
   const keyEntry = state.entries.find((entry) => entry.key === 'OPENROUTER_API_KEY');
   const value = keyEntry?.value?.trim() || '';
   return value || null;
+}
+
+async function writeTextAtomic(filePath: string, content: string): Promise<void> {
+  const tempPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const body = content.endsWith('\n') || content.length === 0 ? content : `${content}\n`;
+  await fs.writeFile(tempPath, body, { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(tempPath, filePath);
 }
 
 export function createDefaultAgentRuntimeConfig(updatedBy: string = 'system:bootstrap'): AgentRuntimeConfig {
@@ -514,6 +546,46 @@ export async function ensureAgentRuntimeConfigExists(updatedBy: string = 'system
     return;
   }
   await writeJsonAtomic(AGENT_RUNTIME_CONFIG_PATH, createDefaultAgentRuntimeConfig(updatedBy));
+}
+
+export async function ensureAgentManagedFilesExist(): Promise<void> {
+  await ensureStorageDirectory();
+
+  for (const fileName of AGENT_MANAGED_FILE_NAMES) {
+    const filePath = resolveManagedFilePath(fileName);
+    const existing = await readFileIfExists(filePath);
+    if (existing !== null) {
+      continue;
+    }
+    await writeTextAtomic(filePath, DEFAULT_AGENT_FILE_TEMPLATES[fileName]);
+  }
+}
+
+export async function readManagedAgentFile(fileName: AgentManagedFileName): Promise<string> {
+  await ensureAgentManagedFilesExist();
+  const filePath = resolveManagedFilePath(fileName);
+  const content = await readFileIfExists(filePath);
+  return content ?? DEFAULT_AGENT_FILE_TEMPLATES[fileName];
+}
+
+export async function readManagedAgentFiles(): Promise<AgentManagedFiles> {
+  await ensureAgentManagedFilesExist();
+
+  const entries = await Promise.all(
+    AGENT_MANAGED_FILE_NAMES.map(async (fileName) => {
+      const content = await readManagedAgentFile(fileName);
+      return [fileName, content] as const;
+    })
+  );
+
+  return Object.fromEntries(entries) as AgentManagedFiles;
+}
+
+export async function writeManagedAgentFile(fileName: AgentManagedFileName, content: string): Promise<string> {
+  await ensureAgentManagedFilesExist();
+  const filePath = resolveManagedFilePath(fileName);
+  await writeTextAtomic(filePath, content);
+  return readManagedAgentFile(fileName);
 }
 
 export async function readAgentRuntimeConfig(): Promise<AgentRuntimeConfig> {

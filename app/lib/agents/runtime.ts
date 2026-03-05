@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { type AgentId, isAgentId } from './catalog';
+import { providerIdToAgentId, readAgentRuntimeConfig } from './storage';
 
 export type CliParserType = 'stream-json' | 'codex-jsonl';
 
@@ -20,8 +21,18 @@ export type OpenRouterRuntime = {
 
 export type AgentRuntime = CliAgentRuntime | OpenRouterRuntime;
 
-function normalizeOpenRouterModel(model: string | undefined): string {
-  const raw = (model || '').trim();
+const aliases: Record<string, AgentId> = {
+  claude: 'claude',
+  'claude-cli': 'claude',
+  gemini: 'gemini',
+  'gemini-cli': 'gemini',
+  codex: 'codex',
+  'codex-cli': 'codex',
+  openrouter: 'openrouter',
+};
+
+function normalizeOpenRouterModel(model: string): string {
+  const raw = model.trim();
   if (!raw) {
     return 'anthropic/claude-sonnet-4.5';
   }
@@ -31,65 +42,62 @@ function normalizeOpenRouterModel(model: string | undefined): string {
   return raw;
 }
 
-const agentRuntimeById: Record<AgentId, AgentRuntime> = {
-  claude: {
+function buildCliRuntime(agentId: Exclude<AgentId, 'openrouter'>, command: string): CliAgentRuntime {
+  if (agentId === 'claude') {
+    return {
+      kind: 'cli',
+      command,
+      parser: 'stream-json',
+      buildArgs: ({ prompt, sessionId }) => {
+        const args = [
+          '-p',
+          prompt,
+          '--output-format',
+          'stream-json',
+          '--verbose',
+          '--permission-mode',
+          'bypassPermissions',
+          '--allowedTools',
+          'read',
+          '--allowedTools',
+          'ls',
+          '--allowedTools',
+          'bash',
+          '--allowedTools',
+          'write',
+          '--allowedTools',
+          'edit',
+          '--allowedTools',
+          'glob',
+          '--allowedTools',
+          'grep',
+        ];
+        if (sessionId) {
+          args.push('--resume', sessionId);
+        }
+        return args;
+      },
+    };
+  }
+
+  if (agentId === 'gemini') {
+    return {
+      kind: 'cli',
+      command,
+      parser: 'stream-json',
+      buildArgs: ({ prompt, sessionId }) => {
+        const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--yolo', '--approval-mode', 'yolo'];
+        if (sessionId) {
+          args.push('--resume', sessionId);
+        }
+        return args;
+      },
+    };
+  }
+
+  return {
     kind: 'cli',
-    command: process.env.CLAUDE_CLI_COMMAND?.trim() || 'claude',
-    parser: 'stream-json',
-    buildArgs: ({ prompt, sessionId }) => {
-      const args = [
-        '-p',
-        prompt,
-        '--output-format',
-        'stream-json',
-        '--verbose',
-        '--permission-mode',
-        'bypassPermissions',
-        '--allowedTools',
-        'read',
-        '--allowedTools',
-        'ls',
-        '--allowedTools',
-        'bash',
-        '--allowedTools',
-        'write',
-        '--allowedTools',
-        'edit',
-        '--allowedTools',
-        'glob',
-        '--allowedTools',
-        'grep',
-      ];
-      if (sessionId) {
-        args.push('--resume', sessionId);
-      }
-      return args;
-    },
-  },
-  gemini: {
-    kind: 'cli',
-    command: process.env.GEMINI_CLI_COMMAND?.trim() || 'gemini',
-    parser: 'stream-json',
-    buildArgs: ({ prompt, sessionId }) => {
-      const args = [
-        '-p',
-        prompt,
-        '--output-format',
-        'stream-json',
-        '--verbose',
-        '--yolo',
-        '--approval-mode',
-        'yolo',
-      ];
-      if (sessionId) {
-        args.push('--resume', sessionId);
-      }
-      return args;
-    },
-  },
-  codex: {
-    kind: 'cli',
-    command: process.env.CODEX_CLI_COMMAND?.trim() || 'codex',
+    command,
     parser: 'codex-jsonl',
     buildArgs: ({ prompt, sessionId }) => {
       const args = ['exec', '--json', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox'];
@@ -100,24 +108,8 @@ const agentRuntimeById: Record<AgentId, AgentRuntime> = {
       }
       return args;
     },
-  },
-  openrouter: {
-    kind: 'openrouter',
-    baseUrl: process.env.OPENROUTER_BASE_URL?.trim() || 'https://openrouter.ai/api/v1',
-    model: normalizeOpenRouterModel(process.env.OPENROUTER_MODEL),
-    apiKeyEnv: 'OPENROUTER_API_KEY',
-  },
-};
-
-const aliases: Record<string, AgentId> = {
-  claude: 'claude',
-  'claude-cli': 'claude',
-  gemini: 'gemini',
-  'gemini-cli': 'gemini',
-  codex: 'codex',
-  'codex-cli': 'codex',
-  openrouter: 'openrouter',
-};
+  };
+}
 
 export function resolveAgentId(raw: unknown): AgentId {
   if (isAgentId(raw)) {
@@ -130,6 +122,24 @@ export function resolveAgentId(raw: unknown): AgentId {
   return aliases[normalized] || 'claude';
 }
 
-export function getAgentRuntime(agentId: AgentId): AgentRuntime {
-  return agentRuntimeById[agentId];
+export async function getAgentRuntime(agentId?: AgentId): Promise<AgentRuntime> {
+  const config = await readAgentRuntimeConfig();
+  const resolvedAgentId = agentId ?? providerIdToAgentId(config.provider.id);
+
+  if (resolvedAgentId === 'openrouter') {
+    return {
+      kind: 'openrouter',
+      baseUrl: config.providers.openrouter.baseUrl,
+      model: normalizeOpenRouterModel(config.providers.openrouter.model),
+      apiKeyEnv: 'OPENROUTER_API_KEY',
+    };
+  }
+
+  const commandByAgent: Record<Exclude<AgentId, 'openrouter'>, string> = {
+    codex: config.providers['codex-cli'].command,
+    claude: config.providers['claude-cli'].command,
+    gemini: config.providers['gemini-cli'].command,
+  };
+
+  return buildCliRuntime(resolvedAgentId, commandByAgent[resolvedAgentId]);
 }

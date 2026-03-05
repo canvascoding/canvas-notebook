@@ -1,6 +1,15 @@
 #!/bin/sh
 set -eu
 
+# Runtime bootstrap must happen in the container because /home/node is volume-mounted
+# and not available during image build.
+echo "[entrypoint] Bootstrapping agent runtime in /home/node/canvas-agent..."
+if npx tsx scripts/bootstrap-agent-runtime.ts; then
+  echo "[entrypoint] Agent runtime bootstrap finished."
+else
+  echo "[entrypoint] WARNING: Agent runtime bootstrap failed. Continuing startup."
+fi
+
 # Preferred flag name: AI_CLI_AUTO_INSTALL (legacy fallback: CODEX_AUTO_INSTALL)
 auto_install="${AI_CLI_AUTO_INSTALL:-${CODEX_AUTO_INSTALL:-true}}"
 
