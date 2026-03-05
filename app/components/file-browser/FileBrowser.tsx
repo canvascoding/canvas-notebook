@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { ChevronsDownUp, FilePlus, FolderPlus, RefreshCw, Search, Upload, CheckSquare, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -13,6 +14,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
+import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 
 export function FileBrowser() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -134,21 +136,45 @@ export function FileBrowser() {
 
   const handleDeleteClick = async () => {
     if (isMultiSelectMode) {
-      const pathsToDelete = Array.from(multiSelectPaths);
-      if (pathsToDelete.length === 0) return;
-      
-      const confirmed = window.confirm(`Are you sure you want to delete ${pathsToDelete.length} items?`);
+      const pathsToDelete = Array.from(multiSelectPaths).filter((path) => !isProtectedAppOutputFolder(path));
+      const skippedCount = multiSelectPaths.length - pathsToDelete.length;
+      if (pathsToDelete.length === 0) {
+        if (skippedCount > 0) {
+          toast.error('App output folders cannot be deleted.');
+        }
+        return;
+      }
+
+      const confirmed = window.confirm(
+        skippedCount > 0
+          ? `Delete ${pathsToDelete.length} items? ${skippedCount} protected app folder(s) will be skipped.`
+          : `Are you sure you want to delete ${pathsToDelete.length} items?`
+      );
       if (confirmed) {
         await deletePath(pathsToDelete);
+        if (skippedCount > 0) {
+          toast.info(`${skippedCount} protected app folder(s) were not deleted.`);
+        }
         clearMultiSelect();
       }
     } else if (selectedNode) {
+      if (selectedNode.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path)) {
+        toast.error('This app output folder cannot be deleted.');
+        return;
+      }
       const confirmed = window.confirm(`Are you sure you want to delete "${selectedNode.name}"?`);
       if (confirmed) {
         await deletePath(selectedNode.path);
       }
     }
   };
+
+  const deletableMultiSelectCount = multiSelectPaths.filter((path) => !isProtectedAppOutputFolder(path)).length;
+  const isDeleteDisabled =
+    (!selectedNode && multiSelectPaths.length === 0) ||
+    (isMultiSelectMode
+      ? deletableMultiSelectCount === 0
+      : selectedNode?.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path));
 
   return (
     <section
@@ -243,7 +269,7 @@ export function FileBrowser() {
                     variant="ghost"
                     size="icon-sm"
                     onClick={handleDeleteClick}
-                    disabled={!selectedNode && multiSelectPaths.length === 0}
+                    disabled={isDeleteDisabled}
                     aria-label="Delete"
                   >
                     <Trash2 className="h-4 w-4" />

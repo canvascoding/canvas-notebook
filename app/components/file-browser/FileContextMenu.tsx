@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
+import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 
 interface FileContextMenuProps {
   node: {
@@ -62,6 +63,8 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   // State for Rename Dialog
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  const isProtectedOutputFolder =
+    node.type === 'directory' && isProtectedAppOutputFolder(node.path);
 
   const { createPath, deletePath, renamePath, downloadFile, fileTree } =
     useFileStore();
@@ -85,6 +88,10 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   };
 
   const handleRename = () => {
+    if (isProtectedOutputFolder) {
+      toast.error('This app output folder cannot be renamed.');
+      return;
+    }
     setOpen(false); // Close dropdown
     setNewName(node.name);
     setRenameOpen(true);
@@ -100,6 +107,10 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   };
 
   const handleMove = () => {
+    if (isProtectedOutputFolder) {
+      toast.error('This app output folder cannot be moved.');
+      return;
+    }
     setOpen(false);
     setMoveName(node.name);
     setMoveTarget(getParentPath(node.path));
@@ -108,6 +119,10 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   };
 
   const handleDelete = async () => {
+    if (isProtectedOutputFolder) {
+      toast.error('This app output folder cannot be deleted.');
+      return;
+    }
     const confirmed = window.confirm(`Delete "${node.name}"?`);
     if (!confirmed) return;
     await deletePath(node.path);
@@ -230,11 +245,11 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             <Copy className="h-4 w-4" />
             Copy path
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handleRename}>
+          <DropdownMenuItem onSelect={handleRename} disabled={isProtectedOutputFolder}>
             <Pencil className="h-4 w-4" />
             Rename
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handleMove}>
+          <DropdownMenuItem onSelect={handleMove} disabled={isProtectedOutputFolder}>
             <Move className="h-4 w-4" />
             Move
           </DropdownMenuItem>
@@ -243,7 +258,11 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             Download
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={handleDelete}>
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={handleDelete}
+            disabled={isProtectedOutputFolder}
+          >
             <Trash2 className="h-4 w-4" />
             Delete
           </DropdownMenuItem>
