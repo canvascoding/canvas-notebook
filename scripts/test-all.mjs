@@ -71,7 +71,7 @@ async function findAvailablePort() {
 }
 
 async function run() {
-  await runCommand('npx', ['next', 'build']);
+  await runCommand('npm', ['run', 'build']);
 
   const port = process.env.PORT || (await findAvailablePort());
   const resolvedBaseUrl = baseUrl || `http://localhost:${port}`;
