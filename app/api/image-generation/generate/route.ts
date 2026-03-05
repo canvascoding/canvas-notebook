@@ -8,7 +8,6 @@ import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { getImageGenerationApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
   IMAGE_GENERATION_OUTPUT_DIR,
-  IMAGE_GENERATION_ROOT_DIR,
   createImageGenerationOutputFilename,
   ensureImageGenerationWorkspace,
 } from '@/app/lib/integrations/image-generation-workspace';
@@ -99,10 +98,23 @@ function normalizeReferencePaths(input: string[]): string[] {
     if (!filePath) {
       continue;
     }
+
     const normalizedPath = path.posix.normalize(filePath).replace(/^\.?\//, '');
-    if (!normalizedPath.startsWith(`${IMAGE_GENERATION_ROOT_DIR}/`)) {
+    if (
+      !normalizedPath ||
+      normalizedPath === '.' ||
+      normalizedPath.startsWith('/') ||
+      normalizedPath.startsWith('../') ||
+      normalizedPath.includes('/../')
+    ) {
       continue;
     }
+
+    const extension = extensionFromPath(normalizedPath);
+    if (!IMAGE_MIME[extension]) {
+      continue;
+    }
+
     if (seen.has(normalizedPath)) {
       continue;
     }

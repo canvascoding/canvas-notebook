@@ -5,15 +5,18 @@ import { buildFileTree } from '@/app/lib/filesystem/workspace-files';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import {
-  IMAGE_GENERATION_ROOT_DIR,
   ensureImageGenerationWorkspace,
 } from '@/app/lib/integrations/image-generation-workspace';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
+
+type AssetKind = 'image' | 'video' | 'all';
 
 interface AssetItem {
   path: string;
   name: string;
+  kind: 'image' | 'video';
   size?: number;
   modified?: number;
   mediaUrl: string;
@@ -37,6 +40,12 @@ function walkFiles(nodes: FileNode[], list: FileNode[] = []): FileNode[] {
   return list;
 }
 
+function matchesKind(extension: string, kind: AssetKind): boolean {
+  if (kind === 'image') return IMAGE_EXTENSIONS.has(extension);
+  if (kind === 'video') return VIDEO_EXTENSIONS.has(extension);
+  return IMAGE_EXTENSIONS.has(extension) || VIDEO_EXTENSIONS.has(extension);
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -56,27 +65,25 @@ export async function GET(request: NextRequest) {
     await ensureImageGenerationWorkspace();
 
     const { searchParams } = new URL(request.url);
+    const kindParam = (searchParams.get('kind') || 'image').toLowerCase();
+    const kind: AssetKind = kindParam === 'image' || kindParam === 'video' ? kindParam : 'all';
     const query = (searchParams.get('q') || '').trim().toLowerCase();
     if (query.length > 200) {
       return NextResponse.json({ success: false, error: 'Search query too long.' }, { status: 400 });
     }
 
     const limitRaw = Number(searchParams.get('limit') || '200');
-    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 200)) : 200;
-    const depthRaw = Number(searchParams.get('depth') || '6');
-    const depth = Number.isFinite(depthRaw) ? Math.max(1, Math.min(depthRaw, 10)) : 6;
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 200;
+    const depthRaw = Number(searchParams.get('depth') || '8');
+    const depth = Number.isFinite(depthRaw) ? Math.max(1, Math.min(depthRaw, 12)) : 8;
 
-    const tree = await buildFileTree(IMAGE_GENERATION_ROOT_DIR, depth);
+    const tree = await buildFileTree('.', depth);
     const files = walkFiles(tree);
 
     const filtered: AssetItem[] = [];
     for (const file of files) {
-      if (!file.path.startsWith(`${IMAGE_GENERATION_ROOT_DIR}/`)) {
-        continue;
-      }
-
       const ext = getExtension(file.path);
-      if (!IMAGE_EXTENSIONS.has(ext)) {
+      if (!matchesKind(ext, kind)) {
         continue;
       }
 
@@ -84,13 +91,15 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
+      const isImage = IMAGE_EXTENSIONS.has(ext);
       filtered.push({
         path: file.path,
         name: file.name,
+        kind: isImage ? 'image' : 'video',
         size: file.size,
         modified: file.modified,
         mediaUrl: toMediaUrl(file.path),
-        previewUrl: toPreviewUrl(file.path, 480),
+        previewUrl: isImage ? toPreviewUrl(file.path, 480) : toMediaUrl(file.path),
       });
     }
 
