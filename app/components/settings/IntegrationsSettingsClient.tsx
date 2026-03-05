@@ -28,7 +28,7 @@ interface DraftEntry {
   encrypted: boolean;
 }
 
-const DEFAULT_KEYS = ['GOOGLE_API_KEY', 'API_KEY', 'GEMINI_API_KEY'];
+const DEFAULT_KEYS = ['GOOGLE_API_KEY', 'API_KEY', 'GEMINI_API_KEY', 'NANO_BANANA_API_KEY'];
 
 function createDraftEntry(entry?: Partial<EnvEntry>): DraftEntry {
   return {

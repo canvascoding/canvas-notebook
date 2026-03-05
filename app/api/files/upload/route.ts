@@ -32,6 +32,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (targetDir && targetDir !== '.') {
+      await createDirectory(targetDir);
+    }
+
     for (const file of files) {
       const relativePath = file.name; // FormData gives us the relative path as the filename
       const buffer = Buffer.from(await file.arrayBuffer());
