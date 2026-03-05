@@ -19,16 +19,24 @@ export type OpenRouterRuntime = {
   apiKeyEnv: 'OPENROUTER_API_KEY';
 };
 
-export type AgentRuntime = CliAgentRuntime | OpenRouterRuntime;
+export type OllamaRuntime = {
+  kind: 'ollama';
+  baseUrl: string;
+  model: string;
+  apiKeyEnv: 'OLLAMA_API_KEY';
+};
+
+export type AgentRuntime = CliAgentRuntime | OpenRouterRuntime | OllamaRuntime;
 
 const aliases: Record<string, AgentId> = {
   claude: 'claude',
   'claude-cli': 'claude',
-  gemini: 'gemini',
-  'gemini-cli': 'gemini',
+  gemini: 'codex',
+  'gemini-cli': 'codex',
   codex: 'codex',
   'codex-cli': 'codex',
   openrouter: 'openrouter',
+  ollama: 'ollama',
 };
 
 function normalizeOpenRouterModel(model: string): string {
@@ -42,7 +50,7 @@ function normalizeOpenRouterModel(model: string): string {
   return raw;
 }
 
-function buildCliRuntime(agentId: Exclude<AgentId, 'openrouter'>, command: string): CliAgentRuntime {
+function buildCliRuntime(agentId: Exclude<AgentId, 'openrouter' | 'ollama'>, command: string): CliAgentRuntime {
   if (agentId === 'claude') {
     return {
       kind: 'cli',
@@ -72,21 +80,6 @@ function buildCliRuntime(agentId: Exclude<AgentId, 'openrouter'>, command: strin
           '--allowedTools',
           'grep',
         ];
-        if (sessionId) {
-          args.push('--resume', sessionId);
-        }
-        return args;
-      },
-    };
-  }
-
-  if (agentId === 'gemini') {
-    return {
-      kind: 'cli',
-      command,
-      parser: 'stream-json',
-      buildArgs: ({ prompt, sessionId }) => {
-        const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--yolo', '--approval-mode', 'yolo'];
         if (sessionId) {
           args.push('--resume', sessionId);
         }
@@ -135,10 +128,18 @@ export async function getAgentRuntime(agentId?: AgentId): Promise<AgentRuntime> 
     };
   }
 
-  const commandByAgent: Record<Exclude<AgentId, 'openrouter'>, string> = {
+  if (resolvedAgentId === 'ollama') {
+    return {
+      kind: 'ollama',
+      baseUrl: config.providers.ollama.baseUrl,
+      model: config.providers.ollama.model,
+      apiKeyEnv: 'OLLAMA_API_KEY',
+    };
+  }
+
+  const commandByAgent: Record<Exclude<AgentId, 'openrouter' | 'ollama'>, string> = {
     codex: config.providers['codex-cli'].command,
     claude: config.providers['claude-cli'].command,
-    gemini: config.providers['gemini-cli'].command,
   };
 
   return buildCliRuntime(resolvedAgentId, commandByAgent[resolvedAgentId]);

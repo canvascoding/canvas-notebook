@@ -12,8 +12,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 const MANAGED_FILES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
 type ManagedFileName = (typeof MANAGED_FILES)[number];
-type ProviderId = 'codex-cli' | 'claude-cli' | 'gemini-cli' | 'openrouter';
-type ProviderKind = 'cli' | 'openrouter';
+type ProviderId = 'codex-cli' | 'claude-cli' | 'openrouter' | 'ollama';
+type ProviderKind = 'cli' | 'openrouter' | 'ollama';
 
 type CliProviderConfig = {
   enabled: boolean;
@@ -27,6 +27,13 @@ type OpenRouterProviderConfig = {
   apiKeySource: 'integrations-env' | 'process-env';
 };
 
+type OllamaProviderConfig = {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  apiKeySource: 'none' | 'integrations-env' | 'process-env';
+};
+
 type AgentRuntimeConfig = {
   version: number;
   mainAgent: string;
@@ -37,8 +44,8 @@ type AgentRuntimeConfig = {
   providers: {
     'codex-cli': CliProviderConfig;
     'claude-cli': CliProviderConfig;
-    'gemini-cli': CliProviderConfig;
     openrouter: OpenRouterProviderConfig;
+    ollama: OllamaProviderConfig;
   };
   doctor: {
     enableLivePing: boolean;
@@ -60,6 +67,7 @@ type ProviderReadiness = {
   model?: string;
   modelPlausible?: boolean;
   openRouterKeySet?: boolean;
+  ollamaKeySet?: boolean;
 };
 
 type AgentConfigReadiness = {
@@ -84,12 +92,22 @@ type DoctorResult = {
   };
   checks: {
     livePing?: {
-      enabled: boolean;
-      ok: boolean | null;
-      warning: string | null;
-      latencyMs: number | null;
-      status: number | null;
-      target: string | null;
+      openrouter?: {
+        enabled: boolean;
+        ok: boolean | null;
+        warning: string | null;
+        latencyMs: number | null;
+        status: number | null;
+        target: string | null;
+      };
+      ollama?: {
+        enabled: boolean;
+        ok: boolean | null;
+        warning: string | null;
+        latencyMs: number | null;
+        status: number | null;
+        target: string | null;
+      };
     };
   };
 };
@@ -132,7 +150,13 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 function toProviderKind(providerId: ProviderId): ProviderKind {
-  return providerId === 'openrouter' ? 'openrouter' : 'cli';
+  if (providerId === 'openrouter') {
+    return 'openrouter';
+  }
+  if (providerId === 'ollama') {
+    return 'ollama';
+  }
+  return 'cli';
 }
 
 export function AgentSettingsPanel() {
@@ -307,6 +331,8 @@ export function AgentSettingsPanel() {
       const next = deepClone(current);
       if (providerId === 'openrouter') {
         next.providers.openrouter.enabled = enabled;
+      } else if (providerId === 'ollama') {
+        next.providers.ollama.enabled = enabled;
       } else {
         next.providers[providerId].enabled = enabled;
       }
@@ -314,13 +340,28 @@ export function AgentSettingsPanel() {
     });
   };
 
-  const setCliCommand = (providerId: 'codex-cli' | 'claude-cli' | 'gemini-cli', command: string) => {
+  const setCliCommand = (providerId: 'codex-cli' | 'claude-cli', command: string) => {
     setConfigDraft((current) => {
       if (!current) {
         return current;
       }
       const next = deepClone(current);
       next.providers[providerId].command = command;
+      return next;
+    });
+  };
+
+  const setOllamaField = (field: 'baseUrl' | 'model' | 'apiKeySource', value: string) => {
+    setConfigDraft((current) => {
+      if (!current) {
+        return current;
+      }
+      const next = deepClone(current);
+      if (field === 'apiKeySource') {
+        next.providers.ollama.apiKeySource = value as OllamaProviderConfig['apiKeySource'];
+      } else {
+        next.providers.ollama[field] = value;
+      }
       return next;
     });
   };
@@ -350,6 +391,8 @@ export function AgentSettingsPanel() {
       next.provider.kind = toProviderKind(providerId);
       if (providerId === 'openrouter') {
         next.providers.openrouter.enabled = true;
+      } else if (providerId === 'ollama') {
+        next.providers.ollama.enabled = true;
       } else {
         next.providers[providerId].enabled = true;
       }
@@ -463,7 +506,7 @@ export function AgentSettingsPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Provider Settings</CardTitle>
-          <CardDescription>Globaler Provider, CLI-Kommandos und OpenRouter-Konfiguration.</CardDescription>
+          <CardDescription>Globaler Provider, CLI-Kommandos sowie OpenRouter/Ollama-Konfiguration.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {configLoading || !configDraft ? (
@@ -484,8 +527,8 @@ export function AgentSettingsPanel() {
                   >
                     <option value="codex-cli">codex-cli</option>
                     <option value="claude-cli">claude-cli</option>
-                    <option value="gemini-cli">gemini-cli</option>
                     <option value="openrouter">openrouter</option>
+                    <option value="ollama">ollama</option>
                   </select>
                 </label>
 
@@ -541,26 +584,6 @@ export function AgentSettingsPanel() {
                   </label>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-                  <label className="space-y-2 text-sm">
-                    <span>Gemini CLI Command</span>
-                    <Input
-                      value={configDraft.providers['gemini-cli'].command}
-                      onChange={(event) => setCliCommand('gemini-cli', event.target.value)}
-                      disabled={configSaving}
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={configDraft.providers['gemini-cli'].enabled}
-                      onChange={(event) => setProviderEnabled('gemini-cli', event.target.checked)}
-                      disabled={configSaving}
-                    />
-                    Enabled
-                  </label>
-                </div>
-
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="space-y-2 text-sm">
                     <span>OpenRouter Base URL</span>
@@ -592,6 +615,51 @@ export function AgentSettingsPanel() {
                       <option value="integrations-env">integrations-env</option>
                       <option value="process-env">process-env</option>
                     </select>
+                  </label>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 border-t border-border pt-3">
+                  <label className="space-y-2 text-sm">
+                    <span>Ollama Base URL</span>
+                    <Input
+                      value={configDraft.providers.ollama.baseUrl}
+                      onChange={(event) => setOllamaField('baseUrl', event.target.value)}
+                      disabled={configSaving}
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm">
+                    <span>Ollama Model</span>
+                    <Input
+                      value={configDraft.providers.ollama.model}
+                      onChange={(event) => setOllamaField('model', event.target.value)}
+                      disabled={configSaving}
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+                  <label className="space-y-2 text-sm">
+                    <span>Ollama Key Source</span>
+                    <select
+                      className="h-10 w-full border border-input bg-background px-3 text-sm"
+                      value={configDraft.providers.ollama.apiKeySource}
+                      onChange={(event) => setOllamaField('apiKeySource', event.target.value)}
+                      disabled={configSaving}
+                    >
+                      <option value="none">none</option>
+                      <option value="integrations-env">integrations-env</option>
+                      <option value="process-env">process-env</option>
+                    </select>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={configDraft.providers.ollama.enabled}
+                      onChange={(event) => setProviderEnabled('ollama', event.target.checked)}
+                      disabled={configSaving}
+                    />
+                    Ollama enabled
                   </label>
 
                   <label className="flex items-center gap-2 text-sm">
@@ -646,7 +714,7 @@ export function AgentSettingsPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Doctor</CardTitle>
-          <CardDescription>Lokale Provider-Checks und optionaler OpenRouter-Ping.</CardDescription>
+          <CardDescription>Lokale Provider-Checks und optionale OpenRouter/Ollama-Pings.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Button onClick={() => void runDoctor()} disabled={doctorRunning}>
@@ -664,8 +732,11 @@ export function AgentSettingsPanel() {
               <p>Errors: {doctorResult.summary.errors}</p>
               <p>Warnings: {doctorResult.summary.warnings}</p>
               <p>Checked: {new Date(doctorResult.checkedAt).toLocaleString()}</p>
-              {doctorResult.checks.livePing?.warning && (
-                <p className="text-muted-foreground">Live Ping: {doctorResult.checks.livePing.warning}</p>
+              {doctorResult.checks.livePing?.openrouter?.warning && (
+                <p className="text-muted-foreground">OpenRouter Ping: {doctorResult.checks.livePing.openrouter.warning}</p>
+              )}
+              {doctorResult.checks.livePing?.ollama?.warning && (
+                <p className="text-muted-foreground">Ollama Ping: {doctorResult.checks.livePing.ollama.warning}</p>
               )}
             </div>
           )}
