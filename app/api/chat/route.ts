@@ -5,15 +5,58 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getWorkspacePath, ensureWorkspaceExists } from '@/app/lib/utils/workspace-manager';
 import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages } from '@/app/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
-import { type AgentId } from '@/app/lib/agents/catalog';
-import { getAgentRuntime, resolveAgentId } from '@/app/lib/agents/runtime';
+import { desc, eq } from 'drizzle-orm';
+import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
+import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
+import {
+  type AgentConfigReadiness,
+  type AgentProviderId,
+  type AgentRuntimeConfig,
+  agentIdToProviderId,
+  buildAgentConfigReadiness,
+  providerIdToAgentId,
+  readAgentRuntimeConfig,
+  resolveOpenRouterApiKey,
+} from '@/app/lib/agents/storage';
 
 const cliAvailability = new Map<string, boolean>();
 
 interface ChatAttachment {
   name: string;
   path: string;
+}
+
+type CliParserType = 'stream-json' | 'codex-jsonl';
+
+type CliRuntime = {
+  kind: 'cli';
+  command: string;
+  parser: CliParserType;
+  buildArgs: (params: { prompt: string; sessionId?: string | null }) => string[];
+};
+
+type OpenRouterRuntime = {
+  kind: 'openrouter';
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+};
+
+type ResolvedRuntime = CliRuntime | OpenRouterRuntime;
+
+type ChatProviderBinding = {
+  config: AgentRuntimeConfig;
+  readiness: AgentConfigReadiness;
+  providerId: AgentProviderId;
+  agentId: AgentId;
+  requestedSessionId: string | null;
+};
+
+class ChatSessionNotFoundError extends Error {
+  constructor(sessionId: string) {
+    super(`Session not found: ${sessionId}`);
+    this.name = 'ChatSessionNotFoundError';
+  }
 }
 
 function isChatAttachment(value: unknown): value is ChatAttachment {
@@ -54,7 +97,16 @@ function buildPromptWithAttachments(promptText: string, attachments: ChatAttachm
 }
 
 function createSessionId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const normalizedPrefix = prefix.toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'session';
+  return `${normalizedPrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function parseSessionId(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized ? normalized : null;
 }
 
 function extractOpenRouterText(event: unknown): string {
@@ -99,6 +151,197 @@ function extractOpenRouterText(event: unknown): string {
   return '';
 }
 
+function buildCliRuntime(agentId: AgentId, config: AgentRuntimeConfig): CliRuntime {
+  if (agentId === 'claude') {
+    return {
+      kind: 'cli',
+      command: config.providers['claude-cli'].command,
+      parser: 'stream-json',
+      buildArgs: ({ prompt, sessionId }) => {
+        const args = [
+          '-p',
+          prompt,
+          '--output-format',
+          'stream-json',
+          '--verbose',
+          '--permission-mode',
+          'bypassPermissions',
+          '--allowedTools',
+          'read',
+          '--allowedTools',
+          'ls',
+          '--allowedTools',
+          'bash',
+          '--allowedTools',
+          'write',
+          '--allowedTools',
+          'edit',
+          '--allowedTools',
+          'glob',
+          '--allowedTools',
+          'grep',
+        ];
+        if (sessionId) {
+          args.push('--resume', sessionId);
+        }
+        return args;
+      },
+    };
+  }
+
+  if (agentId === 'gemini') {
+    return {
+      kind: 'cli',
+      command: config.providers['gemini-cli'].command,
+      parser: 'stream-json',
+      buildArgs: ({ prompt, sessionId }) => {
+        const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--yolo', '--approval-mode', 'yolo'];
+        if (sessionId) {
+          args.push('--resume', sessionId);
+        }
+        return args;
+      },
+    };
+  }
+
+  return {
+    kind: 'cli',
+    command: config.providers['codex-cli'].command,
+    parser: 'codex-jsonl',
+    buildArgs: ({ prompt, sessionId }) => {
+      const args = ['exec', '--json', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox'];
+      if (sessionId) {
+        args.push('resume', sessionId, prompt);
+      } else {
+        args.push(prompt);
+      }
+      return args;
+    },
+  };
+}
+
+function providerUnavailableError(providerId: AgentProviderId, issues: string[]): string {
+  const issueDetails = issues.filter(Boolean).join(' ');
+  return issueDetails
+    ? `Provider not available (${providerId}). ${issueDetails}`
+    : `Provider not available (${providerId}).`;
+}
+
+function resolveProviderErrorResponse(binding: ChatProviderBinding): NextResponse | null {
+  const readiness = binding.readiness.providers[binding.providerId];
+  if (binding.providerId === 'openrouter') {
+    if (!binding.config.providers.openrouter.enabled) {
+      return NextResponse.json({ success: false, error: providerUnavailableError(binding.providerId, readiness.issues) }, { status: 503 });
+    }
+
+    if (!readiness.available && readiness.issues.length > 0) {
+      return NextResponse.json({ success: false, error: providerUnavailableError(binding.providerId, readiness.issues) }, { status: 503 });
+    }
+
+    return null;
+  }
+
+  if (!readiness.commandExists) {
+    const command = readiness.command || binding.config.providers[binding.providerId].command;
+    return NextResponse.json(
+      {
+        success: false,
+        error: `CLI not installed (${command}). Configure the provider command or install the CLI.`,
+      },
+      { status: 503 },
+    );
+  }
+
+  if (!readiness.available) {
+    return NextResponse.json({ success: false, error: providerUnavailableError(binding.providerId, readiness.issues) }, { status: 503 });
+  }
+
+  return null;
+}
+
+async function resolveChatProviderBinding(requestedSessionId: string | null): Promise<ChatProviderBinding> {
+  const config = await readAgentRuntimeConfig();
+  const readiness = await buildAgentConfigReadiness(config);
+
+  if (requestedSessionId) {
+    const sessions = await db
+      .select({ model: aiSessions.model })
+      .from(aiSessions)
+      .where(eq(aiSessions.sessionId, requestedSessionId))
+      .orderBy(desc(aiSessions.createdAt))
+      .limit(1);
+
+    if (sessions.length === 0) {
+      throw new ChatSessionNotFoundError(requestedSessionId);
+    }
+
+    const model = sessions[0].model;
+    if (!isAgentId(model)) {
+      return {
+        config,
+        readiness,
+        requestedSessionId,
+        agentId: providerIdToAgentId(config.provider.id),
+        providerId: config.provider.id,
+      };
+    }
+
+    return {
+      config,
+      readiness,
+      requestedSessionId,
+      agentId: model,
+      providerId: agentIdToProviderId(model),
+    };
+  }
+
+  return {
+    config,
+    readiness,
+    requestedSessionId: null,
+    agentId: providerIdToAgentId(config.provider.id),
+    providerId: config.provider.id,
+  };
+}
+
+async function resolveRuntime(binding: ChatProviderBinding): Promise<{ runtime: ResolvedRuntime; errorResponse: NextResponse | null }> {
+  const providerErrorResponse = resolveProviderErrorResponse(binding);
+  if (providerErrorResponse) {
+    return { runtime: buildCliRuntime('codex', binding.config), errorResponse: providerErrorResponse };
+  }
+
+  if (binding.providerId === 'openrouter') {
+    const openRouterKey = await resolveOpenRouterApiKey(binding.config);
+    if (!openRouterKey.isSet || !openRouterKey.apiKey) {
+      return {
+        runtime: buildCliRuntime('codex', binding.config),
+        errorResponse: NextResponse.json(
+          {
+            success: false,
+            error: 'OpenRouter key missing. Configure the key in integrations or OPENROUTER_API_KEY.',
+          },
+          { status: 503 },
+        ),
+      };
+    }
+
+    return {
+      runtime: {
+        kind: 'openrouter',
+        baseUrl: binding.config.providers.openrouter.baseUrl,
+        model: binding.config.providers.openrouter.model,
+        apiKey: openRouterKey.apiKey,
+      },
+      errorResponse: null,
+    };
+  }
+
+  return {
+    runtime: buildCliRuntime(binding.agentId, binding.config),
+    errorResponse: null,
+  };
+}
+
 async function persistChatTurn(params: {
   userId: string;
   sessionId?: string | null;
@@ -115,9 +358,10 @@ async function persistChatTurn(params: {
   let dbSessionId: number | null = null;
 
   const existingSessions = await db
-    .select()
+    .select({ id: aiSessions.id })
     .from(aiSessions)
-    .where(and(eq(aiSessions.sessionId, sessionId), eq(aiSessions.model, model)))
+    .where(eq(aiSessions.sessionId, sessionId))
+    .orderBy(desc(aiSessions.createdAt))
     .limit(1);
 
   if (existingSessions.length > 0) {
@@ -135,6 +379,7 @@ async function persistChatTurn(params: {
       })
       .returning({ id: aiSessions.id });
     dbSessionId = result[0].id;
+    await enforceAiSessionRetention();
   }
 
   if (!dbSessionId) {
@@ -171,10 +416,7 @@ export async function POST(request: NextRequest) {
 
     const payload = await request.json();
     const promptText = typeof payload?.message === 'string' ? payload.message : '';
-    const incomingModel = payload?.agentId ?? payload?.model;
-    const agentId = resolveAgentId(incomingModel);
-    const runtime = getAgentRuntime(agentId);
-    const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : null;
+    const requestedSessionId = parseSessionId(payload?.sessionId);
     const parsedAttachments = Array.isArray(payload?.attachments)
       ? payload.attachments.filter(isChatAttachment)
       : [];
@@ -184,12 +426,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Message or attachment required' }, { status: 400 });
     }
 
+    const providerBinding = await resolveChatProviderBinding(requestedSessionId);
+    const { runtime, errorResponse } = await resolveRuntime(providerBinding);
+    if (errorResponse) {
+      return errorResponse;
+    }
+
     if (runtime.kind === 'openrouter' && hasAttachments) {
       return NextResponse.json(
         {
           success: false,
           error:
-            'OpenRouter is currently configured as text-only in this app. Please remove attachments for this agent.',
+            'OpenRouter is currently configured as text-only in this app. Please remove attachments for this provider.',
         },
         { status: 400 },
       );
@@ -201,18 +449,7 @@ export async function POST(request: NextRequest) {
     const finalPrompt = buildPromptWithAttachments(promptText, parsedAttachments);
 
     if (runtime.kind === 'openrouter') {
-      const apiKey = process.env[runtime.apiKeyEnv]?.trim() || '';
-      if (!apiKey) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: `${runtime.apiKeyEnv} is missing. Configure your OpenRouter API key first.`,
-          },
-          { status: 500 },
-        );
-      }
-
-      const extractedSessionId: string | null = sessionId || createSessionId('openrouter');
+      const resolvedSessionId = requestedSessionId || createSessionId(providerBinding.agentId);
       let finalResultText = '';
       let streamClosed = false;
 
@@ -236,8 +473,8 @@ export async function POST(request: NextRequest) {
           push(
             JSON.stringify({
               success: true,
-              sessionId: extractedSessionId,
-              model: agentId,
+              sessionId: resolvedSessionId,
+              model: providerBinding.agentId,
             }) + '\n',
           );
 
@@ -246,7 +483,7 @@ export async function POST(request: NextRequest) {
               const upstream = await fetch(`${runtime.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: {
-                  Authorization: `Bearer ${apiKey}`,
+                  Authorization: `Bearer ${runtime.apiKey}`,
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
@@ -262,10 +499,7 @@ export async function POST(request: NextRequest) {
               });
 
               if (!upstream.ok) {
-                const details = await upstream.text();
-                throw new Error(
-                  `OpenRouter request failed (${upstream.status}): ${details.slice(0, 400)}`,
-                );
+                throw new Error(`OpenRouter request failed with status ${upstream.status}.`);
               }
 
               if (!upstream.body) {
@@ -313,7 +547,7 @@ export async function POST(request: NextRequest) {
                       JSON.stringify({
                         type: 'assistant',
                         message: { content: [{ type: 'text', text: textChunk }] },
-                        session_id: extractedSessionId,
+                        session_id: resolvedSessionId,
                       }) + '\n',
                     );
                   } catch {
@@ -324,8 +558,8 @@ export async function POST(request: NextRequest) {
 
               await persistChatTurn({
                 userId: session.user.id,
-                sessionId: extractedSessionId,
-                model: agentId,
+                sessionId: resolvedSessionId,
+                model: providerBinding.agentId,
                 promptText,
                 hasAttachments,
                 assistantText: finalResultText,
@@ -350,27 +584,29 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const command = runtime.command;
-    const args = runtime.buildArgs({ prompt: finalPrompt, sessionId });
+    const fallbackSessionId = requestedSessionId || createSessionId(providerBinding.agentId);
+    const args = runtime.buildArgs({ prompt: finalPrompt, sessionId: requestedSessionId });
 
-    if (!checkCliAvailability(command)) {
+    if (!checkCliAvailability(runtime.command)) {
       return NextResponse.json(
         {
           success: false,
-          error: `CLI backend not found (${command}). Configure the command path or choose another agent.`,
+          error: `CLI not installed (${runtime.command}). Configure the provider command or install the CLI.`,
         },
-        { status: 500 },
+        { status: 503 },
       );
     }
 
-    console.log(`[AI Chat] Executing (${agentId}): ${command} ${args.join(' ')}`);
+    console.log(
+      `[AI Chat] Executing (${providerBinding.agentId}/${providerBinding.providerId}): ${runtime.command} (args=${args.length})`,
+    );
 
-    const aiProcess = spawn(command, args, {
+    const aiProcess = spawn(runtime.command, args, {
       cwd: userWorkspacePath,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    let extractedSessionId: string | null = sessionId || null;
+    let extractedSessionId: string | null = requestedSessionId || null;
     let hasSentHeader = false;
     let stdoutBuffer = '';
     let finalResultText = '';
@@ -397,7 +633,7 @@ export async function POST(request: NextRequest) {
           push(
             JSON.stringify({
               type: 'error',
-              message: `${agentId} CLI failed to start: ${processError.message}`,
+              message: `${providerBinding.agentId} CLI failed to start: ${processError.message}`,
             }) + '\n',
           );
           safeClose();
@@ -430,8 +666,8 @@ export async function POST(request: NextRequest) {
                 push(
                   JSON.stringify({
                     success: true,
-                    sessionId: extractedSessionId || sessionId || 'new',
-                    model: agentId,
+                    sessionId: extractedSessionId || fallbackSessionId,
+                    model: providerBinding.agentId,
                     initialEvent: event,
                   }) + '\n',
                 );
@@ -445,7 +681,7 @@ export async function POST(request: NextRequest) {
                     JSON.stringify({
                       type: 'assistant',
                       message: { content: [{ type: 'text', text: event.content.text }] },
-                      thread_id: extractedSessionId,
+                      thread_id: extractedSessionId || fallbackSessionId,
                     }) + '\n',
                   );
                   continue;
@@ -458,7 +694,7 @@ export async function POST(request: NextRequest) {
                       JSON.stringify({
                         type: 'assistant',
                         message: { content: [{ type: 'text', text: event.item.text }] },
-                        thread_id: extractedSessionId,
+                        thread_id: extractedSessionId || fallbackSessionId,
                       }) + '\n',
                     );
                   }
@@ -487,7 +723,7 @@ export async function POST(request: NextRequest) {
                   JSON.stringify({
                     type: 'assistant',
                     message: { content: [{ type: 'text', text: `${line}\n` }] },
-                    thread_id: extractedSessionId,
+                    thread_id: extractedSessionId || fallbackSessionId,
                   }) + '\n',
                 );
               }
@@ -506,8 +742,8 @@ export async function POST(request: NextRequest) {
           try {
             await persistChatTurn({
               userId: session.user.id,
-              sessionId: extractedSessionId || sessionId,
-              model: agentId,
+              sessionId: extractedSessionId || fallbackSessionId,
+              model: providerBinding.agentId,
               promptText,
               hasAttachments,
               assistantText: finalResultText,
@@ -517,7 +753,12 @@ export async function POST(request: NextRequest) {
           }
 
           if (code !== 0 && !hasSentHeader) {
-            push(JSON.stringify({ type: 'error', message: `${agentId} CLI exited with code ${String(code)}` }) + '\n');
+            push(
+              JSON.stringify({
+                type: 'error',
+                message: `${providerBinding.agentId} CLI exited with code ${String(code)}`,
+              }) + '\n',
+            );
           }
           safeClose();
         });
@@ -533,6 +774,10 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof ChatSessionNotFoundError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 404 });
+    }
+
     console.error('[API] AI chat error:', error);
     return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
   }
