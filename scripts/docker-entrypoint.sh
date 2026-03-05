@@ -34,4 +34,24 @@ else
   echo "[entrypoint] Skipping CLI auto-install (AI_CLI_AUTO_INSTALL=${auto_install})"
 fi
 
+ollama_auto_install="${OLLAMA_CLI_AUTO_INSTALL:-true}"
+if [ "$ollama_auto_install" = "true" ]; then
+  if command -v ollama >/dev/null 2>&1; then
+    echo "[entrypoint] Ollama CLI already available: $(ollama --version 2>/dev/null || echo 'unknown version')."
+  elif ! command -v curl >/dev/null 2>&1; then
+    echo "[entrypoint] WARNING: curl not found, cannot install Ollama CLI automatically."
+  else
+    echo "[entrypoint] Installing Ollama CLI..."
+    tmp_script="$(mktemp)"
+    if curl -fsSL https://ollama.com/install.sh > "$tmp_script" && OLLAMA_NO_START=1 sh "$tmp_script"; then
+      echo "[entrypoint] Ollama CLI install finished."
+    else
+      echo "[entrypoint] WARNING: Ollama CLI install failed. Continuing startup."
+    fi
+    rm -f "$tmp_script"
+  fi
+else
+  echo "[entrypoint] Skipping Ollama CLI auto-install (OLLAMA_CLI_AUTO_INSTALL=${ollama_auto_install})"
+fi
+
 exec "$@"

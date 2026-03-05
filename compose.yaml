@@ -14,6 +14,7 @@ services:
       SQLITE_PATH: /data/sqlite.db
       ALLOW_SIGNUP: "false"
       AI_CLI_AUTO_INSTALL: "true"
+      OLLAMA_CLI_AUTO_INSTALL: "true"
     volumes:
       - ./data:/data
       - canvas_notebook_home:/home/node
