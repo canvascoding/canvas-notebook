@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { ChevronRight, Clapperboard, FileText, ImageIcon, NotebookPen, Sparkles, Workflow } from 'lucide-react';
+import { ChevronRight, Clapperboard, FileText, Globe, ImageIcon, NotebookPen, Sparkles, Workflow } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -33,6 +33,13 @@ const suiteApps: SuiteApp[] = [
     status: 'ready',
     href: '/veo',
     icon: Clapperboard,
+  },
+  {
+    title: 'Nano Banana Localizer',
+    description: 'Bestehende Ads pro Zielmarkt sprachlich lokalisieren.',
+    status: 'ready',
+    href: '/nano-banana-localizer',
+    icon: Globe,
   },
   {
     title: 'Content Studio',

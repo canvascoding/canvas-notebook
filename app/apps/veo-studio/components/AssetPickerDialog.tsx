@@ -33,6 +33,8 @@ interface AssetPickerDialogProps {
   multiple?: boolean;
   maxSelection?: number;
   onConfirm: (paths: string[]) => void;
+  assetApiPath?: string;
+  uploadPath?: string;
 }
 
 export function AssetPickerDialog({
@@ -42,6 +44,8 @@ export function AssetPickerDialog({
   multiple = false,
   maxSelection = 1,
   onConfirm,
+  assetApiPath = '/api/veo/assets',
+  uploadPath = 'veo-studio/assets',
 }: AssetPickerDialogProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [assets, setAssets] = useState<AssetItem[]>([]);
@@ -59,7 +63,7 @@ export function AssetPickerDialog({
     setError(null);
     try {
       const query = search.trim();
-      const url = `/api/veo/assets?kind=${kind}&limit=300${query ? `&q=${encodeURIComponent(query)}` : ''}`;
+      const url = `${assetApiPath}?kind=${kind}&limit=300${query ? `&q=${encodeURIComponent(query)}` : ''}`;
       const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
@@ -116,7 +120,7 @@ export function AssetPickerDialog({
       Array.from(files).forEach((file) => {
         formData.append('files', file, file.name);
       });
-      formData.append('path', 'veo-studio/assets');
+      formData.append('path', uploadPath);
 
       const response = await fetch('/api/files/upload', {
         method: 'POST',
@@ -228,7 +232,7 @@ export function AssetPickerDialog({
           <TabsContent value="upload" className="space-y-3">
             <div className="border border-dashed border-border bg-background p-6">
               <p className="mb-3 text-sm text-muted-foreground">
-                Upload-Ziel: <span className="font-mono">veo-studio/assets</span>
+                Upload-Ziel: <span className="font-mono">{uploadPath}</span>
               </p>
               <Button
                 type="button"
