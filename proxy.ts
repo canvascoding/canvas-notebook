@@ -4,12 +4,38 @@ import { getSessionCookie } from "better-auth/cookies";
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth'];
 
+function setCommonHeaders(response: NextResponse) {
+  response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate');
+  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-XSS-Protection', '1; mode=block');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  response.headers.set(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=()'
+  );
+
+  const cspHeader = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "media-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' ws: wss:",
+    "frame-ancestors 'self'",
+  ].join('; ');
+  response.headers.set('Content-Security-Policy', cspHeader);
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public routes and auth API routes
   if (PUBLIC_ROUTES.some(route => pathname.startsWith(route)) || pathname.includes('/api/auth/')) {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    setCommonHeaders(response);
+    return response;
   }
 
   // Check for session cookie using Better Auth utility
@@ -30,43 +56,22 @@ export async function proxy(request: NextRequest) {
     if (!pathname.startsWith('/api/')) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('from', pathname);
-      return NextResponse.redirect(loginUrl);
+      const response = NextResponse.redirect(loginUrl);
+      setCommonHeaders(response);
+      return response;
     }
 
     // Return 401 for API requests
-    return NextResponse.json(
+    const response = NextResponse.json(
       { success: false, error: 'Unauthorized' },
       { status: 401 }
     );
+    setCommonHeaders(response);
+    return response;
   }
 
-  // Add security headers
   const response = NextResponse.next();
-
-  // Security Headers
-  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
-  response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('X-XSS-Protection', '1; mode=block');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  response.headers.set(
-    'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=()'
-  );
-
-  // CSP Header (Content Security Policy)
-  const cspHeader = [
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
-    "media-src 'self' data: blob:",
-    "font-src 'self' data:",
-    "connect-src 'self' ws: wss:",
-    "frame-ancestors 'self'",
-  ].join('; ');
-
-  response.headers.set('Content-Security-Policy', cspHeader);
-
+  setCommonHeaders(response);
   return response;
 }
 
