@@ -119,7 +119,8 @@
       "id": "suite-011",
       "order": 11,
       "title": "Workspace-Sharing Vertrag für neue Apps spezifizieren",
-      "status": "pending",
+      "status": "done",
+      "priority": "p0",
       "category": "architecture",
       "acceptanceCriteria": [
         "Gemeinsame Pfadregeln dokumentiert",
@@ -130,7 +131,8 @@
       "id": "suite-012",
       "order": 12,
       "title": "App-spezifische API-Endpunkte für Image/Video vorbereiten",
-      "status": "pending",
+      "status": "done",
+      "priority": "p0",
       "category": "backend",
       "acceptanceCriteria": [
         "Route-Struktur für neue Apps festgelegt",
@@ -142,6 +144,7 @@
       "order": 13,
       "title": "E2E Smoke Flow für Suite-Navigation hinzufügen",
       "status": "pending",
+      "priority": "p1",
       "category": "quality",
       "acceptanceCriteria": [
         "Login -> Suite -> Notebook funktioniert",
@@ -153,11 +156,194 @@
       "order": 14,
       "title": "Platzhalter sukzessive durch echte Apps ersetzen",
       "status": "pending",
+      "priority": "p2",
       "category": "rollout",
       "acceptanceCriteria": [
         "Image Generation ersetzt Placeholder",
         "VEO Studio ersetzt Placeholder",
         "Content Studio ersetzt Placeholder"
+      ]
+    },
+    {
+      "id": "suite-015",
+      "order": 15,
+      "title": "Workspace-Pfadkontrakt für VEO Studio und Nano Banana festlegen",
+      "status": "done",
+      "priority": "p0",
+      "category": "architecture",
+      "acceptanceCriteria": [
+        "Keine neue Env-Variable für App-Workspace nötig",
+        "App-Unterordner liegen im bestehenden WORKSPACE_DIR",
+        "Jede App nutzt einen eigenen Ausgabeordner namens video-generation"
+      ]
+    },
+    {
+      "id": "suite-016",
+      "order": 16,
+      "title": "VEO Workspace beim ersten Lauf automatisch initialisieren",
+      "status": "done",
+      "priority": "p0",
+      "category": "backend",
+      "acceptanceCriteria": [
+        "VEO-Unterordner wird bei Bedarf erstellt",
+        "video-generation wird rekursiv erstellt",
+        "Initialisierung ist idempotent"
+      ]
+    },
+    {
+      "id": "suite-017",
+      "order": 17,
+      "title": "Generierte Videos aus VEO dauerhaft im Workspace speichern",
+      "status": "done",
+      "priority": "p0",
+      "category": "backend",
+      "acceptanceCriteria": [
+        "Generierungen landen in .../video-generation statt nur im Browser-Blob",
+        "Dateinamen sind kollisionssicher und nachvollziehbar",
+        "Rückgabe enthält relativen Workspace-Pfad zur Weiterverwendung"
+      ]
+    },
+    {
+      "id": "suite-018",
+      "order": 18,
+      "title": "VEO App-Route und Grundlayout in der Suite aktivieren",
+      "status": "done",
+      "priority": "p0",
+      "category": "routing",
+      "acceptanceCriteria": [
+        "Route für VEO Studio ist vorhanden und erreichbar",
+        "Suite-Karte zeigt Status Live sobald Kernflow steht",
+        "Rücknavigation zur Suite bleibt konsistent"
+      ]
+    },
+    {
+      "id": "suite-019",
+      "order": 19,
+      "title": "Workspace Asset Picker mit Thumbnails für Start- und End-Frame bauen",
+      "status": "done",
+      "priority": "p0",
+      "category": "ui",
+      "acceptanceCriteria": [
+        "Auswahl aus bestehendem Workspace-Filetree möglich",
+        "Thumbnail-Vorschau für Bilddateien im Picker sichtbar",
+        "Unterstützte Formate: png, jpg, jpeg, webp"
+      ]
+    },
+    {
+      "id": "suite-020",
+      "order": 20,
+      "title": "Workspace-basierte Referenzauswahl für Reference-Mode und Extend-Mode ergänzen",
+      "status": "done",
+      "priority": "p0",
+      "category": "ui",
+      "acceptanceCriteria": [
+        "Referenzbilder können aus Workspace ausgewählt werden",
+        "Input-Video für Extend kann aus Workspace gewählt werden",
+        "Unterstützte Videoformate: mp4, mov"
+      ]
+    },
+    {
+      "id": "suite-021",
+      "order": 21,
+      "title": "Asset Picker Phase 2: Upload direkt aus VEO UI integrieren",
+      "status": "done",
+      "priority": "p1",
+      "category": "ui",
+      "acceptanceCriteria": [
+        "Neben Workspace-Auswahl kann ein neues Asset hochgeladen werden",
+        "Upload landet im passenden VEO-Unterordner im Workspace",
+        "Neu hochgeladene Datei ist sofort auswählbar"
+      ]
+    },
+    {
+      "id": "suite-022",
+      "order": 22,
+      "title": "Backend-Pipeline für lokale Datei-Referenzen nach Gemini Payload implementieren",
+      "status": "done",
+      "priority": "p1",
+      "category": "backend",
+      "acceptanceCriteria": [
+        "UI sendet relative Workspace-Pfade statt nur lokale Browser-Dateien",
+        "Server liest Dateien lokal, validiert MIME-Typen und kodiert für API-Requests",
+        "Path-Validation verhindert Directory Traversal"
+      ]
+    },
+    {
+      "id": "suite-023",
+      "order": 23,
+      "title": "Lokalen Asset-Referenzkontext für KI-Agent Workflows bereitstellen",
+      "status": "done",
+      "priority": "p1",
+      "category": "architecture",
+      "acceptanceCriteria": [
+        "Generierungsjobs enthalten lokale Eingabe- und Ausgabe-Pfade",
+        "Agent kann ohne Remote-Speicher auf referenzierte Assets zugreifen",
+        "Ergebnis-Metadaten werden im Workspace nachvollziehbar abgelegt"
+      ]
+    },
+    {
+      "id": "suite-024",
+      "order": 24,
+      "title": "Settings-Seite auf der Suite-Startseite für Integrations-Keys ergänzen",
+      "status": "done",
+      "priority": "p0",
+      "category": "ui",
+      "acceptanceCriteria": [
+        "Von / ist eine Settings-Seite erreichbar",
+        "UI bietet Key-Value Eingabe für Integrations-Variablen",
+        "Technischer Raw-Editor für direkte Env-Datei-Bearbeitung ist vorhanden"
+      ]
+    },
+    {
+      "id": "suite-025",
+      "order": 25,
+      "title": "Env-Konfiguration für Integrations-Keys unter /home/node speichern",
+      "status": "done",
+      "priority": "p0",
+      "category": "security",
+      "acceptanceCriteria": [
+        "Konfigurationsdatei wird unter /home/node abgelegt",
+        "Dateirechte sind restriktiv gesetzt (0600)",
+        "Speichern erfolgt atomar und überschreibt keine fremden Keys unkontrolliert"
+      ]
+    },
+    {
+      "id": "suite-026",
+      "order": 26,
+      "title": "Key-Strategie für VEO 3 und Nano Banana vereinheitlichen",
+      "status": "done",
+      "priority": "p1",
+      "category": "architecture",
+      "acceptanceCriteria": [
+        "Gemeinsame Google-Key-Quelle für beide Features dokumentiert",
+        "Kompatibilitätsmapping für API_KEY und GEMINI_API_KEY definiert",
+        "UI erklärt eindeutig welche Variable für welche Funktion genutzt wird"
+      ]
+    },
+    {
+      "id": "suite-027",
+      "order": 27,
+      "title": "Optionale Verschlüsselung gespeicherter Integrations-Keys implementieren",
+      "status": "done",
+      "priority": "p1",
+      "category": "security",
+      "acceptanceCriteria": [
+        "Wenn Master-Key vorhanden ist, werden Werte at-rest verschlüsselt gespeichert",
+        "Applikation kann Werte zur Laufzeit transparent entschlüsseln",
+        "Fallback ohne Master-Key bleibt funktionsfähig und klar gekennzeichnet"
+      ]
+    },
+    {
+      "id": "suite-028",
+      "order": 28,
+      "title": "Tests für VEO Workspace-Flow, Asset Picker und Settings ergänzen",
+      "status": "pending",
+      "priority": "p2",
+      "category": "quality",
+      "acceptanceCriteria": [
+        "E2E deckt Auswahl aus Workspace mit Thumbnail ab",
+        "E2E deckt Persistenz nach .../video-generation ab",
+        "Integrationstests decken Read/Write der /home/node Env-Konfiguration ab"
       ]
     }
   ]
