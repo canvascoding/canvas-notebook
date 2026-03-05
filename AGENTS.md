@@ -22,6 +22,7 @@
 - Sicherstellen, dass nie mehrere Test-Container parallel laufen.
 - Test-Container bei neuem Testlauf immer mit aktuellem Stand neu laden (recreate/rebuild), statt alte Container weiterzuverwenden.
 - commmit sauber die einzelnen fertigen to dos, aber nicht pushen. 
+- login für die app ist email: info@canvasstudios.store und psw: Canvas2026!
 
 ## Build, Test, and Development Commands
 - `npm run dev`: local dev server (set `PORT=3001` if needed).
