@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
-import { eq, asc, and } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
+import { isAgentId } from '@/app/lib/agents/catalog';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -12,20 +13,23 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get('sessionId');
-  const model = searchParams.get('model') || 'claude';
+  const legacyModel = searchParams.get('model');
 
   if (!sessionId) {
     return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
   }
 
   try {
+    const filters = [eq(aiSessions.sessionId, sessionId)];
+    if (legacyModel && isAgentId(legacyModel)) {
+      filters.push(eq(aiSessions.model, legacyModel));
+    }
+
     const dbSessions = await db
       .select()
       .from(aiSessions)
-      .where(and(
-          eq(aiSessions.sessionId, sessionId),
-          eq(aiSessions.model, model)
-      ))
+      .where(filters.length === 1 ? filters[0] : and(...filters))
+      .orderBy(desc(aiSessions.createdAt))
       .limit(1);
 
     if (dbSessions.length === 0) {
