@@ -6,10 +6,17 @@ import { nextCookies } from "better-auth/next-js";
 const authBaseURL =
   process.env.BETTER_AUTH_BASE_URL ||
   process.env.BASE_URL;
+const authSecret =
+  process.env.BETTER_AUTH_SECRET ||
+  process.env.AUTH_SECRET ||
+  "canvas-notebook-local-dev-secret-change-me";
 const allowSignUp = process.env.ALLOW_SIGNUP === "true";
+const forceSecureCookies = process.env.AUTH_COOKIE_SECURE === "true";
+const useSecureCookies =
+  forceSecureCookies || Boolean(authBaseURL && authBaseURL.startsWith("https://"));
 
 export const auth = betterAuth({
-  secret: process.env.BETTER_AUTH_SECRET,
+  secret: authSecret,
   baseURL: authBaseURL,
   database: drizzleAdapter(db, {
     provider: "sqlite",
@@ -38,7 +45,7 @@ export const auth = betterAuth({
   },
   advanced: {
     defaultCookieAttributes: {
-      secure: process.env.NODE_ENV === "production",
+      secure: useSecureCookies,
       sameSite: "lax",
     }
   },

@@ -152,8 +152,9 @@ export function FileBrowser() {
 
   return (
     <section
+      style={{ width: '100%', minWidth: 0, flex: '1 1 0%' }}
       className={cn(
-        'relative flex h-full flex-col border-r border-border bg-sidebar/50 overflow-y-auto',
+        'relative flex h-full w-full min-w-0 flex-1 flex-col border-r border-border bg-sidebar/50 overflow-y-auto',
         isDragging && 'bg-accent/50'
       )}
       onDragEnter={handleDragEnter}
@@ -167,10 +168,10 @@ export function FileBrowser() {
         </div>
       )}
       <div className="sticky top-0 z-20 border-b border-border bg-background/95">
-        <div className="flex items-center justify-between px-3 py-2">
-          <h2 className="text-sm font-semibold text-foreground">Files</h2>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
+          <h2 className="shrink-0 text-sm font-semibold text-foreground">Files</h2>
           <TooltipProvider delayDuration={300}>
-            <div className="flex flex-wrap items-center justify-end gap-1">
+            <div className="flex min-w-[180px] flex-1 flex-wrap content-start items-center justify-start gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

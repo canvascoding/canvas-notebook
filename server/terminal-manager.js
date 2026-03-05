@@ -6,7 +6,7 @@ const path = require('path');
 
 const sessions = new Map();
 const DEFAULT_IDLE_TIMEOUT = Number(process.env.TERMINAL_IDLE_TIMEOUT || 30 * 60 * 1000);
-const MAX_TERMINALS = Number(process.env.MAX_TERMINALS_PER_USER || 3);
+const MAX_TERMINALS = Number(process.env.MAX_TERMINALS_PER_USER || 4);
 
 const LOCAL_CWD = process.env.WORKSPACE_DIR
   ? path.resolve(process.env.WORKSPACE_DIR)
@@ -153,19 +153,36 @@ function handleMessage(session, ws, message) {
   } catch {}
 }
 
+function terminateSession(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return { closed: false };
+
+  if (session.idleTimer) {
+    clearTimeout(session.idleTimer);
+    session.idleTimer = null;
+  }
+
+  if (session.stream) {
+    try { session.stream.kill(); } catch {}
+  }
+
+  session.clients.forEach(c => {
+    try { c.close(1000, 'Session terminated'); } catch {}
+  });
+
+  sessions.delete(sessionId);
+  return { closed: true };
+}
+
 function terminateAllSessions() {
   let closed = 0;
-  for (const [id, session] of sessions) {
-    if (session.stream) {
-      try { session.stream.kill(); } catch {}
+  for (const id of Array.from(sessions.keys())) {
+    const result = terminateSession(id);
+    if (result.closed) {
+      closed++;
     }
-    session.clients.forEach(c => {
-      try { c.close(); } catch {}
-    });
-    sessions.delete(id);
-    closed++;
   }
   return { closed };
 }
 
-module.exports = { createSession, attachClient, handleMessage, terminateAllSessions };
+module.exports = { createSession, attachClient, handleMessage, terminateSession, terminateAllSessions };

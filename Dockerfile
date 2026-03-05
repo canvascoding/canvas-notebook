@@ -60,6 +60,15 @@ COPY --from=builder /app/scripts ./scripts
 
 RUN mkdir -p /data/workspace
 RUN chmod +x ./scripts/docker-entrypoint.sh
+RUN printf '%s\n' \
+  'NPM_GLOBAL_BIN="/home/node/.npm-global/bin"' \
+  'case ":$PATH:" in' \
+  '  *":$NPM_GLOBAL_BIN:"*) ;;' \
+  '  *) PATH="$NPM_GLOBAL_BIN:$PATH" ;;' \
+  'esac' \
+  'export PATH' \
+  > /etc/profile.d/npm-global-path.sh \
+  && chmod 0644 /etc/profile.d/npm-global-path.sh
 RUN mkdir -p /home/${APP_USER}/.npm-global \
   && chown -R ${APP_USER}:${APP_USER} /app /data /home/${APP_USER}
 
