@@ -38,6 +38,22 @@ function normalizeOpenRouterModel(model: string): string {
   return normalized;
 }
 
+function resolveOllamaApiBase(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, '');
+  return trimmed.replace(/\/v1$/i, '');
+}
+
+function normalizeOllamaModel(model: string): string {
+  const normalized = model.trim();
+  if (!normalized) {
+    return 'llama3.2:3b';
+  }
+  if (normalized.startsWith('ollama/')) {
+    return normalized.slice('ollama/'.length);
+  }
+  return normalized;
+}
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -64,15 +80,17 @@ function buildDefaultConfig() {
         enabled: true,
         command: process.env.CLAUDE_CLI_COMMAND?.trim() || 'claude',
       },
-      'gemini-cli': {
-        enabled: true,
-        command: process.env.GEMINI_CLI_COMMAND?.trim() || 'gemini',
-      },
       openrouter: {
         enabled: true,
         baseUrl: process.env.OPENROUTER_BASE_URL?.trim() || 'https://openrouter.ai/api/v1',
         model: normalizeOpenRouterModel(process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.5'),
         apiKeySource: 'integrations-env',
+      },
+      ollama: {
+        enabled: true,
+        baseUrl: resolveOllamaApiBase(process.env.OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434'),
+        model: normalizeOllamaModel(process.env.OLLAMA_MODEL || 'llama3.2:3b'),
+        apiKeySource: 'none',
       },
     },
     doctor: {
