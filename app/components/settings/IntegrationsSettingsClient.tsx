@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -57,6 +59,9 @@ function toDraftEntries(entries: EnvEntry[]): DraftEntry[] {
 }
 
 export function IntegrationsSettingsClient() {
+  const searchParams = useSearchParams();
+
+  const [settingsTab, setSettingsTab] = useState<'integrations' | 'agent-settings'>('integrations');
   const [state, setState] = useState<EnvState | null>(null);
   const [draftEntries, setDraftEntries] = useState<DraftEntry[]>(toDefaultDraftEntries);
   const [rawContent, setRawContent] = useState('');
@@ -90,6 +95,12 @@ export function IntegrationsSettingsClient() {
   useEffect(() => {
     void loadState();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'agent-settings') {
+      setSettingsTab('agent-settings');
+    }
+  }, [searchParams]);
 
   const saveKeyValue = async () => {
     setIsSaving(true);
@@ -171,108 +182,125 @@ export function IntegrationsSettingsClient() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Integrations Settings</CardTitle>
-          <CardDescription>
-            API-Keys und Env-Variablen für VEO 3, Nano Banana und Image Generation. Datei liegt unter{' '}
-            <span className="font-mono">{state?.path || '/home/node/canvas-integrations.env'}</span>.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isLoading ? (
-            <div className="flex items-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Lade Konfiguration...
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>Format: .env</span>
-                <span>•</span>
-                <span>Berechtigung: 0600</span>
-                <span>•</span>
-                <span>{state?.encryptionEnabled ? 'Verschlüsselung aktiv' : 'Verschlüsselung inaktiv'}</span>
-              </div>
+    <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
+      <Tabs
+        value={settingsTab}
+        onValueChange={(value) => setSettingsTab(value as 'integrations' | 'agent-settings')}
+        className="space-y-4"
+      >
+        <TabsList>
+          <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          <TabsTrigger value="agent-settings">Agent Settings</TabsTrigger>
+        </TabsList>
 
-              {error && <p className="text-sm text-destructive">{error}</p>}
-              {success && <p className="text-sm text-primary">{success}</p>}
+        <TabsContent value="integrations" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Integrations Settings</CardTitle>
+              <CardDescription>
+                API-Keys und Env-Variablen für VEO 3, Nano Banana und Image Generation. Datei liegt unter{' '}
+                <span className="font-mono">{state?.path || '/home/node/canvas-integrations.env'}</span>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Lade Konfiguration...
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>Format: .env</span>
+                    <span>•</span>
+                    <span>Berechtigung: 0600</span>
+                    <span>•</span>
+                    <span>{state?.encryptionEnabled ? 'Verschlüsselung aktiv' : 'Verschlüsselung inaktiv'}</span>
+                  </div>
 
-              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'kv' | 'raw')}>
-                <TabsList>
-                  <TabsTrigger value="kv">Key / Value</TabsTrigger>
-                  <TabsTrigger value="raw">Raw .env</TabsTrigger>
-                </TabsList>
+                  {error && <p className="text-sm text-destructive">{error}</p>}
+                  {success && <p className="text-sm text-primary">{success}</p>}
 
-                <TabsContent value="kv" className="space-y-2">
-                  <div className="space-y-2">
-                    {draftEntries.map((entry, index) => (
-                      <div key={entry.id} className="flex items-center gap-2">
-                        <Input
-                          placeholder="KEY_NAME"
-                          value={entry.key}
-                          onChange={(event) => updateDraftEntry(index, { key: event.target.value })}
-                          disabled={isSaving}
-                        />
-                        <Input
-                          placeholder={entry.encrypted ? 'Encrypted value' : 'value'}
-                          value={entry.value}
-                          onChange={(event) => updateDraftEntry(index, { value: event.target.value })}
-                          disabled={isSaving}
-                        />
+                  <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'kv' | 'raw')}>
+                    <TabsList>
+                      <TabsTrigger value="kv">Key / Value</TabsTrigger>
+                      <TabsTrigger value="raw">Raw .env</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="kv" className="space-y-2">
+                      <div className="space-y-2">
+                        {draftEntries.map((entry, index) => (
+                          <div key={entry.id} className="flex items-center gap-2">
+                            <Input
+                              placeholder="KEY_NAME"
+                              value={entry.key}
+                              onChange={(event) => updateDraftEntry(index, { key: event.target.value })}
+                              disabled={isSaving}
+                            />
+                            <Input
+                              placeholder={entry.encrypted ? 'Encrypted value' : 'value'}
+                              value={entry.value}
+                              onChange={(event) => updateDraftEntry(index, { value: event.target.value })}
+                              disabled={isSaving}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label="Delete row"
+                              onClick={() => removeDraftEntry(index)}
+                              disabled={isSaving}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
+                          type="button"
                           variant="outline"
-                          size="icon-sm"
-                          aria-label="Delete row"
-                          onClick={() => removeDraftEntry(index)}
+                          onClick={() => setDraftEntries((current) => [...current, createDraftEntry()])}
                           disabled={isSaving}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Plus className="mr-1 h-4 w-4" />
+                          Zeile hinzufügen
+                        </Button>
+                        <Button type="button" onClick={() => void saveKeyValue()} disabled={isSaving || isLoading}>
+                          {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Speichern
                         </Button>
                       </div>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setDraftEntries((current) => [...current, createDraftEntry()])}
-                      disabled={isSaving}
-                    >
-                      <Plus className="mr-1 h-4 w-4" />
-                      Zeile hinzufügen
-                    </Button>
-                    <Button type="button" onClick={() => void saveKeyValue()} disabled={isSaving || isLoading}>
-                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Speichern
-                    </Button>
-                  </div>
-                </TabsContent>
+                    </TabsContent>
 
-                <TabsContent value="raw" className="space-y-2">
-                  <textarea
-                    className="min-h-[360px] w-full border border-input bg-background p-3 font-mono text-sm"
-                    value={rawContent}
-                    onChange={(event) => setRawContent(event.target.value)}
-                    spellCheck={false}
-                    disabled={isSaving}
-                  />
-                  <div className="flex gap-2">
-                    <Button type="button" onClick={() => void saveRaw()} disabled={isSaving || isLoading}>
-                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Raw speichern
-                    </Button>
-                    <Button type="button" variant="outline" onClick={() => void loadState()} disabled={isSaving}>
-                      Neu laden
-                    </Button>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </>
-          )}
-        </CardContent>
-      </Card>
+                    <TabsContent value="raw" className="space-y-2">
+                      <textarea
+                        className="min-h-[360px] w-full border border-input bg-background p-3 font-mono text-sm"
+                        value={rawContent}
+                        onChange={(event) => setRawContent(event.target.value)}
+                        spellCheck={false}
+                        disabled={isSaving}
+                      />
+                      <div className="flex gap-2">
+                        <Button type="button" onClick={() => void saveRaw()} disabled={isSaving || isLoading}>
+                          {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Raw speichern
+                        </Button>
+                        <Button type="button" variant="outline" onClick={() => void loadState()} disabled={isSaving}>
+                          Neu laden
+                        </Button>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="agent-settings" className="space-y-4">
+          <AgentSettingsPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
