@@ -18,8 +18,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Canvas Notebook",
-  description: "Canvas Notebook",
+  title: "Canvas Studios Suite",
+  description: "Canvas Studios Software Suite",
   robots: {
     index: false,
     follow: false,

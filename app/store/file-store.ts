@@ -293,7 +293,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   selectNode: (node: FileNode, ctrlOrMeta = false) => {
-    const { isMultiSelectMode, toggleMultiSelectMode, toggleMultiSelectPath, multiSelectPaths } = get();
+    const { isMultiSelectMode } = get();
 
     if (ctrlOrMeta) {
       // If Ctrl/Meta is pressed, toggle multi-select mode and add/remove current node
