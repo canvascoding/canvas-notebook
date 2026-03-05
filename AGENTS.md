@@ -21,6 +21,7 @@
 - Für manuelle Tests immer einen Container auf Port `3000` verwenden.
 - Sicherstellen, dass nie mehrere Test-Container parallel laufen.
 - Test-Container bei neuem Testlauf immer mit aktuellem Stand neu laden (recreate/rebuild), statt alte Container weiterzuverwenden.
+- commmit sauber die einzelnen fertigen to dos, aber nicht pushen. 
 
 ## Build, Test, and Development Commands
 - `npm run dev`: local dev server (set `PORT=3001` if needed).
