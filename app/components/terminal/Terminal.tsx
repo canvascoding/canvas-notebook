@@ -41,7 +41,12 @@ const XTerminal = dynamic(() => import('./XTerminal').then(mod => ({ default: mo
   ),
 });
 
-export function TerminalPanel() {
+interface TerminalPanelProps {
+  standalone?: boolean;
+  className?: string;
+}
+
+export function TerminalPanel({ standalone = false, className }: TerminalPanelProps = {}) {
   const {
     sessions,
     activeSessionId,
@@ -161,7 +166,13 @@ export function TerminalPanel() {
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col border-t border-border bg-background">
+    <section
+      className={cn(
+        'flex h-full min-h-0 flex-col bg-background',
+        standalone ? 'border-0' : 'border-t border-border',
+        className
+      )}
+    >
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 min-h-[44px]">
         <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground font-bold uppercase tracking-widest shrink-0">
           Terminal
@@ -169,29 +180,31 @@ export function TerminalPanel() {
         <TooltipProvider delayDuration={300}>
           <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 max-w-full">
             <div className="flex items-center gap-1 min-w-max">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => {
-                      window.dispatchEvent(
-                        new CustomEvent('terminal-resize', { detail: { action: 'fullscreen' } })
-                      );
-                    }}
-                    aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen terminal'}
-                  >
-                    {isFullscreen ? (
-                      <Minimize2 className="h-4 w-4" />
-                    ) : (
-                      <Maximize2 className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isFullscreen ? 'Exit fullscreen' : 'Fullscreen terminal'}
-                </TooltipContent>
-              </Tooltip>
+              {!standalone && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => {
+                        window.dispatchEvent(
+                          new CustomEvent('terminal-resize', { detail: { action: 'fullscreen' } })
+                        );
+                      }}
+                      aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen terminal'}
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="h-4 w-4" />
+                      ) : (
+                        <Maximize2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isFullscreen ? 'Exit fullscreen' : 'Fullscreen terminal'}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
