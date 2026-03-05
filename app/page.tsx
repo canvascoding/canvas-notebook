@@ -31,6 +31,9 @@ export default async function Home() {
             <ThemeToggle />
             {session ? (
               <>
+                <Button asChild size="sm" variant="outline" className="px-3">
+                  <Link href="/settings">Settings</Link>
+                </Button>
                 <div className="hidden md:flex flex-col items-end">
                   <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">User</span>
                   <span className="text-xs">{username}</span>

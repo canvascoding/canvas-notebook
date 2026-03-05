@@ -30,7 +30,8 @@ const suiteApps: SuiteApp[] = [
   {
     title: 'VEO Studio',
     description: 'Video-Generierung mit Workspace-basierter Ausgabe.',
-    status: 'planned',
+    status: 'ready',
+    href: '/veo',
     icon: Clapperboard,
   },
   {
