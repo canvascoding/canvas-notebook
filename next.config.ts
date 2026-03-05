@@ -31,6 +31,8 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '10mb', // Für File Uploads
     },
+    // Required when proxy/middleware is enabled; otherwise multipart uploads are truncated at 10MB.
+    proxyClientMaxBodySize: '256mb',
   },
 };
 
