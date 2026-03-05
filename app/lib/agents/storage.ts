@@ -15,6 +15,8 @@ export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'T
 const DEFAULT_MAIN_AGENT = 'canvas-main-agent';
 const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4.5';
+const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+const DEFAULT_OLLAMA_MODEL = 'llama3.2:3b';
 const DEFAULT_DOCTOR_TIMEOUT_MS = 2500;
 const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
   'AGENTS.md': `# AGENTS
@@ -39,9 +41,10 @@ const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
 type RecordLike = Record<string, unknown>;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
-export type AgentProviderId = 'codex-cli' | 'claude-cli' | 'gemini-cli' | 'openrouter';
-export type AgentProviderKind = 'cli' | 'openrouter';
+export type AgentProviderId = 'codex-cli' | 'claude-cli' | 'openrouter' | 'ollama';
+export type AgentProviderKind = 'cli' | 'openrouter' | 'ollama';
 export type OpenRouterApiKeySource = 'integrations-env' | 'process-env';
+export type OllamaApiKeySource = 'none' | 'integrations-env' | 'process-env';
 
 export type CliProviderConfig = {
   enabled: boolean;
@@ -55,6 +58,13 @@ export type OpenRouterProviderConfig = {
   apiKeySource: OpenRouterApiKeySource;
 };
 
+export type OllamaProviderConfig = {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  apiKeySource: OllamaApiKeySource;
+};
+
 export type AgentRuntimeConfig = {
   version: 1;
   mainAgent: string;
@@ -65,8 +75,8 @@ export type AgentRuntimeConfig = {
   providers: {
     'codex-cli': CliProviderConfig;
     'claude-cli': CliProviderConfig;
-    'gemini-cli': CliProviderConfig;
     openrouter: OpenRouterProviderConfig;
+    ollama: OllamaProviderConfig;
   };
   doctor: {
     enableLivePing: boolean;
@@ -80,6 +90,14 @@ export type OpenRouterApiKeyResolution = {
   apiKey: string | null;
   isSet: boolean;
   source: OpenRouterApiKeySource | null;
+  last4: string | null;
+  warnings: string[];
+};
+
+export type OllamaApiKeyResolution = {
+  apiKey: string | null;
+  isSet: boolean;
+  source: OllamaApiKeySource | null;
   last4: string | null;
   warnings: string[];
 };
@@ -98,6 +116,7 @@ export type ProviderReadiness = {
   model?: string;
   modelPlausible?: boolean;
   openRouterKeySet?: boolean;
+  ollamaKeySet?: boolean;
 };
 
 export type AgentConfigReadiness = {
@@ -124,23 +143,24 @@ const providerAliases: Record<string, AgentProviderId> = {
   'codex-cli': 'codex-cli',
   claude: 'claude-cli',
   'claude-cli': 'claude-cli',
-  gemini: 'gemini-cli',
-  'gemini-cli': 'gemini-cli',
+  gemini: 'codex-cli',
+  'gemini-cli': 'codex-cli',
   openrouter: 'openrouter',
+  ollama: 'ollama',
 };
 
 const providerIdToAgentIdMap: Record<AgentProviderId, AgentId> = {
   'codex-cli': 'codex',
   'claude-cli': 'claude',
-  'gemini-cli': 'gemini',
   openrouter: 'openrouter',
+  ollama: 'ollama',
 };
 
 const agentIdToProviderIdMap: Record<AgentId, AgentProviderId> = {
   codex: 'codex-cli',
   claude: 'claude-cli',
-  gemini: 'gemini-cli',
   openrouter: 'openrouter',
+  ollama: 'ollama',
 };
 
 function isRecord(value: unknown): value is RecordLike {
@@ -172,8 +192,30 @@ function normalizeOpenRouterModel(model: string): string {
   return normalized;
 }
 
+export function resolveOllamaApiBase(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, '');
+  return trimmed.replace(/\/v1$/i, '');
+}
+
+function normalizeOllamaModel(model: string): string {
+  const normalized = model.trim();
+  if (!normalized) {
+    return DEFAULT_OLLAMA_MODEL;
+  }
+  if (normalized.startsWith('ollama/')) {
+    return normalized.slice('ollama/'.length);
+  }
+  return normalized;
+}
+
 function providerKindForId(id: AgentProviderId): AgentProviderKind {
-  return id === 'openrouter' ? 'openrouter' : 'cli';
+  if (id === 'openrouter') {
+    return 'openrouter';
+  }
+  if (id === 'ollama') {
+    return 'ollama';
+  }
+  return 'cli';
 }
 
 function parseProviderId(value: unknown): AgentProviderId | null {
@@ -189,6 +231,13 @@ function normalizeOpenRouterApiKeySource(
   fallback: OpenRouterApiKeySource
 ): OpenRouterApiKeySource {
   if (value === 'integrations-env' || value === 'process-env') {
+    return value;
+  }
+  return fallback;
+}
+
+function normalizeOllamaApiKeySource(value: unknown, fallback: OllamaApiKeySource): OllamaApiKeySource {
+  if (value === 'none' || value === 'integrations-env' || value === 'process-env') {
     return value;
   }
   return fallback;
@@ -280,6 +329,43 @@ function normalizeOpenRouterProviderConfig(
   };
 }
 
+function normalizeOllamaProviderConfig(
+  value: unknown,
+  fallback: OllamaProviderConfig
+): OllamaProviderConfig {
+  if (value !== undefined && !isRecord(value)) {
+    throw new AgentConfigValidationError('providers.ollama must be an object.');
+  }
+
+  const candidate = isRecord(value) ? value : {};
+
+  const enabled =
+    candidate.enabled === undefined
+      ? fallback.enabled
+      : typeof candidate.enabled === 'boolean'
+        ? candidate.enabled
+        : (() => {
+            throw new AgentConfigValidationError('providers.ollama.enabled must be a boolean.');
+          })();
+
+  const baseUrl = normalizeNonEmptyString(candidate.baseUrl) ?? fallback.baseUrl;
+  assertValidUrl(baseUrl, 'providers.ollama.baseUrl');
+
+  const model = normalizeOllamaModel(normalizeNonEmptyString(candidate.model) ?? fallback.model);
+  if (!model) {
+    throw new AgentConfigValidationError('providers.ollama.model must not be empty.');
+  }
+
+  const apiKeySource = normalizeOllamaApiKeySource(candidate.apiKeySource, fallback.apiKeySource);
+
+  return {
+    enabled,
+    baseUrl: resolveOllamaApiBase(baseUrl),
+    model,
+    apiKeySource,
+  };
+}
+
 function normalizeDoctorConfig(
   value: unknown,
   fallback: AgentRuntimeConfig['doctor']
@@ -358,13 +444,8 @@ function normalizeRuntimeConfigInput(
       'claude',
       'claude-cli'
     ),
-    'gemini-cli': normalizeCliProviderConfig(
-      providersInput['gemini-cli'],
-      current.providers['gemini-cli'],
-      'gemini',
-      'gemini-cli'
-    ),
     openrouter: normalizeOpenRouterProviderConfig(providersInput.openrouter, current.providers.openrouter),
+    ollama: normalizeOllamaProviderConfig(providersInput.ollama, current.providers.ollama),
   };
 
   const providerInput = isRecord(candidate.provider) ? candidate.provider : {};
@@ -471,9 +552,9 @@ function checkCommandAvailability(command: string): boolean {
   return result.status === 0;
 }
 
-async function readOpenRouterKeyFromIntegrations(): Promise<string | null> {
+async function readProviderKeyFromIntegrations(keyName: string): Promise<string | null> {
   const state = await readIntegrationsEnvState();
-  const keyEntry = state.entries.find((entry) => entry.key === 'OPENROUTER_API_KEY');
+  const keyEntry = state.entries.find((entry) => entry.key === keyName);
   const value = keyEntry?.value?.trim() || '';
   return value || null;
 }
@@ -502,15 +583,17 @@ export function createDefaultAgentRuntimeConfig(updatedBy: string = 'system:boot
         enabled: true,
         command: process.env.CLAUDE_CLI_COMMAND?.trim() || 'claude',
       },
-      'gemini-cli': {
-        enabled: true,
-        command: process.env.GEMINI_CLI_COMMAND?.trim() || 'gemini',
-      },
       openrouter: {
         enabled: true,
         baseUrl: process.env.OPENROUTER_BASE_URL?.trim() || DEFAULT_OPENROUTER_BASE_URL,
         model: normalizeOpenRouterModel(process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL),
         apiKeySource: 'integrations-env',
+      },
+      ollama: {
+        enabled: true,
+        baseUrl: resolveOllamaApiBase(process.env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_BASE_URL),
+        model: normalizeOllamaModel(process.env.OLLAMA_MODEL || DEFAULT_OLLAMA_MODEL),
+        apiKeySource: 'none',
       },
     },
     doctor: {
@@ -537,6 +620,11 @@ export function isManagedAgentFileName(fileName: unknown): fileName is AgentMana
 export function isPlausibleOpenRouterModel(model: string): boolean {
   const normalized = model.trim();
   return /^[^/\s]+\/[^/\s]+$/.test(normalized);
+}
+
+export function isPlausibleOllamaModel(model: string): boolean {
+  const normalized = model.trim();
+  return normalized.length > 0 && !/\s/.test(normalized);
 }
 
 export async function ensureAgentRuntimeConfigExists(updatedBy: string = 'system:bootstrap'): Promise<void> {
@@ -616,6 +704,9 @@ export function sanitizeAgentRuntimeConfig(config: AgentRuntimeConfig): AgentRun
       openrouter: {
         ...config.providers.openrouter,
       },
+      ollama: {
+        ...config.providers.ollama,
+      },
     },
   };
 }
@@ -628,7 +719,7 @@ export async function resolveOpenRouterApiKey(config: AgentRuntimeConfig): Promi
   for (const source of orderedSources) {
     if (source === 'integrations-env') {
       try {
-        const fromIntegration = await readOpenRouterKeyFromIntegrations();
+        const fromIntegration = await readProviderKeyFromIntegrations('OPENROUTER_API_KEY');
         if (fromIntegration) {
           return {
             apiKey: fromIntegration,
@@ -667,13 +758,78 @@ export async function resolveOpenRouterApiKey(config: AgentRuntimeConfig): Promi
   };
 }
 
+export async function resolveOllamaApiKey(config: AgentRuntimeConfig): Promise<OllamaApiKeyResolution> {
+  const warnings: string[] = [];
+  const hinted = config.providers.ollama.apiKeySource;
+
+  if (hinted === 'none') {
+    return {
+      apiKey: null,
+      isSet: false,
+      source: 'none',
+      last4: null,
+      warnings,
+    };
+  }
+
+  const orderedSources = Array.from(new Set<OllamaApiKeySource>([hinted, 'integrations-env', 'process-env']));
+
+  for (const source of orderedSources) {
+    if (source === 'none') {
+      continue;
+    }
+
+    if (source === 'integrations-env') {
+      try {
+        const fromIntegration = await readProviderKeyFromIntegrations('OLLAMA_API_KEY');
+        if (fromIntegration) {
+          return {
+            apiKey: fromIntegration,
+            isSet: true,
+            source,
+            last4: maskSecretLast4(fromIntegration),
+            warnings,
+          };
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to read integrations environment file.';
+        warnings.push(message);
+      }
+      continue;
+    }
+
+    const fromProcessEnv = process.env.OLLAMA_API_KEY?.trim() || '';
+    if (fromProcessEnv) {
+      return {
+        apiKey: fromProcessEnv,
+        isSet: true,
+        source,
+        last4: maskSecretLast4(fromProcessEnv),
+        warnings,
+      };
+    }
+  }
+
+  return {
+    apiKey: null,
+    isSet: false,
+    source: null,
+    last4: null,
+    warnings,
+  };
+}
+
 export async function buildAgentConfigReadiness(config: AgentRuntimeConfig): Promise<AgentConfigReadiness> {
   const openRouterKey = await resolveOpenRouterApiKey(config);
+  const ollamaKey = await resolveOllamaApiKey(config);
 
   const codexAvailable = checkCommandAvailability(config.providers['codex-cli'].command);
   const claudeAvailable = checkCommandAvailability(config.providers['claude-cli'].command);
-  const geminiAvailable = checkCommandAvailability(config.providers['gemini-cli'].command);
   const openRouterModelPlausible = isPlausibleOpenRouterModel(config.providers.openrouter.model);
+  const ollamaModelPlausible = isPlausibleOllamaModel(config.providers.ollama.model);
+  const ollamaKeyRequired = config.providers.ollama.apiKeySource !== 'none';
+  const ollamaKeyReady = !ollamaKeyRequired || ollamaKey.isSet;
 
   const providers: Record<AgentProviderId, ProviderReadiness> = {
     'codex-cli': {
@@ -694,15 +850,6 @@ export async function buildAgentConfigReadiness(config: AgentRuntimeConfig): Pro
       command: config.providers['claude-cli'].command,
       commandExists: claudeAvailable,
     },
-    'gemini-cli': {
-      id: 'gemini-cli',
-      kind: 'cli',
-      enabled: config.providers['gemini-cli'].enabled,
-      available: config.providers['gemini-cli'].enabled && geminiAvailable,
-      issues: [],
-      command: config.providers['gemini-cli'].command,
-      commandExists: geminiAvailable,
-    },
     openrouter: {
       id: 'openrouter',
       kind: 'openrouter',
@@ -714,6 +861,17 @@ export async function buildAgentConfigReadiness(config: AgentRuntimeConfig): Pro
       modelPlausible: openRouterModelPlausible,
       openRouterKeySet: openRouterKey.isSet,
     },
+    ollama: {
+      id: 'ollama',
+      kind: 'ollama',
+      enabled: config.providers.ollama.enabled,
+      available: config.providers.ollama.enabled && ollamaModelPlausible && ollamaKeyReady,
+      issues: [],
+      baseUrl: config.providers.ollama.baseUrl,
+      model: config.providers.ollama.model,
+      modelPlausible: ollamaModelPlausible,
+      ollamaKeySet: ollamaKey.isSet,
+    },
   };
 
   if (!codexAvailable) {
@@ -721,9 +879,6 @@ export async function buildAgentConfigReadiness(config: AgentRuntimeConfig): Pro
   }
   if (!claudeAvailable) {
     providers['claude-cli'].issues.push('CLI command not available in PATH.');
-  }
-  if (!geminiAvailable) {
-    providers['gemini-cli'].issues.push('CLI command not available in PATH.');
   }
   if (!openRouterModelPlausible) {
     providers.openrouter.issues.push('Model string is not plausible.');
@@ -733,6 +888,15 @@ export async function buildAgentConfigReadiness(config: AgentRuntimeConfig): Pro
   }
   if (openRouterKey.warnings.length > 0) {
     providers.openrouter.issues.push(...openRouterKey.warnings);
+  }
+  if (!ollamaModelPlausible) {
+    providers.ollama.issues.push('Model string is not plausible.');
+  }
+  if (ollamaKeyRequired && !ollamaKey.isSet) {
+    providers.ollama.issues.push('Ollama API key is missing.');
+  }
+  if (ollamaKey.warnings.length > 0) {
+    providers.ollama.issues.push(...ollamaKey.warnings);
   }
 
   return {

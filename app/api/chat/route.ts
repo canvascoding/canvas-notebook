@@ -16,6 +16,8 @@ import {
   buildAgentConfigReadiness,
   providerIdToAgentId,
   readAgentRuntimeConfig,
+  resolveOllamaApiBase,
+  resolveOllamaApiKey,
   resolveOpenRouterApiKey,
 } from '@/app/lib/agents/storage';
 
@@ -42,7 +44,14 @@ type OpenRouterRuntime = {
   apiKey: string;
 };
 
-type ResolvedRuntime = CliRuntime | OpenRouterRuntime;
+type OllamaRuntime = {
+  kind: 'ollama';
+  baseUrl: string;
+  model: string;
+  apiKey: string | null;
+};
+
+type ResolvedRuntime = CliRuntime | OpenRouterRuntime | OllamaRuntime;
 
 type ChatProviderBinding = {
   config: AgentRuntimeConfig;
@@ -151,6 +160,24 @@ function extractOpenRouterText(event: unknown): string {
   return '';
 }
 
+function extractOllamaText(event: unknown): string {
+  if (!event || typeof event !== 'object') {
+    return '';
+  }
+
+  const parsed = event as {
+    message?: {
+      content?: string;
+    };
+  };
+
+  if (typeof parsed.message?.content === 'string') {
+    return parsed.message.content;
+  }
+
+  return '';
+}
+
 function buildCliRuntime(agentId: AgentId, config: AgentRuntimeConfig): CliRuntime {
   if (agentId === 'claude') {
     return {
@@ -189,21 +216,6 @@ function buildCliRuntime(agentId: AgentId, config: AgentRuntimeConfig): CliRunti
     };
   }
 
-  if (agentId === 'gemini') {
-    return {
-      kind: 'cli',
-      command: config.providers['gemini-cli'].command,
-      parser: 'stream-json',
-      buildArgs: ({ prompt, sessionId }) => {
-        const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--yolo', '--approval-mode', 'yolo'];
-        if (sessionId) {
-          args.push('--resume', sessionId);
-        }
-        return args;
-      },
-    };
-  }
-
   return {
     kind: 'cli',
     command: config.providers['codex-cli'].command,
@@ -229,8 +241,11 @@ function providerUnavailableError(providerId: AgentProviderId, issues: string[])
 
 function resolveProviderErrorResponse(binding: ChatProviderBinding): NextResponse | null {
   const readiness = binding.readiness.providers[binding.providerId];
-  if (binding.providerId === 'openrouter') {
-    if (!binding.config.providers.openrouter.enabled) {
+  if (binding.providerId === 'openrouter' || binding.providerId === 'ollama') {
+    const providerConfig =
+      binding.providerId === 'openrouter' ? binding.config.providers.openrouter : binding.config.providers.ollama;
+
+    if (!providerConfig.enabled) {
       return NextResponse.json({ success: false, error: providerUnavailableError(binding.providerId, readiness.issues) }, { status: 503 });
     }
 
@@ -336,6 +351,19 @@ async function resolveRuntime(binding: ChatProviderBinding): Promise<{ runtime: 
     };
   }
 
+  if (binding.providerId === 'ollama') {
+    const ollamaKey = await resolveOllamaApiKey(binding.config);
+    return {
+      runtime: {
+        kind: 'ollama',
+        baseUrl: resolveOllamaApiBase(binding.config.providers.ollama.baseUrl),
+        model: binding.config.providers.ollama.model,
+        apiKey: ollamaKey.apiKey,
+      },
+      errorResponse: null,
+    };
+  }
+
   return {
     runtime: buildCliRuntime(binding.agentId, binding.config),
     errorResponse: null,
@@ -432,12 +460,12 @@ export async function POST(request: NextRequest) {
       return errorResponse;
     }
 
-    if (runtime.kind === 'openrouter' && hasAttachments) {
+    if ((runtime.kind === 'openrouter' || runtime.kind === 'ollama') && hasAttachments) {
       return NextResponse.json(
         {
           success: false,
           error:
-            'OpenRouter is currently configured as text-only in this app. Please remove attachments for this provider.',
+            `${runtime.kind === 'openrouter' ? 'OpenRouter' : 'Ollama'} is currently configured as text-only in this app. Please remove attachments for this provider.`,
         },
         { status: 400 },
       );
@@ -553,6 +581,165 @@ export async function POST(request: NextRequest) {
                   } catch {
                     // Ignore malformed SSE chunks.
                   }
+                }
+              }
+
+              await persistChatTurn({
+                userId: session.user.id,
+                sessionId: resolvedSessionId,
+                model: providerBinding.agentId,
+                promptText,
+                hasAttachments,
+                assistantText: finalResultText,
+              });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              push(JSON.stringify({ type: 'error', message }) + '\n');
+            } finally {
+              safeClose();
+            }
+          })();
+        },
+      });
+
+      return new NextResponse(responseStream, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Transfer-Encoding': 'chunked',
+          'Cache-Control': 'no-cache, no-transform',
+        },
+      });
+    }
+
+    if (runtime.kind === 'ollama') {
+      const resolvedSessionId = requestedSessionId || createSessionId(providerBinding.agentId);
+      let finalResultText = '';
+      let streamClosed = false;
+
+      const encoder = new TextEncoder();
+      const responseStream = new ReadableStream({
+        start(controller) {
+          const safeClose = () => {
+            if (streamClosed) return;
+            streamClosed = true;
+            controller.close();
+          };
+
+          const push = (text: string) => {
+            try {
+              controller.enqueue(encoder.encode(text));
+            } catch {
+              // Stream already closed.
+            }
+          };
+
+          push(
+            JSON.stringify({
+              success: true,
+              sessionId: resolvedSessionId,
+              model: providerBinding.agentId,
+            }) + '\n',
+          );
+
+          void (async () => {
+            try {
+              const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+              };
+              if (runtime.apiKey) {
+                headers.Authorization = `Bearer ${runtime.apiKey}`;
+              }
+
+              const upstream = await fetch(`${runtime.baseUrl.replace(/\/+$/, '')}/api/chat`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                  model: runtime.model,
+                  stream: true,
+                  messages: [
+                    {
+                      role: 'user',
+                      content: finalPrompt,
+                    },
+                  ],
+                }),
+              });
+
+              if (!upstream.ok) {
+                throw new Error(`Ollama request failed with status ${upstream.status}.`);
+              }
+
+              if (!upstream.body) {
+                throw new Error('Ollama response body is empty.');
+              }
+
+              const reader = upstream.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = '';
+
+              while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                  break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const rawLine of lines) {
+                  const line = rawLine.trim();
+                  if (!line) {
+                    continue;
+                  }
+
+                  try {
+                    const event = JSON.parse(line) as { error?: string; done?: boolean };
+                    if (event.error) {
+                      push(JSON.stringify({ type: 'error', message: event.error }) + '\n');
+                      continue;
+                    }
+
+                    const textChunk = extractOllamaText(event);
+                    if (!textChunk) {
+                      continue;
+                    }
+
+                    finalResultText += textChunk;
+                    push(
+                      JSON.stringify({
+                        type: 'assistant',
+                        message: { content: [{ type: 'text', text: textChunk }] },
+                        session_id: resolvedSessionId,
+                      }) + '\n',
+                    );
+                  } catch {
+                    // Ignore malformed chunks.
+                  }
+                }
+              }
+
+              if (buffer.trim()) {
+                try {
+                  const event = JSON.parse(buffer.trim()) as { error?: string };
+                  if (event.error) {
+                    push(JSON.stringify({ type: 'error', message: event.error }) + '\n');
+                  } else {
+                    const finalChunk = extractOllamaText(event);
+                    if (finalChunk) {
+                      finalResultText += finalChunk;
+                      push(
+                        JSON.stringify({
+                          type: 'assistant',
+                          message: { content: [{ type: 'text', text: finalChunk }] },
+                          session_id: resolvedSessionId,
+                        }) + '\n',
+                      );
+                    }
+                  }
+                } catch {
+                  // Ignore trailing malformed chunk.
                 }
               }
 
