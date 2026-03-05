@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { ChevronRight, Clapperboard, FileText, Globe, ImageIcon, NotebookPen, Sparkles, Workflow } from 'lucide-react';
+import { ChevronRight, Clapperboard, FileText, Globe, ImageIcon, NotebookPen, Sparkles, Terminal, Workflow } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -20,6 +20,13 @@ const suiteApps: SuiteApp[] = [
     status: 'ready',
     href: '/notebook',
     icon: NotebookPen,
+  },
+  {
+    title: 'Terminal',
+    description: 'Fullscreen Terminal mit denselben Quick Actions wie im Notebook.',
+    status: 'ready',
+    href: '/terminal',
+    icon: Terminal,
   },
   {
     title: 'Image Generation',

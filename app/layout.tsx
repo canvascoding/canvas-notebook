@@ -20,6 +20,21 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Canvas Studios Suite",
   description: "Canvas Studios Software Suite",
+  applicationName: "Canvas Studios Suite",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Canvas Studios Suite",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    shortcut: ["/icons/icon-192.png"],
+  },
   robots: {
     index: false,
     follow: false,
