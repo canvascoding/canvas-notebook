@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn, execSync } from 'child_process';
-import path from 'path';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getWorkspacePath, ensureWorkspaceExists } from '@/app/lib/utils/workspace-manager';
@@ -17,7 +16,7 @@ function checkClaudeCliAvailability(): boolean {
   try {
     execSync(`which ${CLAUDE_CLI_PATH}`, { stdio: 'ignore' });
     claudeCliAvailable = true;
-  } catch (error) {
+  } catch {
     claudeCliAvailable = false;
   }
   return claudeCliAvailable;
@@ -44,7 +43,7 @@ export async function POST(request: NextRequest) {
     await ensureWorkspaceExists(userWorkspacePath);
 
     const defaultAllowedTools = ['read', 'ls', 'bash', 'write', 'edit', 'glob', 'grep', 'Task', 'ExitPlanMode'];
-    let toolsToAllow = Array.isArray(requestedAllowedTools) ? requestedAllowedTools : defaultAllowedTools;
+    const toolsToAllow = Array.isArray(requestedAllowedTools) ? requestedAllowedTools : defaultAllowedTools;
 
     const args = [
       '-p', message,
@@ -104,7 +103,7 @@ export async function POST(request: NextRequest) {
               } else {
                 push(line + '\n');
               }
-            } catch (e) {
+            } catch {
               console.log(`[Claude CLI] Non-JSON stdout: ${line}`);
             }
           }
@@ -114,7 +113,7 @@ export async function POST(request: NextRequest) {
           push(JSON.stringify({ type: 'error', message: data.toString() }) + '\n');
         });
 
-        claudeProcess.on('close', async (code: number | null) => {
+        claudeProcess.on('close', async () => {
           try {
             let dbSessionId: number | null = null;
 

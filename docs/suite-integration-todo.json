@@ -1,0 +1,164 @@
+{
+  "title": "Canvas Suite Integration Todo",
+  "lastUpdated": "2026-03-05",
+  "executionMode": "sequential",
+  "owner": "canvasstudios-notebook",
+  "tasks": [
+    {
+      "id": "suite-001",
+      "order": 1,
+      "title": "Tailark Integrations Template einbinden",
+      "status": "done",
+      "category": "foundation",
+      "acceptanceCriteria": [
+        "Template über shadcn importiert",
+        "Nötige UI-Bausteine (Card) sind vorhanden"
+      ]
+    },
+    {
+      "id": "suite-002",
+      "order": 2,
+      "title": "Tailark Template auf Canvas UI/CI Richtlinie anpassen",
+      "status": "done",
+      "category": "ui",
+      "acceptanceCriteria": [
+        "Token-basierte Farben",
+        "Harte Kanten ohne Rundungen",
+        "6 App-Karten im Suite-Grid"
+      ]
+    },
+    {
+      "id": "suite-003",
+      "order": 3,
+      "title": "Suite Landing Page auf Root-Route (/) bereitstellen",
+      "status": "done",
+      "category": "routing",
+      "acceptanceCriteria": [
+        "Header mit Theme + Login/Logout",
+        "App-Auswahl als primarer Einstiegspunkt"
+      ]
+    },
+    {
+      "id": "suite-004",
+      "order": 4,
+      "title": "Notebook-App auf /notebook verschieben",
+      "status": "done",
+      "category": "routing",
+      "acceptanceCriteria": [
+        "DashboardShell läuft auf /notebook",
+        "Auth-Schutz für /notebook bleibt aktiv"
+      ]
+    },
+    {
+      "id": "suite-005",
+      "order": 5,
+      "title": "Rücknavigation vom Notebook zur Suite ergänzen",
+      "status": "done",
+      "category": "navigation",
+      "acceptanceCriteria": [
+        "Header-Button im Notebook führt zu /",
+        "Wechsel zwischen Apps ohne URL-Eingabe möglich"
+      ]
+    },
+    {
+      "id": "suite-006",
+      "order": 6,
+      "title": "Middleware für öffentliche Suite-Route aktualisieren",
+      "status": "done",
+      "category": "security",
+      "acceptanceCriteria": [
+        "Root-Route (/) ist öffentlich",
+        "Geschützte App-Routen bleiben auth-pflichtig"
+      ]
+    },
+    {
+      "id": "suite-007",
+      "order": 7,
+      "title": "Platzhalter für Image Generation definieren",
+      "status": "done",
+      "category": "product",
+      "acceptanceCriteria": [
+        "Karte vorhanden",
+        "Status als Planned markiert"
+      ]
+    },
+    {
+      "id": "suite-008",
+      "order": 8,
+      "title": "Platzhalter für VEO Studio definieren",
+      "status": "done",
+      "category": "product",
+      "acceptanceCriteria": [
+        "Karte vorhanden",
+        "Status als Planned markiert"
+      ]
+    },
+    {
+      "id": "suite-009",
+      "order": 9,
+      "title": "Platzhalter für Content Studio (Copywriting + Summaries) definieren",
+      "status": "done",
+      "category": "product",
+      "acceptanceCriteria": [
+        "Karte vorhanden",
+        "Status als Planned markiert"
+      ]
+    },
+    {
+      "id": "suite-010",
+      "order": 10,
+      "title": "Zwei weitere Platzhalter-Apps für Skalierung anlegen",
+      "status": "done",
+      "category": "product",
+      "acceptanceCriteria": [
+        "In Summe 6 Karten sichtbar",
+        "Nur Canvas Notebook ist öffnbar"
+      ]
+    },
+    {
+      "id": "suite-011",
+      "order": 11,
+      "title": "Workspace-Sharing Vertrag für neue Apps spezifizieren",
+      "status": "pending",
+      "category": "architecture",
+      "acceptanceCriteria": [
+        "Gemeinsame Pfadregeln dokumentiert",
+        "Namensschema für generierte Assets definiert"
+      ]
+    },
+    {
+      "id": "suite-012",
+      "order": 12,
+      "title": "App-spezifische API-Endpunkte für Image/Video vorbereiten",
+      "status": "pending",
+      "category": "backend",
+      "acceptanceCriteria": [
+        "Route-Struktur für neue Apps festgelegt",
+        "Auth + Rate-Limits konzeptionell eingeplant"
+      ]
+    },
+    {
+      "id": "suite-013",
+      "order": 13,
+      "title": "E2E Smoke Flow für Suite-Navigation hinzufügen",
+      "status": "pending",
+      "category": "quality",
+      "acceptanceCriteria": [
+        "Login -> Suite -> Notebook funktioniert",
+        "Notebook -> Suite Rücksprung getestet"
+      ]
+    },
+    {
+      "id": "suite-014",
+      "order": 14,
+      "title": "Platzhalter sukzessive durch echte Apps ersetzen",
+      "status": "pending",
+      "category": "rollout",
+      "acceptanceCriteria": [
+        "Image Generation ersetzt Placeholder",
+        "VEO Studio ersetzt Placeholder",
+        "Content Studio ersetzt Placeholder"
+      ]
+    }
+  ]
+}
