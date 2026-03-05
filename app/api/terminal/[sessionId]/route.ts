@@ -16,6 +16,7 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: 'Session id is required' }, { status: 400 });
   }
 
-  const result = terminateSession(sessionId);
+  const ownerId = String(session.user.id || session.user.email || 'anonymous');
+  const result = terminateSession(sessionId, ownerId);
   return NextResponse.json({ success: true, closed: result.closed });
 }
