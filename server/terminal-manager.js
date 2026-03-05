@@ -7,6 +7,7 @@ const path = require('path');
 const sessions = new Map();
 const DEFAULT_IDLE_TIMEOUT = Number(process.env.TERMINAL_IDLE_TIMEOUT || 30 * 60 * 1000);
 const MAX_TERMINALS = Number(process.env.MAX_TERMINALS_PER_USER || 4);
+const DEFAULT_OWNER_ID = 'anonymous';
 
 const LOCAL_CWD = process.env.WORKSPACE_DIR
   ? path.resolve(process.env.WORKSPACE_DIR)
@@ -17,12 +18,57 @@ function getShellPath() {
   return process.env.SHELL || '/bin/bash';
 }
 
-async function createSession(sessionId) {
-  if (sessions.has(sessionId)) return sessions.get(sessionId);
-  if (sessions.size >= MAX_TERMINALS) throw new Error('Terminal limit reached');
+function normalizeOwnerId(ownerId) {
+  if (typeof ownerId !== 'string' || !ownerId.trim()) return DEFAULT_OWNER_ID;
+  return ownerId.trim();
+}
+
+function countOwnerSessions(ownerId) {
+  let count = 0;
+  for (const session of sessions.values()) {
+    if (session.ownerId === ownerId) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function evictIdleOwnerSessions(ownerId) {
+  const idleIds = [];
+  for (const [id, session] of sessions.entries()) {
+    if (session.ownerId === ownerId && session.clients.size === 0) {
+      idleIds.push(id);
+    }
+  }
+
+  for (const id of idleIds) {
+    terminateSession(id, ownerId);
+    if (countOwnerSessions(ownerId) < MAX_TERMINALS) {
+      break;
+    }
+  }
+}
+
+async function createSessionForOwner(sessionId, ownerId) {
+  const normalizedOwnerId = normalizeOwnerId(ownerId);
+  const existingSession = sessions.get(sessionId);
+  if (existingSession) {
+    if (existingSession.ownerId !== normalizedOwnerId) {
+      throw new Error('Session ownership mismatch');
+    }
+    return existingSession;
+  }
+
+  if (countOwnerSessions(normalizedOwnerId) >= MAX_TERMINALS) {
+    evictIdleOwnerSessions(normalizedOwnerId);
+  }
+  if (countOwnerSessions(normalizedOwnerId) >= MAX_TERMINALS) {
+    throw new Error('Terminal limit reached');
+  }
 
   const session = {
     id: sessionId,
+    ownerId: normalizedOwnerId,
     stream: null,
     clients: new Set(),
     idleTimer: null,
@@ -37,7 +83,7 @@ async function createSession(sessionId) {
   const shell = getShellPath();
   const finalCwd = existsSync(LOCAL_CWD) ? LOCAL_CWD : process.cwd();
 
-  console.log(`[Terminal] [${sessionId}] Starting ${shell} in ${finalCwd}`);
+  console.log(`[Terminal] [${sessionId}] (${normalizedOwnerId}) Starting ${shell} in ${finalCwd}`);
 
   const env = {
     ...process.env,
@@ -55,13 +101,13 @@ async function createSession(sessionId) {
       env: env
     });
 
-    console.log(`[Terminal] [${sessionId}] PTY started (PID: ${ptyProcess.pid})`);
+    console.log(`[Terminal] [${sessionId}] (${normalizedOwnerId}) PTY started (PID: ${ptyProcess.pid})`);
 
     session.stream = ptyProcess;
     ptyProcess.onData(data => session.broadcast(data));
     
     ptyProcess.onExit(({ exitCode }) => {
-      console.log(`[Terminal] [${sessionId}] Exit code: ${exitCode}`);
+      console.log(`[Terminal] [${sessionId}] (${normalizedOwnerId}) Exit code: ${exitCode}`);
       sessions.delete(sessionId);
     });
 
@@ -69,7 +115,7 @@ async function createSession(sessionId) {
     return session;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[Terminal] [${sessionId}] PTY spawn failed (${message}). Falling back to child_process shell.`);
+    console.warn(`[Terminal] [${sessionId}] (${normalizedOwnerId}) PTY spawn failed (${message}). Falling back to child_process shell.`);
   }
 
   try {
@@ -82,11 +128,11 @@ async function createSession(sessionId) {
     child.stdout.on('data', (data) => session.broadcast(data));
     child.stderr.on('data', (data) => session.broadcast(data));
     child.on('exit', (exitCode) => {
-      console.log(`[Terminal] [${sessionId}] Child shell exit code: ${exitCode}`);
+      console.log(`[Terminal] [${sessionId}] (${normalizedOwnerId}) Child shell exit code: ${exitCode}`);
       sessions.delete(sessionId);
     });
     child.on('error', (error) => {
-      console.error(`[Terminal] [${sessionId}] Child shell error:`, error.message);
+      console.error(`[Terminal] [${sessionId}] (${normalizedOwnerId}) Child shell error:`, error.message);
     });
 
     session.stream = {
@@ -105,13 +151,13 @@ async function createSession(sessionId) {
       },
     };
 
-    console.log(`[Terminal] [${sessionId}] Child shell started (PID: ${child.pid ?? 'n/a'})`);
+    console.log(`[Terminal] [${sessionId}] (${normalizedOwnerId}) Child shell started (PID: ${child.pid ?? 'n/a'})`);
 
     sessions.set(sessionId, session);
     return session;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[Terminal] [${sessionId}] Child shell spawn error:`, message);
+    console.error(`[Terminal] [${sessionId}] (${normalizedOwnerId}) Child shell spawn error:`, message);
     throw err;
   }
 }
@@ -153,9 +199,12 @@ function handleMessage(session, ws, message) {
   } catch {}
 }
 
-function terminateSession(sessionId) {
+function terminateSession(sessionId, ownerId) {
   const session = sessions.get(sessionId);
   if (!session) return { closed: false };
+  if (ownerId && session.ownerId !== normalizeOwnerId(ownerId)) {
+    return { closed: false };
+  }
 
   if (session.idleTimer) {
     clearTimeout(session.idleTimer);
@@ -174,10 +223,14 @@ function terminateSession(sessionId) {
   return { closed: true };
 }
 
-function terminateAllSessions() {
+function terminateAllSessions(ownerId) {
+  const normalizedOwnerId = ownerId ? normalizeOwnerId(ownerId) : null;
   let closed = 0;
-  for (const id of Array.from(sessions.keys())) {
-    const result = terminateSession(id);
+  for (const [id, session] of Array.from(sessions.entries())) {
+    if (normalizedOwnerId && session.ownerId !== normalizedOwnerId) {
+      continue;
+    }
+    const result = terminateSession(id, normalizedOwnerId || undefined);
     if (result.closed) {
       closed++;
     }
@@ -185,4 +238,10 @@ function terminateAllSessions() {
   return { closed };
 }
 
-module.exports = { createSession, attachClient, handleMessage, terminateSession, terminateAllSessions };
+module.exports = {
+  createSession: createSessionForOwner,
+  attachClient,
+  handleMessage,
+  terminateSession,
+  terminateAllSessions,
+};
