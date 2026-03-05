@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   Bot,
@@ -25,6 +25,12 @@ import { toast } from 'sonner';
 import { useTerminalStore } from '@/app/store/terminal-store';
 import { cn } from '@/lib/utils';
 
+const MAX_TERMINAL_SESSIONS = Number(process.env.NEXT_PUBLIC_MAX_TERMINALS_PER_USER || 4);
+const SAFE_MAX_TERMINAL_SESSIONS =
+  Number.isFinite(MAX_TERMINAL_SESSIONS) && MAX_TERMINAL_SESSIONS > 0
+    ? MAX_TERMINAL_SESSIONS
+    : 4;
+
 // Dynamic import to prevent SSR issues with xterm.js
 const XTerminal = dynamic(() => import('./XTerminal').then(mod => ({ default: mod.XTerminal })), {
   ssr: false,
@@ -44,10 +50,48 @@ export function TerminalPanel() {
     closeSession,
     clearSessions,
     setActiveSession,
+    setHydrated,
   } = useTerminalStore();
   const [selectMode, setSelectMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isKilling, setIsKilling] = useState(false);
+  const didAutoCreateOnMountRef = useRef(false);
+
+  useEffect(() => {
+    if (useTerminalStore.persist.hasHydrated()) {
+      setHydrated(true);
+    }
+    const unsubscribe = useTerminalStore.persist.onFinishHydration(() => {
+      setHydrated(true);
+    });
+    return unsubscribe;
+  }, [setHydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (didAutoCreateOnMountRef.current) return;
+    didAutoCreateOnMountRef.current = true;
+    if (sessions.length === 0) {
+      createSession();
+    }
+  }, [hydrated, sessions.length, createSession]);
+
+  const closeSessionEverywhere = useCallback(async (id: string) => {
+    closeSession(id);
+    try {
+      await fetch(`/api/terminal/${id}`, { method: 'DELETE' });
+    } catch (error) {
+      console.warn('[Terminal] Failed to release session on server', error);
+    }
+  }, [closeSession]);
+
+  const handleCreateSession = useCallback(() => {
+    if (sessions.length >= SAFE_MAX_TERMINAL_SESSIONS) {
+      toast.error(`Maximale Anzahl erreicht (${SAFE_MAX_TERMINAL_SESSIONS} Terminals)`);
+      return;
+    }
+    createSession();
+  }, [sessions.length, createSession]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -58,13 +102,12 @@ export function TerminalPanel() {
 
   useEffect(() => {
     if (!hydrated) return;
-    const MAX_SAVED_SESSIONS = 3;
-    if (sessions.length > MAX_SAVED_SESSIONS) {
-      sessions.slice(MAX_SAVED_SESSIONS).forEach((session) => {
-        closeSession(session.id);
+    if (sessions.length > SAFE_MAX_TERMINAL_SESSIONS) {
+      sessions.slice(SAFE_MAX_TERMINAL_SESSIONS).forEach((session) => {
+        void closeSessionEverywhere(session.id);
       });
     }
-  }, [hydrated, sessions, closeSession]);
+  }, [hydrated, sessions, closeSessionEverywhere]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -74,13 +117,13 @@ export function TerminalPanel() {
 
       if (!isInTerminal && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 't') {
         event.preventDefault();
-        createSession();
+        handleCreateSession();
       }
     };
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [createSession]);
+  }, [handleCreateSession]);
 
   useEffect(() => {
     const handleFullscreen = (event: Event) => {
@@ -313,7 +356,7 @@ export function TerminalPanel() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    onClick={createSession}
+                    onClick={handleCreateSession}
                     aria-label="New terminal"
                   >
                     <Plus className="h-4 w-4" />
@@ -357,7 +400,7 @@ export function TerminalPanel() {
                 className="flex h-4 w-4 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={(event) => {
                   event.stopPropagation();
-                  closeSession(session.id);
+                  void closeSessionEverywhere(session.id);
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 role="button"
@@ -376,7 +419,7 @@ export function TerminalPanel() {
             <Button
               variant="outline"
               size="lg"
-              onClick={createSession}
+              onClick={handleCreateSession}
               className="h-14 px-8 text-base font-semibold"
             >
               <Plus className="h-5 w-5 mr-2" />
