@@ -8,6 +8,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
   
-  const result = terminateAllSessions();
+  const ownerId = String(session.user.id || session.user.email || 'anonymous');
+  const result = terminateAllSessions(ownerId);
   return NextResponse.json({ success: true, closed: result.closed });
 }

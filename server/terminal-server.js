@@ -35,20 +35,24 @@ async function getSessionFromUpgradeRequest(req) {
 
 function attachTerminalServer(server) {
   const wss = new WebSocketServer({ noServer: true });
+  const originalEmit = server.emit.bind(server);
 
-  server.prependListener('upgrade', (req, socket, head) => {
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-
-    if (!url.pathname.startsWith('/api/terminal/')) {
-      return;
-    }
-
+  const handleTerminalUpgrade = (req, socket, head, url) => {
     if (terminalDebug) {
       console.log(`[Terminal] Upgrade Request: ${url.pathname}`);
       console.log(`[Terminal] Cookies: ${req.headers.cookie ? 'Present' : 'NONE'}`);
     }
 
     wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.on('error', (error) => {
+        console.error('[Terminal] WS Error:', error?.message || error);
+      });
+      ws.on('close', (code, reasonBuffer) => {
+        if (code === 1000) return;
+        const reason = reasonBuffer?.toString?.() || '';
+        console.warn(`[Terminal] WS closed (code=${code}${reason ? ` reason="${reason}"` : ''})`);
+      });
+
       const parts = url.pathname.split('/');
       const sessionId = parts[parts.length - 1] || 'default';
 
@@ -64,17 +68,17 @@ function attachTerminalServer(server) {
           console.log(`[Terminal] User ${sessionData.user.email} authorized`);
         }
 
-        try {
-          const session = await createSession(sessionId);
-          attachClient(session, ws);
+        const ownerId = String(sessionData.user.id || sessionData.user.email || 'anonymous');
 
+        try {
+          const session = await createSession(sessionId, ownerId);
+          attachClient(session, ws);
           ws.on('message', (msg) => handleMessage(session, ws, msg));
-          ws.on('close', (code, reasonBuffer) => {
-            if (!terminalDebug) return;
-            const reason = reasonBuffer?.toString?.() || '';
-            console.log(`[Terminal] WS Session ${sessionId} closed (code=${code}${reason ? ` reason="${reason}"` : ''})`);
-          });
-          ws.send(JSON.stringify({ type: 'ready', data: sessionId }));
+          try {
+            ws.send(JSON.stringify({ type: 'ready', data: sessionId }));
+          } catch (sendError) {
+            console.error('[Terminal] Failed to send ready payload:', sendError?.message || sendError);
+          }
           if (terminalDebug) {
             console.log(`[Terminal] WS Session ${sessionId} started`);
           }
@@ -90,7 +94,29 @@ function attachTerminalServer(server) {
         } catch {}
       });
     });
-  });
+  };
+
+  // Intercept upgrade events so terminal sockets are handled exactly once.
+  server.emit = function patchedEmit(event, ...args) {
+    if (event === 'upgrade') {
+      const [req, socket, head] = args;
+      try {
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        if (url.pathname.startsWith('/api/terminal/')) {
+          handleTerminalUpgrade(req, socket, head, url);
+          return true;
+        }
+      } catch (error) {
+        console.error('[Terminal] Failed to parse upgrade URL:', error?.message || error);
+        try {
+          socket.destroy();
+        } catch {}
+        return true;
+      }
+    }
+
+    return originalEmit(event, ...args);
+  };
 }
 
 module.exports = { attachTerminalServer };
