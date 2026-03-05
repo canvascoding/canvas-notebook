@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { deleteFile } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 
 export async function DELETE(request: NextRequest) {
   try {
@@ -25,6 +26,18 @@ export async function DELETE(request: NextRequest) {
     }
 
     const pathsToDelete = Array.isArray(path) ? path : [path];
+    const protectedPaths = pathsToDelete.filter((candidate) =>
+      isProtectedAppOutputFolder(candidate)
+    );
+    if (protectedPaths.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Protected app output folder(s) cannot be deleted: ${protectedPaths.join(', ')}`,
+        },
+        { status: 403 }
+      );
+    }
 
     // Run deletions in parallel for performance
     await Promise.all(pathsToDelete.map(p => deleteFile(p)));
