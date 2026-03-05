@@ -1,7 +1,7 @@
 {
   "title": "Agent Implementation Todo",
   "sourceFile": "docs/agent_implementation_plan.md",
-  "generatedAt": "2026-03-05T12:51:29.973Z",
+  "generatedAt": "2026-03-05T14:19:25.526Z",
   "taskCount": 139,
   "tasks": [
     {
@@ -138,7 +138,7 @@
       "id": "agent-011",
       "order": 11,
       "title": "`GET /api/agents/files`",
-      "status": "pending",
+      "status": "done",
       "section": "5.2 Agent Files APIs",
       "category": "api",
       "source": {
@@ -151,7 +151,7 @@
       "id": "agent-012",
       "order": 12,
       "title": "Liefert Inhalte von `AGENTS.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`.",
-      "status": "pending",
+      "status": "done",
       "section": "5.2 Agent Files APIs",
       "category": "api",
       "source": {
@@ -164,7 +164,7 @@
       "id": "agent-013",
       "order": 13,
       "title": "`PUT /api/agents/files`",
-      "status": "pending",
+      "status": "done",
       "section": "5.2 Agent Files APIs",
       "category": "api",
       "source": {
@@ -177,7 +177,7 @@
       "id": "agent-014",
       "order": 14,
       "title": "Payload enthält Dateiname + neuen Inhalt.",
-      "status": "pending",
+      "status": "done",
       "section": "5.2 Agent Files APIs",
       "category": "api",
       "source": {
@@ -190,7 +190,7 @@
       "id": "agent-015",
       "order": 15,
       "title": "Nur erlaubte Dateinamen.",
-      "status": "pending",
+      "status": "done",
       "section": "5.2 Agent Files APIs",
       "category": "api",
       "source": {
@@ -203,7 +203,7 @@
       "id": "agent-016",
       "order": 16,
       "title": "Persistenter Write nach `/home/node/canvas-agent`.",
-      "status": "pending",
+      "status": "done",
       "section": "5.2 Agent Files APIs",
       "category": "api",
       "source": {
@@ -216,7 +216,7 @@
       "id": "agent-017",
       "order": 17,
       "title": "`GET /api/sessions`",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -229,7 +229,7 @@
       "id": "agent-018",
       "order": 18,
       "title": "Globale Sessionliste, newest first.",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -242,7 +242,7 @@
       "id": "agent-019",
       "order": 19,
       "title": "Enthält Creator-Info (Name/Email).",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -255,7 +255,7 @@
       "id": "agent-020",
       "order": 20,
       "title": "`POST /api/sessions`",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -268,7 +268,7 @@
       "id": "agent-021",
       "order": 21,
       "title": "Explizite Session-Erstellung (leer oder optional initial title).",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -281,7 +281,7 @@
       "id": "agent-022",
       "order": 22,
       "title": "`PATCH /api/sessions`",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -294,7 +294,7 @@
       "id": "agent-023",
       "order": 23,
       "title": "Session-Titel umbenennen.",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -307,7 +307,7 @@
       "id": "agent-024",
       "order": 24,
       "title": "`DELETE /api/sessions?sessionId=...`",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -320,7 +320,7 @@
       "id": "agent-025",
       "order": 25,
       "title": "Löscht Session + zugehörige Messages.",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -333,7 +333,7 @@
       "id": "agent-026",
       "order": 26,
       "title": "`GET /api/sessions/messages?sessionId=...`",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -346,7 +346,7 @@
       "id": "agent-027",
       "order": 27,
       "title": "Liefert Nachrichten einer Session, chronologisch.",
-      "status": "pending",
+      "status": "done",
       "section": "5.3 Session APIs (ohne model-Query)",
       "category": "api",
       "source": {
@@ -359,7 +359,7 @@
       "id": "agent-028",
       "order": 28,
       "title": "Mit `sessionId`:",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -372,7 +372,7 @@
       "id": "agent-029",
       "order": 29,
       "title": "Provider aus Session lesen und verwenden.",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -385,7 +385,7 @@
       "id": "agent-030",
       "order": 30,
       "title": "Ohne `sessionId`:",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -398,7 +398,7 @@
       "id": "agent-031",
       "order": 31,
       "title": "Provider aus globaler Agent-Konfig verwenden.",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -411,7 +411,7 @@
       "id": "agent-032",
       "order": 32,
       "title": "Bei Bedarf neue Session referenzieren.",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -424,7 +424,7 @@
       "id": "agent-033",
       "order": 33,
       "title": "Fehler explizit:",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -437,7 +437,7 @@
       "id": "agent-034",
       "order": 34,
       "title": "Provider nicht verfügbar.",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -450,7 +450,7 @@
       "id": "agent-035",
       "order": 35,
       "title": "OpenRouter key fehlt.",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -463,7 +463,7 @@
       "id": "agent-036",
       "order": 36,
       "title": "CLI nicht installiert.",
-      "status": "pending",
+      "status": "done",
       "section": "5.4 Chat API",
       "category": "api",
       "source": {
@@ -476,7 +476,7 @@
       "id": "agent-037",
       "order": 37,
       "title": "Login-gated.",
-      "status": "pending",
+      "status": "done",
       "section": "6.1 Home (`/`)",
       "category": "ui",
       "source": {
@@ -489,7 +489,7 @@
       "id": "agent-038",
       "order": 38,
       "title": "Software Suite + Agent Setup Card sichtbar nur mit Session.",
-      "status": "pending",
+      "status": "done",
       "section": "6.1 Home (`/`)",
       "category": "ui",
       "source": {
@@ -502,7 +502,7 @@
       "id": "agent-039",
       "order": 39,
       "title": "Agent Setup Card zeigt:",
-      "status": "pending",
+      "status": "done",
       "section": "6.1 Home (`/`)",
       "category": "ui",
       "source": {
@@ -515,7 +515,7 @@
       "id": "agent-040",
       "order": 40,
       "title": "Provider-Status",
-      "status": "pending",
+      "status": "done",
       "section": "6.1 Home (`/`)",
       "category": "ui",
       "source": {
@@ -528,7 +528,7 @@
       "id": "agent-041",
       "order": 41,
       "title": "Doctor-Status",
-      "status": "pending",
+      "status": "done",
       "section": "6.1 Home (`/`)",
       "category": "ui",
       "source": {
@@ -541,7 +541,7 @@
       "id": "agent-042",
       "order": 42,
       "title": "Shortcuts zu Settings.",
-      "status": "pending",
+      "status": "done",
       "section": "6.1 Home (`/`)",
       "category": "ui",
       "source": {
@@ -554,7 +554,7 @@
       "id": "agent-043",
       "order": 43,
       "title": "Provider-Auswahl (global)",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -567,7 +567,7 @@
       "id": "agent-044",
       "order": 44,
       "title": "Provider-Konfiguration (CLI commands / OpenRouter model/base URL)",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -580,7 +580,7 @@
       "id": "agent-045",
       "order": 45,
       "title": "Doctor-Button + Ergebnisse",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -593,7 +593,7 @@
       "id": "agent-046",
       "order": 46,
       "title": "Editor für:",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -606,7 +606,7 @@
       "id": "agent-047",
       "order": 47,
       "title": "`AGENTS.md`",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -619,7 +619,7 @@
       "id": "agent-048",
       "order": 48,
       "title": "`MEMORY.md`",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -632,7 +632,7 @@
       "id": "agent-049",
       "order": 49,
       "title": "`SOUL.md`",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -645,7 +645,7 @@
       "id": "agent-050",
       "order": 50,
       "title": "`TOOLS.md`",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -658,7 +658,7 @@
       "id": "agent-051",
       "order": 51,
       "title": "Session-Management:",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -671,7 +671,7 @@
       "id": "agent-052",
       "order": 52,
       "title": "Liste",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -684,7 +684,7 @@
       "id": "agent-053",
       "order": 53,
       "title": "Umbenennen",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -697,7 +697,7 @@
       "id": "agent-054",
       "order": 54,
       "title": "Löschen",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -710,7 +710,7 @@
       "id": "agent-055",
       "order": 55,
       "title": "Neue Session erstellen",
-      "status": "pending",
+      "status": "done",
       "section": "6.2 Settings (`/settings`)",
       "category": "ui",
       "source": {
@@ -723,7 +723,7 @@
       "id": "agent-056",
       "order": 56,
       "title": "Kein Agent-Dropdown.",
-      "status": "pending",
+      "status": "done",
       "section": "6.3 Chat UI",
       "category": "ui",
       "source": {
@@ -736,7 +736,7 @@
       "id": "agent-057",
       "order": 57,
       "title": "New Session Button bleibt.",
-      "status": "pending",
+      "status": "done",
       "section": "6.3 Chat UI",
       "category": "ui",
       "source": {
@@ -749,7 +749,7 @@
       "id": "agent-058",
       "order": 58,
       "title": "Session-Historie bleibt.",
-      "status": "pending",
+      "status": "done",
       "section": "6.3 Chat UI",
       "category": "ui",
       "source": {
@@ -762,7 +762,7 @@
       "id": "agent-059",
       "order": 59,
       "title": "Laden/Rename/Delete bleiben.",
-      "status": "pending",
+      "status": "done",
       "section": "6.3 Chat UI",
       "category": "ui",
       "source": {
@@ -775,7 +775,7 @@
       "id": "agent-060",
       "order": 60,
       "title": "Provider-spezifische Sessionbindung bleibt transparent im Backend.",
-      "status": "pending",
+      "status": "done",
       "section": "6.3 Chat UI",
       "category": "ui",
       "source": {
@@ -788,7 +788,7 @@
       "id": "agent-061",
       "order": 61,
       "title": "`scripts/docker-entrypoint.sh`",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -801,7 +801,7 @@
       "id": "agent-062",
       "order": 62,
       "title": "Sicherstellen, dass `/home/node/canvas-agent` existiert.",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -814,7 +814,7 @@
       "id": "agent-063",
       "order": 63,
       "title": "Für jede Datei (`AGENTS.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`):",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -827,7 +827,7 @@
       "id": "agent-064",
       "order": 64,
       "title": "Wenn nicht vorhanden: mit Canvas-spezifischem Kurztemplate anlegen.",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -840,7 +840,7 @@
       "id": "agent-065",
       "order": 65,
       "title": "Wenn vorhanden: unverändert lassen.",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -853,7 +853,7 @@
       "id": "agent-066",
       "order": 66,
       "title": "`agent-runtime-config.json` bei Fehlen mit Default erstellen.",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -866,7 +866,7 @@
       "id": "agent-067",
       "order": 67,
       "title": "Einmalige Legacy-Session-Cleanup-Logik ausführen (siehe Migration).",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -879,7 +879,7 @@
       "id": "agent-068",
       "order": 68,
       "title": "Danach normaler App-Start.",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -892,7 +892,7 @@
       "id": "agent-069",
       "order": 69,
       "title": "Volume-Mounts sind zur Build-Zeit nicht verfügbar.",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -905,7 +905,7 @@
       "id": "agent-070",
       "order": 70,
       "title": "Existenzprüfung muss zur Laufzeit im Container erfolgen.",
-      "status": "pending",
+      "status": "done",
       "section": "7) Container-Startup und Bootstrap",
       "category": "bootstrap",
       "source": {
@@ -918,7 +918,7 @@
       "id": "agent-071",
       "order": 71,
       "title": "Alte modellbasierte Historie entfernen, clean state für neue Single-Main-Agent-Logik.",
-      "status": "pending",
+      "status": "done",
       "section": "8) Migration / Legacy-Cutover",
       "category": "migration",
       "source": {
@@ -931,7 +931,7 @@
       "id": "agent-072",
       "order": 72,
       "title": "Beim ersten Start nach Deployment:",
-      "status": "pending",
+      "status": "done",
       "section": "8) Migration / Legacy-Cutover",
       "category": "migration",
       "source": {
@@ -944,7 +944,7 @@
       "id": "agent-073",
       "order": 73,
       "title": "`DELETE FROM ai_messages`",
-      "status": "pending",
+      "status": "done",
       "section": "8) Migration / Legacy-Cutover",
       "category": "migration",
       "source": {
@@ -957,7 +957,7 @@
       "id": "agent-074",
       "order": 74,
       "title": "`DELETE FROM ai_sessions`",
-      "status": "pending",
+      "status": "done",
       "section": "8) Migration / Legacy-Cutover",
       "category": "migration",
       "source": {
@@ -970,7 +970,7 @@
       "id": "agent-075",
       "order": 75,
       "title": "Markerdatei setzen, z. B.:",
-      "status": "pending",
+      "status": "done",
       "section": "8) Migration / Legacy-Cutover",
       "category": "migration",
       "source": {
@@ -983,7 +983,7 @@
       "id": "agent-076",
       "order": 76,
       "title": "`/home/node/canvas-agent/.legacy-session-wipe-done`",
-      "status": "pending",
+      "status": "done",
       "section": "8) Migration / Legacy-Cutover",
       "category": "migration",
       "source": {
@@ -996,7 +996,7 @@
       "id": "agent-077",
       "order": 77,
       "title": "Wenn Marker existiert:",
-      "status": "pending",
+      "status": "done",
       "section": "8) Migration / Legacy-Cutover",
       "category": "migration",
       "source": {
@@ -1009,7 +1009,7 @@
       "id": "agent-078",
       "order": 78,
       "title": "Kein erneutes Löschen.",
-      "status": "pending",
+      "status": "done",
       "section": "8) Migration / Legacy-Cutover",
       "category": "migration",
       "source": {
@@ -1022,7 +1022,7 @@
       "id": "agent-079",
       "order": 79,
       "title": "Keine Secrets im Klartext in API-Responses oder Logs.",
-      "status": "pending",
+      "status": "done",
       "section": "9) Sicherheit und Robustheit",
       "category": "security",
       "source": {
@@ -1035,7 +1035,7 @@
       "id": "agent-080",
       "order": 80,
       "title": "OpenRouter-Key masked ausgeben (`isSet`, optional letzte 4 Zeichen).",
-      "status": "pending",
+      "status": "done",
       "section": "9) Sicherheit und Robustheit",
       "category": "security",
       "source": {
@@ -1048,7 +1048,7 @@
       "id": "agent-081",
       "order": 81,
       "title": "Dateiname-Whitelist für Agent-Dateien erzwingen.",
-      "status": "pending",
+      "status": "done",
       "section": "9) Sicherheit und Robustheit",
       "category": "security",
       "source": {
@@ -1061,7 +1061,7 @@
       "id": "agent-082",
       "order": 82,
       "title": "Pfad-Traversal verhindern (nur fester Base-Dir).",
-      "status": "pending",
+      "status": "done",
       "section": "9) Sicherheit und Robustheit",
       "category": "security",
       "source": {
@@ -1074,7 +1074,7 @@
       "id": "agent-083",
       "order": 83,
       "title": "Rate-Limit auf Config/File/Doctor APIs.",
-      "status": "pending",
+      "status": "done",
       "section": "9) Sicherheit und Robustheit",
       "category": "security",
       "source": {
@@ -1087,7 +1087,7 @@
       "id": "agent-084",
       "order": 84,
       "title": "Klare Fehlermeldungen ohne Secret-Leaks.",
-      "status": "pending",
+      "status": "done",
       "section": "9) Sicherheit und Robustheit",
       "category": "security",
       "source": {
@@ -1100,7 +1100,7 @@
       "id": "agent-085",
       "order": 85,
       "title": "Atomare Writes für Konfig und Markdown-Dateien.",
-      "status": "pending",
+      "status": "done",
       "section": "9) Sicherheit und Robustheit",
       "category": "security",
       "source": {
@@ -1126,7 +1126,7 @@
       "id": "agent-087",
       "order": 87,
       "title": "Datei- und JSON-Store.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 1 - Storage + Bootstrap",
       "category": "implementation",
       "source": {
@@ -1139,7 +1139,7 @@
       "id": "agent-088",
       "order": 88,
       "title": "Idempotente Initialisierung.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 1 - Storage + Bootstrap",
       "category": "implementation",
       "source": {
@@ -1152,7 +1152,7 @@
       "id": "agent-089",
       "order": 89,
       "title": "EntryPoint um Bootstrap erweitern.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 1 - Storage + Bootstrap",
       "category": "implementation",
       "source": {
@@ -1165,7 +1165,7 @@
       "id": "agent-090",
       "order": 90,
       "title": "`runtime.ts` auf zentralen Store umstellen.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 2 - Runtime + APIs",
       "category": "implementation",
       "source": {
@@ -1178,7 +1178,7 @@
       "id": "agent-091",
       "order": 91,
       "title": "Neue APIs:",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 2 - Runtime + APIs",
       "category": "implementation",
       "source": {
@@ -1217,7 +1217,7 @@
       "id": "agent-094",
       "order": 94,
       "title": "`/api/agents/files`",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 2 - Runtime + APIs",
       "category": "implementation",
       "source": {
@@ -1230,7 +1230,7 @@
       "id": "agent-095",
       "order": 95,
       "title": "Session-APIs auf single-main-agent contracts umbauen.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 2 - Runtime + APIs",
       "category": "implementation",
       "source": {
@@ -1243,7 +1243,7 @@
       "id": "agent-096",
       "order": 96,
       "title": "`/api/chat` auf provider-pro-session binding umstellen.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 3 - Chat + Session-Verhalten",
       "category": "implementation",
       "source": {
@@ -1256,7 +1256,7 @@
       "id": "agent-097",
       "order": 97,
       "title": "Explizite Session-Erstellung (`POST /api/sessions`).",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 3 - Chat + Session-Verhalten",
       "category": "implementation",
       "source": {
@@ -1269,7 +1269,7 @@
       "id": "agent-098",
       "order": 98,
       "title": "Rename/Delete/List finalisieren.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 3 - Chat + Session-Verhalten",
       "category": "implementation",
       "source": {
@@ -1282,7 +1282,7 @@
       "id": "agent-099",
       "order": 99,
       "title": "Retention-Cap 200 implementieren.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 3 - Chat + Session-Verhalten",
       "category": "implementation",
       "source": {
@@ -1295,7 +1295,7 @@
       "id": "agent-100",
       "order": 100,
       "title": "Settings Tab „Agent Settings“ inkl. Datei-Editoren.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 4 - UI",
       "category": "implementation",
       "source": {
@@ -1308,7 +1308,7 @@
       "id": "agent-101",
       "order": 101,
       "title": "Home Setup Card.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 4 - UI",
       "category": "implementation",
       "source": {
@@ -1321,7 +1321,7 @@
       "id": "agent-102",
       "order": 102,
       "title": "Chat ohne Agent-Dropdown.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 4 - UI",
       "category": "implementation",
       "source": {
@@ -1334,7 +1334,7 @@
       "id": "agent-103",
       "order": 103,
       "title": "Sessionliste mit Creator-Feld.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 4 - UI",
       "category": "implementation",
       "source": {
@@ -1347,7 +1347,7 @@
       "id": "agent-104",
       "order": 104,
       "title": "Rename-Flow.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 4 - UI",
       "category": "implementation",
       "source": {
@@ -1360,7 +1360,7 @@
       "id": "agent-105",
       "order": 105,
       "title": "Middleware/Public route policy für `/` anpassen.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 5 - Auth/Gating + Cleanup",
       "category": "implementation",
       "source": {
@@ -1373,7 +1373,7 @@
       "id": "agent-106",
       "order": 106,
       "title": "Legacy session wipe bei Deployment aktivieren.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 5 - Auth/Gating + Cleanup",
       "category": "implementation",
       "source": {
@@ -1386,7 +1386,7 @@
       "id": "agent-107",
       "order": 107,
       "title": "Regression-Fixes.",
-      "status": "pending",
+      "status": "done",
       "section": "Phase 5 - Auth/Gating + Cleanup",
       "category": "implementation",
       "source": {
@@ -1399,7 +1399,7 @@
       "id": "agent-108",
       "order": 108,
       "title": "`GET/PUT /api/agents/config` liest/schreibt korrekt.",
-      "status": "pending",
+      "status": "done",
       "section": "11.1 API Tests",
       "category": "quality",
       "source": {
@@ -1412,7 +1412,7 @@
       "id": "agent-109",
       "order": 109,
       "title": "`GET/PUT /api/agents/files` funktioniert nur für erlaubte Namen.",
-      "status": "pending",
+      "status": "done",
       "section": "11.1 API Tests",
       "category": "quality",
       "source": {
@@ -1425,7 +1425,7 @@
       "id": "agent-110",
       "order": 110,
       "title": "`POST /api/agents/doctor` liefert lokale Checks + optionalen Ping.",
-      "status": "pending",
+      "status": "done",
       "section": "11.1 API Tests",
       "category": "quality",
       "source": {
@@ -1438,7 +1438,7 @@
       "id": "agent-111",
       "order": 111,
       "title": "`POST /api/sessions` erstellt Session explizit.",
-      "status": "pending",
+      "status": "done",
       "section": "11.1 API Tests",
       "category": "quality",
       "source": {
@@ -1451,7 +1451,7 @@
       "id": "agent-112",
       "order": 112,
       "title": "`PATCH /api/sessions` benennt um.",
-      "status": "pending",
+      "status": "done",
       "section": "11.1 API Tests",
       "category": "quality",
       "source": {
@@ -1464,7 +1464,7 @@
       "id": "agent-113",
       "order": 113,
       "title": "`DELETE /api/sessions` löscht Session + Messages.",
-      "status": "pending",
+      "status": "done",
       "section": "11.1 API Tests",
       "category": "quality",
       "source": {
@@ -1477,7 +1477,7 @@
       "id": "agent-114",
       "order": 114,
       "title": "`GET /api/sessions/messages` liefert chronologische Daten.",
-      "status": "pending",
+      "status": "done",
       "section": "11.1 API Tests",
       "category": "quality",
       "source": {
@@ -1490,7 +1490,7 @@
       "id": "agent-115",
       "order": 115,
       "title": "Retention hält max. 200 Sessions.",
-      "status": "pending",
+      "status": "done",
       "section": "11.1 API Tests",
       "category": "quality",
       "source": {
@@ -1503,7 +1503,7 @@
       "id": "agent-116",
       "order": 116,
       "title": "Session unter Provider A starten.",
-      "status": "pending",
+      "status": "done",
       "section": "11.2 Session/Provider Tests",
       "category": "quality",
       "source": {
@@ -1516,7 +1516,7 @@
       "id": "agent-117",
       "order": 117,
       "title": "Global auf Provider B wechseln.",
-      "status": "pending",
+      "status": "done",
       "section": "11.2 Session/Provider Tests",
       "category": "quality",
       "source": {
@@ -1529,7 +1529,7 @@
       "id": "agent-118",
       "order": 118,
       "title": "Gleiche Session laden/resume.",
-      "status": "pending",
+      "status": "done",
       "section": "11.2 Session/Provider Tests",
       "category": "quality",
       "source": {
@@ -1542,7 +1542,7 @@
       "id": "agent-119",
       "order": 119,
       "title": "Erwartung: Session nutzt weiter Provider A.",
-      "status": "pending",
+      "status": "done",
       "section": "11.2 Session/Provider Tests",
       "category": "quality",
       "source": {
@@ -1555,7 +1555,7 @@
       "id": "agent-120",
       "order": 120,
       "title": "Neue Session nutzt Provider B.",
-      "status": "pending",
+      "status": "done",
       "section": "11.2 Session/Provider Tests",
       "category": "quality",
       "source": {
@@ -1568,7 +1568,7 @@
       "id": "agent-121",
       "order": 121,
       "title": "Container mit leerem `/home/node` starten.",
-      "status": "pending",
+      "status": "done",
       "section": "11.3 Startup/Persistenz Tests",
       "category": "quality",
       "source": {
@@ -1581,7 +1581,7 @@
       "id": "agent-122",
       "order": 122,
       "title": "Erwartung: alle 5 Dateien angelegt.",
-      "status": "pending",
+      "status": "done",
       "section": "11.3 Startup/Persistenz Tests",
       "category": "quality",
       "source": {
@@ -1594,7 +1594,7 @@
       "id": "agent-123",
       "order": 123,
       "title": "Dateien im UI editieren.",
-      "status": "pending",
+      "status": "done",
       "section": "11.3 Startup/Persistenz Tests",
       "category": "quality",
       "source": {
@@ -1607,7 +1607,7 @@
       "id": "agent-124",
       "order": 124,
       "title": "Container neu starten.",
-      "status": "pending",
+      "status": "done",
       "section": "11.3 Startup/Persistenz Tests",
       "category": "quality",
       "source": {
@@ -1620,7 +1620,7 @@
       "id": "agent-125",
       "order": 125,
       "title": "Erwartung: Inhalte bleiben erhalten.",
-      "status": "pending",
+      "status": "done",
       "section": "11.3 Startup/Persistenz Tests",
       "category": "quality",
       "source": {
@@ -1633,7 +1633,7 @@
       "id": "agent-126",
       "order": 126,
       "title": "Erwartung: keine Überschreibung bestehender Dateien.",
-      "status": "pending",
+      "status": "done",
       "section": "11.3 Startup/Persistenz Tests",
       "category": "quality",
       "source": {
@@ -1646,7 +1646,7 @@
       "id": "agent-127",
       "order": 127,
       "title": "Kein Agent-Dropdown im Chat.",
-      "status": "pending",
+      "status": "done",
       "section": "11.4 UI Tests",
       "category": "quality",
       "source": {
@@ -1659,7 +1659,7 @@
       "id": "agent-128",
       "order": 128,
       "title": "Session erstellen/laden/umbenennen/löschen funktioniert.",
-      "status": "pending",
+      "status": "done",
       "section": "11.4 UI Tests",
       "category": "quality",
       "source": {
@@ -1672,7 +1672,7 @@
       "id": "agent-129",
       "order": 129,
       "title": "Settings zeigt Agent-Tab und Editoren.",
-      "status": "pending",
+      "status": "done",
       "section": "11.4 UI Tests",
       "category": "quality",
       "source": {
@@ -1685,7 +1685,7 @@
       "id": "agent-130",
       "order": 130,
       "title": "Nicht eingeloggte Nutzer landen auf Login statt Suite/Home.",
-      "status": "pending",
+      "status": "done",
       "section": "11.4 UI Tests",
       "category": "quality",
       "source": {
@@ -1698,7 +1698,7 @@
       "id": "agent-131",
       "order": 131,
       "title": "Das gesamte Agent-System über zentrale Dateien in `/home/node/canvas-agent` betrieben wird.",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
@@ -1711,7 +1711,7 @@
       "id": "agent-132",
       "order": 132,
       "title": "Chat nur noch Main-Agent-Workflow zeigt (kein Agent-Switch im Chat).",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
@@ -1724,7 +1724,7 @@
       "id": "agent-133",
       "order": 133,
       "title": "Provider-Wechsel in Settings möglich ist.",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
@@ -1737,7 +1737,7 @@
       "id": "agent-134",
       "order": 134,
       "title": "Sessions vollständig verwaltbar sind (create/load/rename/delete/history).",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
@@ -1750,7 +1750,7 @@
       "id": "agent-135",
       "order": 135,
       "title": "Provider pro Session stabil gebunden ist.",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
@@ -1763,7 +1763,7 @@
       "id": "agent-136",
       "order": 136,
       "title": "Home/Suite nur nach Login erreichbar ist.",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
@@ -1776,7 +1776,7 @@
       "id": "agent-137",
       "order": 137,
       "title": "Startup-Templates und Config idempotent angelegt werden.",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
@@ -1789,7 +1789,7 @@
       "id": "agent-138",
       "order": 138,
       "title": "Legacy-Datenbereinigung einmalig und nachvollziehbar ausgeführt wurde.",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
@@ -1802,7 +1802,7 @@
       "id": "agent-139",
       "order": 139,
       "title": "Tests für kritische Pfade bestehen.",
-      "status": "pending",
+      "status": "done",
       "section": "14) Ergebnisdefinition (Definition of Done)",
       "category": "acceptance",
       "source": {
