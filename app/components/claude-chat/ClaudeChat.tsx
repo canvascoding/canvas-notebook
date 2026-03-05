@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Paperclip, X, Image as ImageIcon, History, Plus, MessageSquare, ChevronLeft, ArrowDown, AlertTriangle, Cpu, Sparkles, Code, Trash2 } from 'lucide-react';
+import { Paperclip, X, Image as ImageIcon, History, Plus, ChevronLeft, ArrowDown, AlertTriangle, Cpu, Sparkles, Code, Trash2 } from 'lucide-react';
 
 interface Attachment {
   name: string;
@@ -28,16 +28,18 @@ interface AISession {
 
 interface ChatEvent {
   type: string;
-  message?: {
-    content: Array<{
-      type: string;
-      text?: string;
-      name?: string;
-      input?: {
-        command: string;
+  message?:
+    | string
+    | {
+        content: Array<{
+          type: string;
+          text?: string;
+          name?: string;
+          input?: {
+            command: string;
+          };
+        }>;
       };
-    }>;
-  };
   tool_use_result?: {
     stdout?: string;
     stderr?: string;
@@ -48,6 +50,8 @@ interface ChatEvent {
   success?: boolean;
   initialEvent?: ChatEvent;
   content?: string; // Codex support
+  thread_id?: string;
+  threadId?: string;
 }
 
 type UpdateFunction = (content: string, type?: string, status?: ChatMessage['status']) => void;
@@ -57,6 +61,13 @@ type AIModel = 'claude' | 'gemini' | 'codex';
 interface ClaudeChatProps {
   onClose?: () => void;
 }
+
+type SessionMessagePayload = {
+  id: number | string;
+  role: ChatMessage['role'];
+  content: string;
+  type?: string;
+};
 
 export default function ClaudeChat({ onClose }: ClaudeChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -109,7 +120,12 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
 
   const handleEvent = useCallback((event: ChatEvent, msgId: string, updateFn: UpdateFunction) => {
     // Claude & Gemini Format
-    if ((event.type === 'assistant' || event.type === 'message') && event.message?.content) {
+    if (
+      (event.type === 'assistant' || event.type === 'message') &&
+      event.message &&
+      typeof event.message !== 'string' &&
+      event.message.content
+    ) {
       for (const part of event.message.content) {
         if (part.type === 'text') {
           updateFn(part.text || '', 'text');
@@ -127,8 +143,8 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
     else if (event.type === 'text' && event.content) {
        updateFn(event.content, 'text');
     }
-    else if (event.type === 'error' && (event as any).message) {
-       updateFn(`[Error] ${(event as any).message}`, 'system', 'error');
+    else if (event.type === 'error' && typeof event.message === 'string') {
+       updateFn(`[Error] ${event.message}`, 'system', 'error');
     }
     else if (event.type === 'user' && event.tool_use_result) {
       const result = event.tool_use_result;
@@ -145,8 +161,8 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
     
     if (event.session_id) setSessionId(event.session_id);
     if (event.sessionId) setSessionId(event.sessionId);
-    if ((event as any).thread_id) setSessionId((event as any).thread_id);
-    if ((event as any).threadId) setSessionId((event as any).threadId);
+    if (event.thread_id) setSessionId(event.thread_id);
+    if (event.threadId) setSessionId(event.threadId);
   }, []);
 
   const fetchHistory = useCallback(async (selectedModel: AIModel) => {
@@ -174,7 +190,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
       const res = await fetch(`/api/sessions/messages?sessionId=${id}&model=${model}`);
       const data = await res.json();
       if (data.success && data.messages) {
-        setMessages(data.messages.map((m: {id: any, role: any, content: string, type: string}) => ({
+        setMessages(data.messages.map((m: SessionMessagePayload) => ({
           id: m.id.toString(),
           role: m.role,
           content: m.content,
@@ -317,7 +333,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
                     updateAssistantMessage(assistantMsgId, fullContent, type, status);
                 });
             }
-          } catch (e) {
+          } catch {
               // Try to handle raw text if not JSON
               if (line.trim()) {
                   fullContent += line + '\n';

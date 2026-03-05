@@ -39,21 +39,54 @@ interface OfficeEditorProps {
   updateDraft?: (content: string) => void;
 }
 
+interface SheetCell {
+  v?: unknown;
+  m?: string;
+}
+
+type SheetRow = Record<string, SheetCell>;
+
+interface SheetSnapshot {
+  name?: string;
+  cellData?: Record<string, SheetRow>;
+}
+
+interface WorkbookSnapshot {
+  sheets: Record<string, SheetSnapshot>;
+}
+
+interface WorkbookUnit {
+  save: () => WorkbookSnapshot;
+}
+
+type UniverLike = Univer & {
+  getUniverInstance?: (type: UniverInstanceType) => WorkbookUnit | null;
+  __getInjector?: () => unknown;
+};
+
 export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<Univer | null>(null);
   const isInitialized = useRef(false); // New flag to track if Univer has been initialized
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const isInitializing = useRef(false);
 
   // Helper to sync Univer data to editor draft
   const syncToDraft = () => {
     if (!univerRef.current || !updateDraft || extension !== 'xlsx') return;
     
     try {
-        const univer = univerRef.current as any;
-        const workbook = univer.getUniverInstance?.(UniverInstanceType.UNIVER_SHEET) ?? univer.__getInjector?.().get?.('IUniverInstanceService')?.getUnit?.(UniverInstanceType.UNIVER_SHEET);
+        const univer = univerRef.current as UniverLike;
+        const injector = univer.__getInjector?.() as
+          | {
+              get?: (service: string) => {
+                getUnit?: (type: UniverInstanceType) => WorkbookUnit | null;
+              } | undefined;
+            }
+          | undefined;
+        const workbook =
+          univer.getUniverInstance?.(UniverInstanceType.UNIVER_SHEET) ??
+          injector?.get?.('IUniverInstanceService')?.getUnit?.(UniverInstanceType.UNIVER_SHEET);
         if (!workbook) return;
 
         const snapshot = workbook.save();
@@ -61,11 +94,11 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
         if (!sheet || !sheet.cellData) return;
 
         // Convert Univer cellData back to XLSX format
-        const data: any[][] = [];
-        Object.entries(sheet.cellData).forEach(([rStr, row]: [string, any]) => {
+        const data: unknown[][] = [];
+        Object.entries(sheet.cellData).forEach(([rStr, row]) => {
             const r = parseInt(rStr);
             if (!data[r]) data[r] = [];
-            Object.entries(row).forEach(([cStr, cell]: [string, any]) => {
+            Object.entries(row).forEach(([cStr, cell]) => {
                 const c = parseInt(cStr);
                 data[r][c] = cell.v;
             });
@@ -162,15 +195,16 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
           const workbook = XLSX.read(arrayBuffer, { type: 'array' });
           const sheetName = workbook.SheetNames[0] || 'Sheet1';
           const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as unknown[][];
           
-          const cellData: any = {};
-          jsonData.forEach((row: any, rIndex: number) => {
-            row.forEach((v: any, cIndex: number) => {
+          const cellData: Record<number, Record<number, { v: unknown; m: string }>> = {};
+          jsonData.forEach((row, rIndex: number) => {
+            row.forEach((v, cIndex: number) => {
               if (!cellData[rIndex]) cellData[rIndex] = {};
               cellData[rIndex][cIndex] = { v, m: String(v) };
             });
           });
+          const firstRowLength = Array.isArray(jsonData[0]) ? jsonData[0].length : 0;
 
           if (!alive) return;
 
@@ -183,7 +217,7 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
                 name: sheetName, 
                 cellData,
                 rowCount: Math.max(jsonData.length + 50, 100),
-                columnCount: Math.max((jsonData[0] as any)?.length + 20 || 30, 30),
+                columnCount: Math.max(firstRowLength + 20, 30),
               }
             }
           });
