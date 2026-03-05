@@ -28,7 +28,13 @@ interface DraftEntry {
   encrypted: boolean;
 }
 
-const DEFAULT_KEYS = ['GOOGLE_API_KEY', 'API_KEY', 'GEMINI_API_KEY', 'NANO_BANANA_API_KEY'];
+const DEFAULT_KEYS = [
+  'GOOGLE_API_KEY',
+  'API_KEY',
+  'GEMINI_API_KEY',
+  'NANO_BANANA_API_KEY',
+  'IMAGE_GENERATION_API_KEY',
+];
 
 function createDraftEntry(entry?: Partial<EnvEntry>): DraftEntry {
   return {
@@ -170,7 +176,7 @@ export function IntegrationsSettingsClient() {
         <CardHeader>
           <CardTitle>Integrations Settings</CardTitle>
           <CardDescription>
-            API-Keys und Env-Variablen für VEO 3 und Nano Banana. Datei liegt unter{' '}
+            API-Keys und Env-Variablen für VEO 3, Nano Banana und Image Generation. Datei liegt unter{' '}
             <span className="font-mono">{state?.path || '/home/node/canvas-integrations.env'}</span>.
           </CardDescription>
         </CardHeader>
