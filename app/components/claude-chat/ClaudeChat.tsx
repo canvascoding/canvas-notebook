@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Paperclip, X, Image as ImageIcon, History, Plus, ChevronLeft, ArrowDown, AlertTriangle, Cpu, Sparkles, Code, Trash2 } from 'lucide-react';
+import { Paperclip, X, Image as ImageIcon, History, Plus, ChevronLeft, ArrowDown, AlertTriangle, Cpu, Sparkles, Code, Trash2, Globe } from 'lucide-react';
+import { AGENT_CATALOG, type AgentId } from '@/app/lib/agents/catalog';
 
 interface Attachment {
   name: string;
@@ -56,7 +57,7 @@ interface ChatEvent {
 
 type UpdateFunction = (content: string, type?: string, status?: ChatMessage['status']) => void;
 
-type AIModel = 'claude' | 'gemini' | 'codex';
+type AIModel = AgentId;
 
 interface ClaudeChatProps {
   onClose?: () => void;
@@ -390,9 +391,11 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
                         onChange={(e) => handleModelChange(e.target.value as AIModel)}
                         className="bg-transparent text-xs font-bold focus:outline-none appearance-none cursor-pointer hover:text-primary pr-1"
                     >
-                        <option value="claude">Claude</option>
-                        <option value="gemini">Gemini</option>
-                        <option value="codex">Codex</option>
+                        {AGENT_CATALOG.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.label}
+                          </option>
+                        ))}
                     </select>
                     {!showHistory && sessionId && <span className="text-[10px] text-muted-foreground border-l border-border pl-1.5">#{sessionId.substring(0,4)}</span>}
                 </div>
@@ -467,6 +470,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
                     {model === 'claude' && <Sparkles size={48} />}
                     {model === 'gemini' && <Cpu size={48} />}
                     {model === 'codex' && <Code size={48} />}
+                    {model === 'openrouter' && <Globe size={48} />}
                     <div className="text-center">
                         <p className="text-sm font-bold uppercase tracking-widest mb-1">{model} Agent</p>
                         <p className="text-[11px] italic px-8">Ask {model} to help with your project</p>
@@ -529,7 +533,7 @@ export default function ClaudeChat({ onClose }: ClaudeChatProps) {
           <button 
             onClick={() => fileInputRef.current?.click()}
             className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
-            disabled={model === 'codex'} // Keep as requested
+            disabled={model === 'codex' || model === 'openrouter'}
           >
             <Paperclip className="h-5 w-5" />
           </button>

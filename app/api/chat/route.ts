@@ -6,6 +6,8 @@ import { getWorkspacePath, ensureWorkspaceExists } from '@/app/lib/utils/workspa
 import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages } from '@/app/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { type AgentId } from '@/app/lib/agents/catalog';
+import { getAgentRuntime, resolveAgentId } from '@/app/lib/agents/runtime';
 
 const cliAvailability = new Map<string, boolean>();
 
@@ -39,6 +41,124 @@ function checkCliAvailability(command: string): boolean {
   }
 }
 
+function buildPromptWithAttachments(promptText: string, attachments: ChatAttachment[]): string {
+  if (attachments.length === 0) {
+    return promptText;
+  }
+
+  const attachmentContext = attachments
+    .map((attachment) => `[Attachment: ${attachment.name} at path ${attachment.path}]`)
+    .join('\n');
+
+  return `${promptText}\n\nAttachments:\n${attachmentContext}\n\nPlease analyze the images/files at the absolute paths provided above.`.trim();
+}
+
+function createSessionId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function extractOpenRouterText(event: unknown): string {
+  if (!event || typeof event !== 'object') {
+    return '';
+  }
+
+  const parsed = event as {
+    choices?: Array<{
+      delta?: { content?: string | Array<{ text?: string } | string> };
+      message?: { content?: string };
+    }>;
+  };
+
+  const choice = parsed.choices?.[0];
+  if (!choice) {
+    return '';
+  }
+
+  if (typeof choice.delta?.content === 'string') {
+    return choice.delta.content;
+  }
+
+  if (Array.isArray(choice.delta?.content)) {
+    return choice.delta.content
+      .map((part) => {
+        if (typeof part === 'string') {
+          return part;
+        }
+        if (part && typeof part === 'object' && typeof part.text === 'string') {
+          return part.text;
+        }
+        return '';
+      })
+      .join('');
+  }
+
+  if (typeof choice.message?.content === 'string') {
+    return choice.message.content;
+  }
+
+  return '';
+}
+
+async function persistChatTurn(params: {
+  userId: string;
+  sessionId?: string | null;
+  model: AgentId;
+  promptText: string;
+  hasAttachments: boolean;
+  assistantText: string;
+}): Promise<void> {
+  const { userId, sessionId, model, promptText, hasAttachments, assistantText } = params;
+  if (!sessionId) {
+    return;
+  }
+
+  let dbSessionId: number | null = null;
+
+  const existingSessions = await db
+    .select()
+    .from(aiSessions)
+    .where(and(eq(aiSessions.sessionId, sessionId), eq(aiSessions.model, model)))
+    .limit(1);
+
+  if (existingSessions.length > 0) {
+    dbSessionId = existingSessions[0].id;
+  } else {
+    const titleSource = promptText || (hasAttachments ? 'Attachment analysis' : 'New chat');
+    const result = await db
+      .insert(aiSessions)
+      .values({
+        sessionId,
+        userId,
+        model,
+        title: titleSource.substring(0, 40) + (titleSource.length > 40 ? '...' : ''),
+        createdAt: new Date(),
+      })
+      .returning({ id: aiSessions.id });
+    dbSessionId = result[0].id;
+  }
+
+  if (!dbSessionId) {
+    return;
+  }
+
+  await db.insert(aiMessages).values({
+    aiSessionDbId: dbSessionId,
+    role: 'user',
+    content: promptText,
+    createdAt: new Date(),
+  });
+
+  if (assistantText) {
+    await db.insert(aiMessages).values({
+      aiSessionDbId: dbSessionId,
+      role: 'assistant',
+      content: assistantText,
+      type: 'result',
+      createdAt: new Date(),
+    });
+  }
+}
+
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -49,85 +169,205 @@ export async function POST(request: NextRequest) {
     const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'ai-chat' });
     if (!limited.ok) return limited.response;
 
-    const { message, sessionId, model = 'claude', attachments = [] } = await request.json();
-    const promptText = typeof message === 'string' ? message : '';
-    const parsedAttachments = Array.isArray(attachments)
-      ? attachments.filter(isChatAttachment)
+    const payload = await request.json();
+    const promptText = typeof payload?.message === 'string' ? payload.message : '';
+    const incomingModel = payload?.agentId ?? payload?.model;
+    const agentId = resolveAgentId(incomingModel);
+    const runtime = getAgentRuntime(agentId);
+    const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : null;
+    const parsedAttachments = Array.isArray(payload?.attachments)
+      ? payload.attachments.filter(isChatAttachment)
       : [];
     const hasAttachments = parsedAttachments.length > 0;
+
     if (!promptText && !hasAttachments) {
       return NextResponse.json({ success: false, error: 'Message or attachment required' }, { status: 400 });
     }
-    
-    const userWorkspacePath = getWorkspacePath(); 
-    await ensureWorkspaceExists(userWorkspacePath);
 
-    // Prepare final message with attachment references
-    let finalPrompt = promptText;
-    if (hasAttachments) {
-      const attachmentContext = parsedAttachments
-        .map((attachment) => `[Attachment: ${attachment.name} at path ${attachment.path}]`)
-        .join('\n');
-      finalPrompt = `${finalPrompt}\n\nAttachments:\n${attachmentContext}\n\nPlease analyze the images/files at the absolute paths provided above.`.trim();
-    }
-
-    let command = '';
-    let args: string[] = [];
-
-    if (model === 'claude') {
-      command = 'claude';
-      args = [
-        '-p', finalPrompt,
-        '--output-format', 'stream-json',
-        '--verbose',
-        '--dangerously-skip-permissions',
-        '--permission-mode', 'bypassPermissions',
-        '--allowedTools', 'read', '--allowedTools', 'ls', '--allowedTools', 'bash', 
-        '--allowedTools', 'write', '--allowedTools', 'edit', '--allowedTools', 'glob', 
-        '--allowedTools', 'grep'
-      ];
-      if (sessionId) args.push('--resume', sessionId);
-    } else if (model === 'gemini') {
-      command = 'gemini';
-      args = [
-        '-p', finalPrompt,
-        '--output-format', 'stream-json',
-        '--verbose',
-        '--yolo',
-        '--approval-mode', 'yolo'
-      ];
-      if (sessionId) args.push('--resume', sessionId);
-    } else if (model === 'codex') {
-      command = 'codex';
-      // We don't specify model to let it use the server default for ChatGPT accounts
-      args = [
-        'exec',
-        '--json',
-        '--skip-git-repo-check',
-        '--dangerously-bypass-approvals-and-sandbox',
-      ];
-      
-      if (sessionId) {
-        args.push('resume', sessionId, finalPrompt);
-      } else {
-        args.push(finalPrompt);
-      }
-    } else {
-      return NextResponse.json({ success: false, error: 'Invalid model' }, { status: 400 });
-    }
-
-    if (!checkCliAvailability(command)) {
+    if (runtime.kind === 'openrouter' && hasAttachments) {
       return NextResponse.json(
-        { success: false, error: `${model} CLI not found (${command}). Please install it or choose another model.` },
-        { status: 500 }
+        {
+          success: false,
+          error:
+            'OpenRouter is currently configured as text-only in this app. Please remove attachments for this agent.',
+        },
+        { status: 400 },
       );
     }
 
-    console.log(`[AI Chat] Executing: ${command} ${args.join(' ')}`);
+    const userWorkspacePath = getWorkspacePath();
+    await ensureWorkspaceExists(userWorkspacePath);
+
+    const finalPrompt = buildPromptWithAttachments(promptText, parsedAttachments);
+
+    if (runtime.kind === 'openrouter') {
+      const apiKey = process.env[runtime.apiKeyEnv]?.trim() || '';
+      if (!apiKey) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `${runtime.apiKeyEnv} is missing. Configure your OpenRouter API key first.`,
+          },
+          { status: 500 },
+        );
+      }
+
+      const extractedSessionId: string | null = sessionId || createSessionId('openrouter');
+      let finalResultText = '';
+      let streamClosed = false;
+
+      const encoder = new TextEncoder();
+      const responseStream = new ReadableStream({
+        start(controller) {
+          const safeClose = () => {
+            if (streamClosed) return;
+            streamClosed = true;
+            controller.close();
+          };
+
+          const push = (text: string) => {
+            try {
+              controller.enqueue(encoder.encode(text));
+            } catch {
+              // Stream already closed.
+            }
+          };
+
+          push(
+            JSON.stringify({
+              success: true,
+              sessionId: extractedSessionId,
+              model: agentId,
+            }) + '\n',
+          );
+
+          void (async () => {
+            try {
+              const upstream = await fetch(`${runtime.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${apiKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: runtime.model,
+                  stream: true,
+                  messages: [
+                    {
+                      role: 'user',
+                      content: finalPrompt,
+                    },
+                  ],
+                }),
+              });
+
+              if (!upstream.ok) {
+                const details = await upstream.text();
+                throw new Error(
+                  `OpenRouter request failed (${upstream.status}): ${details.slice(0, 400)}`,
+                );
+              }
+
+              if (!upstream.body) {
+                throw new Error('OpenRouter response body is empty.');
+              }
+
+              const reader = upstream.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = '';
+
+              while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                  break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const events = buffer.split('\n\n');
+                buffer = events.pop() || '';
+
+                for (const rawEvent of events) {
+                  const dataLines = rawEvent
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter((line) => line.startsWith('data:'));
+
+                  if (dataLines.length === 0) {
+                    continue;
+                  }
+
+                  const data = dataLines.map((line) => line.slice(5).trim()).join('\n');
+                  if (!data || data === '[DONE]') {
+                    continue;
+                  }
+
+                  try {
+                    const event = JSON.parse(data);
+                    const textChunk = extractOpenRouterText(event);
+                    if (!textChunk) {
+                      continue;
+                    }
+
+                    finalResultText += textChunk;
+                    push(
+                      JSON.stringify({
+                        type: 'assistant',
+                        message: { content: [{ type: 'text', text: textChunk }] },
+                        session_id: extractedSessionId,
+                      }) + '\n',
+                    );
+                  } catch {
+                    // Ignore malformed SSE chunks.
+                  }
+                }
+              }
+
+              await persistChatTurn({
+                userId: session.user.id,
+                sessionId: extractedSessionId,
+                model: agentId,
+                promptText,
+                hasAttachments,
+                assistantText: finalResultText,
+              });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              push(JSON.stringify({ type: 'error', message }) + '\n');
+            } finally {
+              safeClose();
+            }
+          })();
+        },
+      });
+
+      return new NextResponse(responseStream, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Transfer-Encoding': 'chunked',
+          'Cache-Control': 'no-cache, no-transform',
+        },
+      });
+    }
+
+    const command = runtime.command;
+    const args = runtime.buildArgs({ prompt: finalPrompt, sessionId });
+
+    if (!checkCliAvailability(command)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `CLI backend not found (${command}). Configure the command path or choose another agent.`,
+        },
+        { status: 500 },
+      );
+    }
+
+    console.log(`[AI Chat] Executing (${agentId}): ${command} ${args.join(' ')}`);
 
     const aiProcess = spawn(command, args, {
       cwd: userWorkspacePath,
-      stdio: ['ignore', 'pipe', 'pipe'], 
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     let extractedSessionId: string | null = sessionId || null;
@@ -146,12 +386,20 @@ export async function POST(request: NextRequest) {
         };
 
         const push = (text: string) => {
-          try { controller.enqueue(encoder.encode(text)); } catch {}
+          try {
+            controller.enqueue(encoder.encode(text));
+          } catch {
+            // Stream already closed.
+          }
         };
 
         aiProcess.on('error', (processError: Error) => {
-          console.error(`[${model} PROCESS] Failed to start`, processError);
-          push(JSON.stringify({ type: 'error', message: `${model} CLI failed to start: ${processError.message}` }) + '\n');
+          push(
+            JSON.stringify({
+              type: 'error',
+              message: `${agentId} CLI failed to start: ${processError.message}`,
+            }) + '\n',
+          );
           safeClose();
         });
 
@@ -162,81 +410,86 @@ export async function POST(request: NextRequest) {
 
           for (const line of lines) {
             if (!line.trim()) continue;
-            console.log(`[${model} STDOUT] ${line}`);
             try {
               const event = JSON.parse(line);
 
-              // 1. Session Extraction
-              if (model === 'claude' || model === 'gemini') {
+              if (runtime.parser === 'stream-json') {
                 if (event.session_id) {
                   extractedSessionId = event.session_id;
-                  console.log(`[${model}] Captured session_id: ${extractedSessionId}`);
                 }
-                if (event.type === 'result' && event.result) finalResultText = event.result;
-              } else if (model === 'codex') {
+                if (event.type === 'result' && event.result) {
+                  finalResultText = event.result;
+                }
+              } else {
                 if ((event.type === 'thread.started' || event.type === 'thread.resumed') && event.thread_id) {
                   extractedSessionId = event.thread_id;
-                  console.log(`[Codex] Captured thread_id: ${extractedSessionId}`);
                 }
               }
 
-              // 2. Initial Success Header
               if (!hasSentHeader) {
-                const header = JSON.stringify({
-                  success: true,
-                  sessionId: extractedSessionId || sessionId || 'new',
-                  model,
-                  initialEvent: event
-                });
-                console.log(`[${model}] Sending initial header: ${header}`);
-                push(header + '\n');
+                push(
+                  JSON.stringify({
+                    success: true,
+                    sessionId: extractedSessionId || sessionId || 'new',
+                    model: agentId,
+                    initialEvent: event,
+                  }) + '\n',
+                );
                 hasSentHeader = true;
               }
 
-              // 3. Mapping Codex events to Claude-like format for the UI
-              if (model === 'codex') {
+              if (runtime.parser === 'codex-jsonl') {
                 if (event.type === 'item.agentMessage.delta' && event.content?.text) {
                   finalResultText += event.content.text;
-                  push(JSON.stringify({ 
-                    type: 'assistant', 
-                    message: { content: [{ type: 'text', text: event.content.text }] },
-                    thread_id: extractedSessionId
-                  }) + '\n');
-                  continue; 
+                  push(
+                    JSON.stringify({
+                      type: 'assistant',
+                      message: { content: [{ type: 'text', text: event.content.text }] },
+                      thread_id: extractedSessionId,
+                    }) + '\n',
+                  );
+                  continue;
                 }
+
                 if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item.text) {
                   if (!finalResultText) {
                     finalResultText = event.item.text;
-                    push(JSON.stringify({ 
-                      type: 'assistant', 
-                      message: { content: [{ type: 'text', text: event.item.text }] },
-                      thread_id: extractedSessionId
-                    }) + '\n');
+                    push(
+                      JSON.stringify({
+                        type: 'assistant',
+                        message: { content: [{ type: 'text', text: event.item.text }] },
+                        thread_id: extractedSessionId,
+                      }) + '\n',
+                    );
                   }
                   continue;
                 }
+
                 if (event.type === 'error' || event.type === 'turn.failed') {
-                   push(JSON.stringify({ type: 'error', message: event.message || event.error?.message || 'Codex error' }) + '\n');
+                  push(
+                    JSON.stringify({
+                      type: 'error',
+                      message: event.message || event.error?.message || 'Codex error',
+                    }) + '\n',
+                  );
                 }
               } else {
-                // For Claude/Gemini, just push original events
                 push(line + '\n');
               }
             } catch {
-              // Handle potential raw text (progress indicators etc)
-              if (line.trim()) {
-                console.log(`[${model} RAW] ${line}`);
-                // If it looks like an error, treat it as one
-                if (line.includes('ERROR')) {
-                   push(JSON.stringify({ type: 'error', message: line }) + '\n');
-                } else {
-                   // Otherwise stream as text delta
-                   push(JSON.stringify({ 
-                     type: 'assistant', 
-                     message: { content: [{ type: 'text', text: line + '\n' }] },
-                     thread_id: extractedSessionId
-                   }) + '\n');
-                }
+              if (!line.trim()) {
+                continue;
+              }
+              if (line.includes('ERROR')) {
+                push(JSON.stringify({ type: 'error', message: line }) + '\n');
+              } else {
+                push(
+                  JSON.stringify({
+                    type: 'assistant',
+                    message: { content: [{ type: 'text', text: `${line}\n` }] },
+                    thread_id: extractedSessionId,
+                  }) + '\n',
+                );
               }
             }
           }
@@ -244,69 +497,27 @@ export async function POST(request: NextRequest) {
 
         aiProcess.stderr.on('data', (data: Buffer) => {
           const errStr = data.toString();
-          console.error(`[${model} STDERR] ${errStr}`);
-          // Many CLI tools write progress/warnings to stderr
           if (errStr.toLowerCase().includes('error')) {
             push(JSON.stringify({ type: 'error', message: errStr }) + '\n');
           }
         });
 
         aiProcess.on('close', async (code: number | null) => {
-          console.log(`[${model} PROCESS] Closed with code ${code}`);
           try {
-            let dbSessionId: number | null = null;
-            const targetSessionId = extractedSessionId || sessionId;
-            console.log(`[${model}] Final persistence check. targetSessionId: ${targetSessionId}, model: ${model}`);
-            
-            if (targetSessionId) {
-              const existingSessions = await db
-                .select()
-                .from(aiSessions)
-                .where(and(eq(aiSessions.sessionId, targetSessionId), eq(aiSessions.model, model)))
-                .limit(1);
-
-              if (existingSessions.length > 0) {
-                dbSessionId = existingSessions[0].id;
-                console.log(`[${model}] Found existing session in DB: ${dbSessionId}`);
-              } else {
-                console.log(`[${model}] Creating NEW session in DB for ID: ${targetSessionId}`);
-                const titleSource = promptText || (hasAttachments ? 'Attachment analysis' : 'New chat');
-                const result = await db.insert(aiSessions).values({
-                  sessionId: targetSessionId,
-                  userId: session.user.id,
-                  model: model,
-                  title: titleSource.substring(0, 40) + (titleSource.length > 40 ? '...' : ''),
-                  createdAt: new Date(),
-                }).returning({ id: aiSessions.id });
-                dbSessionId = result[0].id;
-              }
-            }
-
-            if (dbSessionId) {
-              console.log(`[${model}] Saving user message to DB session ${dbSessionId}`);
-              await db.insert(aiMessages).values({
-                aiSessionDbId: dbSessionId,
-                role: 'user',
-                content: promptText,
-                createdAt: new Date(),
-              });
-
-              if (finalResultText) {
-                console.log(`[${model}] Saving assistant message to DB (length: ${finalResultText.length})`);
-                await db.insert(aiMessages).values({
-                  aiSessionDbId: dbSessionId,
-                  role: 'assistant',
-                  content: finalResultText,
-                  type: 'result',
-                  createdAt: new Date(),
-                });
-              }
-            }
+            await persistChatTurn({
+              userId: session.user.id,
+              sessionId: extractedSessionId || sessionId,
+              model: agentId,
+              promptText,
+              hasAttachments,
+              assistantText: finalResultText,
+            });
           } catch (dbErr) {
             console.error('[AI Chat] DB Persistence Error:', dbErr);
           }
+
           if (code !== 0 && !hasSentHeader) {
-            push(JSON.stringify({ type: 'error', message: `${model} CLI exited with code ${String(code)}` }) + '\n');
+            push(JSON.stringify({ type: 'error', message: `${agentId} CLI exited with code ${String(code)}` }) + '\n');
           }
           safeClose();
         });
@@ -321,7 +532,6 @@ export async function POST(request: NextRequest) {
         'Cache-Control': 'no-cache, no-transform',
       },
     });
-
   } catch (error) {
     console.error('[API] AI chat error:', error);
     return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
