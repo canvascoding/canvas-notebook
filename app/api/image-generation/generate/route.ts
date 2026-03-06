@@ -5,7 +5,7 @@ import { auth } from '@/app/lib/auth';
 import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
-import { getImageGenerationApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
+import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
   IMAGE_GENERATION_OUTPUT_DIR,
   createImageGenerationOutputFilename,
@@ -194,13 +194,12 @@ export async function POST(request: NextRequest) {
       return limited.response;
     }
 
-    const apiKey = await getImageGenerationApiKeyFromIntegrations();
+    const apiKey = await getGeminiApiKeyFromIntegrations();
     if (!apiKey) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            'Image generation API key is missing. Configure IMAGE_GENERATION_API_KEY (or NANO_BANANA_API_KEY / GOOGLE_API_KEY / API_KEY / GEMINI_API_KEY) in /settings.',
+          error: 'Gemini API key is missing. Configure GEMINI_API_KEY in /settings.',
         },
         { status: 400 }
       );
