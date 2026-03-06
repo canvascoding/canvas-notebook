@@ -24,14 +24,14 @@ type OpenRouterProviderConfig = {
   enabled: boolean;
   baseUrl: string;
   model: string;
-  apiKeySource: 'integrations-env';
+  apiKeySource: 'agents-env';
 };
 
 type OllamaProviderConfig = {
   enabled: boolean;
   baseUrl: string;
   model: string;
-  apiKeySource: 'integrations-env';
+  apiKeySource: 'agents-env';
 };
 
 type AgentRuntimeConfig = {
@@ -75,7 +75,7 @@ type AgentConfigReadiness = {
   activeProviderReady: boolean;
   openRouterKey: {
     isSet: boolean;
-    source: 'integrations-env' | null;
+    source: 'agents-env' | null;
     last4: string | null;
     warnings: string[];
   };
@@ -637,7 +637,7 @@ export function AgentSettingsPanel() {
                   </div>
 
                   <p className="mt-2 text-xs text-muted-foreground">
-                    API-Keys werden zentral im Tab `Integrations` in `/home/node/canvas-integrations.env` verwaltet.
+                    API-Keys werden zentral im Tab `Integrations` in `/home/node/Canvas-Agents.env` verwaltet.
                   </p>
 
                   <p className="mt-1 text-xs text-muted-foreground">

@@ -333,7 +333,7 @@ async function resolveRuntime(binding: ChatProviderBinding): Promise<{ runtime: 
         errorResponse: NextResponse.json(
           {
             success: false,
-            error: 'OpenRouter key missing. Configure the key in integrations or OPENROUTER_API_KEY.',
+            error: 'OpenRouter key missing. Configure the key in Agent Environment or OPENROUTER_API_KEY.',
           },
           { status: 503 },
         ),

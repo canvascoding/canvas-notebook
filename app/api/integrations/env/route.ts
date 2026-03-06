@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import {
-  readIntegrationsEnvState,
-  replaceIntegrationsEntries,
-  writeIntegrationsRaw,
+  type EnvScope,
+  readScopedEnvState,
+  replaceScopedEnvEntries,
+  writeScopedEnvRaw,
 } from '@/app/lib/integrations/env-config';
+import { migrateLegacyAgentEnvIfNeeded } from '@/app/lib/agents/storage';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 interface KeyValueEntry {
@@ -13,9 +15,14 @@ interface KeyValueEntry {
 }
 
 interface PutPayload {
+  scope?: EnvScope;
   mode?: 'kv' | 'raw';
   entries?: KeyValueEntry[];
   rawContent?: string;
+}
+
+function parseScope(value: string | null | undefined): EnvScope {
+  return value === 'agents' ? 'agents' : 'integrations';
 }
 
 async function requireSession(request: NextRequest) {
@@ -33,20 +40,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const scope = parseScope(request.nextUrl.searchParams.get('scope'));
     const limited = rateLimit(request, {
       limit: 60,
       windowMs: 60_000,
-      keyPrefix: 'integrations-env-get',
+      keyPrefix: `integrations-env-get:${scope}`,
     });
     if (!limited.ok) {
       return limited.response;
     }
 
-    const state = await readIntegrationsEnvState();
+    await migrateLegacyAgentEnvIfNeeded();
+    const state = await readScopedEnvState(scope);
     return NextResponse.json({ success: true, data: state });
   } catch (error) {
     console.error('[API] integrations/env GET error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to read integrations env file';
+    const message = error instanceof Error ? error.message : 'Failed to read env file';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
@@ -58,31 +67,34 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
+    const requestScope = parseScope(request.nextUrl.searchParams.get('scope'));
     const limited = rateLimit(request, {
       limit: 30,
       windowMs: 60_000,
-      keyPrefix: 'integrations-env-put',
+      keyPrefix: `integrations-env-put:${requestScope}`,
     });
     if (!limited.ok) {
       return limited.response;
     }
 
     const payload = (await request.json()) as PutPayload;
+    const scope = parseScope(payload.scope ?? requestScope);
     const mode = payload.mode || 'kv';
 
+    await migrateLegacyAgentEnvIfNeeded();
+
     if (mode === 'raw') {
-      await writeIntegrationsRaw(payload.rawContent ?? '');
-      const updated = await readIntegrationsEnvState();
+      await writeScopedEnvRaw(scope, payload.rawContent ?? '');
+      const updated = await readScopedEnvState(scope);
       return NextResponse.json({ success: true, data: updated });
     }
 
     const entries = Array.isArray(payload.entries) ? payload.entries : [];
-    const updated = await replaceIntegrationsEntries(entries);
+    const updated = await replaceScopedEnvEntries(scope, entries);
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
     console.error('[API] integrations/env PUT error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to update integrations env file';
+    const message = error instanceof Error ? error.message : 'Failed to update env file';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-
