@@ -9,7 +9,7 @@ import { auth } from '@/app/lib/auth';
 import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
-import { getGoogleApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
+import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
   VEO_OUTPUT_DIR,
   createVeoOutputFilename,
@@ -172,13 +172,12 @@ export async function POST(request: NextRequest) {
       return limited.response;
     }
 
-    const apiKey = await getGoogleApiKeyFromIntegrations();
+    const apiKey = await getGeminiApiKeyFromIntegrations();
     if (!apiKey) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            'Google API key is missing. Configure GOOGLE_API_KEY (or API_KEY / GEMINI_API_KEY) in /settings.',
+          error: 'Gemini API key is missing. Configure GEMINI_API_KEY in /settings.',
         },
         { status: 400 }
       );
@@ -323,4 +322,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

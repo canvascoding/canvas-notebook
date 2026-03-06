@@ -4,7 +4,7 @@ import { auth } from '@/app/lib/auth';
 import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
-import { getNanoBananaApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
+import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
   NANO_BANANA_ROOT_DIR,
   NANO_BANANA_OUTPUT_DIR,
@@ -181,13 +181,12 @@ export async function POST(request: NextRequest) {
       return limited.response;
     }
 
-    const apiKey = await getNanoBananaApiKeyFromIntegrations();
+    const apiKey = await getGeminiApiKeyFromIntegrations();
     if (!apiKey) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            'Nano Banana API key is missing. Configure NANO_BANANA_API_KEY (or GOOGLE_API_KEY / API_KEY / GEMINI_API_KEY) in /settings.',
+          error: 'Gemini API key is missing. Configure GEMINI_API_KEY in /settings.',
         },
         { status: 400 }
       );
