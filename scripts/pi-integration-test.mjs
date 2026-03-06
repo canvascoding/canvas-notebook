@@ -1,0 +1,165 @@
+const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+const loginEmail = process.env.TEST_LOGIN_EMAIL || 'admin.com';
+const loginPassword = process.env.TEST_LOGIN_PASSWORD || 'change-me';
+
+async function request(path, options = {}) {
+  const response = await fetch(`${baseUrl}${path}`, options);
+  const contentType = response.headers.get('content-type') || '';
+  const body = contentType.includes('application/json') ? await response.json() : null;
+  return { response, body };
+}
+
+function getCookieHeader(response) {
+  const setCookies = typeof response.headers.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : [response.headers.get('set-cookie')].filter(Boolean);
+
+  if (!setCookies.length) {
+    return '';
+  }
+
+  return setCookies.map((cookie) => cookie.split(';', 1)[0]).join('; ');
+}
+
+async function signIn() {
+  console.log(`[PI Test] Signing in as ${loginEmail}...`);
+  const login = await request('/api/auth/sign-in/email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: baseUrl,
+    },
+    body: JSON.stringify({
+      email: loginEmail,
+      password: loginPassword,
+    }),
+  });
+
+  if (!login.response.ok) {
+    throw new Error(`Login failed: ${login.response.status}`);
+  }
+
+  const cookie = getCookieHeader(login.response);
+  if (!cookie) {
+    throw new Error('Missing auth cookies');
+  }
+
+  console.log('[PI Test] Signed in successfully.');
+  return cookie;
+}
+
+async function testConfig(cookie) {
+  console.log('[PI Test] Testing /api/agents/config...');
+  const getCfg = await request('/api/agents/config', { headers: { cookie } });
+  if (!getCfg.response.ok) throw new Error('GET config failed');
+  console.log('[PI Test] Config engine:', getCfg.body.data.engine);
+
+  const piConfig = getCfg.body.data.piConfig;
+  const putCfg = await request('/api/agents/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({ piConfig: { ...piConfig, updatedAt: new Date().toISOString() } }),
+  });
+  if (!putCfg.response.ok) throw new Error('PUT config failed');
+  console.log('[PI Test] Config update successful.');
+}
+
+async function testSessions(cookie) {
+  console.log('[PI Test] Testing /api/sessions...');
+  // Create
+  const create = await request('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({ title: 'Integration PI Session' }),
+  });
+  if (!create.response.ok) throw new Error('Session creation failed');
+  const sessionId = create.body.session.sessionId;
+  console.log('[PI Test] Created session:', sessionId);
+
+  // List
+  const list = await request('/api/sessions', { headers: { cookie } });
+  if (!list.response.ok) throw new Error('Session listing failed');
+  const found = list.body.sessions.find(s => s.sessionId === sessionId);
+  if (!found) throw new Error('Created session not found in list');
+
+  // Rename
+  const patch = await request('/api/sessions', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({ sessionId, title: 'Renamed PI Session' }),
+  });
+  if (!patch.response.ok) throw new Error('Session rename failed');
+
+  return sessionId;
+}
+
+async function testStream(cookie, sessionId) {
+  console.log('[PI Test] Testing /api/stream (with 30s timeout)...');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'echo hello' }],
+        sessionId,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Stream request failed: ${response.status} - ${errorText}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let hasText = false;
+    let hasAgentEnd = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
+          hasText = true;
+        }
+        if (event.type === 'agent_end') {
+          hasAgentEnd = true;
+        }
+      }
+    }
+
+    if (!hasText) console.warn('[PI Test] WARNING: Stream did not return any text deltas (maybe missing API key?)');
+    if (!hasAgentEnd) throw new Error('Stream did not return agent_end event');
+    console.log('[PI Test] Stream check passed.');
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Stream request timed out after 30s');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function run() {
+  try {
+    const cookie = await signIn();
+    await testConfig(cookie);
+    const sessionId = await testSessions(cookie);
+    await testStream(cookie, sessionId);
+    console.log('[PI Test] All integration tests passed! 🚀');
+  } catch (error) {
+    console.error('[PI Test] FAILED:', error.message);
+    process.exit(1);
+  }
+}
+
+run();

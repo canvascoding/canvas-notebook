@@ -12,7 +12,7 @@
 - `server/`: custom Node server for WebSocket terminal.
 - `scripts/`: build/deploy/test helpers.
 
-## TASK: agent implementieren
+## TASK: PI Agent von Mariozechner integrieren
 
 - Diese Regeln gelten für alle Arbeiten an der neuen Agent-Logik.
 - UI- und End-to-End-Prüfungen mit Playwright oder Chrome DevTools durchführen.
@@ -22,6 +22,10 @@
 - commmit sauber die einzelnen fertigen to dos, aber nicht pushen. 
 - login für die app ist email: admin.com und psw: change-me
 - mach mit keinem to do weiter wenn der vorherige to do noch nicht fertig ist
+- update immer /Users/frankalexanderweber/.openclaw/workspace-mango-jerry/canvasstudios-notebook/docs/pi-first-implementation-todo.json damit wir up to date bleiben
+- arbeite proaktiv, mach commits zwischendurch und mach noch keine weitere task bevor eine wichtige task fertig ist. 
+- teste auch das UI wenn du etwas integrierst.
+- /Users/frankalexanderweber/.openclaw/workspace-mango-jerry/canvasstudios-notebook/docs/pi-first-migration-plan.md hier liegt der komplette plan für den generellen overview. 
 
 ## Build, Test, and Development Commands
 - `npm run dev`: local dev server (set `PORT=3001` if needed).

@@ -1,0 +1,545 @@
+{
+  "title": "PI-first Agent Replacement Todo",
+  "version": 1,
+  "createdAt": "2026-03-06",
+  "status": "completed",
+  "decisions": {
+    "engineStrategy": "pi-first",
+    "primaryLibraries": [
+      "@mariozechner/pi-ai",
+      "@mariozechner/pi-agent-core"
+    ],
+    "uiStrategy": "integrate pi runtime into existing chat components",
+    "settingsStrategy": "provider/model/thinking config editable in existing web settings",
+    "piWebUiPriority": "later",
+    "piTuiPriority": "optional",
+    "legacyStrategy": "full replacement of existing AI agent logic after cutover validation",
+    "runtimeMixPolicy": "no legacy and pi backend mix in main branch",
+    "cutoverPolicy": "hard cutover with deletion of legacy backend agent code",
+    "upstreamUpdatePolicy": "keep mario packages unmodified and adapt in local integration layer"
+  },
+  "testProtocol": {
+    "containerPolicy": [
+      "Use one test container only",
+      "Always rebuild and recreate before manual test runs",
+      "Run app on port 3000 for manual tests"
+    ],
+    "commands": [
+      "docker compose down --remove-orphans",
+      "docker compose up -d --build --force-recreate",
+      "docker compose ps",
+      "E2E_EXTERNAL_SERVER=1 BASE_URL=http://localhost:3000 npm run test:integration:pi"
+    ],
+    "appLogin": {
+      "email": "admin.com",
+      "password": "change-me"
+    }
+  },
+  "tasks": [
+    {
+      "id": "pi-001",
+      "order": 1,
+      "phase": "P0 Scope Lock",
+      "title": "Create PI-first ADR with fixed non-goals and migration boundaries",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": []
+    },
+    {
+      "id": "pi-002",
+      "order": 2,
+      "phase": "P0 Scope Lock",
+      "title": "Define canonical runtime owner modules for model, keys, tools, and sessions",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-001"
+      ]
+    },
+    {
+      "id": "pi-003",
+      "order": 3,
+      "phase": "P1 Dependencies",
+      "title": "Add @mariozechner/pi-ai and @mariozechner/pi-agent-core dependencies",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-002"
+      ]
+    },
+    {
+      "id": "pi-004",
+      "order": 4,
+      "phase": "P1 Dependencies",
+      "title": "Add temporary migration flag AI_AGENT_ENGINE for branch validation only (must be removed before merge)",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-003"
+      ]
+    },
+    {
+      "id": "pi-005",
+      "order": 5,
+      "phase": "P1 Dependencies",
+      "title": "Add typed PI runtime config schema (provider, model, thinking, enabled tools)",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-004"
+      ]
+    },
+    {
+      "id": "pi-006",
+      "order": 6,
+      "phase": "P2 Config and Settings",
+      "title": "Extend agent runtime storage to persist PI config in /home/node/canvas-agent",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-005"
+      ]
+    },
+    {
+      "id": "pi-007",
+      "order": 7,
+      "phase": "P2 Config and Settings",
+      "title": "Implement provider/model discovery helpers using pi-ai registry APIs",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-006"
+      ]
+    },
+    {
+      "id": "pi-008",
+      "order": 8,
+      "phase": "P2 Config and Settings",
+      "title": "Update /api/agents/config contract to include PI fields and discovered model metadata",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-007"
+      ]
+    },
+    {
+      "id": "pi-009",
+      "order": 9,
+      "phase": "P2 Config and Settings",
+      "title": "Update Agent Settings UI to edit provider, model, and thinking level for PI runtime",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-008"
+      ]
+    },
+    {
+      "id": "pi-010",
+      "order": 10,
+      "phase": "P2 Config and Settings",
+      "title": "Add validation and clear errors for invalid provider/model combinations",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-009"
+      ]
+    },
+    {
+      "id": "pi-011",
+      "order": 11,
+      "phase": "P2 Config and Settings",
+      "title": "Expand Agent Doctor checks for PI provider auth and model availability",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-010"
+      ]
+    },
+    {
+      "id": "pi-012",
+      "order": 12,
+      "phase": "P3 PI Runtime Server",
+      "title": "Create server-only PI model resolver from stored config",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-011"
+      ]
+    },
+    {
+      "id": "pi-013",
+      "order": 13,
+      "phase": "P3 PI Runtime Server",
+      "title": "Create server-only API key resolver for selected provider using existing env stores",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-012"
+      ]
+    },
+    {
+      "id": "pi-014",
+      "order": 14,
+      "phase": "P3 PI Runtime Server",
+      "title": "Create PI tool registry with current workspace-safe tools",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-013"
+      ]
+    },
+    {
+      "id": "pi-015",
+      "order": 15,
+      "phase": "P3 PI Runtime Server",
+      "title": "Implement new /api/stream endpoint compatible with pi-agent-core streamProxy protocol",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-014"
+      ]
+    },
+    {
+      "id": "pi-016",
+      "order": 16,
+      "phase": "P3 PI Runtime Server",
+      "title": "Implement abort handling and partial message completion semantics",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-015"
+      ]
+    },
+    {
+      "id": "pi-017",
+      "order": 17,
+      "phase": "P3 PI Runtime Server",
+      "title": "Implement unified error mapping for provider, auth, and tool execution failures",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-016"
+      ]
+    },
+    {
+      "id": "pi-018",
+      "order": 18,
+      "phase": "P4 Session Storage Migration",
+      "title": "Define new DB/session persistence format for PI AgentMessage context",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-017"
+      ]
+    },
+    {
+      "id": "pi-019",
+      "order": 19,
+      "phase": "P4 Session Storage Migration",
+      "title": "Implement serializer/deserializer for PI context snapshots",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-018"
+      ]
+    },
+    {
+      "id": "pi-020",
+      "order": 20,
+      "phase": "P4 Session Storage Migration",
+      "title": "Update /api/sessions and /api/sessions/messages to load/save PI context data",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-019"
+      ]
+    },
+    {
+      "id": "pi-021",
+      "order": 21,
+      "phase": "P4 Session Storage Migration",
+      "title": "Add migration path for legacy sessions (best effort transform or explicit cutover marker)",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-020"
+      ]
+    },
+    {
+      "id": "pi-022",
+      "order": 22,
+      "phase": "P4 Session Storage Migration",
+      "title": "Keep provider-per-session pinning with PI model metadata",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-021"
+      ]
+    },
+    {
+      "id": "pi-023",
+      "order": 23,
+      "phase": "P5 Existing Chat Integration",
+      "title": "Integrate pi-agent-core into existing chat components without adopting pi-web-ui",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-022"
+      ]
+    },
+    {
+      "id": "pi-024",
+      "order": 24,
+      "phase": "P5 Existing Chat Integration",
+      "title": "Replace frontend parser logic to consume PI proxy stream events",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-023"
+      ]
+    },
+    {
+      "id": "pi-025",
+      "order": 25,
+      "phase": "P5 Existing Chat Integration",
+      "title": "Render text deltas, thinking blocks, and tool execution updates in current chat UI",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-024"
+      ]
+    },
+    {
+      "id": "pi-026",
+      "order": 26,
+      "phase": "P5 Existing Chat Integration",
+      "title": "Ensure attachment flow stays compatible with PI user-with-attachments messages",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-025"
+      ]
+    },
+    {
+      "id": "pi-027",
+      "order": 27,
+      "phase": "P5 Existing Chat Integration",
+      "title": "Implement resume/continue behavior against stored PI session context",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-026"
+      ]
+    },
+    {
+      "id": "pi-028",
+      "order": 28,
+      "phase": "P6 API and Route Replacement",
+      "title": "Cut /api/chat over to PI runtime path",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-027"
+      ]
+    },
+    {
+      "id": "pi-029",
+      "order": 29,
+      "phase": "P6 API and Route Replacement",
+      "title": "Delete legacy provider-specific chat branches (CLI/OpenRouter/Ollama custom stream code)",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-028"
+      ]
+    },
+    {
+      "id": "pi-030",
+      "order": 30,
+      "phase": "P6 API and Route Replacement",
+      "title": "Remove obsolete runtime resolver paths not used by PI engine",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-029"
+      ]
+    },
+    {
+      "id": "pi-033",
+      "order": 33,
+      "phase": "P8 Security and Robustness",
+      "title": "Ensure no provider keys or oauth tokens are exposed in API responses, logs, or client state",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-030"
+      ]
+    },
+    {
+      "id": "pi-034",
+      "order": 34,
+      "phase": "P8 Security and Robustness",
+      "title": "Add input validation for PI stream request payloads and tool arguments",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-033"
+      ]
+    },
+    {
+      "id": "pi-035",
+      "order": 35,
+      "phase": "P8 Security and Robustness",
+      "title": "Add rate limits for new PI endpoints and keep existing auth gates",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-034"
+      ]
+    },
+    {
+      "id": "pi-036",
+      "order": 36,
+      "phase": "P9 Verification",
+      "title": "Add/refresh integration tests for PI stream endpoint and session persistence",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-035"
+      ]
+    },
+    {
+      "id": "pi-037",
+      "order": 37,
+      "phase": "P9 Verification",
+      "title": "Create Playwright e2e specs for login, provider/model update, chat send, session resume",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-036"
+      ]
+    },
+    {
+      "id": "pi-038",
+      "order": 38,
+      "phase": "P9 Verification",
+      "title": "Run full container-based manual regression protocol on port 3000",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-037"
+      ]
+    },
+    {
+      "id": "pi-039",
+      "order": 39,
+      "phase": "P10 Cutover",
+      "title": "Remove runtime switching and keep PI-only backend runtime",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-038"
+      ]
+    },
+    {
+      "id": "pi-040",
+      "order": 40,
+      "phase": "P10 Cutover",
+      "title": "Delete legacy chat routes and dead code after successful PI validation",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-039"
+      ]
+    },
+    {
+      "id": "pi-041",
+      "order": 41,
+      "phase": "P10 Cutover",
+      "title": "Update README and operator docs for PI runtime operation and troubleshooting",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-040"
+      ]
+    },
+    {
+      "id": "pi-042",
+      "order": 42,
+      "phase": "P10 Cutover",
+      "title": "Final acceptance sign-off against all must tasks and test protocol",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-041",
+        "pi-048"
+      ]
+    },
+    {
+      "id": "pi-043",
+      "order": 43,
+      "phase": "P10 Cutover",
+      "title": "Add CI guard to fail if legacy backend chat routes still exist",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-040"
+      ]
+    },
+    {
+      "id": "pi-044",
+      "order": 44,
+      "phase": "P10 Cutover",
+      "title": "Add CI guard to fail on legacy agent runtime imports/usages",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-043"
+      ]
+    },
+    {
+      "id": "pi-045",
+      "order": 45,
+      "phase": "P10 Cutover",
+      "title": "Add no-legacy grep checks into lint/test-all pipeline",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-044"
+      ]
+    },
+    {
+      "id": "pi-046",
+      "order": 46,
+      "phase": "P10 Cutover",
+      "title": "Document upstream update workflow (version bump, changelog review, regression run)",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-045"
+      ]
+    },
+    {
+      "id": "pi-047",
+      "order": 47,
+      "phase": "P10 Cutover",
+      "title": "Add policy doc: no direct source edits in mario packages; adapters first, temporary patch-package only if unavoidable",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-046"
+      ]
+    },
+    {
+      "id": "pi-048",
+      "order": 48,
+      "phase": "P10 Cutover",
+      "title": "Remove temporary migration flag AI_AGENT_ENGINE and all legacy runtime env knobs",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-047"
+      ]
+    }
+  ]
+}

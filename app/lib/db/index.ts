@@ -106,6 +106,27 @@ CREATE TABLE IF NOT EXISTS ai_messages (
   FOREIGN KEY (ai_session_db_id) REFERENCES ai_sessions(id) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 
+CREATE TABLE IF NOT EXISTS pi_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  session_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  title TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+
+CREATE TABLE IF NOT EXISTS pi_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  pi_session_db_id INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS user_email_unique ON user (email);
 CREATE UNIQUE INDEX IF NOT EXISTS session_token_unique ON session (token);
 `);
