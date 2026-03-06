@@ -48,16 +48,18 @@ const AGENT_SETTINGS_ENV_KEYS = {
   openRouterEnabled: 'AGENT_OPENROUTER_ENABLED',
   openRouterBaseUrl: 'AGENT_OPENROUTER_BASE_URL',
   openRouterModel: 'AGENT_OPENROUTER_MODEL',
-  openRouterApiKeySource: 'AGENT_OPENROUTER_API_KEY_SOURCE',
   ollamaEnabled: 'AGENT_OLLAMA_ENABLED',
   ollamaBaseUrl: 'AGENT_OLLAMA_BASE_URL',
   ollamaModel: 'AGENT_OLLAMA_MODEL',
-  ollamaApiKeySource: 'AGENT_OLLAMA_API_KEY_SOURCE',
   doctorEnableLivePing: 'AGENT_DOCTOR_ENABLE_LIVE_PING',
   doctorTimeoutMs: 'AGENT_DOCTOR_TIMEOUT_MS',
 } as const;
 
-const AGENT_SETTINGS_ENV_KEY_SET = new Set<string>(Object.values(AGENT_SETTINGS_ENV_KEYS));
+const LEGACY_AGENT_SETTINGS_ENV_KEYS = ['AGENT_OPENROUTER_API_KEY_SOURCE', 'AGENT_OLLAMA_API_KEY_SOURCE'] as const;
+const AGENT_SETTINGS_ENV_KEY_SET = new Set<string>([
+  ...Object.values(AGENT_SETTINGS_ENV_KEYS),
+  ...LEGACY_AGENT_SETTINGS_ENV_KEYS,
+]);
 
 type RecordLike = Record<string, unknown>;
 
@@ -65,7 +67,7 @@ export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentProviderId = 'codex-cli' | 'claude-cli' | 'openrouter' | 'ollama';
 export type AgentProviderKind = 'cli' | 'openrouter' | 'ollama';
 export type OpenRouterApiKeySource = 'integrations-env';
-export type OllamaApiKeySource = 'none' | 'integrations-env';
+export type OllamaApiKeySource = 'integrations-env';
 
 export type CliProviderConfig = {
   enabled: boolean;
@@ -247,46 +249,6 @@ function parseProviderId(value: unknown): AgentProviderId | null {
   return providerAliases[value];
 }
 
-function normalizeOpenRouterApiKeySource(
-  value: unknown,
-  fallback: OpenRouterApiKeySource
-): OpenRouterApiKeySource {
-  if (value === 'integrations-env') {
-    return 'integrations-env';
-  }
-  if (value === 'process-env') {
-    return 'integrations-env';
-  }
-  return fallback;
-}
-
-function normalizeOllamaApiKeySource(value: unknown, fallback: OllamaApiKeySource): OllamaApiKeySource {
-  if (value === 'none' || value === 'integrations-env') {
-    return value;
-  }
-  if (value === 'process-env') {
-    return 'integrations-env';
-  }
-  return fallback;
-}
-
-function parseOpenRouterApiKeySource(value: string | undefined): OpenRouterApiKeySource | null {
-  if (value === 'integrations-env' || value === 'process-env') {
-    return 'integrations-env';
-  }
-  return null;
-}
-
-function parseOllamaApiKeySource(value: string | undefined): OllamaApiKeySource | null {
-  if (value === 'none' || value === 'integrations-env') {
-    return value;
-  }
-  if (value === 'process-env') {
-    return 'integrations-env';
-  }
-  return null;
-}
-
 function assertValidUrl(value: string, fieldName: string): void {
   try {
     const parsed = new URL(value);
@@ -363,7 +325,7 @@ function normalizeOpenRouterProviderConfig(
     throw new AgentConfigValidationError('providers.openrouter.model must not be empty.');
   }
 
-  const apiKeySource = normalizeOpenRouterApiKeySource(candidate.apiKeySource, fallback.apiKeySource);
+  const apiKeySource: OpenRouterApiKeySource = 'integrations-env';
 
   return {
     enabled,
@@ -400,7 +362,7 @@ function normalizeOllamaProviderConfig(
     throw new AgentConfigValidationError('providers.ollama.model must not be empty.');
   }
 
-  const apiKeySource = normalizeOllamaApiKeySource(candidate.apiKeySource, fallback.apiKeySource);
+  const apiKeySource: OllamaApiKeySource = 'integrations-env';
 
   return {
     enabled,
@@ -637,17 +599,9 @@ function buildAgentSettingsEnvEntries(config: AgentRuntimeConfig): Array<{ key: 
     { key: AGENT_SETTINGS_ENV_KEYS.openRouterEnabled, value: toEnvBoolean(config.providers.openrouter.enabled) },
     { key: AGENT_SETTINGS_ENV_KEYS.openRouterBaseUrl, value: config.providers.openrouter.baseUrl },
     { key: AGENT_SETTINGS_ENV_KEYS.openRouterModel, value: config.providers.openrouter.model },
-    {
-      key: AGENT_SETTINGS_ENV_KEYS.openRouterApiKeySource,
-      value: config.providers.openrouter.apiKeySource,
-    },
     { key: AGENT_SETTINGS_ENV_KEYS.ollamaEnabled, value: toEnvBoolean(config.providers.ollama.enabled) },
     { key: AGENT_SETTINGS_ENV_KEYS.ollamaBaseUrl, value: config.providers.ollama.baseUrl },
     { key: AGENT_SETTINGS_ENV_KEYS.ollamaModel, value: config.providers.ollama.model },
-    {
-      key: AGENT_SETTINGS_ENV_KEYS.ollamaApiKeySource,
-      value: config.providers.ollama.apiKeySource,
-    },
     { key: AGENT_SETTINGS_ENV_KEYS.doctorEnableLivePing, value: toEnvBoolean(config.doctor.enableLivePing) },
     { key: AGENT_SETTINGS_ENV_KEYS.doctorTimeoutMs, value: String(config.doctor.timeoutMs) },
   ];
@@ -724,12 +678,6 @@ async function applyAgentSettingsFromIntegrationsEnv(config: AgentRuntimeConfig)
   if (openRouterModel) {
     openRouterInput.model = openRouterModel;
   }
-  const openRouterApiKeySource = parseOpenRouterApiKeySource(
-    envMap.get(AGENT_SETTINGS_ENV_KEYS.openRouterApiKeySource)
-  );
-  if (openRouterApiKeySource) {
-    openRouterInput.apiKeySource = openRouterApiKeySource;
-  }
   if (Object.keys(openRouterInput).length > 0) {
     providersInput.openrouter = openRouterInput;
   }
@@ -745,10 +693,6 @@ async function applyAgentSettingsFromIntegrationsEnv(config: AgentRuntimeConfig)
   const ollamaModel = normalizeNonEmptyString(envMap.get(AGENT_SETTINGS_ENV_KEYS.ollamaModel));
   if (ollamaModel) {
     ollamaInput.model = ollamaModel;
-  }
-  const ollamaApiKeySource = parseOllamaApiKeySource(envMap.get(AGENT_SETTINGS_ENV_KEYS.ollamaApiKeySource));
-  if (ollamaApiKeySource) {
-    ollamaInput.apiKeySource = ollamaApiKeySource;
   }
   if (Object.keys(ollamaInput).length > 0) {
     providersInput.ollama = ollamaInput;
@@ -823,7 +767,7 @@ export function createDefaultAgentRuntimeConfig(updatedBy: string = 'system:boot
         enabled: true,
         baseUrl: DEFAULT_OLLAMA_BASE_URL,
         model: DEFAULT_OLLAMA_MODEL,
-        apiKeySource: 'none',
+        apiKeySource: 'integrations-env',
       },
     },
     doctor: {
@@ -974,19 +918,9 @@ export async function resolveOpenRouterApiKey(_config: AgentRuntimeConfig): Prom
   };
 }
 
-export async function resolveOllamaApiKey(config: AgentRuntimeConfig): Promise<OllamaApiKeyResolution> {
+export async function resolveOllamaApiKey(_config: AgentRuntimeConfig): Promise<OllamaApiKeyResolution> {
+  void _config;
   const warnings: string[] = [];
-  const hinted = config.providers.ollama.apiKeySource;
-
-  if (hinted === 'none') {
-    return {
-      apiKey: null,
-      isSet: false,
-      source: 'none',
-      last4: null,
-      warnings,
-    };
-  }
 
   try {
     const fromIntegration = await readProviderKeyFromIntegrations('OLLAMA_API_KEY');
@@ -1021,7 +955,7 @@ export async function buildAgentConfigReadiness(config: AgentRuntimeConfig): Pro
   const claudeAvailable = checkCommandAvailability(config.providers['claude-cli'].command);
   const openRouterModelPlausible = isPlausibleOpenRouterModel(config.providers.openrouter.model);
   const ollamaModelPlausible = isPlausibleOllamaModel(config.providers.ollama.model);
-  const ollamaKeyRequired = config.providers.ollama.apiKeySource !== 'none';
+  const ollamaKeyRequired = false;
   const ollamaKeyReady = !ollamaKeyRequired || ollamaKey.isSet;
 
   const providers: Record<AgentProviderId, ProviderReadiness> = {

@@ -31,7 +31,7 @@ type OllamaProviderConfig = {
   enabled: boolean;
   baseUrl: string;
   model: string;
-  apiKeySource: 'none' | 'integrations-env';
+  apiKeySource: 'integrations-env';
 };
 
 type AgentRuntimeConfig = {
@@ -351,32 +351,24 @@ export function AgentSettingsPanel() {
     });
   };
 
-  const setOllamaField = (field: 'baseUrl' | 'model' | 'apiKeySource', value: string) => {
+  const setOllamaField = (field: 'baseUrl' | 'model', value: string) => {
     setConfigDraft((current) => {
       if (!current) {
         return current;
       }
       const next = deepClone(current);
-      if (field === 'apiKeySource') {
-        next.providers.ollama.apiKeySource = value as OllamaProviderConfig['apiKeySource'];
-      } else {
-        next.providers.ollama[field] = value;
-      }
+      next.providers.ollama[field] = value;
       return next;
     });
   };
 
-  const setOpenRouterField = (field: 'baseUrl' | 'model' | 'apiKeySource', value: string) => {
+  const setOpenRouterField = (field: 'baseUrl' | 'model', value: string) => {
     setConfigDraft((current) => {
       if (!current) {
         return current;
       }
       const next = deepClone(current);
-      if (field === 'apiKeySource') {
-        next.providers.openrouter.apiKeySource = value as OpenRouterProviderConfig['apiKeySource'];
-      } else {
-        next.providers.openrouter[field] = value;
-      }
+      next.providers.openrouter[field] = value;
       return next;
     });
   };
@@ -613,7 +605,7 @@ export function AgentSettingsPanel() {
 
                 <div className="rounded border border-border p-3">
                   <p className="mb-3 text-sm font-semibold">OpenRouter</p>
-                  <div className="mb-3 grid gap-3 md:grid-cols-[auto_1fr] md:items-end">
+                  <div className="mb-3">
                     <label className="flex h-10 items-center gap-2 text-sm">
                       <input
                         type="checkbox"
@@ -622,17 +614,6 @@ export function AgentSettingsPanel() {
                         disabled={configSaving}
                       />
                       OpenRouter enabled
-                    </label>
-                    <label className="space-y-2 text-sm">
-                      <span>OpenRouter Key Source</span>
-                      <select
-                        className="h-10 w-full border border-input bg-background px-3 text-sm"
-                        value={configDraft.providers.openrouter.apiKeySource}
-                        onChange={(event) => setOpenRouterField('apiKeySource', event.target.value)}
-                        disabled={configSaving}
-                      >
-                        <option value="integrations-env">integrations-env</option>
-                      </select>
                     </label>
                   </div>
 
@@ -669,7 +650,7 @@ export function AgentSettingsPanel() {
 
                 <div className="rounded border border-border p-3">
                   <p className="mb-3 text-sm font-semibold">Ollama</p>
-                  <div className="mb-3 grid gap-3 md:grid-cols-[auto_1fr] md:items-end">
+                  <div className="mb-3">
                     <label className="flex h-10 items-center gap-2 text-sm">
                       <input
                         type="checkbox"
@@ -678,18 +659,6 @@ export function AgentSettingsPanel() {
                         disabled={configSaving}
                       />
                       Ollama enabled
-                    </label>
-                    <label className="space-y-2 text-sm">
-                      <span>Ollama Key Source</span>
-                      <select
-                        className="h-10 w-full border border-input bg-background px-3 text-sm"
-                        value={configDraft.providers.ollama.apiKeySource}
-                        onChange={(event) => setOllamaField('apiKeySource', event.target.value)}
-                        disabled={configSaving}
-                      >
-                        <option value="none">none</option>
-                        <option value="integrations-env">integrations-env</option>
-                      </select>
                     </label>
                   </div>
 
