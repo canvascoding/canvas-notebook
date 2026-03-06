@@ -2,8 +2,31 @@ import crypto from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
 
-const DEFAULT_ENV_PATH = '/home/node/canvas-integrations.env';
 const ENCRYPTED_PREFIX = 'enc:v1';
+
+export const DEFAULT_INTEGRATIONS_ENV_PATH = '/home/node/Canvas-Integrations.env';
+export const DEFAULT_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
+
+export type EnvScope = 'integrations' | 'agents';
+
+type EnvScopeConfig = {
+  defaultPath: string;
+  pathEnvName: 'INTEGRATIONS_ENV_PATH' | 'AGENTS_ENV_PATH';
+  masterKeyEnvName: 'INTEGRATIONS_ENV_MASTER_KEY' | 'AGENTS_ENV_MASTER_KEY';
+};
+
+const ENV_SCOPE_CONFIG: Record<EnvScope, EnvScopeConfig> = {
+  integrations: {
+    defaultPath: DEFAULT_INTEGRATIONS_ENV_PATH,
+    pathEnvName: 'INTEGRATIONS_ENV_PATH',
+    masterKeyEnvName: 'INTEGRATIONS_ENV_MASTER_KEY',
+  },
+  agents: {
+    defaultPath: DEFAULT_AGENTS_ENV_PATH,
+    pathEnvName: 'AGENTS_ENV_PATH',
+    masterKeyEnvName: 'AGENTS_ENV_MASTER_KEY',
+  },
+};
 
 export interface IntegrationEnvEntry {
   key: string;
@@ -12,6 +35,7 @@ export interface IntegrationEnvEntry {
 }
 
 export interface IntegrationEnvState {
+  scope: EnvScope;
   path: string;
   exists: boolean;
   rawContent: string;
@@ -25,13 +49,19 @@ interface ParsedEnvEntry {
   encrypted: boolean;
 }
 
-function getEnvFilePath(): string {
-  const configuredPath = process.env.INTEGRATIONS_ENV_PATH?.trim();
-  return configuredPath || DEFAULT_ENV_PATH;
+function getScopeConfig(scope: EnvScope): EnvScopeConfig {
+  return ENV_SCOPE_CONFIG[scope];
 }
 
-function getMasterSecret(): string | null {
-  const value = process.env.INTEGRATIONS_ENV_MASTER_KEY?.trim();
+export function getEnvFilePath(scope: EnvScope): string {
+  const { defaultPath, pathEnvName } = getScopeConfig(scope);
+  const configuredPath = process.env[pathEnvName]?.trim();
+  return configuredPath || defaultPath;
+}
+
+function getMasterSecret(scope: EnvScope): string | null {
+  const { masterKeyEnvName } = getScopeConfig(scope);
+  const value = process.env[masterKeyEnvName]?.trim();
   return value || null;
 }
 
@@ -144,8 +174,8 @@ async function ensureParentDirectory(filePath: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
-export async function writeIntegrationsRaw(rawContent: string): Promise<void> {
-  const filePath = getEnvFilePath();
+export async function writeScopedEnvRaw(scope: EnvScope, rawContent: string): Promise<void> {
+  const filePath = getEnvFilePath(scope);
   await ensureParentDirectory(filePath);
 
   const tmpPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -155,8 +185,8 @@ export async function writeIntegrationsRaw(rawContent: string): Promise<void> {
   await fs.rename(tmpPath, filePath);
 }
 
-export async function readIntegrationsEnvState(): Promise<IntegrationEnvState> {
-  const filePath = getEnvFilePath();
+export async function readScopedEnvState(scope: EnvScope): Promise<IntegrationEnvState> {
+  const filePath = getEnvFilePath(scope);
   let rawContent = '';
   let exists = true;
 
@@ -172,7 +202,7 @@ export async function readIntegrationsEnvState(): Promise<IntegrationEnvState> {
   }
 
   const parsed = parseEnv(rawContent);
-  const secret = getMasterSecret();
+  const secret = getMasterSecret(scope);
 
   const entries: IntegrationEnvEntry[] = parsed.map((entry) => {
     if (entry.encrypted && secret) {
@@ -199,6 +229,7 @@ export async function readIntegrationsEnvState(): Promise<IntegrationEnvState> {
   });
 
   return {
+    scope,
     path: filePath,
     exists,
     rawContent,
@@ -207,10 +238,11 @@ export async function readIntegrationsEnvState(): Promise<IntegrationEnvState> {
   };
 }
 
-export async function replaceIntegrationsEntries(
+export async function replaceScopedEnvEntries(
+  scope: EnvScope,
   entries: Array<{ key: string; value: string }>
 ): Promise<IntegrationEnvState> {
-  const secret = getMasterSecret();
+  const secret = getMasterSecret(scope);
   const normalized: ParsedEnvEntry[] = [];
 
   for (const entry of entries) {
@@ -233,12 +265,40 @@ export async function replaceIntegrationsEntries(
   }
 
   const sorted = Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
-  await writeIntegrationsRaw(serializeEntries(sorted));
-  return readIntegrationsEnvState();
+  await writeScopedEnvRaw(scope, serializeEntries(sorted));
+  return readScopedEnvState(scope);
+}
+
+export async function writeIntegrationsRaw(rawContent: string): Promise<void> {
+  await writeScopedEnvRaw('integrations', rawContent);
+}
+
+export async function readIntegrationsEnvState(): Promise<IntegrationEnvState> {
+  return readScopedEnvState('integrations');
+}
+
+export async function replaceIntegrationsEntries(
+  entries: Array<{ key: string; value: string }>
+): Promise<IntegrationEnvState> {
+  return replaceScopedEnvEntries('integrations', entries);
+}
+
+export async function writeAgentsRaw(rawContent: string): Promise<void> {
+  await writeScopedEnvRaw('agents', rawContent);
+}
+
+export async function readAgentsEnvState(): Promise<IntegrationEnvState> {
+  return readScopedEnvState('agents');
+}
+
+export async function replaceAgentsEntries(
+  entries: Array<{ key: string; value: string }>
+): Promise<IntegrationEnvState> {
+  return replaceScopedEnvEntries('agents', entries);
 }
 
 export async function getGeminiApiKeyFromIntegrations(): Promise<string | null> {
-  const state = await readIntegrationsEnvState();
+  const state = await readScopedEnvState('integrations');
   const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
 
   return byKey.get('GEMINI_API_KEY') || process.env.GEMINI_API_KEY || null;

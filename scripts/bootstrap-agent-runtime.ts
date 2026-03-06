@@ -5,7 +5,8 @@ import { db } from '../app/lib/db';
 import { aiMessages, aiSessions } from '../app/lib/db/schema';
 
 const AGENT_STORAGE_DIR = '/home/node/canvas-agent';
-const DEFAULT_INTEGRATIONS_ENV_PATH = '/home/node/canvas-integrations.env';
+const DEFAULT_INTEGRATIONS_ENV_PATH = '/home/node/Canvas-Integrations.env';
+const DEFAULT_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
 const LEGACY_WIPE_MARKER_PATH = path.join(AGENT_STORAGE_DIR, '.legacy-session-wipe-done');
 const RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, 'agent-runtime-config.json');
 const MANAGED_FILE_TEMPLATES: Record<string, string> = {
@@ -42,31 +43,42 @@ function getIntegrationsEnvPath(): string {
   return configured || DEFAULT_INTEGRATIONS_ENV_PATH;
 }
 
+function getAgentsEnvPath(): string {
+  const configured = process.env.AGENTS_ENV_PATH?.trim();
+  return configured || DEFAULT_AGENTS_ENV_PATH;
+}
+
 async function ensureIntegrationsEnvBootstrap(): Promise<void> {
-  const integrationsEnvPath = getIntegrationsEnvPath();
-  await fs.mkdir(path.dirname(integrationsEnvPath), { recursive: true });
+  const envFiles = [
+    { label: 'integrations', filePath: getIntegrationsEnvPath() },
+    { label: 'agents', filePath: getAgentsEnvPath() },
+  ];
 
-  try {
-    const handle = await fs.open(integrationsEnvPath, 'wx', 0o600);
-    await handle.close();
-    await fs.chmod(integrationsEnvPath, 0o600);
-    console.log(`[bootstrap-agent-runtime] Created integrations env file: ${integrationsEnvPath}.`);
-    return;
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error) {
-      if (error.code === 'EEXIST') {
-        await fs.chmod(integrationsEnvPath, 0o600).catch(() => undefined);
-        console.log(`[bootstrap-agent-runtime] Integrations env file exists: ${integrationsEnvPath} (preserved).`);
-        return;
+  for (const envFile of envFiles) {
+    await fs.mkdir(path.dirname(envFile.filePath), { recursive: true });
+
+    try {
+      const handle = await fs.open(envFile.filePath, 'wx', 0o600);
+      await handle.close();
+      await fs.chmod(envFile.filePath, 0o600);
+      console.log(`[bootstrap-agent-runtime] Created ${envFile.label} env file: ${envFile.filePath}.`);
+      continue;
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error) {
+        if (error.code === 'EEXIST') {
+          await fs.chmod(envFile.filePath, 0o600).catch(() => undefined);
+          console.log(`[bootstrap-agent-runtime] ${envFile.label} env file exists: ${envFile.filePath} (preserved).`);
+          continue;
+        }
+
+        if (error.code === 'EISDIR') {
+          console.warn(`[bootstrap-agent-runtime] WARNING: ${envFile.label} env path is a directory: ${envFile.filePath}.`);
+          continue;
+        }
       }
 
-      if (error.code === 'EISDIR') {
-        console.warn(`[bootstrap-agent-runtime] WARNING: integrations env path is a directory: ${integrationsEnvPath}.`);
-        return;
-      }
+      throw error;
     }
-
-    throw error;
   }
 }
 
@@ -91,13 +103,13 @@ function buildDefaultConfig() {
         enabled: true,
         baseUrl: 'https://openrouter.ai/api/v1',
         model: 'anthropic/claude-sonnet-4.5',
-        apiKeySource: 'integrations-env',
+        apiKeySource: 'agents-env',
       },
       ollama: {
         enabled: true,
         baseUrl: 'http://127.0.0.1:11434',
         model: 'llama3.2:3b',
-        apiKeySource: 'integrations-env',
+        apiKeySource: 'agents-env',
       },
     },
     doctor: {

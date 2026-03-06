@@ -4,7 +4,12 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { spawnSync } from 'child_process';
 
-import { readIntegrationsEnvState, replaceIntegrationsEntries } from '@/app/lib/integrations/env-config';
+import {
+  readAgentsEnvState,
+  readIntegrationsEnvState,
+  replaceAgentsEntries,
+  replaceIntegrationsEntries,
+} from '@/app/lib/integrations/env-config';
 import { type AgentId } from './catalog';
 
 export const AGENT_STORAGE_DIR = '/home/node/canvas-agent';
@@ -60,14 +65,16 @@ const AGENT_SETTINGS_ENV_KEY_SET = new Set<string>([
   ...Object.values(AGENT_SETTINGS_ENV_KEYS),
   ...LEGACY_AGENT_SETTINGS_ENV_KEYS,
 ]);
+const AGENT_PROVIDER_ENV_KEYS = ['OPENROUTER_API_KEY', 'OLLAMA_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+const AGENT_ENV_KEY_SET = new Set<string>([...AGENT_SETTINGS_ENV_KEY_SET, ...AGENT_PROVIDER_ENV_KEYS]);
 
 type RecordLike = Record<string, unknown>;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentProviderId = 'codex-cli' | 'claude-cli' | 'openrouter' | 'ollama';
 export type AgentProviderKind = 'cli' | 'openrouter' | 'ollama';
-export type OpenRouterApiKeySource = 'integrations-env';
-export type OllamaApiKeySource = 'integrations-env';
+export type OpenRouterApiKeySource = 'agents-env';
+export type OllamaApiKeySource = 'agents-env';
 
 export type CliProviderConfig = {
   enabled: boolean;
@@ -325,7 +332,7 @@ function normalizeOpenRouterProviderConfig(
     throw new AgentConfigValidationError('providers.openrouter.model must not be empty.');
   }
 
-  const apiKeySource: OpenRouterApiKeySource = 'integrations-env';
+  const apiKeySource: OpenRouterApiKeySource = 'agents-env';
 
   return {
     enabled,
@@ -362,7 +369,7 @@ function normalizeOllamaProviderConfig(
     throw new AgentConfigValidationError('providers.ollama.model must not be empty.');
   }
 
-  const apiKeySource: OllamaApiKeySource = 'integrations-env';
+  const apiKeySource: OllamaApiKeySource = 'agents-env';
 
   return {
     enabled,
@@ -584,7 +591,7 @@ function parseEnvInteger(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function mapIntegrationsEntries(entries: Array<{ key: string; value: string }>): Map<string, string> {
+function mapEnvEntries(entries: Array<{ key: string; value: string }>): Map<string, string> {
   return new Map(entries.map((entry) => [entry.key, entry.value]));
 }
 
@@ -607,8 +614,52 @@ function buildAgentSettingsEnvEntries(config: AgentRuntimeConfig): Array<{ key: 
   ];
 }
 
-async function syncAgentSettingsToIntegrationsEnv(config: AgentRuntimeConfig): Promise<void> {
-  const state = await readIntegrationsEnvState();
+export async function migrateLegacyAgentEnvIfNeeded(): Promise<void> {
+  const [agentsState, integrationsState] = await Promise.all([readAgentsEnvState(), readIntegrationsEnvState()]);
+  const legacyAgentEntries = integrationsState.entries
+    .filter((entry) => entry.key && AGENT_ENV_KEY_SET.has(entry.key))
+    .map((entry) => ({ key: entry.key, value: entry.value }));
+
+  if (legacyAgentEntries.length === 0) {
+    return;
+  }
+
+  const nextAgentEntries = new Map(
+    agentsState.entries
+      .filter((entry) => entry.key)
+      .map((entry) => [entry.key, entry.value] as const)
+  );
+
+  let agentEnvChanged = false;
+  for (const entry of legacyAgentEntries) {
+    if (!nextAgentEntries.has(entry.key)) {
+      nextAgentEntries.set(entry.key, entry.value);
+      agentEnvChanged = true;
+    }
+  }
+
+  if (agentEnvChanged || !agentsState.exists) {
+    await replaceAgentsEntries(
+      Array.from(nextAgentEntries.entries()).map(([key, value]) => ({
+        key,
+        value,
+      }))
+    );
+  }
+
+  await replaceIntegrationsEntries(
+    integrationsState.entries
+      .filter((entry) => entry.key && !AGENT_ENV_KEY_SET.has(entry.key))
+      .map((entry) => ({
+        key: entry.key,
+        value: entry.value,
+      }))
+  );
+}
+
+async function syncAgentSettingsToAgentsEnv(config: AgentRuntimeConfig): Promise<void> {
+  await migrateLegacyAgentEnvIfNeeded();
+  const state = await readAgentsEnvState();
   const retainedEntries = state.entries
     .filter((entry) => entry.key && !AGENT_SETTINGS_ENV_KEY_SET.has(entry.key))
     .map((entry) => ({
@@ -617,12 +668,13 @@ async function syncAgentSettingsToIntegrationsEnv(config: AgentRuntimeConfig): P
     }));
 
   const merged = [...retainedEntries, ...buildAgentSettingsEnvEntries(config)];
-  await replaceIntegrationsEntries(merged);
+  await replaceAgentsEntries(merged);
 }
 
-async function applyAgentSettingsFromIntegrationsEnv(config: AgentRuntimeConfig): Promise<AgentRuntimeConfig> {
-  const state = await readIntegrationsEnvState();
-  const envMap = mapIntegrationsEntries(state.entries);
+async function applyAgentSettingsFromAgentsEnv(config: AgentRuntimeConfig): Promise<AgentRuntimeConfig> {
+  await migrateLegacyAgentEnvIfNeeded();
+  const state = await readAgentsEnvState();
+  const envMap = mapEnvEntries(state.entries);
 
   const providersInput: RecordLike = {};
   const codexInput: RecordLike = {};
@@ -726,8 +778,9 @@ async function applyAgentSettingsFromIntegrationsEnv(config: AgentRuntimeConfig)
   };
 }
 
-async function readProviderKeyFromIntegrations(keyName: string): Promise<string | null> {
-  const state = await readIntegrationsEnvState();
+async function readProviderKeyFromAgents(keyName: string): Promise<string | null> {
+  await migrateLegacyAgentEnvIfNeeded();
+  const state = await readAgentsEnvState();
   const keyEntry = state.entries.find((entry) => entry.key === keyName);
   const value = keyEntry?.value?.trim() || '';
   return value || null;
@@ -761,13 +814,13 @@ export function createDefaultAgentRuntimeConfig(updatedBy: string = 'system:boot
         enabled: true,
         baseUrl: DEFAULT_OPENROUTER_BASE_URL,
         model: DEFAULT_OPENROUTER_MODEL,
-        apiKeySource: 'integrations-env',
+        apiKeySource: 'agents-env',
       },
       ollama: {
         enabled: true,
         baseUrl: DEFAULT_OLLAMA_BASE_URL,
         model: DEFAULT_OLLAMA_MODEL,
-        apiKeySource: 'integrations-env',
+        apiKeySource: 'agents-env',
       },
     },
     doctor: {
@@ -803,14 +856,15 @@ export function isPlausibleOllamaModel(model: string): boolean {
 
 export async function ensureAgentRuntimeConfigExists(updatedBy: string = 'system:bootstrap'): Promise<void> {
   await ensureStorageDirectory();
+  await migrateLegacyAgentEnvIfNeeded();
   const currentContent = await readFileIfExists(AGENT_RUNTIME_CONFIG_PATH);
   if (currentContent !== null) {
     return;
   }
   const defaults = createDefaultAgentRuntimeConfig(updatedBy);
-  const hydrated = await applyAgentSettingsFromIntegrationsEnv(defaults);
+  const hydrated = await applyAgentSettingsFromAgentsEnv(defaults);
   await writeJsonAtomic(AGENT_RUNTIME_CONFIG_PATH, hydrated);
-  await syncAgentSettingsToIntegrationsEnv(hydrated);
+  await syncAgentSettingsToAgentsEnv(hydrated);
 }
 
 export async function ensureAgentManagedFilesExist(): Promise<void> {
@@ -860,7 +914,7 @@ export async function readAgentRuntimeConfig(): Promise<AgentRuntimeConfig> {
   try {
     const parsed = JSON.parse(rawContent);
     const normalized = normalizePersistedConfig(parsed);
-    return applyAgentSettingsFromIntegrationsEnv(normalized);
+    return applyAgentSettingsFromAgentsEnv(normalized);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Invalid runtime config JSON.';
     throw new AgentConfigValidationError(`Failed to read runtime config: ${message}`);
@@ -871,7 +925,7 @@ export async function writeAgentRuntimeConfig(input: unknown, updatedBy: string)
   const current = await readAgentRuntimeConfig();
   const normalized = normalizeRuntimeConfigInput(input, current, updatedBy);
   await writeJsonAtomic(AGENT_RUNTIME_CONFIG_PATH, normalized);
-  await syncAgentSettingsToIntegrationsEnv(normalized);
+  await syncAgentSettingsToAgentsEnv(normalized);
   return normalized;
 }
 
@@ -894,18 +948,18 @@ export async function resolveOpenRouterApiKey(_config: AgentRuntimeConfig): Prom
   void _config;
   const warnings: string[] = [];
   try {
-    const fromIntegration = await readProviderKeyFromIntegrations('OPENROUTER_API_KEY');
-    if (fromIntegration) {
+    const fromAgentEnv = await readProviderKeyFromAgents('OPENROUTER_API_KEY');
+    if (fromAgentEnv) {
       return {
-        apiKey: fromIntegration,
+        apiKey: fromAgentEnv,
         isSet: true,
-        source: 'integrations-env',
-        last4: maskSecretLast4(fromIntegration),
+        source: 'agents-env',
+        last4: maskSecretLast4(fromAgentEnv),
         warnings,
       };
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to read integrations environment file.';
+    const message = error instanceof Error ? error.message : 'Failed to read agents environment file.';
     warnings.push(message);
   }
 
@@ -923,18 +977,18 @@ export async function resolveOllamaApiKey(_config: AgentRuntimeConfig): Promise<
   const warnings: string[] = [];
 
   try {
-    const fromIntegration = await readProviderKeyFromIntegrations('OLLAMA_API_KEY');
-    if (fromIntegration) {
+    const fromAgentEnv = await readProviderKeyFromAgents('OLLAMA_API_KEY');
+    if (fromAgentEnv) {
       return {
-        apiKey: fromIntegration,
+        apiKey: fromAgentEnv,
         isSet: true,
-        source: 'integrations-env',
-        last4: maskSecretLast4(fromIntegration),
+        source: 'agents-env',
+        last4: maskSecretLast4(fromAgentEnv),
         warnings,
       };
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to read integrations environment file.';
+    const message = error instanceof Error ? error.message : 'Failed to read agents environment file.';
     warnings.push(message);
   }
 
