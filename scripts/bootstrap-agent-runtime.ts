@@ -97,7 +97,7 @@ function buildDefaultConfig() {
         enabled: true,
         baseUrl: 'http://127.0.0.1:11434',
         model: 'llama3.2:3b',
-        apiKeySource: 'none',
+        apiKeySource: 'integrations-env',
       },
     },
     doctor: {
