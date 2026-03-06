@@ -69,7 +69,7 @@ export const aiSessions = sqliteTable("ai_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sessionId: text("session_id").notNull(),
   userId: text("user_id").notNull().references(() => user.id),
-  model: text("model").notNull(), // 'claude', 'gemini', 'codex'
+  model: text("model").notNull(), // agent id, e.g. 'claude', 'codex', 'openrouter', 'ollama'
   title: text("title"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

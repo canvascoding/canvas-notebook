@@ -1,0 +1,1815 @@
+{
+  "title": "Agent Implementation Todo",
+  "sourceFile": "docs/agent_implementation_plan.md",
+  "generatedAt": "2026-03-06T11:34:24.597Z",
+  "taskCount": 139,
+  "tasks": [
+    {
+      "id": "agent-001",
+      "order": 1,
+      "title": "`GET /api/agents/config`",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 190
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-002",
+      "order": 2,
+      "title": "Liefert sanitised runtime config + readiness.",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 191
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-003",
+      "order": 3,
+      "title": "`PUT /api/agents/config`",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 193
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-004",
+      "order": 4,
+      "title": "Validiert und speichert zentrale JSON-Konfig.",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 194
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-005",
+      "order": 5,
+      "title": "`POST /api/agents/doctor`",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 196
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-006",
+      "order": 6,
+      "title": "Lokale Checks:",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 197
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-007",
+      "order": 7,
+      "title": "CLI `command -v`",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 198
+      },
+      "depth": 1
+    },
+    {
+      "id": "agent-008",
+      "order": 8,
+      "title": "OpenRouter key verfügbar",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 199
+      },
+      "depth": 1
+    },
+    {
+      "id": "agent-009",
+      "order": 9,
+      "title": "Modellstring plausibel",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 200
+      },
+      "depth": 1
+    },
+    {
+      "id": "agent-010",
+      "order": 10,
+      "title": "Optionaler Live-Ping (timeout, Warnung statt Hard-Fail).",
+      "status": "done",
+      "section": "5.1 Agent Config APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 201
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-011",
+      "order": 11,
+      "title": "`GET /api/agents/files`",
+      "status": "done",
+      "section": "5.2 Agent Files APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 207
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-012",
+      "order": 12,
+      "title": "Liefert Inhalte von `AGENTS.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`.",
+      "status": "done",
+      "section": "5.2 Agent Files APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 208
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-013",
+      "order": 13,
+      "title": "`PUT /api/agents/files`",
+      "status": "done",
+      "section": "5.2 Agent Files APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 210
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-014",
+      "order": 14,
+      "title": "Payload enthält Dateiname + neuen Inhalt.",
+      "status": "done",
+      "section": "5.2 Agent Files APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 211
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-015",
+      "order": 15,
+      "title": "Nur erlaubte Dateinamen.",
+      "status": "done",
+      "section": "5.2 Agent Files APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 212
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-016",
+      "order": 16,
+      "title": "Persistenter Write nach `/home/node/canvas-agent`.",
+      "status": "done",
+      "section": "5.2 Agent Files APIs",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 213
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-017",
+      "order": 17,
+      "title": "`GET /api/sessions`",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 219
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-018",
+      "order": 18,
+      "title": "Globale Sessionliste, newest first.",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 220
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-019",
+      "order": 19,
+      "title": "Enthält Creator-Info (Name/Email).",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 221
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-020",
+      "order": 20,
+      "title": "`POST /api/sessions`",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 223
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-021",
+      "order": 21,
+      "title": "Explizite Session-Erstellung (leer oder optional initial title).",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 224
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-022",
+      "order": 22,
+      "title": "`PATCH /api/sessions`",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 226
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-023",
+      "order": 23,
+      "title": "Session-Titel umbenennen.",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 227
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-024",
+      "order": 24,
+      "title": "`DELETE /api/sessions?sessionId=...`",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 229
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-025",
+      "order": 25,
+      "title": "Löscht Session + zugehörige Messages.",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 230
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-026",
+      "order": 26,
+      "title": "`GET /api/sessions/messages?sessionId=...`",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 232
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-027",
+      "order": 27,
+      "title": "Liefert Nachrichten einer Session, chronologisch.",
+      "status": "done",
+      "section": "5.3 Session APIs (ohne model-Query)",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 233
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-028",
+      "order": 28,
+      "title": "Mit `sessionId`:",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 240
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-029",
+      "order": 29,
+      "title": "Provider aus Session lesen und verwenden.",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 241
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-030",
+      "order": 30,
+      "title": "Ohne `sessionId`:",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 242
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-031",
+      "order": 31,
+      "title": "Provider aus globaler Agent-Konfig verwenden.",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 243
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-032",
+      "order": 32,
+      "title": "Bei Bedarf neue Session referenzieren.",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 244
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-033",
+      "order": 33,
+      "title": "Fehler explizit:",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 245
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-034",
+      "order": 34,
+      "title": "Provider nicht verfügbar.",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 246
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-035",
+      "order": 35,
+      "title": "OpenRouter key fehlt.",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 247
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-036",
+      "order": 36,
+      "title": "CLI nicht installiert.",
+      "status": "done",
+      "section": "5.4 Chat API",
+      "category": "api",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 248
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-037",
+      "order": 37,
+      "title": "Login-gated.",
+      "status": "done",
+      "section": "6.1 Home (`/`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 255
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-038",
+      "order": 38,
+      "title": "Software Suite + Agent Setup Card sichtbar nur mit Session.",
+      "status": "done",
+      "section": "6.1 Home (`/`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 256
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-039",
+      "order": 39,
+      "title": "Agent Setup Card zeigt:",
+      "status": "done",
+      "section": "6.1 Home (`/`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 257
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-040",
+      "order": 40,
+      "title": "Provider-Status",
+      "status": "done",
+      "section": "6.1 Home (`/`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 258
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-041",
+      "order": 41,
+      "title": "Doctor-Status",
+      "status": "done",
+      "section": "6.1 Home (`/`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 259
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-042",
+      "order": 42,
+      "title": "Shortcuts zu Settings.",
+      "status": "done",
+      "section": "6.1 Home (`/`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 260
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-043",
+      "order": 43,
+      "title": "Provider-Auswahl (global)",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 264
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-044",
+      "order": 44,
+      "title": "Provider-Konfiguration (CLI commands / OpenRouter model/base URL)",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 265
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-045",
+      "order": 45,
+      "title": "Doctor-Button + Ergebnisse",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 266
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-046",
+      "order": 46,
+      "title": "Editor für:",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 267
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-047",
+      "order": 47,
+      "title": "`AGENTS.md`",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 268
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-048",
+      "order": 48,
+      "title": "`MEMORY.md`",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 269
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-049",
+      "order": 49,
+      "title": "`SOUL.md`",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 270
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-050",
+      "order": 50,
+      "title": "`TOOLS.md`",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 271
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-051",
+      "order": 51,
+      "title": "Session-Management:",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 272
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-052",
+      "order": 52,
+      "title": "Liste",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 273
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-053",
+      "order": 53,
+      "title": "Umbenennen",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 274
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-054",
+      "order": 54,
+      "title": "Löschen",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 275
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-055",
+      "order": 55,
+      "title": "Neue Session erstellen",
+      "status": "done",
+      "section": "6.2 Settings (`/settings`)",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 276
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-056",
+      "order": 56,
+      "title": "Kein Agent-Dropdown.",
+      "status": "done",
+      "section": "6.3 Chat UI",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 279
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-057",
+      "order": 57,
+      "title": "New Session Button bleibt.",
+      "status": "done",
+      "section": "6.3 Chat UI",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 280
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-058",
+      "order": 58,
+      "title": "Session-Historie bleibt.",
+      "status": "done",
+      "section": "6.3 Chat UI",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 281
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-059",
+      "order": 59,
+      "title": "Laden/Rename/Delete bleiben.",
+      "status": "done",
+      "section": "6.3 Chat UI",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 282
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-060",
+      "order": 60,
+      "title": "Provider-spezifische Sessionbindung bleibt transparent im Backend.",
+      "status": "done",
+      "section": "6.3 Chat UI",
+      "category": "ui",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 283
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-061",
+      "order": 61,
+      "title": "`scripts/docker-entrypoint.sh`",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 290
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-062",
+      "order": 62,
+      "title": "Sicherstellen, dass `/home/node/canvas-agent` existiert.",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 293
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-063",
+      "order": 63,
+      "title": "Für jede Datei (`AGENTS.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`):",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 294
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-064",
+      "order": 64,
+      "title": "Wenn nicht vorhanden: mit Canvas-spezifischem Kurztemplate anlegen.",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 295
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-065",
+      "order": 65,
+      "title": "Wenn vorhanden: unverändert lassen.",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 296
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-066",
+      "order": 66,
+      "title": "`agent-runtime-config.json` bei Fehlen mit Default erstellen.",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 297
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-067",
+      "order": 67,
+      "title": "Einmalige Legacy-Session-Cleanup-Logik ausführen (siehe Migration).",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 298
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-068",
+      "order": 68,
+      "title": "Danach normaler App-Start.",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 299
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-069",
+      "order": 69,
+      "title": "Volume-Mounts sind zur Build-Zeit nicht verfügbar.",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 302
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-070",
+      "order": 70,
+      "title": "Existenzprüfung muss zur Laufzeit im Container erfolgen.",
+      "status": "done",
+      "section": "7) Container-Startup und Bootstrap",
+      "category": "bootstrap",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 303
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-071",
+      "order": 71,
+      "title": "Alte modellbasierte Historie entfernen, clean state für neue Single-Main-Agent-Logik.",
+      "status": "done",
+      "section": "8) Migration / Legacy-Cutover",
+      "category": "migration",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 310
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-072",
+      "order": 72,
+      "title": "Beim ersten Start nach Deployment:",
+      "status": "done",
+      "section": "8) Migration / Legacy-Cutover",
+      "category": "migration",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 313
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-073",
+      "order": 73,
+      "title": "`DELETE FROM ai_messages`",
+      "status": "done",
+      "section": "8) Migration / Legacy-Cutover",
+      "category": "migration",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 314
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-074",
+      "order": 74,
+      "title": "`DELETE FROM ai_sessions`",
+      "status": "done",
+      "section": "8) Migration / Legacy-Cutover",
+      "category": "migration",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 315
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-075",
+      "order": 75,
+      "title": "Markerdatei setzen, z. B.:",
+      "status": "done",
+      "section": "8) Migration / Legacy-Cutover",
+      "category": "migration",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 316
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-076",
+      "order": 76,
+      "title": "`/home/node/canvas-agent/.legacy-session-wipe-done`",
+      "status": "done",
+      "section": "8) Migration / Legacy-Cutover",
+      "category": "migration",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 317
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-077",
+      "order": 77,
+      "title": "Wenn Marker existiert:",
+      "status": "done",
+      "section": "8) Migration / Legacy-Cutover",
+      "category": "migration",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 318
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-078",
+      "order": 78,
+      "title": "Kein erneutes Löschen.",
+      "status": "done",
+      "section": "8) Migration / Legacy-Cutover",
+      "category": "migration",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 319
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-079",
+      "order": 79,
+      "title": "Keine Secrets im Klartext in API-Responses oder Logs.",
+      "status": "done",
+      "section": "9) Sicherheit und Robustheit",
+      "category": "security",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 325
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-080",
+      "order": 80,
+      "title": "OpenRouter-Key masked ausgeben (`isSet`, optional letzte 4 Zeichen).",
+      "status": "done",
+      "section": "9) Sicherheit und Robustheit",
+      "category": "security",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 326
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-081",
+      "order": 81,
+      "title": "Dateiname-Whitelist für Agent-Dateien erzwingen.",
+      "status": "done",
+      "section": "9) Sicherheit und Robustheit",
+      "category": "security",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 327
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-082",
+      "order": 82,
+      "title": "Pfad-Traversal verhindern (nur fester Base-Dir).",
+      "status": "done",
+      "section": "9) Sicherheit und Robustheit",
+      "category": "security",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 328
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-083",
+      "order": 83,
+      "title": "Rate-Limit auf Config/File/Doctor APIs.",
+      "status": "done",
+      "section": "9) Sicherheit und Robustheit",
+      "category": "security",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 329
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-084",
+      "order": 84,
+      "title": "Klare Fehlermeldungen ohne Secret-Leaks.",
+      "status": "done",
+      "section": "9) Sicherheit und Robustheit",
+      "category": "security",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 330
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-085",
+      "order": 85,
+      "title": "Atomare Writes für Konfig und Markdown-Dateien.",
+      "status": "done",
+      "section": "9) Sicherheit und Robustheit",
+      "category": "security",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 331
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-086",
+      "order": 86,
+      "title": "Neue Lib für Agent-Storage unter `app/lib/agents/`.",
+      "status": "done",
+      "section": "Phase 1 - Storage + Bootstrap",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 338
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-087",
+      "order": 87,
+      "title": "Datei- und JSON-Store.",
+      "status": "done",
+      "section": "Phase 1 - Storage + Bootstrap",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 339
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-088",
+      "order": 88,
+      "title": "Idempotente Initialisierung.",
+      "status": "done",
+      "section": "Phase 1 - Storage + Bootstrap",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 340
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-089",
+      "order": 89,
+      "title": "EntryPoint um Bootstrap erweitern.",
+      "status": "done",
+      "section": "Phase 1 - Storage + Bootstrap",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 341
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-090",
+      "order": 90,
+      "title": "`runtime.ts` auf zentralen Store umstellen.",
+      "status": "done",
+      "section": "Phase 2 - Runtime + APIs",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 344
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-091",
+      "order": 91,
+      "title": "Neue APIs:",
+      "status": "done",
+      "section": "Phase 2 - Runtime + APIs",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 345
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-092",
+      "order": 92,
+      "title": "`/api/agents/config`",
+      "status": "done",
+      "section": "Phase 2 - Runtime + APIs",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 346
+      },
+      "depth": 1
+    },
+    {
+      "id": "agent-093",
+      "order": 93,
+      "title": "`/api/agents/doctor`",
+      "status": "done",
+      "section": "Phase 2 - Runtime + APIs",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 347
+      },
+      "depth": 1
+    },
+    {
+      "id": "agent-094",
+      "order": 94,
+      "title": "`/api/agents/files`",
+      "status": "done",
+      "section": "Phase 2 - Runtime + APIs",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 348
+      },
+      "depth": 1
+    },
+    {
+      "id": "agent-095",
+      "order": 95,
+      "title": "Session-APIs auf single-main-agent contracts umbauen.",
+      "status": "done",
+      "section": "Phase 2 - Runtime + APIs",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 349
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-096",
+      "order": 96,
+      "title": "`/api/chat` auf provider-pro-session binding umstellen.",
+      "status": "done",
+      "section": "Phase 3 - Chat + Session-Verhalten",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 352
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-097",
+      "order": 97,
+      "title": "Explizite Session-Erstellung (`POST /api/sessions`).",
+      "status": "done",
+      "section": "Phase 3 - Chat + Session-Verhalten",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 353
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-098",
+      "order": 98,
+      "title": "Rename/Delete/List finalisieren.",
+      "status": "done",
+      "section": "Phase 3 - Chat + Session-Verhalten",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 354
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-099",
+      "order": 99,
+      "title": "Retention-Cap 200 implementieren.",
+      "status": "done",
+      "section": "Phase 3 - Chat + Session-Verhalten",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 355
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-100",
+      "order": 100,
+      "title": "Settings Tab „Agent Settings“ inkl. Datei-Editoren.",
+      "status": "done",
+      "section": "Phase 4 - UI",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 358
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-101",
+      "order": 101,
+      "title": "Home Setup Card.",
+      "status": "done",
+      "section": "Phase 4 - UI",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 359
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-102",
+      "order": 102,
+      "title": "Chat ohne Agent-Dropdown.",
+      "status": "done",
+      "section": "Phase 4 - UI",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 360
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-103",
+      "order": 103,
+      "title": "Sessionliste mit Creator-Feld.",
+      "status": "done",
+      "section": "Phase 4 - UI",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 361
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-104",
+      "order": 104,
+      "title": "Rename-Flow.",
+      "status": "done",
+      "section": "Phase 4 - UI",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 362
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-105",
+      "order": 105,
+      "title": "Middleware/Public route policy für `/` anpassen.",
+      "status": "done",
+      "section": "Phase 5 - Auth/Gating + Cleanup",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 365
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-106",
+      "order": 106,
+      "title": "Legacy session wipe bei Deployment aktivieren.",
+      "status": "done",
+      "section": "Phase 5 - Auth/Gating + Cleanup",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 366
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-107",
+      "order": 107,
+      "title": "Regression-Fixes.",
+      "status": "done",
+      "section": "Phase 5 - Auth/Gating + Cleanup",
+      "category": "implementation",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 367
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-108",
+      "order": 108,
+      "title": "`GET/PUT /api/agents/config` liest/schreibt korrekt.",
+      "status": "done",
+      "section": "11.1 API Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 374
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-109",
+      "order": 109,
+      "title": "`GET/PUT /api/agents/files` funktioniert nur für erlaubte Namen.",
+      "status": "done",
+      "section": "11.1 API Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 375
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-110",
+      "order": 110,
+      "title": "`POST /api/agents/doctor` liefert lokale Checks + optionalen Ping.",
+      "status": "done",
+      "section": "11.1 API Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 376
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-111",
+      "order": 111,
+      "title": "`POST /api/sessions` erstellt Session explizit.",
+      "status": "done",
+      "section": "11.1 API Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 377
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-112",
+      "order": 112,
+      "title": "`PATCH /api/sessions` benennt um.",
+      "status": "done",
+      "section": "11.1 API Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 378
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-113",
+      "order": 113,
+      "title": "`DELETE /api/sessions` löscht Session + Messages.",
+      "status": "done",
+      "section": "11.1 API Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 379
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-114",
+      "order": 114,
+      "title": "`GET /api/sessions/messages` liefert chronologische Daten.",
+      "status": "done",
+      "section": "11.1 API Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 380
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-115",
+      "order": 115,
+      "title": "Retention hält max. 200 Sessions.",
+      "status": "done",
+      "section": "11.1 API Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 381
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-116",
+      "order": 116,
+      "title": "Session unter Provider A starten.",
+      "status": "done",
+      "section": "11.2 Session/Provider Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 384
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-117",
+      "order": 117,
+      "title": "Global auf Provider B wechseln.",
+      "status": "done",
+      "section": "11.2 Session/Provider Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 385
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-118",
+      "order": 118,
+      "title": "Gleiche Session laden/resume.",
+      "status": "done",
+      "section": "11.2 Session/Provider Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 386
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-119",
+      "order": 119,
+      "title": "Erwartung: Session nutzt weiter Provider A.",
+      "status": "done",
+      "section": "11.2 Session/Provider Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 387
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-120",
+      "order": 120,
+      "title": "Neue Session nutzt Provider B.",
+      "status": "done",
+      "section": "11.2 Session/Provider Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 388
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-121",
+      "order": 121,
+      "title": "Container mit leerem `/home/node` starten.",
+      "status": "done",
+      "section": "11.3 Startup/Persistenz Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 391
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-122",
+      "order": 122,
+      "title": "Erwartung: alle 5 Dateien angelegt.",
+      "status": "done",
+      "section": "11.3 Startup/Persistenz Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 392
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-123",
+      "order": 123,
+      "title": "Dateien im UI editieren.",
+      "status": "done",
+      "section": "11.3 Startup/Persistenz Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 393
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-124",
+      "order": 124,
+      "title": "Container neu starten.",
+      "status": "done",
+      "section": "11.3 Startup/Persistenz Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 394
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-125",
+      "order": 125,
+      "title": "Erwartung: Inhalte bleiben erhalten.",
+      "status": "done",
+      "section": "11.3 Startup/Persistenz Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 395
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-126",
+      "order": 126,
+      "title": "Erwartung: keine Überschreibung bestehender Dateien.",
+      "status": "done",
+      "section": "11.3 Startup/Persistenz Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 396
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-127",
+      "order": 127,
+      "title": "Kein Agent-Dropdown im Chat.",
+      "status": "done",
+      "section": "11.4 UI Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 399
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-128",
+      "order": 128,
+      "title": "Session erstellen/laden/umbenennen/löschen funktioniert.",
+      "status": "done",
+      "section": "11.4 UI Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 400
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-129",
+      "order": 129,
+      "title": "Settings zeigt Agent-Tab und Editoren.",
+      "status": "done",
+      "section": "11.4 UI Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 401
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-130",
+      "order": 130,
+      "title": "Nicht eingeloggte Nutzer landen auf Login statt Suite/Home.",
+      "status": "done",
+      "section": "11.4 UI Tests",
+      "category": "quality",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 402
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-131",
+      "order": 131,
+      "title": "Das gesamte Agent-System über zentrale Dateien in `/home/node/canvas-agent` betrieben wird.",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 431
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-132",
+      "order": 132,
+      "title": "Chat nur noch Main-Agent-Workflow zeigt (kein Agent-Switch im Chat).",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 432
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-133",
+      "order": 133,
+      "title": "Provider-Wechsel in Settings möglich ist.",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 433
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-134",
+      "order": 134,
+      "title": "Sessions vollständig verwaltbar sind (create/load/rename/delete/history).",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 434
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-135",
+      "order": 135,
+      "title": "Provider pro Session stabil gebunden ist.",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 435
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-136",
+      "order": 136,
+      "title": "Home/Suite nur nach Login erreichbar ist.",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 436
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-137",
+      "order": 137,
+      "title": "Startup-Templates und Config idempotent angelegt werden.",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 437
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-138",
+      "order": 138,
+      "title": "Legacy-Datenbereinigung einmalig und nachvollziehbar ausgeführt wurde.",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 438
+      },
+      "depth": 0
+    },
+    {
+      "id": "agent-139",
+      "order": 139,
+      "title": "Tests für kritische Pfade bestehen.",
+      "status": "done",
+      "section": "14) Ergebnisdefinition (Definition of Done)",
+      "category": "acceptance",
+      "source": {
+        "file": "docs/agent_implementation_plan.md",
+        "line": 439
+      },
+      "depth": 0
+    }
+  ]
+}

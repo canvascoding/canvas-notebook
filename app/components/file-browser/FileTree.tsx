@@ -6,12 +6,10 @@ import {
   SidebarMenu,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
 import { FileTreeNode } from './FileTreeNode';
-import { cn } from '@/lib/utils';
 
 export function FileTree() {
   const {

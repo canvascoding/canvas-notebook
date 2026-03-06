@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { auth } from '@/app/lib/auth';
-import { getWorkspacePath, ensureWorkspaceExists } from '@/app/lib/utils/workspace-manager';
+import { getWorkspacePath } from '@/app/lib/utils/workspace-manager';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });

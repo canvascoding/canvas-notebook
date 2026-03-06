@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { renameFile } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,6 +22,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'oldPath and newPath are required' },
         { status: 400 }
+      );
+    }
+    if (isProtectedAppOutputFolder(oldPath)) {
+      return NextResponse.json(
+        { success: false, error: `Protected app output folder cannot be modified: ${oldPath}` },
+        { status: 403 }
       );
     }
 

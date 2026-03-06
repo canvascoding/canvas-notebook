@@ -26,6 +26,7 @@ import {
 import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
 import { FileContextMenu } from './FileContextMenu';
 import { cn } from '@/lib/utils';
+import { getAppOutputFolderKind } from '@/app/lib/filesystem/app-output-folders';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -85,6 +86,30 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
 
   const getFileIcon = () => {
     if (isDirectory) {
+      const outputKind = getAppOutputFolderKind(node.path);
+      if (outputKind) {
+        const badgeIcon =
+          outputKind === 'veo-video-generation' ? (
+            <FileVideo className="h-2.5 w-2.5 text-chart-4" />
+          ) : outputKind === 'image-generations' ? (
+            <ImageIcon className="h-2.5 w-2.5 text-chart-5" />
+          ) : (
+            <FileText className="h-2.5 w-2.5 text-chart-3" />
+          );
+
+        return (
+          <span className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
+            {isExpanded ? (
+              <FolderOpen className="h-4 w-4 text-primary" />
+            ) : (
+              <Folder className="h-4 w-4 text-primary" />
+            )}
+            <span className="absolute -bottom-1 -right-1 rounded-full bg-background p-[1px]">
+              {badgeIcon}
+            </span>
+          </span>
+        );
+      }
       return isExpanded ? (
         <FolderOpen className="h-4 w-4 text-primary" />
       ) : (

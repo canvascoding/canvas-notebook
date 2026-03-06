@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookie } from "better-auth/cookies";
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth'];
+const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth'];
+const PUBLIC_EXACT_ROUTES = ['/'];
 
 function setCommonHeaders(response: NextResponse) {
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate');
@@ -32,7 +33,11 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public routes and auth API routes
-  if (PUBLIC_ROUTES.some(route => pathname.startsWith(route)) || pathname.includes('/api/auth/')) {
+  if (
+    PUBLIC_EXACT_ROUTES.includes(pathname) ||
+    PUBLIC_PREFIX_ROUTES.some((route) => pathname.startsWith(route)) ||
+    pathname.includes('/api/auth/')
+  ) {
     const response = NextResponse.next();
     setCommonHeaders(response);
     return response;
