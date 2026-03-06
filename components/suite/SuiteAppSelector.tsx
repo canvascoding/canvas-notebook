@@ -2,6 +2,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { ChevronRight, Clapperboard, FileText, Globe, ImageIcon, MessageSquare, NotebookPen, Sparkles, Terminal, Workflow } from 'lucide-react';
 
+import { HomeChatPrompt } from '@/app/components/home/HomeChatPrompt';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
@@ -92,6 +93,10 @@ export default function SuiteAppSelector({ isAuthenticated }: IntegrationsSectio
               Alle Apps greifen auf denselben Workspace zu. Neue Bilder, Videos und Inhalte sind dadurch sofort für weitere Schritte
               verfügbar.
             </p>
+          </div>
+
+          <div className="mt-8 max-w-2xl">
+            <HomeChatPrompt />
           </div>
 
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
