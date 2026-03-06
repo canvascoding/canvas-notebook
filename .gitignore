@@ -68,4 +68,4 @@ temp/screenshots/
 *.tsbuildinfo
 next-env.d.ts
 
-/docs/template/openclaw
+docs/template

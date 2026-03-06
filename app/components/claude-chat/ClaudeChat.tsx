@@ -11,7 +11,7 @@ interface Attachment {
 
 interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'toolResult';
   content: string;
   type?: string;
   status?: 'pending' | 'sending' | 'sent' | 'error';
@@ -32,31 +32,13 @@ interface AISession {
 
 interface ChatEvent {
   type: string;
-  message?:
-    | string
-    | {
-        content: Array<{
-          type: string;
-          text?: string;
-          name?: string;
-          input?: {
-            command: string;
-          };
-        }>;
-      };
-  tool_use_result?: {
-    stdout?: string;
-    stderr?: string;
-  };
-  result?: string;
-  session_id?: string;
-  sessionId?: string;
-  success?: boolean;
-  initialEvent?: ChatEvent;
-  content?: string;
-  thread_id?: string;
-  threadId?: string;
-  model?: string;
+  assistantMessageEvent?: any; 
+  toolName?: string;
+  toolCallId?: string;
+  args?: any;
+  result?: any;
+  error?: string;
+  messages?: any[];
 }
 
 type UpdateFunction = (content: string, type?: string, status?: ChatMessage['status']) => void;
@@ -66,13 +48,6 @@ interface ClaudeChatProps {
   initialPrompt?: string | null;
   initialPromptStorageKey?: string;
 }
-
-type SessionMessagePayload = {
-  id: number | string;
-  role: ChatMessage['role'];
-  content: string;
-  type?: string;
-};
 
 const DEFAULT_AGENT_LABEL = 'main-agent';
 
@@ -127,52 +102,27 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
   }, []);
 
   const handleEvent = useCallback((event: ChatEvent, msgId: string, updateFn: UpdateFunction) => {
-    if (
-      (event.type === 'assistant' || event.type === 'message') &&
-      event.message &&
-      typeof event.message !== 'string' &&
-      event.message.content
-    ) {
-      for (const part of event.message.content) {
-        if (part.type === 'text') {
-          updateFn(part.text || '', 'text');
-        } else if (part.type === 'tool_use') {
-          if (part.name === 'Bash' && part.input) {
-            const cmd = part.input.command;
-            updateFn('\n```bash\n$ ' + cmd + '\n```\n', 'tool_use');
-          } else {
-            updateFn('\n[Tool: ' + part.name + ']\n', 'tool_use');
-          }
+    switch (event.type) {
+      case 'message_update':
+        if (event.assistantMessageEvent?.type === 'text_delta') {
+          updateFn(event.assistantMessageEvent.delta, 'text');
+        } else if (event.assistantMessageEvent?.type === 'thinking_delta') {
+          updateFn(event.assistantMessageEvent.delta, 'thought');
         }
-      }
+        break;
+      case 'tool_execution_start':
+        updateFn(`\n[Tool: ${event.toolName}]\n`, 'tool_use');
+        break;
+      case 'tool_execution_end':
+        if (event.result?.content) {
+          const text = (event.result.content as any[]).map(c => c.text).join('\n');
+          updateFn(`\n\`\`\`text\n${text}\n\`\`\`\n`, 'tool_result');
+        }
+        break;
+      case 'error':
+        updateFn(`[Error] ${event.error || 'Unknown error'}`, 'system', 'error');
+        break;
     }
-    else if (event.type === 'text' && event.content) {
-      updateFn(event.content, 'text');
-    }
-    else if (event.type === 'error' && typeof event.message === 'string') {
-      updateFn(`[Error] ${event.message}`, 'system', 'error');
-    }
-    else if (event.type === 'user' && event.tool_use_result) {
-      const result = event.tool_use_result;
-      if (result.stdout || result.stderr) {
-        const out = result.stdout || result.stderr;
-        updateFn('\n```text\n' + out + '\n```\n', 'tool_result');
-      } else {
-        updateFn('\n[Success]\n', 'tool_result');
-      }
-    }
-    else if (event.type === 'result' && event.result) {
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: event.result as string, status: 'sent', type: 'result' } : m));
-    }
-
-    if (event.model && typeof event.model === 'string') {
-      setAgentLabel(event.model);
-    }
-
-    if (event.session_id) setSessionId(event.session_id);
-    if (event.sessionId) setSessionId(event.sessionId);
-    if (event.thread_id) setSessionId(event.thread_id);
-    if (event.threadId) setSessionId(event.threadId);
   }, []);
 
   const fetchHistory = useCallback(async () => {
@@ -197,20 +147,27 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
   const loadSession = useCallback(async (session: AISession) => {
     setSessionId(session.sessionId);
     setAgentLabel(session.model || DEFAULT_AGENT_LABEL);
-    setMessages([{ id: 'system', role: 'system', content: `Loading session ${session.sessionId}...` }]);
+    setMessages([{ id: 'system', role: 'system', content: `Loading...` }]);
     setShowHistory(false);
 
     try {
       const res = await fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}`);
       const data = await res.json();
       if (data.success && data.messages) {
-        setMessages(data.messages.map((m: SessionMessagePayload) => ({
-          id: m.id.toString(),
-          role: m.role,
-          content: m.content,
-          type: m.type,
-          status: 'sent'
-        })));
+        setMessages(data.messages.map((m: any) => {
+          let content = '';
+          if (typeof m.content === 'string') {
+            content = m.content;
+          } else if (Array.isArray(m.content)) {
+            content = m.content.map((c: any) => c.text || c.thinking || '').join('\n');
+          }
+          return {
+            id: m.id?.toString() || Math.random().toString(),
+            role: m.role,
+            content,
+            status: 'sent'
+          };
+        }));
       }
     } catch (err) {
       console.error('Failed to load messages', err);
@@ -254,20 +211,15 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
       });
 
       const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Rename failed');
+      if (data.success) {
+        setHistory((prev) =>
+          prev.map((item) =>
+            item.sessionId === session.sessionId
+              ? { ...item, title: nextTitle.trim() }
+              : item
+          ),
+        );
       }
-
-      setHistory((prev) =>
-        prev.map((item) =>
-          item.sessionId === session.sessionId
-            ? {
-                ...item,
-                title: data.session?.title || nextTitle.trim(),
-              }
-            : item,
-        ),
-      );
     } catch (err) {
       console.error('Failed to rename session', err);
     }
@@ -336,41 +288,50 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
   }, [input, attachments, queueMessage]);
 
   useEffect(() => {
-    if (initialPromptConsumedRef.current) {
-      return;
-    }
-
+    if (initialPromptConsumedRef.current) return;
     const candidatePrompt = (initialPrompt || '').trim();
-
     if (candidatePrompt) {
       initialPromptConsumedRef.current = true;
       queueMessage(candidatePrompt, []);
       return;
     }
-
-    if (!initialPromptStorageKey || typeof window === 'undefined') {
-      return;
-    }
-
+    if (!initialPromptStorageKey || typeof window === 'undefined') return;
     const storedPrompt = window.sessionStorage.getItem(initialPromptStorageKey);
-    const normalizedStoredPrompt = (storedPrompt || '').trim();
-    if (!normalizedStoredPrompt) {
-      return;
+    if (storedPrompt?.trim()) {
+      initialPromptConsumedRef.current = true;
+      window.sessionStorage.removeItem(initialPromptStorageKey);
+      queueMessage(storedPrompt.trim(), []);
     }
-
-    initialPromptConsumedRef.current = true;
-    window.sessionStorage.removeItem(initialPromptStorageKey);
-    queueMessage(normalizedStoredPrompt, []);
   }, [initialPrompt, initialPromptStorageKey, queueMessage]);
 
   const processMessage = useCallback(async (text: string, currentAttachments: Attachment[]) => {
     setIsProcessing(true);
 
     try {
-      const response = await fetch('/api/chat', {
+      const piMessages = messages.map(m => ({ 
+        role: m.role, 
+        content: m.content, 
+        timestamp: Date.now() 
+      }));
+
+      let promptContent: any = text;
+      if (currentAttachments.length > 0) {
+        promptContent = [
+          { type: 'text', text },
+          ...currentAttachments.map(a => ({
+            type: 'image',
+            data: a.path,
+            mimeType: a.type
+          }))
+        ];
+      }
+
+      piMessages.push({ role: 'user', content: promptContent, timestamp: Date.now() } as any);
+
+      const response = await fetch('/api/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, sessionId, attachments: currentAttachments })
+        body: JSON.stringify({ messages: piMessages, sessionId })
       });
 
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
@@ -401,26 +362,11 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
           if (!line.trim()) continue;
           try {
             const event = JSON.parse(line) as ChatEvent;
-            if (event.success && event.initialEvent) {
-              if (event.model) {
-                setAgentLabel(event.model);
-              }
-              handleEvent(event.initialEvent, assistantMsgId, (content, type, status) => {
-                fullContent += content;
-                updateAssistantMessage(assistantMsgId, fullContent, type, status);
-              });
-            } else {
-              handleEvent(event, assistantMsgId, (content, type, status) => {
-                fullContent += content;
-                updateAssistantMessage(assistantMsgId, fullContent, type, status);
-              });
-            }
-          } catch {
-            if (line.trim()) {
-              fullContent += line + '\n';
-              updateAssistantMessage(assistantMsgId, fullContent, 'text', 'sending');
-            }
-          }
+            handleEvent(event, assistantMsgId, (content, type, status) => {
+              fullContent += content;
+              updateAssistantMessage(assistantMsgId, fullContent, type, status);
+            });
+          } catch {}
         }
       }
 
@@ -437,7 +383,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     } finally {
       setIsProcessing(false);
     }
-  }, [sessionId, handleEvent, updateAssistantMessage, fetchHistory]);
+  }, [messages, sessionId, handleEvent, updateAssistantMessage, fetchHistory]);
 
   useEffect(() => {
     if (!isProcessing && queue.length > 0) {
@@ -474,13 +420,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
             <span className="text-xs font-bold hidden sm:inline group-hover:inline-block">New</span>
           </button>
           {onClose && (
-            <button
-              onClick={onClose}
-              className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-              title="Close Chat"
-            >
-              <X size={18} />
-            </button>
+            <button onClick={onClose} className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Close Chat"><X size={18} /></button>
           )}
         </div>
       </div>
@@ -494,10 +434,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
             {history.length === 0 && <div className="text-center p-8 text-muted-foreground text-sm italic">No recent sessions</div>}
             {history.map((session) => (
               <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
-                <button
-                  onClick={() => void loadSession(session)}
-                  className="min-w-0 flex-1 text-left"
-                >
+                <button onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left">
                   <div className="text-sm font-medium truncate group-hover:text-primary text-foreground">{session.title || 'Untitled Session'}</div>
                   <div className="text-[10px] text-muted-foreground mt-1 flex flex-wrap gap-2">
                     <span>{new Date(session.createdAt).toLocaleString()}</span>
@@ -505,31 +442,14 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
                     <span>{session.model}</span>
                   </div>
                 </button>
-
-                <button
-                  onClick={() => void renameSession(session)}
-                  className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-                  title="Rename Session"
-                >
-                  <Pencil size={15} />
-                </button>
-
-                <button
-                  onClick={() => void deleteSession(session.sessionId)}
-                  className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-                  title="Delete Session"
-                >
-                  <Trash2 size={15} />
-                </button>
+                <button onClick={() => void renameSession(session)} className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Rename Session"><Pencil size={15} /></button>
+                <button onClick={() => void deleteSession(session.sessionId)} className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive" title="Delete Session"><Trash2 size={15} /></button>
               </div>
             ))}
           </div>
         )}
 
-        <div
-          ref={scrollContainerRef}
-          className="absolute inset-0 overflow-y-auto p-4 space-y-4 pb-24 scroll-smooth"
-        >
+        <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto p-4 space-y-4 pb-24 scroll-smooth">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4 opacity-40">
               <Sparkles size={48} />
@@ -568,13 +488,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
         </div>
 
         {!isAtBottom && messages.length > 0 && (
-          <button
-            onClick={() => scrollToBottom()}
-            className="absolute bottom-28 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
-            title="Scroll to bottom"
-          >
-            <ArrowDown size={20} />
-          </button>
+          <button onClick={() => scrollToBottom()} className="absolute bottom-28 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90" title="Scroll to bottom"><ArrowDown size={20} /></button>
         )}
       </div>
 
@@ -590,34 +504,18 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
           </div>
         )}
         <div className="flex gap-2 items-end">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
-          >
-            <Paperclip className="h-5 w-5" />
-          </button>
+          <button onClick={() => fileInputRef.current?.click()} className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"><Paperclip className="h-5 w-5" /></button>
           <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*" />
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onPaste={handlePaste}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder={`Ask ${agentLabel}... (Paste images supported)`}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            placeholder={`Ask ${agentLabel}...`}
             className="max-h-32 min-h-[44px] flex-1 resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
-          <button
-            onClick={handleSend}
-            className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
-            disabled={!input.trim() && attachments.length === 0}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5">
-              <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+          <button onClick={handleSend} className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30" disabled={!input.trim() && attachments.length === 0}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5"><path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
         </div>
         {queue.length > 0 && (

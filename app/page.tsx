@@ -22,13 +22,15 @@ async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
   try {
     const config = await readAgentRuntimeConfig();
     const readiness = await buildAgentConfigReadiness(config);
-    const provider = readiness.providers[readiness.activeProviderId];
+    
+    // PI-first readiness
+    const pi = readiness.pi;
 
     return {
-      providerLabel: readiness.activeProviderId,
-      providerReady: provider.available,
-      providerIssues: provider.issues,
-      doctorStatus: provider.available ? 'ready' : 'needs-attention',
+      providerLabel: pi?.activeProvider || readiness.activeProviderId,
+      providerReady: pi?.ready || readiness.activeProviderReady,
+      providerIssues: pi?.issues || [],
+      doctorStatus: (pi?.ready || readiness.activeProviderReady) ? 'ready' : 'needs-attention',
     };
   } catch {
     return {
