@@ -5,6 +5,7 @@ import { db } from '../app/lib/db';
 import { aiMessages, aiSessions } from '../app/lib/db/schema';
 
 const AGENT_STORAGE_DIR = '/home/node/canvas-agent';
+const DEFAULT_INTEGRATIONS_ENV_PATH = '/home/node/canvas-integrations.env';
 const LEGACY_WIPE_MARKER_PATH = path.join(AGENT_STORAGE_DIR, '.legacy-session-wipe-done');
 const RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, 'agent-runtime-config.json');
 const MANAGED_FILE_TEMPLATES: Record<string, string> = {
@@ -33,6 +34,39 @@ async function fileExists(filePath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+function getIntegrationsEnvPath(): string {
+  const configured = process.env.INTEGRATIONS_ENV_PATH?.trim();
+  return configured || DEFAULT_INTEGRATIONS_ENV_PATH;
+}
+
+async function ensureIntegrationsEnvBootstrap(): Promise<void> {
+  const integrationsEnvPath = getIntegrationsEnvPath();
+  await fs.mkdir(path.dirname(integrationsEnvPath), { recursive: true });
+
+  try {
+    const handle = await fs.open(integrationsEnvPath, 'wx', 0o600);
+    await handle.close();
+    await fs.chmod(integrationsEnvPath, 0o600);
+    console.log(`[bootstrap-agent-runtime] Created integrations env file: ${integrationsEnvPath}.`);
+    return;
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error) {
+      if (error.code === 'EEXIST') {
+        await fs.chmod(integrationsEnvPath, 0o600).catch(() => undefined);
+        console.log(`[bootstrap-agent-runtime] Integrations env file exists: ${integrationsEnvPath} (preserved).`);
+        return;
+      }
+
+      if (error.code === 'EISDIR') {
+        console.warn(`[bootstrap-agent-runtime] WARNING: integrations env path is a directory: ${integrationsEnvPath}.`);
+        return;
+      }
+    }
+
+    throw error;
   }
 }
 
@@ -127,6 +161,7 @@ async function runLegacySessionCleanupIfNeeded(): Promise<void> {
 }
 
 async function main() {
+  await ensureIntegrationsEnvBootstrap();
   await ensureAgentStorageBootstrap();
   await runLegacySessionCleanupIfNeeded();
 
