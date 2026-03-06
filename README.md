@@ -204,10 +204,15 @@ Wichtige Hinweise:
 - Optionaler Auto-Deploy: Lege in GitHub unter `Settings -> Secrets and variables -> Actions` ein Secret `EASYPANEL_DEPLOY_WEBHOOK_URL` an. Nach erfolgreichem GHCR-Build triggert der Workflow dann automatisch den EasyPanel Deploy-Webhook.
 
 ### Codex + Claude Code + Ollama CLI beim Container-Start
-Der Container installiert beim Start automatisch die neuesten Versionen von:
+Beim Start prüft der Container zuerst, ob `codex`, `claude` und `ollama` bereits im `PATH` verfügbar sind.
+
+Falls `codex` oder `claude` fehlen, werden sie einmalig nachinstalliert:
 `npm i -g @openai/codex@latest @anthropic-ai/claude-code@latest`
 
-Zusätzlich wird die offizielle Ollama-CLI installiert (`ollama` im PATH, via `https://ollama.com/install.sh`).
+Falls `ollama` fehlt, wird die offizielle Ollama-CLI via `https://ollama.com/install.sh` installiert.
+
+Mit einem persistenten Mount auf `/home/node` bleiben die user-scope CLI-Installationen erhalten und werden bei späteren Starts wiederverwendet.
+In `compose.yaml` wird fuer Ollama zusaetzlich ein eigenes Volume auf `/ollama` gemountet; ueber `OLLAMA_MODELS=/ollama/models` bleiben dort Modelle und Ollama-Daten persistent, ohne `/usr/local` zu mounten.
 
 Das Login kann danach manuell im Container erfolgen (z. B. per `codex login` und `claude`).
 Falls du den Codex/Claude Auto-Install deaktivieren willst, setze:
