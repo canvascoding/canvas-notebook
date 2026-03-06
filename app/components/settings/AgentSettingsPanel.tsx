@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Eye, EyeOff, Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2 } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,14 +24,14 @@ type OpenRouterProviderConfig = {
   enabled: boolean;
   baseUrl: string;
   model: string;
-  apiKeySource: 'integrations-env' | 'process-env';
+  apiKeySource: 'integrations-env';
 };
 
 type OllamaProviderConfig = {
   enabled: boolean;
   baseUrl: string;
   model: string;
-  apiKeySource: 'none' | 'integrations-env' | 'process-env';
+  apiKeySource: 'none' | 'integrations-env';
 };
 
 type AgentRuntimeConfig = {
@@ -75,7 +75,7 @@ type AgentConfigReadiness = {
   activeProviderReady: boolean;
   openRouterKey: {
     isSet: boolean;
-    source: 'integrations-env' | 'process-env' | null;
+    source: 'integrations-env' | null;
     last4: string | null;
     warnings: string[];
   };
@@ -124,15 +124,6 @@ type SessionItem = {
   };
 };
 
-type IntegrationsEnvEntry = {
-  key: string;
-  value: string;
-};
-
-type IntegrationsEnvState = {
-  entries: IntegrationsEnvEntry[];
-};
-
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -168,47 +159,6 @@ function toProviderKind(providerId: ProviderId): ProviderKind {
   return 'cli';
 }
 
-async function upsertIntegrationsEnvEntry(key: string, value: string): Promise<void> {
-  const readResponse = await fetch('/api/integrations/env', {
-    method: 'GET',
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  const readBody = (await readResponse.json().catch(() => ({}))) as {
-    success?: boolean;
-    error?: string;
-    data?: IntegrationsEnvState;
-  };
-
-  if (!readResponse.ok || !readBody.success) {
-    throw new Error(readBody.error || 'Failed to read integrations env.');
-  }
-
-  const currentEntries = Array.isArray(readBody.data?.entries) ? readBody.data.entries : [];
-  const mergedEntries = currentEntries
-    .filter((entry) => entry.key && entry.key.trim().length > 0 && entry.key !== key)
-    .map((entry) => ({ key: entry.key, value: entry.value }));
-  mergedEntries.push({ key, value });
-
-  const writeResponse = await fetch('/api/integrations/env', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      mode: 'kv',
-      entries: mergedEntries,
-    }),
-  });
-  const writeBody = (await writeResponse.json().catch(() => ({}))) as {
-    success?: boolean;
-    error?: string;
-  };
-
-  if (!writeResponse.ok || !writeBody.success) {
-    throw new Error(writeBody.error || 'Failed to write integrations env.');
-  }
-}
-
 export function AgentSettingsPanel() {
   const searchParams = useSearchParams();
 
@@ -218,8 +168,6 @@ export function AgentSettingsPanel() {
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [configSuccess, setConfigSuccess] = useState<string | null>(null);
-  const [openRouterApiKeyDraft, setOpenRouterApiKeyDraft] = useState('');
-  const [openRouterApiKeyVisible, setOpenRouterApiKeyVisible] = useState(false);
 
   const [doctorResult, setDoctorResult] = useState<DoctorResult | null>(null);
   const [doctorRunning, setDoctorRunning] = useState(false);
@@ -356,11 +304,7 @@ export function AgentSettingsPanel() {
     setConfigSuccess(null);
 
     try {
-      const shouldSaveOpenRouterApiKey =
-        configDraft.providers.openrouter.apiKeySource === 'integrations-env' &&
-        openRouterApiKeyDraft.trim().length > 0;
-
-      let payload = await fetchJson<{ config: AgentRuntimeConfig; readiness: AgentConfigReadiness }>(
+      const payload = await fetchJson<{ config: AgentRuntimeConfig; readiness: AgentConfigReadiness }>(
         '/api/agents/config',
         {
           method: 'PUT',
@@ -369,22 +313,9 @@ export function AgentSettingsPanel() {
         },
       );
 
-      if (shouldSaveOpenRouterApiKey) {
-        await upsertIntegrationsEnvEntry('OPENROUTER_API_KEY', openRouterApiKeyDraft.trim());
-        payload = await fetchJson<{ config: AgentRuntimeConfig; readiness: AgentConfigReadiness }>(
-          '/api/agents/config',
-        );
-        setOpenRouterApiKeyDraft('');
-        setOpenRouterApiKeyVisible(false);
-      }
-
       setConfigDraft(deepClone(payload.config));
       setReadiness(payload.readiness);
-      setConfigSuccess(
-        shouldSaveOpenRouterApiKey
-          ? 'Agent-Konfiguration und OpenRouter API Key gespeichert.'
-          : 'Agent-Konfiguration gespeichert.',
-      );
+      setConfigSuccess('Agent-Konfiguration gespeichert.');
     } catch (error) {
       setConfigError(error instanceof Error ? error.message : 'Failed to save agent config.');
     } finally {
@@ -701,7 +632,6 @@ export function AgentSettingsPanel() {
                         disabled={configSaving}
                       >
                         <option value="integrations-env">integrations-env</option>
-                        <option value="process-env">process-env</option>
                       </select>
                     </label>
                   </div>
@@ -725,50 +655,9 @@ export function AgentSettingsPanel() {
                     </label>
                   </div>
 
-                  <label className="space-y-2 text-sm">
-                    <span>OpenRouter API Key</span>
-                    <div className="relative">
-                      <Input
-                        type={openRouterApiKeyVisible ? 'text' : 'password'}
-                        value={openRouterApiKeyDraft}
-                        onChange={(event) => setOpenRouterApiKeyDraft(event.target.value)}
-                        placeholder={
-                          readiness?.openRouterKey.isSet
-                            ? `Gesetzt (endet auf ${readiness.openRouterKey.last4 || '****'})`
-                            : 'sk-or-v1-...'
-                        }
-                        disabled={
-                          configSaving || configDraft.providers.openrouter.apiKeySource !== 'integrations-env'
-                        }
-                        className="pr-12"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="absolute right-1 top-1/2 -translate-y-1/2"
-                        onClick={() => setOpenRouterApiKeyVisible((current) => !current)}
-                        disabled={
-                          configSaving || configDraft.providers.openrouter.apiKeySource !== 'integrations-env'
-                        }
-                        aria-label={openRouterApiKeyVisible ? 'API key ausblenden' : 'API key einblenden'}
-                      >
-                        {openRouterApiKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </label>
-
-                  {configDraft.providers.openrouter.apiKeySource === 'integrations-env' ? (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Der Key wird in `integrations-env` gespeichert. Feld leer lassen, um den vorhandenen Key nicht zu
-                      ändern.
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Bei `process-env` wird der Key aus `OPENROUTER_API_KEY` gelesen und kann hier nicht gespeichert
-                      werden.
-                    </p>
-                  )}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    API-Keys werden zentral im Tab `Integrations` in `/home/node/canvas-integrations.env` verwaltet.
+                  </p>
 
                   <p className="mt-1 text-xs text-muted-foreground">
                     Aktuell erkannt:{' '}
@@ -800,7 +689,6 @@ export function AgentSettingsPanel() {
                       >
                         <option value="none">none</option>
                         <option value="integrations-env">integrations-env</option>
-                        <option value="process-env">process-env</option>
                       </select>
                     </label>
                   </div>
