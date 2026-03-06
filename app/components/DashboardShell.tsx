@@ -2,7 +2,8 @@
 
 import { useState, useRef, useCallback, useEffect, type CSSProperties } from 'react';
 import Image from 'next/image';
-import { PanelLeft, MessageSquare, X, Terminal as TerminalIcon } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowLeft, PanelLeft, MessageSquare, X, Terminal as TerminalIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { LogoutButton } from '@/app/components/LogoutButton';
@@ -146,6 +147,12 @@ export function DashboardShell({ username }: DashboardShellProps) {
       <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
         <div className="mx-auto flex h-full items-center justify-between px-4">
           <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
+              <Link href="/">
+                <ArrowLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">Suite</span>
+              </Link>
+            </Button>
             <Button
               variant={sidebarVisible ? "default" : "ghost"}
               size="icon-sm"
