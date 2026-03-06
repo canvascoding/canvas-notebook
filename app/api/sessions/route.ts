@@ -196,16 +196,50 @@ export async function DELETE(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get('sessionId');
+  const deleteAll = searchParams.get('all');
+  const shouldDeleteAll = deleteAll === 'true' || deleteAll === '1';
 
-  if (!sessionId) {
+  if (!shouldDeleteAll && !sessionId) {
     return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
   }
 
   try {
+    if (shouldDeleteAll) {
+      const dbSessions = await db.select({ id: aiSessions.id }).from(aiSessions);
+
+      if (dbSessions.length === 0) {
+        return NextResponse.json({
+          success: true,
+          deleted: {
+            sessions: 0,
+            messages: 0,
+          },
+        });
+      }
+
+      const sessionDbIds = dbSessions.map((item) => item.id);
+      const deletedMessages = await db
+        .delete(aiMessages)
+        .where(inArray(aiMessages.aiSessionDbId, sessionDbIds))
+        .returning({ id: aiMessages.id });
+      const deletedSessions = await db
+        .delete(aiSessions)
+        .where(inArray(aiSessions.id, sessionDbIds))
+        .returning({ id: aiSessions.id });
+
+      return NextResponse.json({
+        success: true,
+        deleted: {
+          sessions: deletedSessions.length,
+          messages: deletedMessages.length,
+        },
+      });
+    }
+
     const dbSessions = await db
       .select({ id: aiSessions.id })
       .from(aiSessions)
-      .where(eq(aiSessions.sessionId, sessionId));
+      .where(eq(aiSessions.sessionId, sessionId!));
 
     if (dbSessions.length === 0) {
       return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
@@ -218,7 +252,7 @@ export async function DELETE(request: NextRequest) {
       .returning({ id: aiMessages.id });
     const deletedSessions = await db
       .delete(aiSessions)
-      .where(eq(aiSessions.sessionId, sessionId))
+      .where(eq(aiSessions.sessionId, sessionId!))
       .returning({ id: aiSessions.id });
 
     return NextResponse.json({
