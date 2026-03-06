@@ -1,6 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
+
 - `app/`: Next.js App Router pages, API routes, and UI components.
   - `app/api/`: REST endpoints for auth, files, and downloads.
   - `app/components/`: UI building blocks (file browser, editor, terminal).
@@ -10,6 +11,17 @@
 - `docs/`: deployment, security, monitoring guides.
 - `server/`: custom Node server for WebSocket terminal.
 - `scripts/`: build/deploy/test helpers.
+
+## TASK: agent implementieren
+
+- Diese Regeln gelten für alle Arbeiten an der neuen Agent-Logik.
+- UI- und End-to-End-Prüfungen mit Playwright oder Chrome DevTools durchführen.
+- Für manuelle Tests immer einen Container auf Port `3000` verwenden.
+- Sicherstellen, dass nie mehrere Test-Container parallel laufen.
+- Test-Container bei neuem Testlauf immer mit aktuellem Stand neu laden (recreate/rebuild), statt alte Container weiterzuverwenden.
+- commmit sauber die einzelnen fertigen to dos, aber nicht pushen. 
+- login für die app ist email: admin.com und psw: change-me
+- mach mit keinem to do weiter wenn der vorherige to do noch nicht fertig ist
 
 ## Build, Test, and Development Commands
 - `npm run dev`: local dev server (set `PORT=3001` if needed).

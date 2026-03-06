@@ -19,11 +19,11 @@ Canvas Notebook ist eine moderne Next.js-Webanwendung, die als Online-Notizbuch 
   - **Image Viewer:** Unterstützung für gängige Bildformate.
   - **Media Player:** Abspielen von Audio- und Videodateien.
 
-### 🤖 Claude AI Agent (Neu)
-- **Integriertes Claude Code CLI:** Claude arbeitet direkt in deinem Workspace.
+### 🤖 AI Agent (Neu)
+- **Provider-basiert:** Codex CLI, Claude CLI, OpenRouter und Ollama (native API) sind konfigurierbar.
 - **Autonome Operationen:** Erstellen von Projekten, Ausführen von Shell-Befehlen und Bearbeiten von Code via Chat.
 - **Session-Persistence:** Chat-Verläufe und Kontexte werden in einer SQLite-Datenbank gespeichert.
-- **Bilder-Support:** Direkter Upload von Screenshots zur Analyse durch Claude.
+- **Bilder-Support:** Direkter Upload von Screenshots zur Analyse durch CLI-Provider.
 
 ### 💻 Terminal & System
 - **Integriertes Terminal:** Volle Shell-Erfahrung im Browser (xterm.js + node-pty).
@@ -203,16 +203,28 @@ Wichtige Hinweise:
 - Bei `Source: Docker image` wird in EasyPanel nicht erneut gebaut, sondern nur gepullt und gestartet.
 - Optionaler Auto-Deploy: Lege in GitHub unter `Settings -> Secrets and variables -> Actions` ein Secret `EASYPANEL_DEPLOY_WEBHOOK_URL` an. Nach erfolgreichem GHCR-Build triggert der Workflow dann automatisch den EasyPanel Deploy-Webhook.
 
-### Codex + Claude Code CLI beim Container-Start
-Der Container installiert beim Start automatisch die neuesten Versionen von:
+### Codex + Claude Code + Ollama CLI beim Container-Start
+Beim Start prüft der Container zuerst, ob `codex`, `claude` und `ollama` bereits im `PATH` verfügbar sind.
+
+Falls `codex` oder `claude` fehlen, werden sie einmalig nachinstalliert:
 `npm i -g @openai/codex@latest @anthropic-ai/claude-code@latest`
 
+Falls `ollama` fehlt, wird die offizielle Ollama-CLI via `https://ollama.com/install.sh` installiert.
+
+Mit einem persistenten Mount auf `/home/node` bleiben die user-scope CLI-Installationen erhalten und werden bei späteren Starts wiederverwendet.
+In `compose.yaml` wird fuer Ollama zusaetzlich ein eigenes Volume auf `/ollama` gemountet; ueber `OLLAMA_MODELS=/ollama/models` bleiben dort Modelle und Ollama-Daten persistent, ohne `/usr/local` zu mounten.
+
 Das Login kann danach manuell im Container erfolgen (z. B. per `codex login` und `claude`).
-Falls du den Auto-Install deaktivieren willst, setze (deaktiviert beide):
+Falls du den Codex/Claude Auto-Install deaktivieren willst, setze:
 ```bash
 -e AI_CLI_AUTO_INSTALL=false
 ```
 Legacy bleibt kompatibel: `CODEX_AUTO_INSTALL` wird weiterhin als Fallback unterstützt.
+
+Falls du den Ollama-Install deaktivieren willst, setze:
+```bash
+-e OLLAMA_CLI_AUTO_INSTALL=false
+```
 
 ### Initiales User-Onboarding (ohne UI-Benutzermanagement)
 Es gibt zwei Wege für den ersten Account:
