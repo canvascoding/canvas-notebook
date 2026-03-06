@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -124,6 +124,15 @@ type SessionItem = {
   };
 };
 
+type IntegrationsEnvEntry = {
+  key: string;
+  value: string;
+};
+
+type IntegrationsEnvState = {
+  entries: IntegrationsEnvEntry[];
+};
+
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -159,6 +168,47 @@ function toProviderKind(providerId: ProviderId): ProviderKind {
   return 'cli';
 }
 
+async function upsertIntegrationsEnvEntry(key: string, value: string): Promise<void> {
+  const readResponse = await fetch('/api/integrations/env', {
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  const readBody = (await readResponse.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    data?: IntegrationsEnvState;
+  };
+
+  if (!readResponse.ok || !readBody.success) {
+    throw new Error(readBody.error || 'Failed to read integrations env.');
+  }
+
+  const currentEntries = Array.isArray(readBody.data?.entries) ? readBody.data.entries : [];
+  const mergedEntries = currentEntries
+    .filter((entry) => entry.key && entry.key.trim().length > 0 && entry.key !== key)
+    .map((entry) => ({ key: entry.key, value: entry.value }));
+  mergedEntries.push({ key, value });
+
+  const writeResponse = await fetch('/api/integrations/env', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      mode: 'kv',
+      entries: mergedEntries,
+    }),
+  });
+  const writeBody = (await writeResponse.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+  };
+
+  if (!writeResponse.ok || !writeBody.success) {
+    throw new Error(writeBody.error || 'Failed to write integrations env.');
+  }
+}
+
 export function AgentSettingsPanel() {
   const searchParams = useSearchParams();
 
@@ -168,6 +218,8 @@ export function AgentSettingsPanel() {
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [configSuccess, setConfigSuccess] = useState<string | null>(null);
+  const [openRouterApiKeyDraft, setOpenRouterApiKeyDraft] = useState('');
+  const [openRouterApiKeyVisible, setOpenRouterApiKeyVisible] = useState(false);
 
   const [doctorResult, setDoctorResult] = useState<DoctorResult | null>(null);
   const [doctorRunning, setDoctorRunning] = useState(false);
@@ -304,7 +356,11 @@ export function AgentSettingsPanel() {
     setConfigSuccess(null);
 
     try {
-      const payload = await fetchJson<{ config: AgentRuntimeConfig; readiness: AgentConfigReadiness }>(
+      const shouldSaveOpenRouterApiKey =
+        configDraft.providers.openrouter.apiKeySource === 'integrations-env' &&
+        openRouterApiKeyDraft.trim().length > 0;
+
+      let payload = await fetchJson<{ config: AgentRuntimeConfig; readiness: AgentConfigReadiness }>(
         '/api/agents/config',
         {
           method: 'PUT',
@@ -313,9 +369,22 @@ export function AgentSettingsPanel() {
         },
       );
 
+      if (shouldSaveOpenRouterApiKey) {
+        await upsertIntegrationsEnvEntry('OPENROUTER_API_KEY', openRouterApiKeyDraft.trim());
+        payload = await fetchJson<{ config: AgentRuntimeConfig; readiness: AgentConfigReadiness }>(
+          '/api/agents/config',
+        );
+        setOpenRouterApiKeyDraft('');
+        setOpenRouterApiKeyVisible(false);
+      }
+
       setConfigDraft(deepClone(payload.config));
       setReadiness(payload.readiness);
-      setConfigSuccess('Agent-Konfiguration gespeichert.');
+      setConfigSuccess(
+        shouldSaveOpenRouterApiKey
+          ? 'Agent-Konfiguration und OpenRouter API Key gespeichert.'
+          : 'Agent-Konfiguration gespeichert.',
+      );
     } catch (error) {
       setConfigError(error instanceof Error ? error.message : 'Failed to save agent config.');
     } finally {
@@ -501,6 +570,33 @@ export function AgentSettingsPanel() {
     }
   };
 
+  const deleteAllSessions = async () => {
+    if (!window.confirm('Wirklich alle Sessions inklusive Verlauf löschen?')) {
+      return;
+    }
+
+    setSessionPendingId('delete-all');
+    setSessionError(null);
+
+    try {
+      const response = await fetch('/api/sessions?all=true', {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      const body = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !body.success) {
+        throw new Error(body.error || 'Failed to delete all sessions.');
+      }
+
+      await loadSessions();
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : 'Failed to delete all sessions.');
+    } finally {
+      setSessionPendingId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card>
@@ -584,112 +680,149 @@ export function AgentSettingsPanel() {
                   </label>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded border border-border p-3">
+                  <p className="mb-3 text-sm font-semibold">OpenRouter</p>
+                  <div className="mb-3 grid gap-3 md:grid-cols-[auto_1fr] md:items-end">
+                    <label className="flex h-10 items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={configDraft.providers.openrouter.enabled}
+                        onChange={(event) => setProviderEnabled('openrouter', event.target.checked)}
+                        disabled={configSaving}
+                      />
+                      OpenRouter enabled
+                    </label>
+                    <label className="space-y-2 text-sm">
+                      <span>OpenRouter Key Source</span>
+                      <select
+                        className="h-10 w-full border border-input bg-background px-3 text-sm"
+                        value={configDraft.providers.openrouter.apiKeySource}
+                        onChange={(event) => setOpenRouterField('apiKeySource', event.target.value)}
+                        disabled={configSaving}
+                      >
+                        <option value="integrations-env">integrations-env</option>
+                        <option value="process-env">process-env</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mb-3 grid gap-3 md:grid-cols-2">
+                    <label className="space-y-2 text-sm">
+                      <span>OpenRouter Base URL</span>
+                      <Input
+                        value={configDraft.providers.openrouter.baseUrl}
+                        onChange={(event) => setOpenRouterField('baseUrl', event.target.value)}
+                        disabled={configSaving}
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm">
+                      <span>OpenRouter Model</span>
+                      <Input
+                        value={configDraft.providers.openrouter.model}
+                        onChange={(event) => setOpenRouterField('model', event.target.value)}
+                        disabled={configSaving}
+                      />
+                    </label>
+                  </div>
+
                   <label className="space-y-2 text-sm">
-                    <span>OpenRouter Base URL</span>
-                    <Input
-                      value={configDraft.providers.openrouter.baseUrl}
-                      onChange={(event) => setOpenRouterField('baseUrl', event.target.value)}
-                      disabled={configSaving}
-                    />
+                    <span>OpenRouter API Key</span>
+                    <div className="relative">
+                      <Input
+                        type={openRouterApiKeyVisible ? 'text' : 'password'}
+                        value={openRouterApiKeyDraft}
+                        onChange={(event) => setOpenRouterApiKeyDraft(event.target.value)}
+                        placeholder={
+                          readiness?.openRouterKey.isSet
+                            ? `Gesetzt (endet auf ${readiness.openRouterKey.last4 || '****'})`
+                            : 'sk-or-v1-...'
+                        }
+                        disabled={
+                          configSaving || configDraft.providers.openrouter.apiKeySource !== 'integrations-env'
+                        }
+                        className="pr-12"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2"
+                        onClick={() => setOpenRouterApiKeyVisible((current) => !current)}
+                        disabled={
+                          configSaving || configDraft.providers.openrouter.apiKeySource !== 'integrations-env'
+                        }
+                        aria-label={openRouterApiKeyVisible ? 'API key ausblenden' : 'API key einblenden'}
+                      >
+                        {openRouterApiKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </label>
-                  <label className="space-y-2 text-sm">
-                    <span>OpenRouter Model</span>
-                    <Input
-                      value={configDraft.providers.openrouter.model}
-                      onChange={(event) => setOpenRouterField('model', event.target.value)}
-                      disabled={configSaving}
-                    />
-                  </label>
+
+                  {configDraft.providers.openrouter.apiKeySource === 'integrations-env' ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Der Key wird in `integrations-env` gespeichert. Feld leer lassen, um den vorhandenen Key nicht zu
+                      ändern.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Bei `process-env` wird der Key aus `OPENROUTER_API_KEY` gelesen und kann hier nicht gespeichert
+                      werden.
+                    </p>
+                  )}
+
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Aktuell erkannt:{' '}
+                    {readiness?.openRouterKey.isSet
+                      ? `ja (${readiness.openRouterKey.source || 'unknown'})`
+                      : 'nein'}
+                  </p>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-center">
-                  <label className="space-y-2 text-sm">
-                    <span>OpenRouter Key Source</span>
-                    <select
-                      className="h-10 w-full border border-input bg-background px-3 text-sm"
-                      value={configDraft.providers.openrouter.apiKeySource}
-                      onChange={(event) => setOpenRouterField('apiKeySource', event.target.value)}
-                      disabled={configSaving}
-                    >
-                      <option value="integrations-env">integrations-env</option>
-                      <option value="process-env">process-env</option>
-                    </select>
-                  </label>
-                </div>
+                <div className="rounded border border-border p-3">
+                  <p className="mb-3 text-sm font-semibold">Ollama</p>
+                  <div className="mb-3 grid gap-3 md:grid-cols-[auto_1fr] md:items-end">
+                    <label className="flex h-10 items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={configDraft.providers.ollama.enabled}
+                        onChange={(event) => setProviderEnabled('ollama', event.target.checked)}
+                        disabled={configSaving}
+                      />
+                      Ollama enabled
+                    </label>
+                    <label className="space-y-2 text-sm">
+                      <span>Ollama Key Source</span>
+                      <select
+                        className="h-10 w-full border border-input bg-background px-3 text-sm"
+                        value={configDraft.providers.ollama.apiKeySource}
+                        onChange={(event) => setOllamaField('apiKeySource', event.target.value)}
+                        disabled={configSaving}
+                      >
+                        <option value="none">none</option>
+                        <option value="integrations-env">integrations-env</option>
+                        <option value="process-env">process-env</option>
+                      </select>
+                    </label>
+                  </div>
 
-                <div className="grid gap-3 md:grid-cols-2 border-t border-border pt-3">
-                  <label className="space-y-2 text-sm">
-                    <span>Ollama Base URL</span>
-                    <Input
-                      value={configDraft.providers.ollama.baseUrl}
-                      onChange={(event) => setOllamaField('baseUrl', event.target.value)}
-                      disabled={configSaving}
-                    />
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span>Ollama Model</span>
-                    <Input
-                      value={configDraft.providers.ollama.model}
-                      onChange={(event) => setOllamaField('model', event.target.value)}
-                      disabled={configSaving}
-                    />
-                  </label>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-                  <label className="space-y-2 text-sm">
-                    <span>Ollama Key Source</span>
-                    <select
-                      className="h-10 w-full border border-input bg-background px-3 text-sm"
-                      value={configDraft.providers.ollama.apiKeySource}
-                      onChange={(event) => setOllamaField('apiKeySource', event.target.value)}
-                      disabled={configSaving}
-                    >
-                      <option value="none">none</option>
-                      <option value="integrations-env">integrations-env</option>
-                      <option value="process-env">process-env</option>
-                    </select>
-                  </label>
-
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={configDraft.providers.ollama.enabled}
-                      onChange={(event) => setProviderEnabled('ollama', event.target.checked)}
-                      disabled={configSaving}
-                    />
-                    Ollama enabled
-                  </label>
-
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={configDraft.providers.openrouter.enabled}
-                      onChange={(event) => setProviderEnabled('openrouter', event.target.checked)}
-                      disabled={configSaving}
-                    />
-                    OpenRouter enabled
-                  </label>
-
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={configDraft.doctor.enableLivePing}
-                      onChange={(event) =>
-                        setConfigDraft((current) => {
-                          if (!current) {
-                            return current;
-                          }
-                          const next = deepClone(current);
-                          next.doctor.enableLivePing = event.target.checked;
-                          return next;
-                        })
-                      }
-                      disabled={configSaving}
-                    />
-                    Doctor live ping
-                  </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-2 text-sm">
+                      <span>Ollama Base URL</span>
+                      <Input
+                        value={configDraft.providers.ollama.baseUrl}
+                        onChange={(event) => setOllamaField('baseUrl', event.target.value)}
+                        disabled={configSaving}
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm">
+                      <span>Ollama Model</span>
+                      <Input
+                        value={configDraft.providers.ollama.model}
+                        onChange={(event) => setOllamaField('model', event.target.value)}
+                        disabled={configSaving}
+                      />
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -717,6 +850,27 @@ export function AgentSettingsPanel() {
           <CardDescription>Lokale Provider-Checks und optionale OpenRouter/Ollama-Pings.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {configDraft && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={configDraft.doctor.enableLivePing}
+                onChange={(event) =>
+                  setConfigDraft((current) => {
+                    if (!current) {
+                      return current;
+                    }
+                    const next = deepClone(current);
+                    next.doctor.enableLivePing = event.target.checked;
+                    return next;
+                  })
+                }
+                disabled={configSaving}
+              />
+              Doctor live ping
+            </label>
+          )}
+
           <Button onClick={() => void runDoctor()} disabled={doctorRunning}>
             {doctorRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Stethoscope className="mr-2 h-4 w-4" />}
             Doctor ausführen
@@ -818,6 +972,18 @@ export function AgentSettingsPanel() {
               <RefreshCw className="mr-2 h-4 w-4" />
               Neu laden
             </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void deleteAllSessions()}
+              disabled={sessionPendingId !== null || sessionsLoading || sessions.length === 0}
+            >
+              {sessionPendingId === 'delete-all' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Alle Sessions löschen
+            </Button>
           </div>
 
           {sessionError && <p className="text-sm text-destructive">{sessionError}</p>}
@@ -852,12 +1018,12 @@ export function AgentSettingsPanel() {
                             [sessionItem.sessionId]: event.target.value,
                           }))
                         }
-                        disabled={isPending || sessionPendingId === 'create'}
+                        disabled={sessionPendingId !== null}
                       />
                       <Button
                         variant="outline"
                         onClick={() => void renameSession(sessionItem.sessionId)}
-                        disabled={isPending || sessionPendingId === 'create'}
+                        disabled={sessionPendingId !== null}
                       >
                         {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         Umbenennen
@@ -865,7 +1031,7 @@ export function AgentSettingsPanel() {
                       <Button
                         variant="destructive"
                         onClick={() => void deleteSession(sessionItem.sessionId)}
-                        disabled={isPending || sessionPendingId === 'create'}
+                        disabled={sessionPendingId !== null}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Löschen
