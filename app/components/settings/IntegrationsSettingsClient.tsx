@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Plus, Trash2 } from 'lucide-react';
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,8 +31,34 @@ interface DraftEntry {
 }
 
 const DEFAULT_KEYS = [
+  'OPENROUTER_API_KEY',
+  'OLLAMA_API_KEY',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
   'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'NANO_BANANA_API_KEY',
+  'IMAGE_GENERATION_API_KEY',
+  'API_KEY',
 ];
+
+function normalizeKeyForSecretCheck(key: string): string {
+  return key.trim().toUpperCase();
+}
+
+function isSecretKey(key: string): boolean {
+  const normalized = normalizeKeyForSecretCheck(key);
+  if (normalized.endsWith('_KEY_SOURCE')) {
+    return false;
+  }
+  return (
+    normalized.endsWith('_KEY') ||
+    normalized.includes('_TOKEN') ||
+    normalized.includes('TOKEN') ||
+    normalized.includes('SECRET') ||
+    normalized.includes('PASSWORD')
+  );
+}
 
 function createDraftEntry(entry?: Partial<EnvEntry>): DraftEntry {
   return {
@@ -51,7 +77,14 @@ function toDraftEntries(entries: EnvEntry[]): DraftEntry[] {
   if (!entries || entries.length === 0) {
     return toDefaultDraftEntries();
   }
-  return entries.map((entry) => createDraftEntry(entry));
+
+  const existingEntries = entries.map((entry) => createDraftEntry(entry));
+  const existingKeys = new Set(entries.map((entry) => entry.key.trim().toUpperCase()).filter(Boolean));
+  const missingDefaults = DEFAULT_KEYS.filter((key) => !existingKeys.has(key.toUpperCase())).map((key) =>
+    createDraftEntry({ key, value: '', encrypted: false })
+  );
+
+  return [...existingEntries, ...missingDefaults];
 }
 
 export function IntegrationsSettingsClient() {
@@ -66,6 +99,7 @@ export function IntegrationsSettingsClient() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [secretVisibilityById, setSecretVisibilityById] = useState<Record<string, boolean>>({});
 
   const loadState = async () => {
     setIsLoading(true);
@@ -77,8 +111,12 @@ export function IntegrationsSettingsClient() {
         throw new Error(payload.error || 'Failed to load integrations env');
       }
       const nextState: EnvState = payload.data;
+      const nextDraftEntries = toDraftEntries(nextState.entries);
       setState(nextState);
-      setDraftEntries(toDraftEntries(nextState.entries));
+      setDraftEntries(nextDraftEntries);
+      setSecretVisibilityById(
+        Object.fromEntries(nextDraftEntries.map((entry) => [entry.id, false])) as Record<string, boolean>
+      );
       setRawContent(nextState.rawContent);
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : 'Failed to load integrations env';
@@ -119,8 +157,12 @@ export function IntegrationsSettingsClient() {
         throw new Error(payload.error || 'Failed to save integrations env');
       }
       const nextState: EnvState = payload.data;
+      const nextDraftEntries = toDraftEntries(nextState.entries);
       setState(nextState);
-      setDraftEntries(toDraftEntries(nextState.entries));
+      setDraftEntries(nextDraftEntries);
+      setSecretVisibilityById(
+        Object.fromEntries(nextDraftEntries.map((entry) => [entry.id, false])) as Record<string, boolean>
+      );
       setRawContent(nextState.rawContent);
       setSuccess('Einstellungen gespeichert.');
     } catch (saveError) {
@@ -150,8 +192,12 @@ export function IntegrationsSettingsClient() {
         throw new Error(payload.error || 'Failed to save raw env');
       }
       const nextState: EnvState = payload.data;
+      const nextDraftEntries = toDraftEntries(nextState.entries);
       setState(nextState);
-      setDraftEntries(toDraftEntries(nextState.entries));
+      setDraftEntries(nextDraftEntries);
+      setSecretVisibilityById(
+        Object.fromEntries(nextDraftEntries.map((entry) => [entry.id, false])) as Record<string, boolean>
+      );
       setRawContent(nextState.rawContent);
       setSuccess('Raw-Env gespeichert.');
     } catch (saveError) {
@@ -168,13 +214,36 @@ export function IntegrationsSettingsClient() {
     );
   };
 
+  const toggleSecretVisibility = (entryId: string) => {
+    setSecretVisibilityById((current) => ({
+      ...current,
+      [entryId]: !current[entryId],
+    }));
+  };
+
+  const addDraftEntry = () => {
+    const entry = createDraftEntry();
+    setDraftEntries((current) => [...current, entry]);
+    setSecretVisibilityById((current) => ({ ...current, [entry.id]: false }));
+  };
+
   const removeDraftEntry = (index: number) => {
-    setDraftEntries((current) => {
-      if (current.length <= 1) {
-        return [createDraftEntry()];
-      }
-      return current.filter((_, currentIndex) => currentIndex !== index);
-    });
+    const target = draftEntries[index];
+    if (draftEntries.length <= 1) {
+      const fallback = createDraftEntry();
+      setDraftEntries([fallback]);
+      setSecretVisibilityById({ [fallback.id]: false });
+      return;
+    }
+
+    setDraftEntries((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    if (target) {
+      setSecretVisibilityById((visibility) => {
+        const next = { ...visibility };
+        delete next[target.id];
+        return next;
+      });
+    }
   };
 
   return (
@@ -194,7 +263,7 @@ export function IntegrationsSettingsClient() {
             <CardHeader>
               <CardTitle>Integrations Settings</CardTitle>
               <CardDescription>
-                Gemeinsamer `GEMINI_API_KEY` für VEO 3, Nano Banana und Image Generation. Datei liegt unter{' '}
+                Zentrale API-Keys für Agent-Provider und Micro-SaaS-Apps. Datei liegt unter{' '}
                 <span className="font-mono">{state?.path || '/home/node/canvas-integrations.env'}</span>.
               </CardDescription>
             </CardHeader>
@@ -225,37 +294,59 @@ export function IntegrationsSettingsClient() {
 
                     <TabsContent value="kv" className="space-y-2">
                       <div className="space-y-2">
-                        {draftEntries.map((entry, index) => (
-                          <div key={entry.id} className="flex items-center gap-2">
-                            <Input
-                              placeholder="KEY_NAME"
-                              value={entry.key}
-                              onChange={(event) => updateDraftEntry(index, { key: event.target.value })}
-                              disabled={isSaving}
-                            />
-                            <Input
-                              placeholder={entry.encrypted ? 'Encrypted value' : 'value'}
-                              value={entry.value}
-                              onChange={(event) => updateDraftEntry(index, { value: event.target.value })}
-                              disabled={isSaving}
-                            />
-                            <Button
-                              variant="outline"
-                              size="icon-sm"
-                              aria-label="Delete row"
-                              onClick={() => removeDraftEntry(index)}
-                              disabled={isSaving}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
+                        {draftEntries.map((entry, index) => {
+                          const secret = isSecretKey(entry.key);
+                          const visible = Boolean(secretVisibilityById[entry.id]);
+
+                          return (
+                            <div key={entry.id} className="flex items-center gap-2">
+                              <Input
+                                placeholder="KEY_NAME"
+                                value={entry.key}
+                                onChange={(event) => updateDraftEntry(index, { key: event.target.value })}
+                                disabled={isSaving}
+                              />
+                              <div className="relative flex-1">
+                                <Input
+                                  type={secret && !visible ? 'password' : 'text'}
+                                  placeholder={entry.encrypted ? 'Encrypted value' : 'value'}
+                                  value={entry.value}
+                                  onChange={(event) => updateDraftEntry(index, { value: event.target.value })}
+                                  disabled={isSaving}
+                                  className={secret ? 'pr-10' : undefined}
+                                />
+                                {secret && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    className="absolute right-1 top-1/2 -translate-y-1/2"
+                                    aria-label={visible ? 'Secret ausblenden' : 'Secret einblenden'}
+                                    onClick={() => toggleSecretVisibility(entry.id)}
+                                    disabled={isSaving}
+                                  >
+                                    {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                  </Button>
+                                )}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="icon-sm"
+                                aria-label="Delete row"
+                                onClick={() => removeDraftEntry(index)}
+                                disabled={isSaving}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          );
+                        })}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => setDraftEntries((current) => [...current, createDraftEntry()])}
+                          onClick={() => addDraftEntry()}
                           disabled={isSaving}
                         >
                           <Plus className="mr-1 h-4 w-4" />

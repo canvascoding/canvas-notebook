@@ -4,7 +4,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { spawnSync } from 'child_process';
 
-import { readIntegrationsEnvState } from '@/app/lib/integrations/env-config';
+import { readIntegrationsEnvState, replaceIntegrationsEntries } from '@/app/lib/integrations/env-config';
 import { type AgentId } from './catalog';
 
 export const AGENT_STORAGE_DIR = '/home/node/canvas-agent';
@@ -38,13 +38,34 @@ const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
 `,
 };
 
+const AGENT_SETTINGS_ENV_KEYS = {
+  mainAgent: 'AGENT_MAIN_AGENT',
+  providerId: 'AGENT_PROVIDER_ID',
+  codexEnabled: 'AGENT_CODEX_CLI_ENABLED',
+  codexCommand: 'AGENT_CODEX_CLI_COMMAND',
+  claudeEnabled: 'AGENT_CLAUDE_CLI_ENABLED',
+  claudeCommand: 'AGENT_CLAUDE_CLI_COMMAND',
+  openRouterEnabled: 'AGENT_OPENROUTER_ENABLED',
+  openRouterBaseUrl: 'AGENT_OPENROUTER_BASE_URL',
+  openRouterModel: 'AGENT_OPENROUTER_MODEL',
+  openRouterApiKeySource: 'AGENT_OPENROUTER_API_KEY_SOURCE',
+  ollamaEnabled: 'AGENT_OLLAMA_ENABLED',
+  ollamaBaseUrl: 'AGENT_OLLAMA_BASE_URL',
+  ollamaModel: 'AGENT_OLLAMA_MODEL',
+  ollamaApiKeySource: 'AGENT_OLLAMA_API_KEY_SOURCE',
+  doctorEnableLivePing: 'AGENT_DOCTOR_ENABLE_LIVE_PING',
+  doctorTimeoutMs: 'AGENT_DOCTOR_TIMEOUT_MS',
+} as const;
+
+const AGENT_SETTINGS_ENV_KEY_SET = new Set<string>(Object.values(AGENT_SETTINGS_ENV_KEYS));
+
 type RecordLike = Record<string, unknown>;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentProviderId = 'codex-cli' | 'claude-cli' | 'openrouter' | 'ollama';
 export type AgentProviderKind = 'cli' | 'openrouter' | 'ollama';
-export type OpenRouterApiKeySource = 'integrations-env' | 'process-env';
-export type OllamaApiKeySource = 'none' | 'integrations-env' | 'process-env';
+export type OpenRouterApiKeySource = 'integrations-env';
+export type OllamaApiKeySource = 'none' | 'integrations-env';
 
 export type CliProviderConfig = {
   enabled: boolean;
@@ -230,17 +251,40 @@ function normalizeOpenRouterApiKeySource(
   value: unknown,
   fallback: OpenRouterApiKeySource
 ): OpenRouterApiKeySource {
-  if (value === 'integrations-env' || value === 'process-env') {
-    return value;
+  if (value === 'integrations-env') {
+    return 'integrations-env';
+  }
+  if (value === 'process-env') {
+    return 'integrations-env';
   }
   return fallback;
 }
 
 function normalizeOllamaApiKeySource(value: unknown, fallback: OllamaApiKeySource): OllamaApiKeySource {
-  if (value === 'none' || value === 'integrations-env' || value === 'process-env') {
+  if (value === 'none' || value === 'integrations-env') {
     return value;
   }
+  if (value === 'process-env') {
+    return 'integrations-env';
+  }
   return fallback;
+}
+
+function parseOpenRouterApiKeySource(value: string | undefined): OpenRouterApiKeySource | null {
+  if (value === 'integrations-env' || value === 'process-env') {
+    return 'integrations-env';
+  }
+  return null;
+}
+
+function parseOllamaApiKeySource(value: string | undefined): OllamaApiKeySource | null {
+  if (value === 'none' || value === 'integrations-env') {
+    return value;
+  }
+  if (value === 'process-env') {
+    return 'integrations-env';
+  }
+  return null;
 }
 
 function assertValidUrl(value: string, fieldName: string): void {
@@ -552,6 +596,192 @@ function checkCommandAvailability(command: string): boolean {
   return result.status === 0;
 }
 
+function toEnvBoolean(value: boolean): string {
+  return value ? 'true' : 'false';
+}
+
+function parseEnvBoolean(value: string | undefined): boolean | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
+    return true;
+  }
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+    return false;
+  }
+  return null;
+}
+
+function parseEnvInteger(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mapIntegrationsEntries(entries: Array<{ key: string; value: string }>): Map<string, string> {
+  return new Map(entries.map((entry) => [entry.key, entry.value]));
+}
+
+function buildAgentSettingsEnvEntries(config: AgentRuntimeConfig): Array<{ key: string; value: string }> {
+  return [
+    { key: AGENT_SETTINGS_ENV_KEYS.mainAgent, value: config.mainAgent },
+    { key: AGENT_SETTINGS_ENV_KEYS.providerId, value: config.provider.id },
+    { key: AGENT_SETTINGS_ENV_KEYS.codexEnabled, value: toEnvBoolean(config.providers['codex-cli'].enabled) },
+    { key: AGENT_SETTINGS_ENV_KEYS.codexCommand, value: config.providers['codex-cli'].command },
+    { key: AGENT_SETTINGS_ENV_KEYS.claudeEnabled, value: toEnvBoolean(config.providers['claude-cli'].enabled) },
+    { key: AGENT_SETTINGS_ENV_KEYS.claudeCommand, value: config.providers['claude-cli'].command },
+    { key: AGENT_SETTINGS_ENV_KEYS.openRouterEnabled, value: toEnvBoolean(config.providers.openrouter.enabled) },
+    { key: AGENT_SETTINGS_ENV_KEYS.openRouterBaseUrl, value: config.providers.openrouter.baseUrl },
+    { key: AGENT_SETTINGS_ENV_KEYS.openRouterModel, value: config.providers.openrouter.model },
+    {
+      key: AGENT_SETTINGS_ENV_KEYS.openRouterApiKeySource,
+      value: config.providers.openrouter.apiKeySource,
+    },
+    { key: AGENT_SETTINGS_ENV_KEYS.ollamaEnabled, value: toEnvBoolean(config.providers.ollama.enabled) },
+    { key: AGENT_SETTINGS_ENV_KEYS.ollamaBaseUrl, value: config.providers.ollama.baseUrl },
+    { key: AGENT_SETTINGS_ENV_KEYS.ollamaModel, value: config.providers.ollama.model },
+    {
+      key: AGENT_SETTINGS_ENV_KEYS.ollamaApiKeySource,
+      value: config.providers.ollama.apiKeySource,
+    },
+    { key: AGENT_SETTINGS_ENV_KEYS.doctorEnableLivePing, value: toEnvBoolean(config.doctor.enableLivePing) },
+    { key: AGENT_SETTINGS_ENV_KEYS.doctorTimeoutMs, value: String(config.doctor.timeoutMs) },
+  ];
+}
+
+async function syncAgentSettingsToIntegrationsEnv(config: AgentRuntimeConfig): Promise<void> {
+  const state = await readIntegrationsEnvState();
+  const retainedEntries = state.entries
+    .filter((entry) => entry.key && !AGENT_SETTINGS_ENV_KEY_SET.has(entry.key))
+    .map((entry) => ({
+      key: entry.key,
+      value: entry.value,
+    }));
+
+  const merged = [...retainedEntries, ...buildAgentSettingsEnvEntries(config)];
+  await replaceIntegrationsEntries(merged);
+}
+
+async function applyAgentSettingsFromIntegrationsEnv(config: AgentRuntimeConfig): Promise<AgentRuntimeConfig> {
+  const state = await readIntegrationsEnvState();
+  const envMap = mapIntegrationsEntries(state.entries);
+
+  const providersInput: RecordLike = {};
+  const codexInput: RecordLike = {};
+  const claudeInput: RecordLike = {};
+  const openRouterInput: RecordLike = {};
+  const ollamaInput: RecordLike = {};
+  const doctorInput: RecordLike = {};
+  const candidate: RecordLike = {};
+
+  const mainAgent = normalizeNonEmptyString(envMap.get(AGENT_SETTINGS_ENV_KEYS.mainAgent));
+  if (mainAgent) {
+    candidate.mainAgent = mainAgent;
+  }
+
+  const providerId = parseProviderId(envMap.get(AGENT_SETTINGS_ENV_KEYS.providerId));
+  if (providerId) {
+    candidate.provider = { id: providerId };
+  }
+
+  const codexEnabled = parseEnvBoolean(envMap.get(AGENT_SETTINGS_ENV_KEYS.codexEnabled));
+  if (codexEnabled !== null) {
+    codexInput.enabled = codexEnabled;
+  }
+  const codexCommand = normalizeNonEmptyString(envMap.get(AGENT_SETTINGS_ENV_KEYS.codexCommand));
+  if (codexCommand) {
+    codexInput.command = codexCommand;
+  }
+  if (Object.keys(codexInput).length > 0) {
+    providersInput['codex-cli'] = codexInput;
+  }
+
+  const claudeEnabled = parseEnvBoolean(envMap.get(AGENT_SETTINGS_ENV_KEYS.claudeEnabled));
+  if (claudeEnabled !== null) {
+    claudeInput.enabled = claudeEnabled;
+  }
+  const claudeCommand = normalizeNonEmptyString(envMap.get(AGENT_SETTINGS_ENV_KEYS.claudeCommand));
+  if (claudeCommand) {
+    claudeInput.command = claudeCommand;
+  }
+  if (Object.keys(claudeInput).length > 0) {
+    providersInput['claude-cli'] = claudeInput;
+  }
+
+  const openRouterEnabled = parseEnvBoolean(envMap.get(AGENT_SETTINGS_ENV_KEYS.openRouterEnabled));
+  if (openRouterEnabled !== null) {
+    openRouterInput.enabled = openRouterEnabled;
+  }
+  const openRouterBaseUrl = normalizeNonEmptyString(envMap.get(AGENT_SETTINGS_ENV_KEYS.openRouterBaseUrl));
+  if (openRouterBaseUrl) {
+    openRouterInput.baseUrl = openRouterBaseUrl;
+  }
+  const openRouterModel = normalizeNonEmptyString(envMap.get(AGENT_SETTINGS_ENV_KEYS.openRouterModel));
+  if (openRouterModel) {
+    openRouterInput.model = openRouterModel;
+  }
+  const openRouterApiKeySource = parseOpenRouterApiKeySource(
+    envMap.get(AGENT_SETTINGS_ENV_KEYS.openRouterApiKeySource)
+  );
+  if (openRouterApiKeySource) {
+    openRouterInput.apiKeySource = openRouterApiKeySource;
+  }
+  if (Object.keys(openRouterInput).length > 0) {
+    providersInput.openrouter = openRouterInput;
+  }
+
+  const ollamaEnabled = parseEnvBoolean(envMap.get(AGENT_SETTINGS_ENV_KEYS.ollamaEnabled));
+  if (ollamaEnabled !== null) {
+    ollamaInput.enabled = ollamaEnabled;
+  }
+  const ollamaBaseUrl = normalizeNonEmptyString(envMap.get(AGENT_SETTINGS_ENV_KEYS.ollamaBaseUrl));
+  if (ollamaBaseUrl) {
+    ollamaInput.baseUrl = ollamaBaseUrl;
+  }
+  const ollamaModel = normalizeNonEmptyString(envMap.get(AGENT_SETTINGS_ENV_KEYS.ollamaModel));
+  if (ollamaModel) {
+    ollamaInput.model = ollamaModel;
+  }
+  const ollamaApiKeySource = parseOllamaApiKeySource(envMap.get(AGENT_SETTINGS_ENV_KEYS.ollamaApiKeySource));
+  if (ollamaApiKeySource) {
+    ollamaInput.apiKeySource = ollamaApiKeySource;
+  }
+  if (Object.keys(ollamaInput).length > 0) {
+    providersInput.ollama = ollamaInput;
+  }
+
+  if (Object.keys(providersInput).length > 0) {
+    candidate.providers = providersInput;
+  }
+
+  const doctorEnableLivePing = parseEnvBoolean(envMap.get(AGENT_SETTINGS_ENV_KEYS.doctorEnableLivePing));
+  if (doctorEnableLivePing !== null) {
+    doctorInput.enableLivePing = doctorEnableLivePing;
+  }
+  const doctorTimeoutMs = parseEnvInteger(envMap.get(AGENT_SETTINGS_ENV_KEYS.doctorTimeoutMs));
+  if (doctorTimeoutMs !== null) {
+    doctorInput.timeoutMs = doctorTimeoutMs;
+  }
+  if (Object.keys(doctorInput).length > 0) {
+    candidate.doctor = doctorInput;
+  }
+
+  if (Object.keys(candidate).length === 0) {
+    return config;
+  }
+
+  const normalized = normalizeRuntimeConfigInput(candidate, config, config.updatedBy);
+  return {
+    ...normalized,
+    updatedAt: config.updatedAt,
+    updatedBy: config.updatedBy,
+  };
+}
+
 async function readProviderKeyFromIntegrations(keyName: string): Promise<string | null> {
   const state = await readIntegrationsEnvState();
   const keyEntry = state.entries.find((entry) => entry.key === keyName);
@@ -577,22 +807,22 @@ export function createDefaultAgentRuntimeConfig(updatedBy: string = 'system:boot
     providers: {
       'codex-cli': {
         enabled: true,
-        command: process.env.CODEX_CLI_COMMAND?.trim() || 'codex',
+        command: 'codex',
       },
       'claude-cli': {
         enabled: true,
-        command: process.env.CLAUDE_CLI_COMMAND?.trim() || 'claude',
+        command: 'claude',
       },
       openrouter: {
         enabled: true,
-        baseUrl: process.env.OPENROUTER_BASE_URL?.trim() || DEFAULT_OPENROUTER_BASE_URL,
-        model: normalizeOpenRouterModel(process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL),
+        baseUrl: DEFAULT_OPENROUTER_BASE_URL,
+        model: DEFAULT_OPENROUTER_MODEL,
         apiKeySource: 'integrations-env',
       },
       ollama: {
         enabled: true,
-        baseUrl: resolveOllamaApiBase(process.env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_BASE_URL),
-        model: normalizeOllamaModel(process.env.OLLAMA_MODEL || DEFAULT_OLLAMA_MODEL),
+        baseUrl: DEFAULT_OLLAMA_BASE_URL,
+        model: DEFAULT_OLLAMA_MODEL,
         apiKeySource: 'none',
       },
     },
@@ -633,7 +863,10 @@ export async function ensureAgentRuntimeConfigExists(updatedBy: string = 'system
   if (currentContent !== null) {
     return;
   }
-  await writeJsonAtomic(AGENT_RUNTIME_CONFIG_PATH, createDefaultAgentRuntimeConfig(updatedBy));
+  const defaults = createDefaultAgentRuntimeConfig(updatedBy);
+  const hydrated = await applyAgentSettingsFromIntegrationsEnv(defaults);
+  await writeJsonAtomic(AGENT_RUNTIME_CONFIG_PATH, hydrated);
+  await syncAgentSettingsToIntegrationsEnv(hydrated);
 }
 
 export async function ensureAgentManagedFilesExist(): Promise<void> {
@@ -682,7 +915,8 @@ export async function readAgentRuntimeConfig(): Promise<AgentRuntimeConfig> {
 
   try {
     const parsed = JSON.parse(rawContent);
-    return normalizePersistedConfig(parsed);
+    const normalized = normalizePersistedConfig(parsed);
+    return applyAgentSettingsFromIntegrationsEnv(normalized);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Invalid runtime config JSON.';
     throw new AgentConfigValidationError(`Failed to read runtime config: ${message}`);
@@ -693,6 +927,7 @@ export async function writeAgentRuntimeConfig(input: unknown, updatedBy: string)
   const current = await readAgentRuntimeConfig();
   const normalized = normalizeRuntimeConfigInput(input, current, updatedBy);
   await writeJsonAtomic(AGENT_RUNTIME_CONFIG_PATH, normalized);
+  await syncAgentSettingsToIntegrationsEnv(normalized);
   return normalized;
 }
 
@@ -711,42 +946,23 @@ export function sanitizeAgentRuntimeConfig(config: AgentRuntimeConfig): AgentRun
   };
 }
 
-export async function resolveOpenRouterApiKey(config: AgentRuntimeConfig): Promise<OpenRouterApiKeyResolution> {
+export async function resolveOpenRouterApiKey(_config: AgentRuntimeConfig): Promise<OpenRouterApiKeyResolution> {
+  void _config;
   const warnings: string[] = [];
-  const hinted = config.providers.openrouter.apiKeySource;
-  const orderedSources = Array.from(new Set<OpenRouterApiKeySource>([hinted, 'integrations-env', 'process-env']));
-
-  for (const source of orderedSources) {
-    if (source === 'integrations-env') {
-      try {
-        const fromIntegration = await readProviderKeyFromIntegrations('OPENROUTER_API_KEY');
-        if (fromIntegration) {
-          return {
-            apiKey: fromIntegration,
-            isSet: true,
-            source,
-            last4: maskSecretLast4(fromIntegration),
-            warnings,
-          };
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Failed to read integrations environment file.';
-        warnings.push(message);
-      }
-      continue;
-    }
-
-    const fromProcessEnv = process.env.OPENROUTER_API_KEY?.trim() || '';
-    if (fromProcessEnv) {
+  try {
+    const fromIntegration = await readProviderKeyFromIntegrations('OPENROUTER_API_KEY');
+    if (fromIntegration) {
       return {
-        apiKey: fromProcessEnv,
+        apiKey: fromIntegration,
         isSet: true,
-        source,
-        last4: maskSecretLast4(fromProcessEnv),
+        source: 'integrations-env',
+        last4: maskSecretLast4(fromIntegration),
         warnings,
       };
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to read integrations environment file.';
+    warnings.push(message);
   }
 
   return {
@@ -772,43 +988,20 @@ export async function resolveOllamaApiKey(config: AgentRuntimeConfig): Promise<O
     };
   }
 
-  const orderedSources = Array.from(new Set<OllamaApiKeySource>([hinted, 'integrations-env', 'process-env']));
-
-  for (const source of orderedSources) {
-    if (source === 'none') {
-      continue;
-    }
-
-    if (source === 'integrations-env') {
-      try {
-        const fromIntegration = await readProviderKeyFromIntegrations('OLLAMA_API_KEY');
-        if (fromIntegration) {
-          return {
-            apiKey: fromIntegration,
-            isSet: true,
-            source,
-            last4: maskSecretLast4(fromIntegration),
-            warnings,
-          };
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Failed to read integrations environment file.';
-        warnings.push(message);
-      }
-      continue;
-    }
-
-    const fromProcessEnv = process.env.OLLAMA_API_KEY?.trim() || '';
-    if (fromProcessEnv) {
+  try {
+    const fromIntegration = await readProviderKeyFromIntegrations('OLLAMA_API_KEY');
+    if (fromIntegration) {
       return {
-        apiKey: fromProcessEnv,
+        apiKey: fromIntegration,
         isSet: true,
-        source,
-        last4: maskSecretLast4(fromProcessEnv),
+        source: 'integrations-env',
+        last4: maskSecretLast4(fromIntegration),
         warnings,
       };
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to read integrations environment file.';
+    warnings.push(message);
   }
 
   return {
