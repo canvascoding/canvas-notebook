@@ -5,7 +5,6 @@ import { redirect } from 'next/navigation';
 
 import { auth } from '@/app/lib/auth';
 import { buildAgentConfigReadiness, readAgentRuntimeConfig } from '@/app/lib/agents/storage';
-import { HomeChatPrompt } from '@/app/components/home/HomeChatPrompt';
 import SuiteAppSelector from '@/components/suite/SuiteAppSelector';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -82,10 +81,7 @@ export default async function Home() {
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-6xl gap-4 px-4 pt-6 md:px-6 md:pt-8 lg:grid-cols-[1fr_320px]">
           <div>
-            <div className="space-y-4">
-              <HomeChatPrompt />
-              <SuiteAppSelector isAuthenticated />
-            </div>
+            <SuiteAppSelector isAuthenticated />
           </div>
 
           <Card className="h-fit border border-border bg-card">
