@@ -672,7 +672,8 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     if (lastAtIndex !== -1) {
       const before = input.slice(0, lastAtIndex);
       const after = input.slice(cursorPosition);
-      const newValue = `${before}${file.path}${after}`;
+      // Keep the @ at the beginning to make it clear this is a file reference
+      const newValue = `${before}@${file.path}${after}`;
       setInput(newValue);
       setShowFilePicker(false);
       setFilePickerQuery('');
@@ -680,7 +681,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
       // Focus back to textarea after selection
       setTimeout(() => {
         textareaRef.current?.focus();
-        const newCursorPos = before.length + file.path.length;
+        const newCursorPos = before.length + file.path.length + 1; // +1 for the @
         textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
       }, 0);
     }
