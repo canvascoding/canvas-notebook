@@ -9,7 +9,8 @@ import { spawn } from 'child_process';
 import { writeFile, mkdir, readFile, unlink, access } from 'fs/promises';
 import { dirname } from 'path';
 
-const AUTH_FILE_PATH = '/data/canvas-agent/auth.json';
+// Use relative path for local dev, /data for container
+const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || './data/canvas-agent/auth.json';
 const OAUTH_STATE_DIR = '/tmp/pi-oauth-states';
 
 /**
