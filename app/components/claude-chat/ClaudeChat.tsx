@@ -308,6 +308,25 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     setIsProcessing(true);
 
     try {
+      let effectiveSessionId = sessionId;
+      if (!effectiveSessionId) {
+        const createSessionResponse = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'New session' }),
+        });
+
+        const createSessionPayload = await createSessionResponse.json().catch(() => null);
+        if (!createSessionResponse.ok || !createSessionPayload?.success || !createSessionPayload?.session?.sessionId) {
+          const createErrorMessage =
+            createSessionPayload?.error || `Failed to create session (HTTP ${createSessionResponse.status})`;
+          throw new Error(createErrorMessage);
+        }
+
+        effectiveSessionId = createSessionPayload.session.sessionId;
+        setSessionId(effectiveSessionId);
+      }
+
       const piMessages = messages.map(m => ({ 
         role: m.role, 
         content: m.content, 
@@ -331,7 +350,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
       const response = await fetch('/api/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: piMessages, sessionId })
+        body: JSON.stringify({ messages: piMessages, sessionId: effectiveSessionId })
       });
 
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
