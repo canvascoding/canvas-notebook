@@ -2,12 +2,32 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  HelpCircle,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  Stethoscope,
+  Trash2,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
+  getProviderHelp,
+  type ProviderHelpInfo,
+} from '@/app/lib/pi/provider-help';
 
 const MANAGED_FILES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
@@ -139,6 +159,9 @@ export function AgentSettingsPanel() {
   const [createTitle, setCreateTitle] = useState('');
   const [sessionPendingId, setSessionPendingId] = useState<string | null>(null);
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
+
+  // Provider help collapsible state
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   const loadConfig = useCallback(async () => {
     setConfigLoading(true);
@@ -537,6 +560,16 @@ export function AgentSettingsPanel() {
               </p>
             </div>
 
+            {/* Provider Help Section */}
+            {piConfigDraft.activeProvider && (
+              <ProviderHelpSection
+                providerId={piConfigDraft.activeProvider}
+                isProviderReady={readiness?.pi?.ready || false}
+                isOpen={isHelpOpen}
+                onOpenChange={setIsHelpOpen}
+              />
+            )}
+
             {configError && <p className="text-sm text-destructive">{configError}</p>}
             {configSuccess && <p className="text-sm text-primary">{configSuccess}</p>}
 
@@ -743,5 +776,189 @@ export function AgentSettingsPanel() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Provider Help Section Component
+ * Shows collapsible help information for the selected provider
+ */
+interface ProviderHelpSectionProps {
+  providerId: string;
+  isProviderReady: boolean;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function ProviderHelpSection({ providerId, isProviderReady, isOpen, onOpenChange }: ProviderHelpSectionProps) {
+  const help = getProviderHelp(providerId);
+
+  if (!help) {
+    return null;
+  }
+
+  const getCategoryIcon = (category: ProviderHelpInfo['category']) => {
+    switch (category) {
+      case 'api-key':
+        return '🔑';
+      case 'oauth-cli':
+        return '🔐';
+      case 'adc':
+        return '☁️';
+      case 'aws':
+        return '⚡';
+      case 'azure':
+        return '🔷';
+      case 'ollama':
+        return '🖥️';
+      default:
+        return '❓';
+    }
+  };
+
+  const getCategoryLabel = (category: ProviderHelpInfo['category']) => {
+    switch (category) {
+      case 'api-key':
+        return 'API Key';
+      case 'oauth-cli':
+        return 'OAuth/CLI Login';
+      case 'adc':
+        return 'Application Default Credentials';
+      case 'aws':
+        return 'AWS Credentials';
+      case 'azure':
+        return 'Azure Credentials';
+      case 'ollama':
+        return 'Local Installation';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={onOpenChange}>
+      <CollapsibleTrigger className="flex items-center justify-between w-full rounded border border-border bg-muted/30 p-3 text-sm hover:bg-muted/50 transition-colors">
+        <div className="flex items-center gap-2">
+          <HelpCircle className="h-4 w-4 text-muted-foreground" />
+          <span className="font-medium">
+            {getCategoryIcon(help.category)} {help.title} - Konfiguration
+          </span>
+          {isProviderReady && (
+            <span className="ml-2 text-xs text-primary bg-primary/10 px-2 py-0.5 rounded">
+              Konfiguriert
+            </span>
+          )}
+        </div>
+        {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="rounded-b border-x border-b border-border bg-muted/20 p-4 space-y-4">
+          {/* Provider Category Badge */}
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center rounded-full border border-border bg-background px-2 py-1 text-xs font-medium">
+              {getCategoryLabel(help.category)}
+            </span>
+          </div>
+
+          {/* Description */}
+          <p className="text-sm text-muted-foreground">{help.shortDescription}</p>
+
+          {/* Setup Steps */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold">Einrichtung:</h4>
+            <ol className="ml-4 list-decimal text-sm text-muted-foreground space-y-1">
+              {help.setupSteps.map((step, index) => (
+                <li key={index}>{step}</li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Environment Variables */}
+          {help.envVars && help.envVars.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Benötigte Umgebungsvariablen:</h4>
+              <div className="space-y-2">
+                {help.envVars.map((envVar) => (
+                  <div
+                    key={envVar.name}
+                    className="rounded border border-border bg-background p-2 text-sm"
+                  >
+                    <div className="flex items-center justify-between">
+                      <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                        {envVar.name}
+                      </code>
+                      <span className="text-xs text-muted-foreground">
+                        {envVar.scope === 'agents' ? 'Agent Environment' : 'Integrations'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {envVar.description}
+                      {envVar.required && (
+                        <span className="text-destructive ml-1">*</span>
+                      )}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => {
+                  // Navigate to settings with appropriate tab
+                  const scope = help.envVars?.[0]?.scope || 'agents';
+                  window.location.href = `/settings?tab=${scope === 'agents' ? 'integrations' : 'integrations'}`;
+                }}
+              >
+                <ExternalLink className="mr-2 h-3 w-3" />
+                Zu den Einstellungen
+              </Button>
+            </div>
+          )}
+
+          {/* CLI Commands */}
+          {help.cliCommands && help.cliCommands.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">CLI-Befehle:</h4>
+              <div className="space-y-2">
+                {help.cliCommands.map((cmd, index) => (
+                  <div key={index} className="rounded bg-black/90 p-2 font-mono text-xs text-white">
+                    <span className="text-green-400">$</span> {cmd.command}
+                    <p className="mt-1 text-gray-400">{cmd.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          {help.notes && help.notes.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Hinweise:</h4>
+              <ul className="ml-4 list-disc text-sm text-muted-foreground space-y-1">
+                {help.notes.map((note, index) => (
+                  <li key={index}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Documentation Link */}
+          {help.documentationUrl && (
+            <div className="pt-2 border-t border-border">
+              <a
+                href={help.documentationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center text-xs text-primary hover:underline"
+              >
+                <ExternalLink className="mr-1 h-3 w-3" />
+                Offizielle Dokumentation öffnen
+              </a>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
