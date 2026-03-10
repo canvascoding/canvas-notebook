@@ -8,8 +8,12 @@ import {
 } from '@/app/lib/pi/oauth';
 import { readFile, writeFile, access, unlink } from 'fs/promises';
 import { constants } from 'fs';
+import { join } from 'path';
+import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
-const OAUTH_STATE_DIR = '/tmp/pi-oauth-states';
+// Use container data root (/data) or fallback to relative path for local dev
+const DATA_ROOT = resolveCanvasDataRoot(process.cwd());
+const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
 
 /**
  * POST /api/oauth/pi/exchange

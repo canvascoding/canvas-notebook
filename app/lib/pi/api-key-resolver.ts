@@ -1,7 +1,7 @@
 import { readScopedEnvState } from '../integrations/env-config';
 import { getProviderApiKey, isOAuthProvider } from './oauth';
 import { supportsBothAuthMethods } from './provider-help';
-import { readPiRuntimeConfig } from '../agents/storage';
+import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 
 /**
  * Resolves API keys for PI providers using existing environment stores.

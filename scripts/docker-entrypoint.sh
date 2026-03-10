@@ -1,6 +1,15 @@
 #!/bin/sh
 set -eu
 
+# Ensure required data directories exist (critical for container persistence)
+echo "[entrypoint] Ensuring data directories exist..."
+mkdir -p /data/canvas-agent
+mkdir -p /data/pi-oauth-states
+mkdir -p /data/secrets
+mkdir -p /data/skills
+mkdir -p /data/workspace
+echo "[entrypoint] Data directories ready."
+
 # Runtime bootstrap must happen in the container because /home/node is volume-mounted
 # and not available during image build.
 echo "[entrypoint] Bootstrapping agent runtime in /home/node/canvas-agent..."
