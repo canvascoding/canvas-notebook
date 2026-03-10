@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "status": "completed",
+  "status": "in_progress",
   "decisions": {
     "engineStrategy": "pi-first",
     "primaryLibraries": [
@@ -539,6 +539,50 @@
       "priority": "must",
       "dependsOn": [
         "pi-047"
+      ]
+    },
+    {
+      "id": "pi-049",
+      "order": 49,
+      "phase": "P11 Hotfix",
+      "title": "Switch sync-agent-todos to PI-only validate mode to unblock container rebuilds",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "pi-048"
+      ]
+    },
+    {
+      "id": "pi-050",
+      "order": 50,
+      "phase": "P11 Hotfix",
+      "title": "Externalize @mariozechner/pi-ai and @mariozechner/pi-agent-core from Next server bundle",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "pi-049"
+      ]
+    },
+    {
+      "id": "pi-051",
+      "order": 51,
+      "phase": "P11 Hotfix",
+      "title": "Bootstrap session creation in chat UI before first /api/stream call",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "pi-050"
+      ]
+    },
+    {
+      "id": "pi-052",
+      "order": 52,
+      "phase": "P11 Hotfix",
+      "title": "Run container rebuild, integration checks, and Playwright regression for stream/session fixes",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "pi-051"
       ]
     }
   ]
