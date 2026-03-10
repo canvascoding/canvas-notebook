@@ -1218,7 +1218,11 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                 ))}
                 {filePickerFiles.length === 0 && !isLoadingFiles && (
                   <div className="p-3 text-sm text-muted-foreground text-center">
-                    No files found matching &ldquo;{filePickerQuery}&rdquo;
+                    {filePickerQuery ? (
+                      <>No files found matching &ldquo;{filePickerQuery}&rdquo;</>
+                    ) : (
+                      <>No files in workspace</>
+                    )}
                   </div>
                 )}
               </div>
