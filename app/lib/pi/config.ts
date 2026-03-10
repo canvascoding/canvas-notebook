@@ -52,7 +52,6 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
       thinking: 'none',
       enabledTools: ['filesystem', 'terminal'],
       ollamaMode: 'local',
-      ollamaHost: 'http://127.0.0.1:11434',
     },
   },
   updatedAt: new Date().toISOString(),
