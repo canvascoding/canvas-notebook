@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
+  Check,
   ChevronDown,
   ChevronUp,
   ExternalLink,
@@ -26,6 +27,7 @@ import {
 } from '@/components/ui/collapsible';
 import {
   getProviderHelp,
+  requiresCliAuth,
   type ProviderHelpInfo,
 } from '@/app/lib/pi/provider-help';
 import { ProviderEnvEditor } from './ProviderEnvEditor';
@@ -105,6 +107,11 @@ type SessionItem = {
     email?: string | null;
   };
 };
+
+// Helper function to check if a provider requires OAuth authentication
+function requiresOAuthAuth(providerId: string): boolean {
+  return requiresCliAuth(providerId);
+}
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -644,11 +651,33 @@ export function AgentSettingsPanel() {
                     {selectedProviderStatus?.issues?.[0] && (
                       <p className="mt-1 text-muted-foreground">{selectedProviderStatus.issues[0]}</p>
                     )}
-                    <PiOAuthButton onStatusChange={() => void loadConfig()} />
                   </>
                 )}
               </div>
             </div>
+
+            {/* OAuth Section - Separate from Provider Status */}
+            {piConfigDraft.activeProvider && requiresOAuthAuth(piConfigDraft.activeProvider) && (
+              <div className="rounded border border-border bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">OAuth Authentication</h4>
+                  {selectedProviderStatus?.hasOAuth ? (
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Check className="h-3 w-3" />
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                      Not connected
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Connect your account to use this provider. Your credentials are stored securely.
+                </p>
+                <PiOAuthButton onStatusChange={() => void loadConfig()} />
+              </div>
+            )}
 
             <div className="rounded border border-border bg-muted/20 p-3">
               <p className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-tight">System Info</p>

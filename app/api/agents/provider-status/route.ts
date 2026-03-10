@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getProviderHelp, requiresApiKey, requiresCliAuth } from '@/app/lib/pi/provider-help';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
-import { getValidToken } from '@/app/lib/oauth/store';
+import { hasProviderCredentials, isOAuthProvider } from '@/app/lib/pi/oauth';
 
 /**
  * GET /api/agents/provider-status?providerId=openai-codex
@@ -37,7 +37,8 @@ export async function GET(request: NextRequest) {
     }
 
     const requiresKey = requiresApiKey(providerId);
-    const requiresOAuth = requiresCliAuth(providerId) && providerId === 'openai-codex';
+    // Check if provider requires OAuth (either legacy CLI auth or PI OAuth)
+    const requiresOAuth = requiresCliAuth(providerId) || isOAuthProvider(providerId);
 
     let hasApiKey = false;
     let hasOAuth = false;
@@ -52,10 +53,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (requiresOAuth) {
-      const token = await getValidToken('openai-codex');
-      hasOAuth = !!token;
+      // Check if provider is a PI OAuth provider
+      if (isOAuthProvider(providerId)) {
+        hasOAuth = hasProviderCredentials(providerId);
+      }
       if (!hasOAuth) {
-        issues.push('OAuth not connected. Please connect your OpenAI account.');
+        issues.push('OAuth not connected. Please connect your account below.');
       }
     }
 
