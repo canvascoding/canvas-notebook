@@ -20,8 +20,8 @@ import {
 
 export type { OAuthCredentials, OAuthProviderId, OAuthPrompt };
 
-// Credentials storage path
-const AUTH_FILE_PATH = '/data/canvas-agent/auth.json';
+// Credentials storage path - use env var or fall back to local dev path
+const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || './data/canvas-agent/auth.json';
 
 // All supported OAuth providers
 export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
