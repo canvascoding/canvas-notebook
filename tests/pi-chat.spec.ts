@@ -1,7 +1,8 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page } from '@playwright/test';
 
 const TEST_EMAIL = 'admin.com';
 const TEST_PASSWORD = 'change-me';
+const AUTH_STATE_PATH = 'test-results/pi-chat-auth.json';
 const EMPTY_USAGE = {
   input: 0,
   output: 0,
@@ -27,9 +28,14 @@ async function login(page: Page) {
 
 test.describe('PI Chat E2E', () => {
   test.setTimeout(90000);
+  test.use({ storageState: AUTH_STATE_PATH });
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeAll(async ({ browser }: { browser: Browser }) => {
+    const context = await browser.newContext({ storageState: undefined });
+    const page = await context.newPage();
     await login(page);
+    await context.storageState({ path: AUTH_STATE_PATH });
+    await context.close();
   });
 
   test('should bootstrap a session, show the session id, and derive a history title', async ({ page }) => {
@@ -174,5 +180,45 @@ test.describe('PI Chat E2E', () => {
     await expect(toolMessage).toContainText('alpha.md');
     await expect(toolMessage).toContainText('beta.ts');
     await expect(toolMessage).not.toContainText('Assistant');
+
+    const messageOrder = await page.locator('[data-testid^="chat-message-"]').evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('data-testid')),
+    );
+    expect(messageOrder.indexOf('chat-message-toolResult')).toBeLessThan(messageOrder.indexOf('chat-message-assistant'));
+  });
+
+  test('should save managed prompt files in settings and keep chat working', async ({ page }) => {
+    await page.goto('/settings?tab=agent-settings');
+
+    const editor = page.getByTestId('agent-managed-file-editor');
+    const saveButton = page.getByTestId('agent-managed-file-save');
+    const marker = `PLAYWRIGHT_PROMPT_MARKER_${Date.now()}`;
+    const existingValue = await editor.inputValue();
+
+    await editor.fill(`${existingValue.trim()}\n\n- UI marker: ${marker}\n`);
+    await saveButton.click();
+
+    await expect(page.getByText('AGENTS.md gespeichert.')).toBeVisible({ timeout: 15000 });
+
+    await page.reload();
+    await expect(page.getByTestId('agent-managed-file-editor')).toHaveValue(new RegExp(marker));
+
+    await page.getByRole('button', { name: /doctor ausführen/i }).click();
+    await expect(page.getByText('Prompt files included:')).toContainText('AGENTS.md', { timeout: 15000 });
+    await expect(page.getByText('Prompt fallback:')).toContainText('Inactive', { timeout: 15000 });
+
+    await page.goto('/chat');
+
+    const input = page.getByTestId('chat-input');
+    await input.fill('Antworte nur mit READY.');
+    await input.press('Enter');
+
+    const assistantMessages = page.getByTestId('chat-message-assistant');
+    await expect(assistantMessages).toHaveCount(1, { timeout: 60000 });
+    await expect
+      .poll(async () => ((await assistantMessages.first().textContent()) || '').replace(/\s+/g, ' ').trim(), {
+        timeout: 60000,
+      })
+      .toContain('READY');
   });
 });
