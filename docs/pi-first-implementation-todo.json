@@ -557,7 +557,7 @@
       "order": 50,
       "phase": "P11 Hotfix",
       "title": "Externalize @mariozechner/pi-ai and @mariozechner/pi-agent-core from Next server bundle",
-      "status": "pending",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "pi-049"
