@@ -62,9 +62,13 @@ export async function POST(request: NextRequest) {
     const scriptContent = generateOAuthScript(provider, flowId, stateFile, tempAuthPath);
     await writeFile(tempScriptPath, scriptContent);
 
-    // Spawn the OAuth process in the background
+    // Spawn the OAuth process in the background with correct working directory
     const child = spawn('node', [tempScriptPath], {
-      env: { ...process.env },
+      env: { 
+        ...process.env,
+        NODE_PATH: `${process.cwd()}/node_modules`,
+      },
+      cwd: process.cwd(),
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -139,6 +143,12 @@ function updateState(updates) {
 
 async function run() {
   try {
+    // Set up module path for the PI library
+    const projectRoot = '${process.cwd().replace(/'/g, "'\\''")}';
+    const nodeModulesPath = projectRoot + '/node_modules';
+    module.paths.unshift(nodeModulesPath);
+    require.main.paths.unshift(nodeModulesPath);
+    
     const { ${loginFn} } = require('@mariozechner/pi-ai/oauth');
     
     // Update state to waiting for auth
