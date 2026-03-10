@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { readFile } from 'fs/promises';
-import { homedir } from 'os';
-import { join } from 'path';
+import crypto from 'crypto';
 
 /**
  * POST /api/oauth/openai-codex/exchange
- * Verify that Codex CLI is authenticated and copy token to our storage
+ * Exchange callback URL for token by extracting code and calling OpenAI API
  */
 export async function POST(request: NextRequest) {
   try {
@@ -18,133 +16,153 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Read the codex config file
-    const codexConfig = await readCodexConfig();
+    const { callbackUrl } = await request.json();
     
-    if (!codexConfig) {
+    if (!callbackUrl) {
       return NextResponse.json(
-        { success: false, error: 'Codex CLI not authenticated. Please open the auth URL in your browser first and complete the login.' },
+        { success: false, error: 'Missing callbackUrl' },
         { status: 400 }
       );
     }
 
-    // Extract token info from config
-    const { email, token, expiresAt } = codexConfig;
-
-    if (!token) {
+    // Parse callback URL
+    let url: URL;
+    try {
+      url = new URL(callbackUrl);
+    } catch {
       return NextResponse.json(
-        { success: false, error: 'No access token found in Codex CLI config. Please authenticate first.' },
+        { success: false, error: 'Invalid callback URL format' },
         { status: 400 }
       );
     }
 
-    // Store token in our database for the current user
-    // This allows the token to be used by the PI agent
-    await storeTokenForUser(session.user.id, {
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const error = url.searchParams.get('error');
+    
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: `OAuth error: ${error}` },
+        { status: 400 }
+      );
+    }
+    
+    if (!code) {
+      return NextResponse.json(
+        { success: false, error: 'Missing authorization code in callback URL' },
+        { status: 400 }
+      );
+    }
+
+    // Exchange code for token with OpenAI
+    const tokenResult = await exchangeCodeForToken(code);
+
+    if (!tokenResult.success || !tokenResult.accessToken) {
+      return NextResponse.json(
+        { success: false, error: tokenResult.error || 'Failed to exchange code for token' },
+        { status: 500 }
+      );
+    }
+
+    // Get user info from OpenAI
+    const userInfo = await getOpenAIUserInfo(tokenResult.accessToken);
+
+    // Store token in our database
+    const { storeToken } = await import('@/app/lib/oauth/store');
+    await storeToken({
+      id: crypto.randomUUID(),
       provider: 'openai-codex',
-      email,
-      accessToken: token,
-      expiresAt,
+      accessToken: tokenResult.accessToken,
+      refreshToken: tokenResult.refreshToken,
+      expiresAt: tokenResult.expiresAt,
+      scope: tokenResult.scope,
+      email: userInfo.email,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     });
 
     return NextResponse.json({
       success: true,
-      email: email || 'unknown',
-      message: 'Successfully connected OpenAI account via Codex CLI',
+      email: userInfo.email,
+      message: 'Successfully connected OpenAI account',
     });
   } catch (error) {
     console.error('OAuth exchange failed:', error);
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to verify connection' },
+      { success: false, error: error instanceof Error ? error.message : 'Failed to exchange code' },
       { status: 500 }
     );
   }
 }
 
-interface CodexConfig {
-  email?: string;
-  token?: string;
+async function exchangeCodeForToken(code: string): Promise<{
+  success: boolean;
+  accessToken?: string;
+  refreshToken?: string;
   expiresAt?: number;
-}
-
-async function readCodexConfig(): Promise<CodexConfig | null> {
+  scope?: string;
+  error?: string;
+}> {
   try {
-    // Read codex config from ~/.codex/config.toml or ~/.codex/config.json
-    const configPaths = [
-      join(homedir(), '.codex', 'config.toml'),
-      join(homedir(), '.codex', 'config.json'),
-      join(homedir(), '.config', 'codex', 'config.toml'),
-      join(homedir(), '.config', 'codex', 'config.json'),
-    ];
-
-    for (const configPath of configPaths) {
-      try {
-        const content = await readFile(configPath, 'utf-8');
-        console.log('Found codex config at:', configPath);
-        
-        // Try to parse as JSON first
-        if (configPath.endsWith('.json')) {
-          const config = JSON.parse(content);
-          return extractTokenInfo(config);
-        }
-        
-        // Parse TOML (simplified - just look for key=value pairs)
-        const config: Record<string, string> = {};
-        for (const line of content.split('\n')) {
-          const match = line.match(/^([\w.]+)\s*=\s*"?([^"\n]+)"?$/);
-          if (match) {
-            config[match[1]] = match[2];
-          }
-        }
-        
-        return extractTokenInfo(config);
-      } catch {
-        // File doesn't exist or can't be read, try next
-        continue;
-      }
+    const clientId = process.env.OPENAI_CODEX_CLIENT_ID || 'app_EMoamEEZ73f0CkXaXp7hrann';
+    const clientSecret = process.env.OPENAI_CODEX_CLIENT_SECRET || '';
+    const redirectUri = process.env.OPENAI_CODEX_REDIRECT_URI || 'http://localhost:3000/callback';
+    
+    const tokenUrl = 'https://auth.openai.com/token';
+    
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: clientId,
+        client_secret: clientSecret,
+        code: code,
+        redirect_uri: redirectUri,
+      }),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Token exchange failed: ${errorText}`);
     }
-
-    return null;
+    
+    const data = await response.json();
+    
+    return {
+      success: true,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
+      scope: data.scope,
+    };
   } catch (error) {
-    console.error('Error reading codex config:', error);
-    return null;
+    console.error('Token exchange error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Token exchange failed',
+    };
   }
 }
 
-function extractTokenInfo(config: Record<string, unknown>): CodexConfig {
-  // Codex stores token in different formats depending on version
-  // Try common locations
-  const token = config.access_token || config.token || config['api.access_token'];
-  const email = config.email || config.user_email || config['api.email'];
-  const expiresAt = config.expires_at || config.expires 
-    ? new Date(String(config.expires_at || config.expires)).getTime() 
-    : undefined;
-
-  return {
-    email: email ? String(email) : undefined,
-    token: token ? String(token) : undefined,
-    expiresAt,
-  };
-}
-
-async function storeTokenForUser(
-  userId: string, 
-  data: { provider: string; email?: string; accessToken: string; expiresAt?: number }
-): Promise<void> {
-  // Store token in database or file
-  // For now, we'll store it in a simple way
-  // In production, this should use the existing oauth store
-  
-  const { storeToken } = await import('@/app/lib/oauth/store');
-  
-  await storeToken({
-    id: crypto.randomUUID(),
-    provider: data.provider,
-    accessToken: data.accessToken,
-    email: data.email,
-    expiresAt: data.expiresAt,
-    scope: 'codex',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  });
+async function getOpenAIUserInfo(accessToken: string): Promise<{ email?: string }> {
+  try {
+    const response = await fetch('https://api.openai.com/v1/me', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    });
+    
+    if (!response.ok) {
+      return { email: undefined };
+    }
+    
+    const data = await response.json();
+    return { email: data.email };
+  } catch (error) {
+    console.error('Failed to get user info:', error);
+    return { email: undefined };
+  }
 }

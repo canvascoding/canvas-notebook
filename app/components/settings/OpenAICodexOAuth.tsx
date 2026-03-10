@@ -25,7 +25,7 @@ interface OAuthInitiateResponse {
   error?: string;
 }
 
-interface OAuthVerifyResponse {
+interface OAuthExchangeResponse {
   success: boolean;
   email?: string;
   message?: string;
@@ -40,10 +40,10 @@ export function OpenAICodexOAuth({ providerId }: OpenAICodexOAuthProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [authUrl, setAuthUrl] = useState('');
+  const [callbackUrl, setCallbackUrl] = useState('');
   const [status, setStatus] = useState<OAuthStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [step, setStep] = useState<'initiate' | 'verify'>('initiate');
 
   // Load status on mount
   useEffect(() => {
@@ -68,7 +68,7 @@ export function OpenAICodexOAuth({ providerId }: OpenAICodexOAuthProps) {
     setIsLoading(true);
     setError(null);
     setAuthUrl('');
-    setStep('initiate');
+    setCallbackUrl('');
 
     try {
       const response = await fetch('/api/oauth/openai-codex/initiate', {
@@ -85,7 +85,6 @@ export function OpenAICodexOAuth({ providerId }: OpenAICodexOAuthProps) {
 
       setAuthUrl(data.authUrl || '');
       setIsOpen(true);
-      setStep('initiate');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -93,7 +92,12 @@ export function OpenAICodexOAuth({ providerId }: OpenAICodexOAuthProps) {
     }
   };
 
-  const verifyConnection = async () => {
+  const exchangeCode = async () => {
+    if (!callbackUrl.trim()) {
+      setError('Please enter the callback URL');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -102,13 +106,13 @@ export function OpenAICodexOAuth({ providerId }: OpenAICodexOAuthProps) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}), // No callback URL needed - we read from codex config
+        body: JSON.stringify({ callbackUrl: callbackUrl.trim() }),
       });
 
-      const data = (await response.json()) as OAuthVerifyResponse;
+      const data = (await response.json()) as OAuthExchangeResponse;
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to verify connection');
+        throw new Error(data.error || 'Failed to exchange code');
       }
 
       setStatus({
@@ -116,7 +120,7 @@ export function OpenAICodexOAuth({ providerId }: OpenAICodexOAuthProps) {
         email: data.email,
       });
       setIsOpen(false);
-      setStep('initiate');
+      setCallbackUrl('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -216,101 +220,83 @@ export function OpenAICodexOAuth({ providerId }: OpenAICodexOAuthProps) {
           <DialogHeader>
             <DialogTitle>Connect OpenAI Codex</DialogTitle>
             <DialogDescription>
-              Authenticate using the official Codex CLI
+              Complete OAuth authentication to use your ChatGPT Plus/Pro subscription.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {step === 'initiate' ? (
-              <>
-                {/* Step 1: Auth URL */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Step 1: Open this URL in your browser</label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={authUrl}
-                      readOnly
-                      className="font-mono text-xs"
-                      placeholder="Generating auth URL..."
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => void copyAuthUrl()}
-                      disabled={!authUrl}
-                    >
-                      {copied ? (
-                        <Check className="h-4 w-4 text-primary" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={openAuthUrl}
-                      disabled={!authUrl}
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="rounded bg-muted/50 p-3 text-sm text-muted-foreground space-y-2">
-                  <p><strong>Instructions:</strong></p>
-                  <ol className="list-decimal list-inside space-y-1">
-                    <li>Copy or open the URL above</li>
-                    <li>Complete the login in your browser</li>
-                    <li>After successful login, the token will be stored locally by Codex CLI</li>
-                    <li>Return here and click "Verify Connection"</li>
-                  </ol>
-                </div>
-
+            {/* Step 1: Auth URL */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Step 1: Open this URL in your browser</label>
+              <div className="flex gap-2">
+                <Input
+                  value={authUrl}
+                  readOnly
+                  className="font-mono text-xs"
+                  placeholder="Generating auth URL..."
+                />
                 <Button
-                  onClick={() => setStep('verify')}
-                  className="w-full"
                   variant="outline"
+                  size="icon"
+                  onClick={() => void copyAuthUrl()}
+                  disabled={!authUrl}
                 >
-                  I&apos;ve completed the login → Verify Connection
+                  {copied ? (
+                    <Check className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
                 </Button>
-              </>
-            ) : (
-              <>
-                {/* Step 2: Verify */}
-                <div className="space-y-4">
-                  <div className="rounded bg-muted/50 p-3 text-sm text-muted-foreground">
-                    <p>Click below to verify that the Codex CLI has successfully authenticated and copy the token to Canvas Notebook.</p>
-                  </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={openAuthUrl}
+                  disabled={!authUrl}
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
 
-                  <Button
-                    onClick={() => void verifyConnection()}
-                    disabled={isLoading}
-                    className="w-full"
-                  >
-                    {isLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Check className="mr-2 h-4 w-4" />
-                    )}
-                    Verify Connection
-                  </Button>
+            <div className="rounded bg-muted/50 p-3 text-sm text-muted-foreground space-y-1">
+              <p><strong>Instructions:</strong></p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>Copy or open the URL above</li>
+                <li>Complete the login in your browser</li>
+                <li>Copy the callback URL from your browser after successful login</li>
+                <li>Paste it below and click "Connect"</li>
+              </ol>
+            </div>
 
-                  <Button
-                    onClick={() => setStep('initiate')}
-                    variant="ghost"
-                    className="w-full"
-                  >
-                    ← Back to Auth URL
-                  </Button>
-                </div>
-              </>
-            )}
+            {/* Step 2: Callback URL */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Step 2: Paste the callback URL here</label>
+              <Input
+                value={callbackUrl}
+                onChange={(e) => setCallbackUrl(e.target.value)}
+                placeholder="http://localhost:3000/callback?code=...&state=..."
+                className="font-mono text-xs"
+              />
+            </div>
 
             {error && (
               <div className="rounded bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
               </div>
             )}
+
+            <Button
+              onClick={() => void exchangeCode()}
+              disabled={isLoading || !callbackUrl.trim()}
+              className="w-full"
+            >
+              {isLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Link2 className="mr-2 h-4 w-4" />
+              )}
+              Connect
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
