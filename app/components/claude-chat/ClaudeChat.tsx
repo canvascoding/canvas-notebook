@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { Paperclip, X, Image as ImageIcon, History, Plus, ChevronLeft, ArrowDown, Trash2, Pencil, Sparkles } from 'lucide-react';
 
 interface Attachment {
@@ -16,6 +17,7 @@ interface ChatMessage {
   type?: string;
   status?: 'pending' | 'sending' | 'sent' | 'error';
   attachments?: Attachment[];
+  piMessage?: AgentMessage;
 }
 
 interface AISession {
@@ -32,14 +34,32 @@ interface AISession {
 
 interface ChatEvent {
   type: string;
-  assistantMessageEvent?: any; 
+  message?: AgentMessage;
+  assistantMessageEvent?: {
+    type?: string;
+    delta?: string;
+  };
   toolName?: string;
   toolCallId?: string;
-  args?: any;
-  result?: any;
+  args?: unknown;
+  result?: {
+    content?: unknown[];
+  };
   error?: string;
-  messages?: any[];
+  messages?: AgentMessage[];
 }
+
+type PersistedChatMessage = AgentMessage & {
+  id?: number | string;
+};
+type UserPiMessage = Extract<AgentMessage, { role: 'user' }>;
+type UserPiContent = UserPiMessage['content'];
+
+type QueuedMessage = {
+  id: string;
+  text: string;
+  attachments: Attachment[];
+};
 
 type UpdateFunction = (content: string, type?: string, status?: ChatMessage['status']) => void;
 
@@ -50,13 +70,158 @@ interface ClaudeChatProps {
 }
 
 const DEFAULT_AGENT_LABEL = 'main-agent';
+const EMPTY_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isTextPart(value: unknown): value is { type: 'text'; text: string } {
+  return isRecord(value) && value.type === 'text' && typeof value.text === 'string';
+}
+
+function isThinkingPart(value: unknown): value is { type: 'thinking'; thinking: string } {
+  return isRecord(value) && value.type === 'thinking' && typeof value.thinking === 'string';
+}
+
+function isToolCallPart(value: unknown): value is { type: 'toolCall'; name: string } {
+  return isRecord(value) && value.type === 'toolCall' && typeof value.name === 'string';
+}
+
+function isImagePart(value: unknown): value is { type: 'image'; data: string; mimeType: string } {
+  return isRecord(value) && value.type === 'image' && typeof value.data === 'string' && typeof value.mimeType === 'string';
+}
+
+function buildPromptContent(text: string, attachments: Attachment[]): UserPiContent {
+  if (attachments.length === 0) {
+    return text;
+  }
+
+  const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = [];
+  if (text) {
+    content.push({ type: 'text', text });
+  }
+
+  for (const attachment of attachments) {
+    content.push({
+      type: 'image',
+      data: attachment.path,
+      mimeType: attachment.type,
+    });
+  }
+
+  return content;
+}
+
+function extractPiMessageText(piMessage?: AgentMessage | null): string {
+  if (!piMessage || !Array.isArray(piMessage.content)) {
+    return typeof piMessage?.content === 'string' ? piMessage.content : '';
+  }
+
+  const textContent = piMessage.content
+    .map((part) => {
+      if (isTextPart(part)) return part.text;
+      if (isThinkingPart(part)) return part.thinking;
+      if (isToolCallPart(part)) return `[Tool: ${part.name}]`;
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  if (textContent) {
+    return textContent;
+  }
+
+  if (piMessage.role === 'assistant' && piMessage.stopReason === 'error' && piMessage.errorMessage) {
+    return `[Error] ${piMessage.errorMessage}`;
+  }
+
+  return '';
+}
+
+function toPiMessage(message: ChatMessage, fallbackModel: string) {
+  if (message.role === 'system') {
+    return null;
+  }
+
+  if (message.piMessage) {
+    return message.piMessage;
+  }
+
+  if (message.role === 'user') {
+    return {
+      role: 'user',
+      content: buildPromptContent(message.content, message.attachments || []),
+      timestamp: Date.now(),
+    };
+  }
+
+  if (message.role === 'assistant') {
+    return {
+      role: 'assistant',
+      content: message.content ? [{ type: 'text', text: message.content }] : [],
+      api: 'legacy',
+      provider: 'legacy',
+      model: fallbackModel,
+      usage: EMPTY_USAGE,
+      stopReason: message.status === 'error' ? 'error' : 'stop',
+      errorMessage: message.status === 'error' ? message.content : undefined,
+      timestamp: Date.now(),
+    };
+  }
+
+  return null;
+}
+
+function extractToolResultText(content: unknown[] | undefined): string {
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .map((part) => (isTextPart(part) ? part.text : ''))
+    .filter(Boolean)
+    .join('\n');
+}
+
+function extractImageAttachments(content: AgentMessage['content']): Attachment[] | undefined {
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+
+  const attachments = content.reduce<Attachment[]>((result, part, index) => {
+    if (isImagePart(part)) {
+      result.push({
+        name: `attachment-${index + 1}`,
+        path: part.data,
+        type: part.mimeType,
+      });
+    }
+    return result;
+  }, []);
+
+  return attachments.length > 0 ? attachments : undefined;
+}
 
 export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorageKey }: ClaudeChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [queue, setQueue] = useState<{ text: string; attachments: Attachment[] }[]>([]);
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<AISession[]>([]);
@@ -101,13 +266,34 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     ));
   }, []);
 
+  const syncPiMessage = useCallback((id: string, piMessage: AgentMessage) => {
+    setMessages(prev => prev.map(message => {
+      if (message.id !== id) return message;
+
+      const nextContent = extractPiMessageText(piMessage);
+      const isAssistantError = piMessage.role === 'assistant' && piMessage.stopReason === 'error';
+
+      return {
+        ...message,
+        content: nextContent || message.content,
+        status: isAssistantError ? 'error' : message.status,
+        type: isAssistantError ? 'system' : message.type,
+        piMessage,
+      };
+    }));
+  }, []);
+
   const handleEvent = useCallback((event: ChatEvent, msgId: string, updateFn: UpdateFunction) => {
+    if (event.message?.role === 'assistant') {
+      syncPiMessage(msgId, event.message);
+    }
+
     switch (event.type) {
       case 'message_update':
         if (event.assistantMessageEvent?.type === 'text_delta') {
-          updateFn(event.assistantMessageEvent.delta, 'text');
+          updateFn(event.assistantMessageEvent.delta || '', 'text');
         } else if (event.assistantMessageEvent?.type === 'thinking_delta') {
-          updateFn(event.assistantMessageEvent.delta, 'thought');
+          updateFn(event.assistantMessageEvent.delta || '', 'thought');
         }
         break;
       case 'tool_execution_start':
@@ -115,7 +301,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
         break;
       case 'tool_execution_end':
         if (event.result?.content) {
-          const text = (event.result.content as any[]).map(c => c.text).join('\n');
+          const text = extractToolResultText(event.result.content);
           updateFn(`\n\`\`\`text\n${text}\n\`\`\`\n`, 'tool_result');
         }
         break;
@@ -123,7 +309,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
         updateFn(`[Error] ${event.error || 'Unknown error'}`, 'system', 'error');
         break;
     }
-  }, []);
+  }, [syncPiMessage]);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -154,18 +340,15 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
       const res = await fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}`);
       const data = await res.json();
       if (data.success && data.messages) {
-        setMessages(data.messages.map((m: any) => {
-          let content = '';
-          if (typeof m.content === 'string') {
-            content = m.content;
-          } else if (Array.isArray(m.content)) {
-            content = m.content.map((c: any) => c.text || c.thinking || '').join('\n');
-          }
+        setMessages(data.messages.map((rawMessage: PersistedChatMessage) => {
+          const content = extractPiMessageText(rawMessage);
           return {
-            id: m.id?.toString() || Math.random().toString(),
-            role: m.role,
+            id: rawMessage.id?.toString() || Math.random().toString(),
+            role: rawMessage.role,
             content,
-            status: 'sent'
+            status: 'sent',
+            attachments: extractImageAttachments(rawMessage.content),
+            piMessage: rawMessage,
           };
         }));
       }
@@ -267,15 +450,23 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
   }, []);
 
   const queueMessage = useCallback((text: string, messageAttachments: Attachment[]) => {
+    const messageId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const piMessage: UserPiMessage = {
+      role: 'user',
+      content: buildPromptContent(text, messageAttachments),
+      timestamp: Date.now(),
+    };
+
     setMessages(prev => [...prev, {
-      id: Date.now().toString(),
+      id: messageId,
       role: 'user',
       content: text,
       status: 'pending',
-      attachments: messageAttachments
+      attachments: messageAttachments,
+      piMessage,
     }]);
 
-    setQueue(prev => [...prev, { text, attachments: messageAttachments }]);
+    setQueue(prev => [...prev, { id: messageId, text, attachments: messageAttachments }]);
   }, []);
 
   const handleSend = useCallback(() => {
@@ -304,8 +495,11 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     }
   }, [initialPrompt, initialPromptStorageKey, queueMessage]);
 
-  const processMessage = useCallback(async (text: string, currentAttachments: Attachment[]) => {
+  const processMessage = useCallback(async ({ id, text, attachments: currentAttachments }: QueuedMessage) => {
     setIsProcessing(true);
+    setMessages(prev => prev.map(message =>
+      message.id === id ? { ...message, status: 'sending' } : message
+    ));
 
     try {
       let effectiveSessionId = sessionId;
@@ -327,25 +521,19 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
         setSessionId(effectiveSessionId);
       }
 
-      const piMessages = messages.map(m => ({ 
-        role: m.role, 
-        content: m.content, 
-        timestamp: Date.now() 
-      }));
+      const currentUserMessage = messages.find(message => message.id === id);
+      const piMessages: AgentMessage[] = messages
+        .filter(message => message.id !== id && message.role !== 'system')
+        .map(message => toPiMessage(message, agentLabel))
+        .filter((message): message is AgentMessage => message !== null);
 
-      let promptContent: any = text;
-      if (currentAttachments.length > 0) {
-        promptContent = [
-          { type: 'text', text },
-          ...currentAttachments.map(a => ({
-            type: 'image',
-            data: a.path,
-            mimeType: a.type
-          }))
-        ];
-      }
-
-      piMessages.push({ role: 'user', content: promptContent, timestamp: Date.now() } as any);
+      piMessages.push(
+        currentUserMessage?.piMessage || {
+          role: 'user',
+          content: buildPromptContent(text, currentAttachments),
+          timestamp: Date.now(),
+        }
+      );
 
       const response = await fetch('/api/stream', {
         method: 'POST',
@@ -389,10 +577,23 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
         }
       }
 
-      setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, status: 'sent' } : m));
+      setMessages(prev => prev.map(message => {
+        if (message.id === id) {
+          return { ...message, status: 'sent' };
+        }
+
+        if (message.id === assistantMsgId) {
+          return message.status === 'error' ? message : { ...message, status: 'sent' };
+        }
+
+        return message;
+      }));
       void fetchHistory();
     } catch (error) {
       console.error('Chat error:', error);
+      setMessages(prev => prev.map(message =>
+        message.id === id ? { ...message, status: 'error' } : message
+      ));
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'system',
@@ -402,13 +603,13 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     } finally {
       setIsProcessing(false);
     }
-  }, [messages, sessionId, handleEvent, updateAssistantMessage, fetchHistory]);
+  }, [messages, sessionId, handleEvent, updateAssistantMessage, fetchHistory, agentLabel]);
 
   useEffect(() => {
     if (!isProcessing && queue.length > 0) {
       const next = queue[0];
       setQueue(prev => prev.slice(1));
-      processMessage(next.text, next.attachments);
+      processMessage(next);
     }
   }, [isProcessing, queue, processMessage]);
 
@@ -479,7 +680,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
             </div>
           )}
           {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={msg.id} data-testid={`chat-message-${msg.role}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[95%] border p-3 sm:max-w-[90%] ${
                 msg.role === 'user' ? 'border-primary bg-primary text-primary-foreground shadow-sm' :
                 msg.role === 'assistant' ? 'bg-muted border-border text-foreground' : 'border-destructive/40 bg-destructive/10 text-destructive'
@@ -526,6 +727,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
           <button onClick={() => fileInputRef.current?.click()} className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"><Paperclip className="h-5 w-5" /></button>
           <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*" />
           <textarea
+            data-testid="chat-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onPaste={handlePaste}
@@ -533,7 +735,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
             placeholder={`Ask ${agentLabel}...`}
             className="max-h-32 min-h-[44px] flex-1 resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
-          <button onClick={handleSend} className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30" disabled={!input.trim() && attachments.length === 0}>
+          <button data-testid="chat-send" onClick={handleSend} className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30" disabled={!input.trim() && attachments.length === 0}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5"><path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
         </div>
