@@ -49,8 +49,9 @@ export const piTools: AgentTool[] = [
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: 'The path to list. Defaults to root.' })),
     }),
-    execute: async (toolCallId, { path: dirPath }) => {
+    execute: async (toolCallId, params) => {
       try {
+        const { path: dirPath } = params as { path?: string };
         const files = await listDirectory(dirPath || '.');
         const content = files.map(f => `${f.type === 'directory' ? '[DIR] ' : ''}${f.path}`).join('\n');
         return {
@@ -73,7 +74,8 @@ export const piTools: AgentTool[] = [
     parameters: Type.Object({
       path: Type.String({ description: 'The path to the file to read.' }),
     }),
-    execute: async (toolCallId, { path: filePath }) => {
+    execute: async (toolCallId, params) => {
+      const { path: filePath } = params as { path: string };
       try {
         const buffer = await readFile(filePath);
         const image = imageContentForBuffer(filePath, buffer);
@@ -104,7 +106,8 @@ export const piTools: AgentTool[] = [
       path: Type.String({ description: 'The path to the file to write.' }),
       content: Type.String({ description: 'The content to write.' }),
     }),
-    execute: async (toolCallId, { path: filePath, content }) => {
+    execute: async (toolCallId, params) => {
+      const { path: filePath, content } = params as { path: string; content: string };
       try {
         const dir = path.dirname(filePath);
         if (dir !== '.') {
@@ -131,7 +134,8 @@ export const piTools: AgentTool[] = [
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
     }),
-    execute: async (toolCallId, { command }) => {
+    execute: async (toolCallId, params) => {
+      const { command } = params as { command: string };
       try {
         const workspacePath = getWorkspacePath();
         const { stdout, stderr } = await execAsync(command, { cwd: workspacePath });
@@ -158,7 +162,8 @@ export const piTools: AgentTool[] = [
       pattern: Type.String({ description: 'The regex pattern to search for.' }),
       path: Type.Optional(Type.String({ description: 'The directory or file to search in. Defaults to root.' })),
     }),
-    execute: async (toolCallId, { pattern, path: searchPath }) => {
+    execute: async (toolCallId, params) => {
+      const { pattern, path: searchPath } = params as { pattern: string; path?: string };
       try {
         const workspacePath = getWorkspacePath();
         const targetPath = searchPath || '.';
@@ -190,7 +195,8 @@ export const piTools: AgentTool[] = [
     parameters: Type.Object({
       pattern: Type.String({ description: 'The glob pattern (e.g., "**/*.ts").' }),
     }),
-    execute: async (toolCallId, { pattern }) => {
+    execute: async (toolCallId, params) => {
+      const { pattern } = params as { pattern: string };
       try {
         const workspacePath = getWorkspacePath();
         const command = `find . -name "${pattern.replace(/"/g, '\\"')}"`;
