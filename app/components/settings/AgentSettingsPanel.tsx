@@ -56,7 +56,7 @@ type PiRuntimeConfig = {
   updatedBy: string;
 };
 
-type DiscoveryMetadata = Record<string, { models: { id: string; name: string }[] }>;
+type DiscoveryMetadata = Record<string, { models: { id: string; name: string; supportsVision?: boolean }[] }>;
 
 type AgentConfigResponse = {
   piConfig: PiRuntimeConfig;
@@ -596,7 +596,9 @@ export function AgentSettingsPanel() {
                   >
                     <option value="">-- Modell wählen --</option>
                     {(discovery[piConfigDraft.activeProvider]?.models || []).map(m => (
-                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                      <option key={m.id} value={m.id}>
+                        {m.name || m.id} {m.supportsVision ? '👁️' : ''}
+                      </option>
                     ))}
                     {!discovery[piConfigDraft.activeProvider] && (
                       <option value={piConfigDraft.providers[piConfigDraft.activeProvider].model}>
@@ -604,6 +606,9 @@ export function AgentSettingsPanel() {
                       </option>
                     )}
                   </select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    👁️ = Vision-fähig (unterstützt Bilder)
+                  </p>
                 </div>
               )}
             </div>

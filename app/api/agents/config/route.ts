@@ -8,7 +8,7 @@ import {
   readPiRuntimeConfig,
   writePiRuntimeConfig,
 } from '@/app/lib/agents/storage';
-import { getPiModels, getPiProviders } from '@/app/lib/pi/model-resolver';
+import { getPiModels, getPiProviders, modelSupportsVision } from '@/app/lib/pi/model-resolver';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 
 async function requireSession(request: NextRequest) {
@@ -46,10 +46,15 @@ export async function GET(request: NextRequest) {
     const readiness = await buildAgentConfigReadiness();
     const engine = getActiveAiAgentEngine();
 
-    // Discovery metadata
+    // Discovery metadata with vision support
     const providers = getPiProviders();
     const discovery = Object.fromEntries(
-      providers.map(p => [p, { models: getPiModels(p) }])
+      providers.map(p => [p, { 
+        models: getPiModels(p).map(m => ({
+          ...m,
+          supportsVision: modelSupportsVision(m.id) || (m.input?.includes('image') ?? false),
+        })),
+      }])
     );
 
     return NextResponse.json({
