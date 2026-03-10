@@ -93,6 +93,9 @@ export const piSessions = sqliteTable("pi_sessions", {
   title: text("title"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  summaryText: text("summary_text"),
+  summaryUpdatedAt: integer("summary_updated_at", { mode: "timestamp" }),
+  summaryThroughTimestamp: integer("summary_through_timestamp"),
 });
 
 export const piMessages = sqliteTable("pi_messages", {
