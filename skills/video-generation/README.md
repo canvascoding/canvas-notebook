@@ -6,7 +6,7 @@ Output: `workspace/veo-studio/video-generation/`
 ## Verwendung
 
 ```bash
-/data/skills/skill video-generation [options]
+video-generation [options]
 ```
 
 ## Optionen
@@ -36,14 +36,14 @@ Output: `workspace/veo-studio/video-generation/`
 
 Text zu Video:
 ```bash
-/data/skills/skill video-generation \
+video-generation \
   --prompt "Eine sanfte Welle bricht an einem Sandstrand" \
   --aspect-ratio 16:9
 ```
 
 Frames zu Video:
 ```bash
-/data/skills/skill video-generation \
+video-generation \
   --mode frames_to_video \
   --start-frame "veo-studio/assets/start.png" \
   --end-frame "veo-studio/assets/end.png" \
@@ -52,7 +52,7 @@ Frames zu Video:
 
 Mit Referenzbildern:
 ```bash
-/data/skills/skill video-generation \
+video-generation \
   --mode references_to_video \
   --ref "veo-studio/assets/char1.png" \
   --ref "veo-studio/assets/bg.png" \

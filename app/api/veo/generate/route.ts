@@ -158,9 +158,12 @@ async function fetchOperationVideo(
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
+  const skillsToken = request.headers.get('x-canvas-skills-token');
+  const isSkillsCall = !!skillsToken && skillsToken === process.env.CANVAS_SKILLS_TOKEN;
+  if (!session && !isSkillsCall) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const callerEmail = session?.user?.email ?? 'skills-cli';
 
   try {
     const limited = rateLimit(request, {
@@ -287,7 +290,7 @@ export async function POST(request: NextRequest) {
       JSON.stringify(
         {
           createdAt: new Date().toISOString(),
-          createdBy: session.user.email,
+          createdBy: callerEmail,
           mode,
           model,
           prompt,
