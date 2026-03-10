@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Loader2, Copy, Check, Link2, Unlink, ExternalLink, ChevronDown } from 'lucide-react';
+import { Loader2, Copy, Check, Link2, Unlink, ExternalLink, ChevronDown, ShieldCheck } from 'lucide-react';
 
 interface OAuthStatus {
   provider: string;
@@ -42,7 +42,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
   const [providers, setProviders] = useState<OAuthStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [pollStatus, setPollStatus] = useState('waiting');
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Load OAuth status on mount
   useEffect(() => {
@@ -64,8 +64,6 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
         const data = await response.json();
         
         if (data.success) {
-          setPollStatus(data.status);
-          
           if (data.authUrl) {
             setAuthUrl(data.authUrl);
             setInstructions(data.instructions || '');
@@ -102,6 +100,16 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     };
   }, [flowId, isOpen, authUrl]);
 
+  // Clear success message after 5 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timeout = setTimeout(() => {
+        setSuccessMessage(null);
+      }, 5000);
+      return () => clearTimeout(timeout);
+    }
+  }, [successMessage]);
+
   const loadStatus = async () => {
     try {
       const response = await fetch('/api/oauth/pi/status', {
@@ -126,12 +134,12 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     setIsLoading(true);
     setIsPolling(true);
     setError(null);
+    setSuccessMessage(null);
     setAuthUrl('');
     setInstructions('');
     setRequiresCode(false);
     setCode('');
     setFlowId('');
-    setPollStatus('waiting');
 
     try {
       const response = await fetch('/api/oauth/pi/initiate', {
@@ -158,7 +166,6 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
         setIsPolling(false);
         window.open(data.authUrl, '_blank');
       }
-      // Otherwise, polling will handle it
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setIsPolling(false);
@@ -204,6 +211,10 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       setFlowId('');
       setAuthUrl('');
       setSelectedProvider(null);
+      
+      // Show success message
+      setSuccessMessage(`Successfully connected to ${selectedProvider.displayName}`);
+      
       await loadStatus();
       onStatusChange?.();
     } catch (err) {
@@ -213,17 +224,18 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     }
   };
 
-  const disconnect = async (provider: string) => {
+  const disconnect = async (provider: OAuthStatus) => {
     setIsLoading(true);
     try {
       const response = await fetch('/api/oauth/pi/disconnect', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider }),
+        body: JSON.stringify({ provider: provider.provider }),
       });
 
       if (response.ok) {
+        setSuccessMessage(`Disconnected from ${provider.displayName}`);
         await loadStatus();
         onStatusChange?.();
       }
@@ -252,59 +264,97 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
   return (
     <div className="space-y-4">
-      {/* Connected providers */}
-      {connectedProviders.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-sm font-medium">Connected Accounts</h4>
-          {connectedProviders.map((provider) => (
-            <div
-              key={provider.provider}
-              className="flex items-center justify-between rounded border border-primary/30 bg-primary/5 p-3"
-            >
-              <div className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">{provider.displayName}</span>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void disconnect(provider.provider)}
-                disabled={isLoading}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Unlink className="h-4 w-4 mr-1" />
-                )}
-                Disconnect
-              </Button>
-            </div>
-          ))}
+      {/* Success Message */}
+      {successMessage && (
+        <div className="rounded-md bg-green-50 border border-green-200 p-3 flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+          <ShieldCheck className="h-5 w-5 text-green-600" />
+          <span className="text-sm font-medium text-green-800">{successMessage}</span>
         </div>
       )}
 
-      {/* Connect new provider */}
-      {availableProviders.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-sm font-medium">Connect Account</h4>
+      {/* Connected Accounts Section */}
+      {connectedProviders.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-foreground">Connected Accounts</h4>
+            <span className="text-xs text-muted-foreground bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+              {connectedProviders.length} active
+            </span>
+          </div>
+          
+          <div className="space-y-2">
+            {connectedProviders.map((provider) => (
+              <div
+                key={provider.provider}
+                className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50/50 p-4 shadow-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100">
+                    <Check className="h-4 w-4 text-green-600" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-foreground">{provider.displayName}</span>
+                    <p className="text-xs text-green-600">Connected and ready</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void disconnect(provider)}
+                  disabled={isLoading}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Unlink className="h-4 w-4 mr-1" />
+                  )}
+                  Disconnect
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Divider */}
+      {connectedProviders.length > 0 && availableProviders.length > 0 && (
+        <div className="relative py-2">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-background px-2 text-xs text-muted-foreground">Add another account</span>
+          </div>
+        </div>
+      )}
+
+      {/* Connect New Account Section */}
+      {availableProviders.length > 0 ? (
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-foreground">Connect Account</h4>
           <div className="flex gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button 
                   variant="outline" 
-                  className="flex-1 justify-between"
+                  className="flex-1 justify-between h-10"
                   disabled={isLoading}
                 >
-                  {selectedProvider ? selectedProvider.displayName : 'Select provider...'}
-                  <ChevronDown className="h-4 w-4 ml-2" />
+                  {selectedProvider ? (
+                    <span className="font-medium">{selectedProvider.displayName}</span>
+                  ) : (
+                    <span className="text-muted-foreground">Select provider...</span>
+                  )}
+                  <ChevronDown className="h-4 w-4 ml-2 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-[300px]">
+              <DropdownMenuContent className="w-[300px]" align="start">
                 {availableProviders.map((provider) => (
                   <DropdownMenuItem 
                     key={provider.provider}
                     onClick={() => setSelectedProvider(provider)}
+                    className="cursor-pointer"
                   >
                     {provider.displayName}
                   </DropdownMenuItem>
@@ -314,6 +364,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
             <Button
               onClick={() => void initiateAuth()}
               disabled={isLoading || !selectedProvider}
+              className="h-10"
             >
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -325,7 +376,11 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
-      )}
+      ) : connectedProviders.length === 0 ? (
+        <div className="text-sm text-muted-foreground text-center py-4">
+          No OAuth providers available
+        </div>
+      ) : null}
 
       {/* OAuth Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -340,24 +395,29 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
           <div className="space-y-4 py-4">
             {/* Waiting for URL */}
             {isPolling && !authUrl && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Waiting for authorization URL...</span>
+              <div className="flex flex-col items-center gap-3 py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <div className="text-center">
+                  <p className="text-sm font-medium">Waiting for authorization URL...</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This may take a few seconds
+                  </p>
+                </div>
               </div>
             )}
 
             {/* Auth URL */}
             {authUrl && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Step 1: Authorization URL</label>
+                <label className="text-sm font-medium">Step 1: Open Authorization URL</label>
                 <p className="text-xs text-muted-foreground">
-                  This URL has been opened in a new tab. If it didn&apos;t open automatically, copy and paste it into your browser.
+                  A new tab should have opened. If not, copy this URL:
                 </p>
                 <div className="flex gap-2">
                   <Input
                     value={authUrl}
                     readOnly
-                    className="font-mono text-xs"
+                    className="font-mono text-xs flex-1"
                   />
                   <Button
                     variant="outline"
@@ -366,7 +426,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                     title="Copy URL"
                   >
                     {copied ? (
-                      <Check className="h-4 w-4 text-primary" />
+                      <Check className="h-4 w-4 text-green-600" />
                     ) : (
                       <Copy className="h-4 w-4" />
                     )}
@@ -385,30 +445,30 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
             {/* Instructions */}
             {instructions && (
-              <div className="rounded bg-muted/50 p-3 text-sm text-muted-foreground space-y-1">
-                <p><strong>Instructions:</strong></p>
-                <div className="whitespace-pre-line">{instructions}</div>
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 text-sm">
+                <p className="font-medium text-blue-900 mb-2">Instructions:</p>
+                <div className="text-blue-800 whitespace-pre-line">{instructions}</div>
               </div>
             )}
 
             {/* Code Input */}
             {requiresCode && authUrl && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Step 2: Enter authorization code</label>
+                <label className="text-sm font-medium">Step 2: Enter Authorization Code</label>
                 <p className="text-xs text-muted-foreground">
-                  After completing authentication in the browser, paste the authorization code or the redirect URL here.
+                  After authenticating in the browser, paste the code here:
                 </p>
                 <Input
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="Paste authorization code or callback URL here..."
-                  className="font-mono text-xs"
+                  placeholder="Paste authorization code or callback URL..."
+                  className="font-mono text-sm"
                 />
               </div>
             )}
 
             {error && (
-              <div className="rounded bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
                 {error}
               </div>
             )}
