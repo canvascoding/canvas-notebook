@@ -44,8 +44,8 @@ export async function POST(request: NextRequest) {
 
   try {
     await request.json().catch(() => ({} as DoctorPayload));
-    // We pass an empty object because the new storage.ts ignores it and returns PI readiness
-    const readiness = await buildAgentConfigReadiness({});
+    // buildAgentConfigReadiness no longer requires a config parameter
+    const readiness = await buildAgentConfigReadiness();
     const { diagnostics } = await loadManagedAgentSystemPrompt();
 
     return NextResponse.json({
