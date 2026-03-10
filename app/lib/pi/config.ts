@@ -4,13 +4,16 @@
 
 export type PiThinkingLevel = 'none' | 'low' | 'medium' | 'high';
 
+export type OllamaMode = 'local' | 'cloud';
+
 export interface PiProviderConfig {
   id: string; // e.g., 'openrouter', 'anthropic', 'google', 'ollama', 'groq'
   model: string;
   thinking: PiThinkingLevel;
   enabledTools: string[];
   // Ollama-specific settings
-  ollamaHost?: string; // Custom Ollama host URL (default: http://127.0.0.1:11434)
+  ollamaMode?: OllamaMode; // 'local' | 'cloud'
+  ollamaHost?: string; // Custom Ollama host URL (default: http://127.0.0.1:11434 for local)
 }
 
 export interface PiRuntimeConfig {
@@ -48,6 +51,7 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
       model: 'llama3.1',
       thinking: 'none',
       enabledTools: ['filesystem', 'terminal'],
+      ollamaMode: 'local',
       ollamaHost: 'http://127.0.0.1:11434',
     },
   },
