@@ -1,4 +1,4 @@
-import { getModels, getProviders, registerBuiltInApiProviders, type KnownProvider } from '@mariozechner/pi-ai';
+import { getModels, getProviders, registerBuiltInApiProviders, type KnownProvider, type Model } from '@mariozechner/pi-ai';
 import { readPiRuntimeConfig } from '../agents/storage';
 
 // Ensure all built-in providers are registered once
@@ -12,14 +12,15 @@ registerBuiltInApiProviders();
 export const OLLAMA_PROVIDER_ID = 'ollama';
 
 // Recommended Ollama models with metadata
-export const OLLAMA_MODELS = [
-  { id: 'llama3.1', name: 'Llama 3.1 (Meta)' },
-  { id: 'llama3.2', name: 'Llama 3.2 (Meta)' },
-  { id: 'mistral', name: 'Mistral (Mistral AI)' },
-  { id: 'qwen2.5-coder:32b', name: 'Qwen 2.5 Coder 32B (Alibaba)' },
-  { id: 'deepseek-r1:32b', name: 'DeepSeek R1 32B (DeepSeek)' },
-  { id: 'glm-4', name: 'GLM-4 (Zhipu AI)' },
-  { id: 'kimi-k2.5', name: 'Kimi K2.5 (Moonshot AI)' },
+// Ollama models are compatible with OpenAI API
+export const OLLAMA_MODELS: Model<'openai'>[] = [
+  { id: 'llama3.1', name: 'Llama 3.1 (Meta)', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'llama3.2', name: 'Llama 3.2 (Meta)', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'mistral', name: 'Mistral (Mistral AI)', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 8192 },
+  { id: 'qwen2.5-coder:32b', name: 'Qwen 2.5 Coder 32B (Alibaba)', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'deepseek-r1:32b', name: 'DeepSeek R1 32B (DeepSeek)', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: true, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'glm-4', name: 'GLM-4 (Zhipu AI)', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'kimi-k2.5', name: 'Kimi K2.5 (Moonshot AI)', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 256000, maxTokens: 8192 },
 ];
 
 export function getPiProviders(): string[] {
