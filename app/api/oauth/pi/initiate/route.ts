@@ -153,9 +153,11 @@ async function run() {
 
     let authUrlReceived = false;
 
-    const credentials = await ${loginFn}(
-      // onAuth callback - called with auth URL
-      (url, instructions) => {
+    // Build options object for providers that expect it
+    const loginOptions = {
+      onAuth: (info) => {
+        const url = typeof info === 'string' ? info : info.url;
+        const instructions = typeof info === 'string' ? undefined : info.instructions;
         console.log('AUTH_URL:', url);
         if (instructions) console.log('INSTRUCTIONS:', instructions);
         
@@ -167,8 +169,7 @@ async function run() {
         });
         authUrlReceived = true;
       },
-      // onPrompt callback - called when code is needed
-      async () => {
+      onPrompt: async (prompt) => {
         console.log('WAITING_FOR_CODE');
         updateState({ status: 'waiting_for_code', updatedAt: Date.now() });
         
@@ -193,11 +194,12 @@ async function run() {
         
         throw new Error('Timeout waiting for authorization code');
       },
-      // onProgress callback
-      (message) => {
+      onProgress: (message) => {
         console.log('PROGRESS:', message);
       }
-    );
+    };
+
+    const credentials = await ${loginFn}(loginOptions);
 
     // Save credentials
     fs.writeFileSync('${tempAuthPath}', JSON.stringify(credentials, null, 2));
