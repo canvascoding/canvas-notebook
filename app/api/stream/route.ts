@@ -5,12 +5,16 @@ import { resolveActivePiModel, resolvePiModel } from '@/app/lib/pi/model-resolve
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
-import { createAgentResponseStream } from '@/app/lib/pi/stream-proxy';
 import { savePiSession } from '@/app/lib/pi/session-store';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { agentLoop, type AgentMessage, type AgentContext, type ThinkingLevel } from '@mariozechner/pi-agent-core';
+import type { Message } from '@mariozechner/pi-ai';
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown agent error';
+}
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -38,11 +42,21 @@ export async function POST(request: NextRequest) {
 
     // Validate message structure
     for (const m of messages) {
-      if (!m.role || (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'toolResult')) {
-        return NextResponse.json({ success: false, error: `Invalid role: ${(m as any).role}` }, { status: 400 });
+      const role = m.role;
+      if (role !== 'user' && role !== 'assistant' && role !== 'toolResult') {
+        return NextResponse.json({ success: false, error: `Invalid role: ${String(role)}` }, { status: 400 });
       }
       if (m.content === undefined) {
         return NextResponse.json({ success: false, error: 'Message content is missing' }, { status: 400 });
+      }
+      if (m.role === 'user' && typeof m.content !== 'string' && !Array.isArray(m.content)) {
+        return NextResponse.json({ success: false, error: 'User message content must be a string or content array' }, { status: 400 });
+      }
+      if (m.role === 'assistant' && !Array.isArray(m.content)) {
+        return NextResponse.json({ success: false, error: 'Assistant message content must be a content array' }, { status: 400 });
+      }
+      if (m.role === 'toolResult' && !Array.isArray(m.content)) {
+        return NextResponse.json({ success: false, error: 'Tool result content must be a content array' }, { status: 400 });
       }
     }
 
@@ -78,7 +92,7 @@ export async function POST(request: NextRequest) {
     const config = {
       model,
       thinkingLevel: (piConfig.providers[activeProviderName]?.thinking || 'none') as ThinkingLevel,
-      convertToLlm: (msgs: AgentMessage[]) => msgs as any, // Simple pass-through for now
+      convertToLlm: async (msgs: AgentMessage[]) => msgs as Message[],
       getApiKey: resolvePiApiKey,
       sessionId,
     };
@@ -120,15 +134,15 @@ export async function POST(request: NextRequest) {
               finalMessages
             );
           }
-        } catch (error: any) {
-          if (error.name === 'AbortError' || abortController.signal.aborted) {
+        } catch (error: unknown) {
+          if ((error instanceof Error && error.name === 'AbortError') || abortController.signal.aborted) {
             console.log(`[PI Stream] [${logSessionId}] Loop aborted successfully.`);
             return;
           }
           console.error(`[PI Stream] [${logSessionId}] Loop error:`, error);
           controller.enqueue(encoder.encode(JSON.stringify({
             type: 'error',
-            error: error.message || 'Unknown agent error',
+            error: getErrorMessage(error),
           }) + '\n'));
         } finally {
           controller.close();
@@ -149,8 +163,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[PI Stream] Error:', error);
-    return NextResponse.json({ success: false, error: error.message || 'Internal error' }, { status: 500 });
+    return NextResponse.json({ success: false, error: getErrorMessage(error) }, { status: 500 });
   }
 }
