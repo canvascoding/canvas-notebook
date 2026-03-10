@@ -43,7 +43,24 @@ function stripWhitespace(value: string): string {
 
 function isValidBase64(value: string): boolean {
   const normalized = stripWhitespace(value);
-  return normalized.length > 0 && normalized.length % 4 === 0 && BASE64_PATTERN.test(normalized);
+  if (normalized.length === 0 || normalized.length % 4 !== 0) {
+    return false;
+  }
+  
+  // For very large strings, only sample the beginning, middle and end
+  // to avoid stack overflow with complex regex
+  const MAX_SAMPLE_SIZE = 10000; // Sample 10KB chunks
+  if (normalized.length > MAX_SAMPLE_SIZE * 3) {
+    const start = normalized.slice(0, MAX_SAMPLE_SIZE);
+    const middle = normalized.slice(Math.floor(normalized.length / 2) - MAX_SAMPLE_SIZE / 2, Math.floor(normalized.length / 2) + MAX_SAMPLE_SIZE / 2);
+    const end = normalized.slice(-MAX_SAMPLE_SIZE);
+    
+    return BASE64_PATTERN.test(start) && 
+           BASE64_PATTERN.test(middle) && 
+           BASE64_PATTERN.test(end);
+  }
+  
+  return BASE64_PATTERN.test(normalized);
 }
 
 function resolveImageMimeType(filePath: string, fallbackMimeType?: string): string {
