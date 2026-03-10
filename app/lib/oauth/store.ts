@@ -12,6 +12,18 @@ export interface OAuthToken {
   updatedAt: number;
 }
 
+interface DbTokenRow {
+  id: string;
+  provider: string;
+  access_token: string;
+  refresh_token?: string;
+  expires_at?: number;
+  scope?: string;
+  email?: string;
+  created_at: number;
+  updated_at: number;
+}
+
 export async function getValidToken(provider: string): Promise<OAuthToken | null> {
   const db = await openDb();
   try {
@@ -22,7 +34,7 @@ export async function getValidToken(provider: string): Promise<OAuthToken | null
        ORDER BY updated_at DESC 
        LIMIT 1`,
       [provider]
-    );
+    ) as DbTokenRow | undefined;
     
     if (!row) return null;
 
