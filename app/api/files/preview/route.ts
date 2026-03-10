@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
     await ensureDir(CACHE_ROOT);
 
     if (!(await fileExists(cacheFile))) {
-      const tmpFile = `${cacheFile}.tmp`;
+      const tmpFile = path.join(CACHE_ROOT, `${cacheKey}.tmp.${format}`);
       try {
         await generateThumbnail(fullPath, tmpFile, width, format);
         await fs.rename(tmpFile, cacheFile);

@@ -4,8 +4,9 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
+import { resolveAgentStorageDir } from '../runtime-data-paths';
 
-export const AGENT_STORAGE_DIR = '/data/canvas-agent';
+export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
 export const PI_RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, PI_RUNTIME_CONFIG_FILE);
 export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
@@ -68,6 +69,21 @@ export type AgentConfigReadiness = {
     authSet: boolean;
     issues: string[];
   };
+};
+
+export type AgentRuntimeConfig = {
+  version: number;
+  provider: {
+    id: string;
+    kind: 'pi';
+  };
+  providers: Record<string, never>;
+};
+
+const DEFAULT_AGENT_RUNTIME_CONFIG: AgentRuntimeConfig = {
+  version: 1,
+  provider: { id: 'pi', kind: 'pi' },
+  providers: {},
 };
 
 export class AgentConfigValidationError extends Error {
@@ -194,15 +210,36 @@ export async function writePiRuntimeConfig(config: PiRuntimeConfig): Promise<PiR
 }
 
 // Compatibility helpers for transition
-export async function readAgentRuntimeConfig(): Promise<any> {
-  return { version: 1, provider: { id: 'pi', kind: 'pi' }, providers: {} };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
-export function sanitizeAgentRuntimeConfig(config: any): any {
-  return config;
+export async function readAgentRuntimeConfig(): Promise<AgentRuntimeConfig> {
+  return DEFAULT_AGENT_RUNTIME_CONFIG;
 }
 
-export async function buildAgentConfigReadiness(_config: any): Promise<AgentConfigReadiness> {
+export function sanitizeAgentRuntimeConfig(config: unknown): AgentRuntimeConfig {
+  if (!isRecord(config)) {
+    return DEFAULT_AGENT_RUNTIME_CONFIG;
+  }
+
+  const providerValue = isRecord(config.provider) ? config.provider : null;
+  const providerId =
+    providerValue && typeof providerValue.id === 'string' && providerValue.id.trim().length > 0
+      ? providerValue.id
+      : DEFAULT_AGENT_RUNTIME_CONFIG.provider.id;
+
+  return {
+    version: typeof config.version === 'number' ? config.version : DEFAULT_AGENT_RUNTIME_CONFIG.version,
+    provider: {
+      id: providerId,
+      kind: 'pi',
+    },
+    providers: {},
+  };
+}
+
+export async function buildAgentConfigReadiness(_config: AgentRuntimeConfig): Promise<AgentConfigReadiness> {
   let piReadiness: AgentConfigReadiness['pi'] | undefined;
   try {
     const piConfig = await readPiRuntimeConfig();
@@ -242,7 +279,7 @@ export async function buildAgentConfigReadiness(_config: any): Promise<AgentConf
   };
 }
 
-export async function writeAgentRuntimeConfig(_input: any, _updatedBy: string): Promise<any> {
+export async function writeAgentRuntimeConfig(_input: unknown, _updatedBy: string): Promise<AgentRuntimeConfig> {
   return readAgentRuntimeConfig();
 }
 

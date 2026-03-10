@@ -6,7 +6,7 @@
     "todos:sync:agent": "node scripts/sync-agent-todos.mjs",
     "todos:watch:agent": "node scripts/sync-agent-todos.mjs --watch",
     "predev": "npm run todos:sync:agent",
-    "dev": "tsx server.js",
+    "dev": "node scripts/run-dev.mjs",
     "prebuild": "npm run todos:sync:agent",
     "build": "next build --webpack",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
