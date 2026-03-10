@@ -126,6 +126,15 @@ export async function POST(request: NextRequest) {
 function generateOAuthScript(provider: string, flowId: string, stateFile: string, tempAuthPath: string): string {
   const loginFn = getLoginFunctionName(provider);
   
+  // Different providers have different signatures
+  // anthropic: loginAnthropic(onAuthUrl, onPromptCode)
+  // openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress })
+  // github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress })
+  // google-gemini-cli: loginGeminiCli(onAuth, onProgress?, onManualCodeInput?)
+  // google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?)
+  const isOptionsBased = ['openai-codex', 'github-copilot'].includes(provider);
+  const isSimpleCallback = provider === 'anthropic';
+  
   return `
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -153,53 +162,77 @@ async function run() {
 
     let authUrlReceived = false;
 
-    // Build options object for providers that expect it
-    const loginOptions = {
+    // Common callback functions
+    const handleAuthUrl = (url, instructions) => {
+      console.log('AUTH_URL:', url);
+      if (instructions) console.log('INSTRUCTIONS:', instructions);
+      
+      updateState({ 
+        status: 'auth_url_received', 
+        authUrl: url, 
+        instructions: instructions || '',
+        updatedAt: Date.now()
+      });
+      authUrlReceived = true;
+    };
+
+    const handlePromptCode = async () => {
+      console.log('WAITING_FOR_CODE');
+      updateState({ status: 'waiting_for_code', updatedAt: Date.now() });
+      
+      // Wait for the code file to be created by the exchange endpoint
+      const codeFile = '${stateFile}'.replace('.json', '_code.txt');
+      const maxWait = 10 * 60 * 1000; // 10 minutes
+      const startTime = Date.now();
+      
+      while (Date.now() - startTime < maxWait) {
+        try {
+          if (fs.existsSync(codeFile)) {
+            const code = fs.readFileSync(codeFile, 'utf-8').trim();
+            fs.unlinkSync(codeFile); // Clean up
+            console.log('CODE_RECEIVED');
+            return code;
+          }
+        } catch (e) {
+          // File doesn't exist yet
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      
+      throw new Error('Timeout waiting for authorization code');
+    };
+
+    const handleProgress = (message) => {
+      console.log('PROGRESS:', message);
+    };
+
+    let credentials;
+    ${isSimpleCallback ? `
+    // ${provider} uses simple callback signature
+    credentials = await ${loginFn}(handleAuthUrl, handlePromptCode);
+    ` : isOptionsBased ? `
+    // ${provider} uses options object
+    credentials = await ${loginFn}({
       onAuth: (info) => {
         const url = typeof info === 'string' ? info : info.url;
         const instructions = typeof info === 'string' ? undefined : info.instructions;
-        console.log('AUTH_URL:', url);
-        if (instructions) console.log('INSTRUCTIONS:', instructions);
-        
-        updateState({ 
-          status: 'auth_url_received', 
-          authUrl: url, 
-          instructions: instructions || '',
-          updatedAt: Date.now()
-        });
-        authUrlReceived = true;
+        handleAuthUrl(url, instructions);
       },
-      onPrompt: async (prompt) => {
-        console.log('WAITING_FOR_CODE');
-        updateState({ status: 'waiting_for_code', updatedAt: Date.now() });
-        
-        // Wait for the code file to be created by the exchange endpoint
-        const codeFile = '${stateFile}'.replace('.json', '_code.txt');
-        const maxWait = 10 * 60 * 1000; // 10 minutes
-        const startTime = Date.now();
-        
-        while (Date.now() - startTime < maxWait) {
-          try {
-            if (fs.existsSync(codeFile)) {
-              const code = fs.readFileSync(codeFile, 'utf-8').trim();
-              fs.unlinkSync(codeFile); // Clean up
-              console.log('CODE_RECEIVED');
-              return code;
-            }
-          } catch (e) {
-            // File doesn't exist yet
-          }
-          await new Promise(r => setTimeout(r, 1000));
-        }
-        
-        throw new Error('Timeout waiting for authorization code');
+      onPrompt: handlePromptCode,
+      onProgress: handleProgress
+    });
+    ` : `
+    // ${provider} uses callback signature
+    credentials = await ${loginFn}(
+      (info) => {
+        const url = typeof info === 'string' ? info : info.url;
+        const instructions = typeof info === 'string' ? undefined : info.instructions;
+        handleAuthUrl(url, instructions);
       },
-      onProgress: (message) => {
-        console.log('PROGRESS:', message);
-      }
-    };
-
-    const credentials = await ${loginFn}(loginOptions);
+      handleProgress,
+      handlePromptCode
+    );
+    `}
 
     // Save credentials
     fs.writeFileSync('${tempAuthPath}', JSON.stringify(credentials, null, 2));
