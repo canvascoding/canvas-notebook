@@ -1,6 +1,9 @@
+import { loadAppEnv } from '../server/load-app-env';
 import { eq } from 'drizzle-orm';
 import { db } from '../app/lib/db';
 import { user } from '../app/lib/db/schema';
+
+loadAppEnv(process.cwd());
 
 const email = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
 const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;

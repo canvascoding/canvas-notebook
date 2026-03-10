@@ -1,6 +1,5 @@
-
-import { config } from 'dotenv';
-config({ path: '.env.local' });
+import { loadAppEnv } from './server/load-app-env';
+loadAppEnv(process.cwd());
 
 import { auth } from './app/lib/auth';
 

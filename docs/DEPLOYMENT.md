@@ -42,7 +42,7 @@ server {
 ```
 
 ## Environment
-Ensure these are set (systemd uses `.env.systemd`, app also loads `.env.local`):
+Ensure these are set. Local dev uses `.env.local`, Docker/Compose should use `.env.docker.local`, and systemd uses `.env.systemd`:
 
 - `BETTER_AUTH_SECRET` (>= 32 chars)
 - `BETTER_AUTH_BASE_URL` (or fallback `BASE_URL`)

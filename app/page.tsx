@@ -16,19 +16,23 @@ type AgentSetupCardState = {
   providerReady: boolean;
   providerIssues: string[];
   doctorStatus: 'ready' | 'needs-attention' | 'unknown';
+  model: string;
 };
 
 async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
   try {
     const config = await readAgentRuntimeConfig();
     const readiness = await buildAgentConfigReadiness(config);
-    const provider = readiness.providers[readiness.activeProviderId];
+    
+    // PI-first readiness
+    const pi = readiness.pi;
 
     return {
-      providerLabel: readiness.activeProviderId,
-      providerReady: provider.available,
-      providerIssues: provider.issues,
-      doctorStatus: provider.available ? 'ready' : 'needs-attention',
+      providerLabel: pi?.activeProvider || readiness.activeProviderId,
+      providerReady: pi?.ready || readiness.activeProviderReady,
+      providerIssues: pi?.issues || [],
+      doctorStatus: (pi?.ready || readiness.activeProviderReady) ? 'ready' : 'needs-attention',
+      model: pi?.model || 'unknown',
     };
   } catch {
     return {
@@ -36,6 +40,7 @@ async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
       providerReady: false,
       providerIssues: ['Agent runtime config currently unavailable.'],
       doctorStatus: 'unknown',
+      model: 'unknown',
     };
   }
 }
@@ -93,6 +98,9 @@ export default async function Home() {
                 <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Provider Status</p>
                 <p className={setupCardState.providerReady ? 'text-primary' : 'text-destructive'}>
                   {setupCardState.providerReady ? 'Ready' : 'Not ready'} ({setupCardState.providerLabel})
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Model: {setupCardState.model}
                 </p>
                 {setupCardState.providerIssues.length > 0 && (
                   <p className="text-xs text-muted-foreground">{setupCardState.providerIssues[0]}</p>

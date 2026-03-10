@@ -1,114 +1,100 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2 } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  HelpCircle,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  Stethoscope,
+  Trash2,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
+  getProviderHelp,
+  requiresCliAuth,
+  supportsBothAuthMethods,
+  type ProviderHelpInfo,
+} from '@/app/lib/pi/provider-help';
+import { ProviderEnvEditor } from './ProviderEnvEditor';
+import { PiOAuthButton } from './PiOAuthButton';
 
 const MANAGED_FILES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
 type ManagedFileName = (typeof MANAGED_FILES)[number];
-type ProviderId = 'codex-cli' | 'claude-cli' | 'openrouter' | 'ollama';
-type ProviderKind = 'cli' | 'openrouter' | 'ollama';
 
-type CliProviderConfig = {
-  enabled: boolean;
-  command: string;
-};
+type PiThinkingLevel = 'none' | 'low' | 'medium' | 'high';
 
-type OpenRouterProviderConfig = {
-  enabled: boolean;
-  baseUrl: string;
+type OllamaMode = 'local' | 'cloud';
+
+type PiProviderConfig = {
+  id: string;
   model: string;
-  apiKeySource: 'agents-env';
+  thinking: PiThinkingLevel;
+  enabledTools: string[];
+  ollamaMode?: OllamaMode;
+  ollamaHost?: string;
+  authMethod?: 'api-key' | 'oauth';
 };
 
-type OllamaProviderConfig = {
-  enabled: boolean;
-  baseUrl: string;
-  model: string;
-  apiKeySource: 'agents-env';
-};
-
-type AgentRuntimeConfig = {
+type PiRuntimeConfig = {
   version: number;
-  mainAgent: string;
-  provider: {
-    id: ProviderId;
-    kind: ProviderKind;
-  };
-  providers: {
-    'codex-cli': CliProviderConfig;
-    'claude-cli': CliProviderConfig;
-    openrouter: OpenRouterProviderConfig;
-    ollama: OllamaProviderConfig;
-  };
-  doctor: {
-    enableLivePing: boolean;
-    timeoutMs: number;
-  };
+  activeProvider: string;
+  providers: Record<string, PiProviderConfig>;
   updatedAt: string;
   updatedBy: string;
 };
 
-type ProviderReadiness = {
-  id: ProviderId;
-  kind: ProviderKind;
-  enabled: boolean;
-  available: boolean;
-  issues: string[];
-  command?: string;
-  commandExists?: boolean;
-  baseUrl?: string;
-  model?: string;
-  modelPlausible?: boolean;
-  openRouterKeySet?: boolean;
-  ollamaKeySet?: boolean;
+type DiscoveryMetadata = Record<string, { models: { id: string; name: string; supportsVision?: boolean }[] }>;
+
+type AgentConfigResponse = {
+  piConfig: PiRuntimeConfig;
+  engine: 'legacy' | 'pi';
+  readiness: AgentConfigReadiness;
+  discovery: DiscoveryMetadata;
 };
 
 type AgentConfigReadiness = {
-  activeProviderId: ProviderId;
+  activeProviderId: string;
   activeProviderReady: boolean;
-  openRouterKey: {
-    isSet: boolean;
-    source: 'agents-env' | null;
-    last4: string | null;
-    warnings: string[];
+  pi?: {
+    activeProvider: string;
+    model: string;
+    ready: boolean;
+    authSet: boolean;
+    issues: string[];
   };
-  providers: Record<ProviderId, ProviderReadiness>;
 };
 
 type DoctorResult = {
   checkedAt: string;
-  timeoutMs: number;
   summary: {
     ready: boolean;
     errors: number;
     warnings: number;
   };
-  checks: {
-    livePing?: {
-      openrouter?: {
-        enabled: boolean;
-        ok: boolean | null;
-        warning: string | null;
-        latencyMs: number | null;
-        status: number | null;
-        target: string | null;
-      };
-      ollama?: {
-        enabled: boolean;
-        ok: boolean | null;
-        warning: string | null;
-        latencyMs: number | null;
-        status: number | null;
-        target: string | null;
-      };
-    };
+  readiness: AgentConfigReadiness;
+  promptDiagnostics: {
+    loadedFiles: ManagedFileName[];
+    includedFiles: ManagedFileName[];
+    emptyFiles: ManagedFileName[];
+    usedFallback: boolean;
+    fallbackReason: 'all-empty' | 'read-failed' | null;
   };
 };
 
@@ -123,6 +109,11 @@ type SessionItem = {
     email?: string | null;
   };
 };
+
+// Helper function to check if a provider requires OAuth authentication
+function requiresOAuthAuth(providerId: string): boolean {
+  return requiresCliAuth(providerId);
+}
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -149,20 +140,11 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   return (payload.data as T) ?? (payload as unknown as T);
 }
 
-function toProviderKind(providerId: ProviderId): ProviderKind {
-  if (providerId === 'openrouter') {
-    return 'openrouter';
-  }
-  if (providerId === 'ollama') {
-    return 'ollama';
-  }
-  return 'cli';
-}
-
 export function AgentSettingsPanel() {
   const searchParams = useSearchParams();
 
-  const [configDraft, setConfigDraft] = useState<AgentRuntimeConfig | null>(null);
+  const [piConfigDraft, setPiConfigDraft] = useState<PiRuntimeConfig | null>(null);
+  const [discovery, setDiscovery] = useState<DiscoveryMetadata>({});
   const [readiness, setReadiness] = useState<AgentConfigReadiness | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
@@ -193,22 +175,23 @@ export function AgentSettingsPanel() {
   const [sessionPendingId, setSessionPendingId] = useState<string | null>(null);
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
 
-  const activeProviderReadiness = useMemo(() => {
-    if (!readiness) {
-      return null;
-    }
-    return readiness.providers[readiness.activeProviderId];
-  }, [readiness]);
+  // Provider help collapsible state
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+
+  // Selected provider status (for live preview)
+  const [selectedProviderStatus, setSelectedProviderStatus] = useState<{ isReady: boolean; hasApiKey: boolean; hasOAuth: boolean; requiresKey: boolean; requiresOAuth: boolean; issues: string[] } | null>(null);
+  const [selectedProviderLoading, setSelectedProviderLoading] = useState(false);
 
   const loadConfig = useCallback(async () => {
     setConfigLoading(true);
     setConfigError(null);
 
     try {
-      const payload = await fetchJson<{ config: AgentRuntimeConfig; readiness: AgentConfigReadiness }>(
+      const payload = await fetchJson<AgentConfigResponse>(
         '/api/agents/config',
       );
-      setConfigDraft(deepClone(payload.config));
+      setPiConfigDraft(deepClone(payload.piConfig));
+      setDiscovery(payload.discovery || {});
       setReadiness(payload.readiness);
     } catch (error) {
       setConfigError(error instanceof Error ? error.message : 'Failed to load agent config.');
@@ -294,8 +277,17 @@ export function AgentSettingsPanel() {
     }
   }, [searchParams, doctorResult, doctorRunning, runDoctor]);
 
+  // Listen for refresh events from ProviderEnvEditor
+  useEffect(() => {
+    const handleRefresh = () => {
+      void loadConfig();
+    };
+    window.addEventListener('refresh-agent-config', handleRefresh);
+    return () => window.removeEventListener('refresh-agent-config', handleRefresh);
+  }, [loadConfig]);
+
   const saveConfig = async () => {
-    if (!configDraft) {
+    if (!piConfigDraft) {
       return;
     }
 
@@ -304,16 +296,18 @@ export function AgentSettingsPanel() {
     setConfigSuccess(null);
 
     try {
-      const payload = await fetchJson<{ config: AgentRuntimeConfig; readiness: AgentConfigReadiness }>(
+      const payload = await fetchJson<AgentConfigResponse>(
         '/api/agents/config',
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: configDraft }),
+          body: JSON.stringify({ 
+            piConfig: piConfigDraft,
+          }),
         },
       );
 
-      setConfigDraft(deepClone(payload.config));
+      setPiConfigDraft(deepClone(payload.piConfig));
       setReadiness(payload.readiness);
       setConfigSuccess('Agent-Konfiguration gespeichert.');
     } catch (error) {
@@ -323,74 +317,85 @@ export function AgentSettingsPanel() {
     }
   };
 
-  const setProviderEnabled = (providerId: ProviderId, enabled: boolean) => {
-    setConfigDraft((current) => {
+  const setPiProviderField = <K extends keyof PiProviderConfig>(
+    providerId: string,
+    field: K,
+    value: PiProviderConfig[K]
+  ) => {
+    setPiConfigDraft((current) => {
       if (!current) {
         return current;
       }
       const next = deepClone(current);
-      if (providerId === 'openrouter') {
-        next.providers.openrouter.enabled = enabled;
-      } else if (providerId === 'ollama') {
-        next.providers.ollama.enabled = enabled;
-      } else {
-        next.providers[providerId].enabled = enabled;
+      if (!next.providers[providerId]) {
+        next.providers[providerId] = {
+          id: providerId,
+          model: '',
+          thinking: 'none',
+          enabledTools: [],
+        };
       }
+      next.providers[providerId][field] = value;
       return next;
     });
   };
 
-  const setCliCommand = (providerId: 'codex-cli' | 'claude-cli', command: string) => {
-    setConfigDraft((current) => {
+  const setActivePiProvider = (providerId: string) => {
+    setPiConfigDraft((current) => {
       if (!current) {
         return current;
       }
       const next = deepClone(current);
-      next.providers[providerId].command = command;
+      next.activeProvider = providerId;
+      
+      // Ensure the provider exists in the config
+      if (!next.providers[providerId]) {
+        next.providers[providerId] = {
+          id: providerId,
+          model: '',
+          thinking: 'none',
+          enabledTools: ['filesystem', 'terminal'],
+        };
+      }
+      
       return next;
     });
+
+    // Load status for the newly selected provider
+    void loadProviderStatus(providerId);
   };
 
-  const setOllamaField = (field: 'baseUrl' | 'model', value: string) => {
-    setConfigDraft((current) => {
-      if (!current) {
-        return current;
+  const loadProviderStatus = useCallback(async (providerId: string) => {
+    setSelectedProviderLoading(true);
+    try {
+      const response = await fetch(`/api/agents/provider-status?providerId=${encodeURIComponent(providerId)}`, {
+        credentials: 'include',
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setSelectedProviderStatus({
+          isReady: data.isReady,
+          hasApiKey: data.hasApiKey,
+          hasOAuth: data.hasOAuth,
+          requiresKey: data.requiresKey,
+          requiresOAuth: data.requiresOAuth,
+          issues: data.issues,
+        });
       }
-      const next = deepClone(current);
-      next.providers.ollama[field] = value;
-      return next;
-    });
-  };
+    } catch (error) {
+      console.error('Failed to load provider status:', error);
+    } finally {
+      setSelectedProviderLoading(false);
+    }
+  }, []);
 
-  const setOpenRouterField = (field: 'baseUrl' | 'model', value: string) => {
-    setConfigDraft((current) => {
-      if (!current) {
-        return current;
-      }
-      const next = deepClone(current);
-      next.providers.openrouter[field] = value;
-      return next;
-    });
-  };
-
-  const setActiveProvider = (providerId: ProviderId) => {
-    setConfigDraft((current) => {
-      if (!current) {
-        return current;
-      }
-      const next = deepClone(current);
-      next.provider.id = providerId;
-      next.provider.kind = toProviderKind(providerId);
-      if (providerId === 'openrouter') {
-        next.providers.openrouter.enabled = true;
-      } else if (providerId === 'ollama') {
-        next.providers.ollama.enabled = true;
-      } else {
-        next.providers[providerId].enabled = true;
-      }
-      return next;
-    });
-  };
+  // Load provider status when config is loaded or activeProvider changes
+  useEffect(() => {
+    if (piConfigDraft?.activeProvider) {
+      void loadProviderStatus(piConfigDraft.activeProvider);
+    }
+  }, [piConfigDraft?.activeProvider, loadProviderStatus]);
 
   const saveActiveFile = async () => {
     setFilesSaving(true);
@@ -520,214 +525,262 @@ export function AgentSettingsPanel() {
     }
   };
 
+  if (configLoading && !piConfigDraft) {
+    return (
+      <div className="flex items-center text-sm text-muted-foreground p-8">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        Lade Agent-Konfiguration...
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Provider Settings</CardTitle>
-          <CardDescription>Globaler Provider, CLI-Kommandos sowie OpenRouter/Ollama-Konfiguration.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {configLoading || !configDraft ? (
-            <div className="flex items-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Lade Agent-Konfiguration...
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="space-y-2 text-sm">
-                  <span>Aktiver Provider</span>
+      {piConfigDraft && (
+        <Card className="border-primary shadow-sm">
+          <CardHeader>
+            <CardTitle>Agent Runtime Settings</CardTitle>
+            <CardDescription>
+              Konfiguration der PI-basierten Agent-Engine.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span className="font-semibold">Aktiver Provider</span>
+                <select
+                  data-testid="provider-select"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={piConfigDraft.activeProvider}
+                  onChange={(event) => setActivePiProvider(event.target.value)}
+                  disabled={configSaving}
+                >
+                  {Object.keys(discovery).length > 0 
+                    ? Object.keys(discovery).sort().map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))
+                    : Object.keys(piConfigDraft.providers).map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))
+                  }
+                </select>
+              </label>
+
+              {/* Ollama Mode Selector */}
+              {piConfigDraft.activeProvider === 'ollama' && (
+                <div className="space-y-2 text-sm">
+                  <span className="font-semibold">Ollama Server</span>
                   <select
-                    className="h-10 w-full border border-input bg-background px-3 text-sm"
-                    value={configDraft.provider.id}
-                    onChange={(event) => setActiveProvider(event.target.value as ProviderId)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={piConfigDraft.providers.ollama?.ollamaMode || 'local'}
+                    onChange={(event) => {
+                      const mode = event.target.value as OllamaMode;
+                      setPiProviderField('ollama', 'ollamaMode', mode);
+                      // Clear host when switching to local mode
+                      if (mode === 'local') {
+                        setPiProviderField('ollama', 'ollamaHost', undefined);
+                      }
+                    }}
                     disabled={configSaving}
                   >
-                    <option value="codex-cli">codex-cli</option>
-                    <option value="claude-cli">claude-cli</option>
-                    <option value="openrouter">openrouter</option>
-                    <option value="ollama">ollama</option>
+                    <option value="local">🏠 Lokal (localhost:11434)</option>
+                    <option value="cloud">☁️ Remote Server (custom URL)</option>
                   </select>
-                </label>
-
-                <div className="rounded border border-border bg-muted/40 p-3 text-xs">
-                  <p className="font-semibold">Provider-Status</p>
-                  <p className={activeProviderReadiness?.available ? 'text-primary' : 'text-destructive'}>
-                    {activeProviderReadiness?.available ? 'Ready' : 'Not ready'}
+                  <p className="text-xs text-muted-foreground">
+                    {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' 
+                      ? 'Remote Server: Verbindung zu externem Ollama Server (z.B. http://192.168.1.100:11434)'
+                      : 'Lokal Mode: Alle Modelle (inkl. Cloud-Modelle) werden lokal über localhost:11434 ausgeführt'}
                   </p>
-                  {activeProviderReadiness?.issues?.[0] && (
-                    <p className="mt-1 text-muted-foreground">{activeProviderReadiness.issues[0]}</p>
+                </div>
+              )}
+
+              {piConfigDraft.providers[piConfigDraft.activeProvider] && (
+                <div className="space-y-2 text-sm">
+                  <span className="font-semibold">Modell für {piConfigDraft.activeProvider}</span>
+                  <select
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={piConfigDraft.providers[piConfigDraft.activeProvider].model}
+                    onChange={(event) => setPiProviderField(piConfigDraft.activeProvider, 'model', event.target.value)}
+                    disabled={configSaving}
+                  >
+                    <option value="">-- Modell wählen --</option>
+                    {(discovery[piConfigDraft.activeProvider]?.models || []).map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.name || m.id} {m.supportsVision ? '👁️' : ''}
+                      </option>
+                    ))}
+                    {!discovery[piConfigDraft.activeProvider] && (
+                      <option value={piConfigDraft.providers[piConfigDraft.activeProvider].model}>
+                        {piConfigDraft.providers[piConfigDraft.activeProvider].model} (Manuell)
+                      </option>
+                    )}
+                  </select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    👁️ = Vision-fähig (unterstützt Bilder)
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span className="font-semibold">Thinking Level</span>
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={piConfigDraft.providers[piConfigDraft.activeProvider]?.thinking || 'none'}
+                  onChange={(event) => setPiProviderField(piConfigDraft.activeProvider, 'thinking', event.target.value as PiThinkingLevel)}
+                  disabled={configSaving}
+                >
+                  <option value="none">None (Standard)</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High / Reasoning</option>
+                </select>
+              </label>
+
+              <div className="rounded border border-border bg-muted/40 p-3 text-xs">
+                <p className="font-semibold mb-1">Provider-Status</p>
+                {selectedProviderLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span className="text-muted-foreground">Prüfe...</span>
+                  </div>
+                ) : (
+                  <>
+                    <p className={selectedProviderStatus?.isReady ? 'text-primary' : 'text-destructive font-bold'}>
+                      {selectedProviderStatus?.isReady ? 'Bereit (Ready)' : 'Nicht bereit (Not ready)'}
+                    </p>
+                    {selectedProviderStatus?.issues?.[0] && (
+                      <p className="mt-1 text-muted-foreground">{selectedProviderStatus.issues[0]}</p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Auth Method Selector for providers supporting both API key and OAuth */}
+            {piConfigDraft.activeProvider && supportsBothAuthMethods(piConfigDraft.activeProvider) && (
+              <div className="rounded border border-border bg-card p-4 space-y-3">
+                <h4 className="text-sm font-semibold">Authentication Method</h4>
+                <p className="text-xs text-muted-foreground">
+                  Choose how you want to authenticate with this provider:
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant={piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'api-key' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPiProviderField(piConfigDraft.activeProvider, 'authMethod', 'api-key')}
+                    className="flex-1"
+                  >
+                    API Key
+                  </Button>
+                  <Button
+                    variant={piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPiProviderField(piConfigDraft.activeProvider, 'authMethod', 'oauth')}
+                    className="flex-1"
+                  >
+                    OAuth / CLI
+                  </Button>
+                </div>
+                
+                {/* Show API Key instructions when API Key is selected */}
+                {piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'api-key' && (
+                  <div className="mt-3 p-3 bg-muted/50 rounded text-xs text-muted-foreground">
+                    <p className="font-medium mb-1">API Key Setup:</p>
+                    <p>Add your API key in the Integrations settings.</p>
+                  </div>
+                )}
+                
+                {/* Show OAuth section when OAuth is selected */}
+                {piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' && (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">OAuth Status</span>
+                      {selectedProviderStatus?.hasOAuth ? (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Check className="h-3 w-3" />
+                          Connected
+                        </span>
+                      ) : (
+                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                          Not connected
+                        </span>
+                      )}
+                    </div>
+                    <PiOAuthButton onStatusChange={() => void loadConfig()} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* OAuth Section - Only for OAuth-only providers (not for dual-support providers) */}
+            {piConfigDraft.activeProvider && requiresOAuthAuth(piConfigDraft.activeProvider) && !supportsBothAuthMethods(piConfigDraft.activeProvider) && (
+              <div className="rounded border border-border bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">OAuth Authentication</h4>
+                  {selectedProviderStatus?.hasOAuth ? (
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Check className="h-3 w-3" />
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                      Not connected
+                    </span>
                   )}
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Connect your account to use this provider. Your credentials are stored securely.
+                </p>
+                <PiOAuthButton onStatusChange={() => void loadConfig()} />
               </div>
+            )}
 
-              <div className="space-y-3 border-t border-border pt-4">
-                <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-                  <label className="space-y-2 text-sm">
-                    <span>Codex CLI Command</span>
-                    <Input
-                      value={configDraft.providers['codex-cli'].command}
-                      onChange={(event) => setCliCommand('codex-cli', event.target.value)}
-                      disabled={configSaving}
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={configDraft.providers['codex-cli'].enabled}
-                      onChange={(event) => setProviderEnabled('codex-cli', event.target.checked)}
-                      disabled={configSaving}
-                    />
-                    Enabled
-                  </label>
-                </div>
+            <div className="rounded border border-border bg-muted/20 p-3">
+              <p className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-tight">System Info</p>
+              <p className="text-xs text-muted-foreground">
+                Die Engine nutzt API-Keys aus den Integrations-Einstellungen. 
+                Modell-Discovery erfolgt über die PI-Registry.
+              </p>
+            </div>
 
-                <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-                  <label className="space-y-2 text-sm">
-                    <span>Claude CLI Command</span>
-                    <Input
-                      value={configDraft.providers['claude-cli'].command}
-                      onChange={(event) => setCliCommand('claude-cli', event.target.value)}
-                      disabled={configSaving}
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={configDraft.providers['claude-cli'].enabled}
-                      onChange={(event) => setProviderEnabled('claude-cli', event.target.checked)}
-                      disabled={configSaving}
-                    />
-                    Enabled
-                  </label>
-                </div>
+            {/* Provider Help Section */}
+            {piConfigDraft.activeProvider && (
+              <ProviderHelpSection
+                providerId={piConfigDraft.activeProvider}
+                isProviderReady={readiness?.pi?.ready || false}
+                isOpen={isHelpOpen}
+                onOpenChange={setIsHelpOpen}
+                piConfigDraft={piConfigDraft}
+                setPiConfigDraft={setPiConfigDraft}
+                setReadiness={setReadiness}
+              />
+            )}
 
-                <div className="rounded border border-border p-3">
-                  <p className="mb-3 text-sm font-semibold">OpenRouter</p>
-                  <div className="mb-3">
-                    <label className="flex h-10 items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={configDraft.providers.openrouter.enabled}
-                        onChange={(event) => setProviderEnabled('openrouter', event.target.checked)}
-                        disabled={configSaving}
-                      />
-                      OpenRouter enabled
-                    </label>
-                  </div>
+            {configError && <p className="text-sm text-destructive">{configError}</p>}
+            {configSuccess && <p className="text-sm text-primary">{configSuccess}</p>}
 
-                  <div className="mb-3 grid gap-3 md:grid-cols-2">
-                    <label className="space-y-2 text-sm">
-                      <span>OpenRouter Base URL</span>
-                      <Input
-                        value={configDraft.providers.openrouter.baseUrl}
-                        onChange={(event) => setOpenRouterField('baseUrl', event.target.value)}
-                        disabled={configSaving}
-                      />
-                    </label>
-                    <label className="space-y-2 text-sm">
-                      <span>OpenRouter Model</span>
-                      <Input
-                        value={configDraft.providers.openrouter.model}
-                        onChange={(event) => setOpenRouterField('model', event.target.value)}
-                        disabled={configSaving}
-                      />
-                    </label>
-                  </div>
-
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    API-Keys werden zentral im Tab `Integrations` in `/home/node/Canvas-Agents.env` verwaltet.
-                  </p>
-
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Aktuell erkannt:{' '}
-                    {readiness?.openRouterKey.isSet
-                      ? `ja (${readiness.openRouterKey.source || 'unknown'})`
-                      : 'nein'}
-                  </p>
-                </div>
-
-                <div className="rounded border border-border p-3">
-                  <p className="mb-3 text-sm font-semibold">Ollama</p>
-                  <div className="mb-3">
-                    <label className="flex h-10 items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={configDraft.providers.ollama.enabled}
-                        onChange={(event) => setProviderEnabled('ollama', event.target.checked)}
-                        disabled={configSaving}
-                      />
-                      Ollama enabled
-                    </label>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className="space-y-2 text-sm">
-                      <span>Ollama Base URL</span>
-                      <Input
-                        value={configDraft.providers.ollama.baseUrl}
-                        onChange={(event) => setOllamaField('baseUrl', event.target.value)}
-                        disabled={configSaving}
-                      />
-                    </label>
-                    <label className="space-y-2 text-sm">
-                      <span>Ollama Model</span>
-                      <Input
-                        value={configDraft.providers.ollama.model}
-                        onChange={(event) => setOllamaField('model', event.target.value)}
-                        disabled={configSaving}
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {configError && <p className="text-sm text-destructive">{configError}</p>}
-              {configSuccess && <p className="text-sm text-primary">{configSuccess}</p>}
-
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => void saveConfig()} disabled={configSaving}>
-                  {configSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Provider-Konfiguration speichern
-                </Button>
-                <Button variant="outline" onClick={() => void loadConfig()} disabled={configLoading || configSaving}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Neu laden
-                </Button>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button onClick={() => void saveConfig()} disabled={configSaving}>
+                {configSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                Einstellungen speichern
+              </Button>
+              <Button variant="outline" onClick={() => void loadConfig()} disabled={configLoading || configSaving}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Neu laden
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle>Doctor</CardTitle>
-          <CardDescription>Lokale Provider-Checks und optionale OpenRouter/Ollama-Pings.</CardDescription>
+          <CardDescription>System-Check für Provider und Konnektivität.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {configDraft && (
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={configDraft.doctor.enableLivePing}
-                onChange={(event) =>
-                  setConfigDraft((current) => {
-                    if (!current) {
-                      return current;
-                    }
-                    const next = deepClone(current);
-                    next.doctor.enableLivePing = event.target.checked;
-                    return next;
-                  })
-                }
-                disabled={configSaving}
-              />
-              Doctor live ping
-            </label>
-          )}
-
           <Button onClick={() => void runDoctor()} disabled={doctorRunning}>
             {doctorRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Stethoscope className="mr-2 h-4 w-4" />}
             Doctor ausführen
@@ -743,12 +796,20 @@ export function AgentSettingsPanel() {
               <p>Errors: {doctorResult.summary.errors}</p>
               <p>Warnings: {doctorResult.summary.warnings}</p>
               <p>Checked: {new Date(doctorResult.checkedAt).toLocaleString()}</p>
-              {doctorResult.checks.livePing?.openrouter?.warning && (
-                <p className="text-muted-foreground">OpenRouter Ping: {doctorResult.checks.livePing.openrouter.warning}</p>
-              )}
-              {doctorResult.checks.livePing?.ollama?.warning && (
-                <p className="text-muted-foreground">Ollama Ping: {doctorResult.checks.livePing.ollama.warning}</p>
-              )}
+              <p>Prompt files loaded: {doctorResult.promptDiagnostics.loadedFiles.join(', ') || 'None'}</p>
+              <p>Prompt files included: {doctorResult.promptDiagnostics.includedFiles.join(', ') || 'None'}</p>
+              <p>Prompt files empty: {doctorResult.promptDiagnostics.emptyFiles.join(', ') || 'None'}</p>
+              <p>
+                Prompt fallback:{' '}
+                <span className={doctorResult.promptDiagnostics.usedFallback ? 'text-destructive font-medium' : 'text-primary'}>
+                  {doctorResult.promptDiagnostics.usedFallback
+                    ? `Active (${doctorResult.promptDiagnostics.fallbackReason || 'unknown'})`
+                    : 'Inactive'}
+                </span>
+              </p>
+              {doctorResult.readiness.pi?.issues.map((issue, idx) => (
+                <p key={idx} className="text-destructive font-medium mt-1">• {issue}</p>
+              ))}
             </div>
           )}
         </CardContent>
@@ -756,14 +817,14 @@ export function AgentSettingsPanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Agent Files</CardTitle>
-          <CardDescription>Bearbeite AGENTS.md, MEMORY.md, SOUL.md und TOOLS.md.</CardDescription>
+          <CardTitle>Agent Managed Files</CardTitle>
+          <CardDescription>System-relevante Markdown-Dateien für das Agent-Verhalten.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {filesLoading || !files ? (
             <div className="flex items-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Lade Agent-Dateien...
+              Lade Dateien...
             </div>
           ) : (
             <>
@@ -778,7 +839,8 @@ export function AgentSettingsPanel() {
               </Tabs>
 
               <textarea
-                className="min-h-[260px] w-full border border-input bg-background p-3 font-mono text-sm"
+                data-testid="agent-managed-file-editor"
+                className="min-h-[260px] w-full border border-input rounded-md bg-background p-3 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 value={fileDrafts[activeFile] ?? ''}
                 onChange={(event) =>
                   setFileDrafts((current) => ({
@@ -794,13 +856,13 @@ export function AgentSettingsPanel() {
               {filesSuccess && <p className="text-sm text-primary">{filesSuccess}</p>}
 
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => void saveActiveFile()} disabled={filesSaving}>
+                <Button data-testid="agent-managed-file-save" onClick={() => void saveActiveFile()} disabled={filesSaving}>
                   {filesSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Datei speichern
+                  Speichern
                 </Button>
                 <Button variant="outline" onClick={() => void loadFiles()} disabled={filesLoading || filesSaving}>
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Dateien neu laden
+                  Neu laden
                 </Button>
               </div>
             </>
@@ -811,35 +873,29 @@ export function AgentSettingsPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Sessions</CardTitle>
-          <CardDescription>Sessions erstellen, umbenennen, löschen und Verlauf einsehen.</CardDescription>
+          <CardDescription>Chat-Historie verwalten.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <Input
-              placeholder="Neue Session (optionaler Titel)"
+              className="flex-1 min-w-[200px]"
+              placeholder="Neue Session (Titel optional)"
               value={createTitle}
               onChange={(event) => setCreateTitle(event.target.value)}
               disabled={sessionPendingId !== null}
             />
             <Button onClick={() => void createSession()} disabled={sessionPendingId !== null}>
               {sessionPendingId === 'create' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              Neue Session
-            </Button>
-            <Button variant="outline" onClick={() => void loadSessions()} disabled={sessionsLoading || sessionPendingId !== null}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Neu laden
+              Neu
             </Button>
             <Button
               variant="destructive"
+              size="sm"
               onClick={() => void deleteAllSessions()}
               disabled={sessionPendingId !== null || sessionsLoading || sessions.length === 0}
             >
-              {sessionPendingId === 'delete-all' ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="mr-2 h-4 w-4" />
-              )}
-              Alle Sessions löschen
+              <Trash2 className="mr-2 h-4 w-4" />
+              Alle löschen
             </Button>
           </div>
 
@@ -848,20 +904,20 @@ export function AgentSettingsPanel() {
           {sessionsLoading ? (
             <div className="flex items-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Lade Sessions...
+              Lade...
             </div>
           ) : sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Keine Sessions vorhanden.</p>
+            <p className="text-sm text-muted-foreground">Kein Verlauf vorhanden.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
               {sessions.map((sessionItem) => {
                 const isPending = sessionPendingId === sessionItem.sessionId;
                 const creatorLabel =
-                  sessionItem.creator?.name || sessionItem.creator?.email || 'Unknown creator';
+                  sessionItem.creator?.name || sessionItem.creator?.email || 'Unknown';
 
                 return (
-                  <div key={sessionItem.sessionId} className="rounded border border-border p-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <div key={sessionItem.sessionId} className="rounded border border-border p-3 hover:bg-muted/10 transition-colors">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
                       <span>{sessionItem.sessionId}</span>
                       <span>{new Date(sessionItem.createdAt).toLocaleString()}</span>
                     </div>
@@ -878,26 +934,27 @@ export function AgentSettingsPanel() {
                         disabled={sessionPendingId !== null}
                       />
                       <Button
-                        variant="outline"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => void renameSession(sessionItem.sessionId)}
                         disabled={sessionPendingId !== null}
                       >
-                        {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                        Umbenennen
+                        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                       </Button>
                       <Button
-                        variant="destructive"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={() => void deleteSession(sessionItem.sessionId)}
                         disabled={sessionPendingId !== null}
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Löschen
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
 
-                    <div className="text-xs text-muted-foreground">
-                      <span className="mr-3">Provider: {sessionItem.model}</span>
-                      <span>Creator: {creatorLabel}</span>
+                    <div className="text-[10px] text-muted-foreground flex justify-between">
+                      <span>Model: {sessionItem.model}</span>
+                      <span>User: {creatorLabel}</span>
                     </div>
                   </div>
                 );
@@ -907,5 +964,198 @@ export function AgentSettingsPanel() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Provider Help Section Component
+ * Shows collapsible help information for the selected provider
+ */
+interface ProviderHelpSectionProps {
+  providerId: string;
+  isProviderReady: boolean;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  piConfigDraft: PiRuntimeConfig | null;
+  setPiConfigDraft: React.Dispatch<React.SetStateAction<PiRuntimeConfig | null>>;
+  setReadiness: React.Dispatch<React.SetStateAction<AgentConfigReadiness | null>>;
+}
+
+function ProviderHelpSection({ 
+  providerId, 
+  isProviderReady, 
+  isOpen, 
+  onOpenChange,
+  piConfigDraft,
+  setPiConfigDraft,
+  setReadiness
+}: ProviderHelpSectionProps) {
+  const help = getProviderHelp(providerId);
+
+  if (!help) {
+    return null;
+  }
+
+  const getCategoryIcon = (category: ProviderHelpInfo['category']) => {
+    switch (category) {
+      case 'api-key':
+        return '🔑';
+      case 'oauth-cli':
+        return '🔐';
+      case 'adc':
+        return '☁️';
+      case 'aws':
+        return '⚡';
+      case 'azure':
+        return '🔷';
+      case 'ollama':
+        return '🖥️';
+      default:
+        return '❓';
+    }
+  };
+
+  const getCategoryLabel = (category: ProviderHelpInfo['category']) => {
+    switch (category) {
+      case 'api-key':
+        return 'API Key';
+      case 'oauth-cli':
+        return 'OAuth/CLI Login';
+      case 'adc':
+        return 'Application Default Credentials';
+      case 'aws':
+        return 'AWS Credentials';
+      case 'azure':
+        return 'Azure Credentials';
+      case 'ollama':
+        return 'Local Installation';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={onOpenChange}>
+      <CollapsibleTrigger className="flex items-center justify-between w-full rounded border border-border bg-muted/30 p-3 text-sm hover:bg-muted/50 transition-colors">
+        <div className="flex items-center gap-2">
+          <HelpCircle className="h-4 w-4 text-muted-foreground" />
+          <span className="font-medium">
+            {getCategoryIcon(help.category)} {help.title} - Konfiguration
+          </span>
+          {isProviderReady && (
+            <span className="ml-2 text-xs text-primary bg-primary/10 px-2 py-0.5 rounded">
+              Konfiguriert
+            </span>
+          )}
+        </div>
+        {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="rounded-b border-x border-b border-border bg-muted/20 p-4 space-y-4">
+          {/* Provider Category Badge */}
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center rounded-full border border-border bg-background px-2 py-1 text-xs font-medium">
+              {getCategoryLabel(help.category)}
+            </span>
+          </div>
+
+          {/* Description */}
+          <p className="text-sm text-muted-foreground">{help.shortDescription}</p>
+
+          {/* Setup Steps */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold">Einrichtung:</h4>
+            <ol className="ml-4 list-decimal text-sm text-muted-foreground space-y-1">
+              {help.setupSteps.map((step, index) => (
+                <li key={index}>{step}</li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Environment Variables */}
+          {help.envVars && help.envVars.length > 0 && (
+            <div className="space-y-4 border-t border-border pt-4">
+              <h4 className="text-sm font-semibold">API-Keys konfigurieren:</h4>
+              <ProviderEnvEditor
+                providerId={providerId}
+                envVars={help.envVars}
+                onSaveComplete={() => {
+                  // Refresh provider status after save
+                  window.dispatchEvent(new CustomEvent('refresh-agent-config'));
+                }}
+                onProviderActivate={async () => {
+                  // Activate this provider as the active provider
+                  if (piConfigDraft && piConfigDraft.activeProvider !== providerId) {
+                    try {
+                      const payload = await fetchJson<AgentConfigResponse>(
+                        '/api/agents/config',
+                        {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            piConfig: {
+                              ...piConfigDraft,
+                              activeProvider: providerId,
+                            },
+                          }),
+                        },
+                      );
+                      // Update local state
+                      setPiConfigDraft(deepClone(payload.piConfig));
+                      setReadiness(payload.readiness);
+                    } catch (error) {
+                      console.error('Failed to activate provider:', error);
+                      throw error;
+                    }
+                  }
+                }}
+              />
+            </div>
+          )}
+
+          {/* CLI Commands */}
+          {help.cliCommands && help.cliCommands.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">CLI-Befehle:</h4>
+              <div className="space-y-2">
+                {help.cliCommands.map((cmd, index) => (
+                  <div key={index} className="rounded bg-black/90 p-2 font-mono text-xs text-white">
+                    <span className="text-green-400">$</span> {cmd.command}
+                    <p className="mt-1 text-gray-400">{cmd.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          {help.notes && help.notes.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Hinweise:</h4>
+              <ul className="ml-4 list-disc text-sm text-muted-foreground space-y-1">
+                {help.notes.map((note, index) => (
+                  <li key={index}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Documentation Link */}
+          {help.documentationUrl && (
+            <div className="pt-2 border-t border-border">
+              <a
+                href={help.documentationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center text-xs text-primary hover:underline"
+              >
+                <ExternalLink className="mr-1 h-3 w-3" />
+                Offizielle Dokumentation öffnen
+              </a>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

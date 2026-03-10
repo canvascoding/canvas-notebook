@@ -1,19 +1,28 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+const { loadAppEnv } = require('./server/load-app-env');
+loadAppEnv(process.cwd());
+
 const { loadEnvConfig } = require('@next/env');
 const dev = process.env.NODE_ENV !== 'production';
 loadEnvConfig(process.cwd(), dev);
 
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const next = require('next');
 const { attachTerminalServer } = require('./server/terminal-server');
 const { terminateAllSessions } = require('./server/terminal-manager');
 const { auth } = require('./app/lib/auth');
+const {
+  resolveAgentStorageDir,
+  resolveSkillsDataDir,
+  resolveSkillsTokenPath,
+} = require('./app/lib/runtime-data-paths');
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = process.env.HOSTNAME || 'localhost';
-const app = next({ dev, hostname, port });
+const app = next({ dev, hostname, port, webpack: dev, turbopack: false });
 const handle = app.getRequestHandler();
 
 // Helper to get session from Node.js request using better-auth
@@ -75,6 +84,75 @@ function resolveMediaPath(requestPath) {
 function getContentType(filePath) {
   const ext = path.extname(filePath).slice(1).toLowerCase();
   return MEDIA_TYPES[ext] || 'application/octet-stream';
+}
+
+const AGENT_STORAGE_DIR = resolveAgentStorageDir();
+const SKILLS_TOKEN_PATH = resolveSkillsTokenPath();
+const SKILLS_REPO_DIR = path.resolve(process.cwd(), 'skills');
+const SKILLS_DATA_DIR = resolveSkillsDataDir();
+
+function ensureSkillsToken() {
+  try {
+    fs.mkdirSync(AGENT_STORAGE_DIR, { recursive: true });
+    let token;
+    try {
+      token = fs.readFileSync(SKILLS_TOKEN_PATH, 'utf8').trim();
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+      token = crypto.randomBytes(32).toString('hex');
+      fs.writeFileSync(SKILLS_TOKEN_PATH, token + '\n', { encoding: 'utf8', mode: 0o600 });
+      console.log(`[Startup] Generated new skills token at ${SKILLS_TOKEN_PATH}`);
+    }
+    process.env.CANVAS_SKILLS_TOKEN = token;
+  } catch (error) {
+    console.error('[Startup] Failed to ensure skills token:', error);
+  }
+}
+
+const SKILL_COMMANDS = ['image-generation', 'video-generation', 'ad-localization'];
+
+function ensureSkillsDirectory() {
+  try {
+    if (!fs.existsSync(SKILLS_REPO_DIR)) {
+      return;
+    }
+    fs.mkdirSync(SKILLS_DATA_DIR, { recursive: true });
+    fs.cpSync(SKILLS_REPO_DIR, SKILLS_DATA_DIR, { recursive: true, force: true });
+    const skillBin = path.join(SKILLS_DATA_DIR, 'skill');
+    if (fs.existsSync(skillBin)) {
+      fs.chmodSync(skillBin, 0o755);
+    }
+    const wrapperDir = path.join(SKILLS_DATA_DIR, 'bin');
+    fs.mkdirSync(wrapperDir, { recursive: true });
+
+    for (const name of SKILL_COMMANDS) {
+      const wrapperPath = path.join(wrapperDir, name);
+      const content = `#!/usr/bin/env bash\nexec "${SKILLS_DATA_DIR}/skill" ${name} "$@"\n`;
+      fs.writeFileSync(wrapperPath, content, { encoding: 'utf8', mode: 0o755 });
+    }
+
+    const currentPath = process.env.PATH || '';
+    if (!currentPath.split(path.delimiter).includes(wrapperDir)) {
+      process.env.PATH = `${wrapperDir}${path.delimiter}${currentPath}`;
+    }
+
+    console.log(`[Startup] Skills synced to ${SKILLS_DATA_DIR}`);
+
+    // Best effort only: install global wrappers when the runtime allows it.
+    if (process.env.CANVAS_RUNTIME_ENV === 'docker') {
+      for (const name of SKILL_COMMANDS) {
+        const wrapperPath = `/usr/local/bin/${name}`;
+        const content = `#!/usr/bin/env bash\nexec "${SKILLS_DATA_DIR}/skill" ${name} "$@"\n`;
+        try {
+          fs.writeFileSync(wrapperPath, content, { encoding: 'utf8', mode: 0o755 });
+        } catch (e) {
+          console.warn(`[Startup] Could not install global wrapper for ${name}:`, e.message);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[Startup] Failed to sync skills directory:', error);
+  }
 }
 
 function ensureRuntimeDirectories() {
@@ -212,6 +290,8 @@ function serveMedia(req, res) {
 }
 
 ensureRuntimeDirectories();
+ensureSkillsToken();
+ensureSkillsDirectory();
 
 app
   .prepare()

@@ -35,6 +35,7 @@ RUN echo "${APP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${APP_USER} \
 RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \
+    CANVAS_RUNTIME_ENV=docker \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     WORKSPACE_DIR=/data/workspace \
@@ -59,7 +60,7 @@ COPY --from=builder /app/proxy.ts ./proxy.ts
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/docs ./docs
 
-RUN mkdir -p /data/workspace
+RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills
 RUN chmod +x ./scripts/docker-entrypoint.sh
 RUN printf '%s\n' \
   'NPM_GLOBAL_BIN="/home/node/.npm-global/bin"' \
