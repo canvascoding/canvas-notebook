@@ -145,4 +145,33 @@ if (!piSessionColumns.has('summary_through_timestamp')) {
   sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_through_timestamp INTEGER');
 }
 
+// OAuth tokens table for provider authentication
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS oauth_tokens (
+    id TEXT PRIMARY KEY NOT NULL,
+    provider TEXT NOT NULL,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT,
+    expires_at INTEGER,
+    scope TEXT,
+    email TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    is_valid INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE INDEX IF NOT EXISTS idx_oauth_tokens_provider ON oauth_tokens(provider);
+  CREATE INDEX IF NOT EXISTS idx_oauth_tokens_valid ON oauth_tokens(provider, is_valid);
+`);
+
 export const db = drizzle(sqlite, { schema });
+
+// Helper function for raw SQLite operations
+export async function openDb() {
+  const sqlite = new Database(sqlitePath);
+  return {
+    get: (sql: string, params?: unknown[]) => sqlite.prepare(sql).get(params),
+    run: (sql: string, params?: unknown[]) => sqlite.prepare(sql).run(params),
+    all: (sql: string, params?: unknown[]) => sqlite.prepare(sql).all(params),
+    close: () => sqlite.close(),
+  };
+}
