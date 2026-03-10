@@ -112,17 +112,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS session_token_unique ON session (token);
 `);
 
 // Idempotent column additions for existing volumes
-const piSessionColumns = new Set(
-  (sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as Array<{ name: string }>).map((c) => c.name),
-);
-if (!piSessionColumns.has('summary_text')) {
-  sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_text TEXT');
-}
-if (!piSessionColumns.has('summary_updated_at')) {
-  sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_updated_at INTEGER');
-}
-if (!piSessionColumns.has('summary_through_timestamp')) {
-  sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_through_timestamp INTEGER');
+const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
+const tableNames = new Set(tables.map((t) => t.name));
+
+if (tableNames.has('pi_sessions')) {
+  const piSessionColumns = new Set(
+    (sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  if (!piSessionColumns.has('summary_text')) {
+    sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_text TEXT');
+  }
+  if (!piSessionColumns.has('summary_updated_at')) {
+    sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_updated_at INTEGER');
+  }
+  if (!piSessionColumns.has('summary_through_timestamp')) {
+    sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_through_timestamp INTEGER');
+  }
 }
 
 // OAuth tokens table for provider authentication
