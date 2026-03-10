@@ -251,8 +251,13 @@ export async function migrateLegacyAgentEnvIfNeeded(): Promise<void> {
 }
 
 export function providerIdToAgentId(providerId: string): AgentId {
-  if (providerId === 'claude-cli') return 'claude';
+  // Map legacy provider IDs to AgentIds
+  if (providerId === 'claude-cli') return 'codex'; // Claude CLI uses codex agent in PI mode
   if (providerId === 'codex-cli') return 'codex';
-  // Use casting to AgentId to satisfy TS since catalog.ts is the source of truth for AgentId
-  return providerId as AgentId;
+  // Only allow valid AgentIds from catalog
+  if (providerId === 'codex' || providerId === 'openrouter' || providerId === 'ollama') {
+    return providerId as AgentId;
+  }
+  // Default to codex for unknown providers in PI mode
+  return 'codex';
 }
