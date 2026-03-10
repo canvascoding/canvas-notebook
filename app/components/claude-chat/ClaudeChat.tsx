@@ -363,6 +363,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
   }, []);
 
   const upsertToolMessage = useCallback((params: {
+    assistantMessageId?: string;
     content?: string;
     status?: ChatMessage['status'];
     toolCallId?: string;
@@ -371,7 +372,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     piMessage?: AgentMessage;
     type?: ChatMessage['type'];
   }) => {
-    const { toolCallId, toolName, toolArgs, content, status, piMessage, type } = params;
+    const { assistantMessageId, toolCallId, toolName, toolArgs, content, status, piMessage, type } = params;
     const knownMessageId = toolCallId ? toolMessageIdsRef.current[toolCallId] : undefined;
     const messageId = knownMessageId || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -381,6 +382,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
 
     setMessages((prev) => {
       const index = prev.findIndex((message) => message.id === messageId);
+      const assistantIndex = assistantMessageId ? prev.findIndex((message) => message.id === assistantMessageId) : -1;
       const nextMessage: ChatMessage = {
         id: messageId,
         role: 'toolResult',
@@ -394,19 +396,35 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
       };
 
       if (index === -1) {
-        return [...prev, nextMessage];
+        if (assistantIndex === -1) {
+          return [...prev, nextMessage];
+        }
+
+        const nextMessages = [...prev];
+        nextMessages.splice(assistantIndex, 0, nextMessage);
+        return nextMessages;
+      }
+
+      const mergedMessage: ChatMessage = {
+        ...prev[index],
+        ...nextMessage,
+        content: content ?? prev[index].content,
+        toolArgs: toolArgs ?? prev[index].toolArgs,
+        toolName: toolName ?? prev[index].toolName,
+        piMessage: piMessage ?? prev[index].piMessage,
+        type: type || prev[index].type,
+      };
+
+      if (assistantIndex !== -1 && index > assistantIndex) {
+        const nextMessages = [...prev];
+        nextMessages.splice(index, 1);
+        const nextAssistantIndex = nextMessages.findIndex((message) => message.id === assistantMessageId);
+        nextMessages.splice(nextAssistantIndex, 0, mergedMessage);
+        return nextMessages;
       }
 
       const nextMessages = [...prev];
-      nextMessages[index] = {
-        ...nextMessages[index],
-        ...nextMessage,
-        content: content ?? nextMessages[index].content,
-        toolArgs: toolArgs ?? nextMessages[index].toolArgs,
-        toolName: toolName ?? nextMessages[index].toolName,
-        piMessage: piMessage ?? nextMessages[index].piMessage,
-        type: type || nextMessages[index].type,
-      };
+      nextMessages[index] = mergedMessage;
       return nextMessages;
     });
   }, []);
@@ -424,6 +442,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
         break;
       case 'tool_execution_start':
         upsertToolMessage({
+          assistantMessageId: msgId,
           toolCallId: event.toolCallId,
           toolName: event.toolName || 'Tool',
           toolArgs: formatToolArgs(event.args),
@@ -434,6 +453,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
       case 'tool_execution_end': {
         const text = extractToolResultText(event.result?.content);
         upsertToolMessage({
+          assistantMessageId: msgId,
           toolCallId: event.toolCallId,
           toolName: event.toolName || 'Tool',
           content: text,
