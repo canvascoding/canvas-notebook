@@ -82,14 +82,15 @@ export async function POST(request: NextRequest) {
       getApiKey: resolvePiApiKey,
       sessionId,
     };
+    const logSessionId = sessionId ?? 'no-session';
 
     const abortController = new AbortController();
     request.signal.addEventListener('abort', () => {
-      console.log(`[PI Stream] [${sessionId}] Request aborted by client.`);
+      console.log(`[PI Stream] [${logSessionId}] Request aborted by client.`);
       abortController.abort();
     });
 
-    console.log(`[PI Stream] [${sessionId}] Starting loop with model ${model.id} and ${tools.length} tools.`);
+    console.log(`[PI Stream] [${logSessionId}] Starting loop with model ${model.id} and ${tools.length} tools.`);
 
     // The last message in the input is the new prompt
     const prompt = messages[messages.length - 1];
@@ -101,14 +102,14 @@ export async function POST(request: NextRequest) {
         let finalMessages: AgentMessage[] = [...messages];
         try {
           for await (const event of eventStream) {
-            console.log(`[PI Stream] [${sessionId}] Event: ${event.type}`);
+            console.log(`[PI Stream] [${logSessionId}] Event: ${event.type}`);
             controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
             if (event.type === 'agent_end') {
               finalMessages = event.messages;
             }
           }
 
-          console.log(`[PI Stream] [${sessionId}] Loop finished. Persisting session.`);
+          console.log(`[PI Stream] [${logSessionId}] Loop finished. Persisting session.`);
           // Persist the session after completion
           if (sessionId) {
             await savePiSession(
@@ -121,10 +122,10 @@ export async function POST(request: NextRequest) {
           }
         } catch (error: any) {
           if (error.name === 'AbortError' || abortController.signal.aborted) {
-            console.log(`[PI Stream] [${sessionId}] Loop aborted successfully.`);
+            console.log(`[PI Stream] [${logSessionId}] Loop aborted successfully.`);
             return;
           }
-          console.error(`[PI Stream] [${sessionId}] Loop error:`, error);
+          console.error(`[PI Stream] [${logSessionId}] Loop error:`, error);
           controller.enqueue(encoder.encode(JSON.stringify({
             type: 'error',
             error: error.message || 'Unknown agent error',
@@ -134,7 +135,7 @@ export async function POST(request: NextRequest) {
         }
       },
       cancel() {
-        console.log(`[PI Stream] [${sessionId}] Stream cancelled by consumer.`);
+        console.log(`[PI Stream] [${logSessionId}] Stream cancelled by consumer.`);
         abortController.abort();
       },
     });
