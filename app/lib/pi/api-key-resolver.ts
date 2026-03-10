@@ -29,6 +29,7 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
     case 'openai-codex':
       return allEntries.get('OPENAI_API_KEY');
     case 'anthropic':
+    case 'claude':
       return allEntries.get('ANTHROPIC_API_KEY');
     case 'google':
       return allEntries.get('GOOGLE_API_KEY') || allEntries.get('GEMINI_API_KEY');
