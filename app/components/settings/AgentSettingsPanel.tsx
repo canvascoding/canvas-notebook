@@ -577,6 +577,9 @@ export function AgentSettingsPanel() {
                 isProviderReady={readiness?.pi?.ready || false}
                 isOpen={isHelpOpen}
                 onOpenChange={setIsHelpOpen}
+                piConfigDraft={piConfigDraft}
+                setPiConfigDraft={setPiConfigDraft}
+                setReadiness={setReadiness}
               />
             )}
 
@@ -798,9 +801,20 @@ interface ProviderHelpSectionProps {
   isProviderReady: boolean;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
+  piConfigDraft: PiRuntimeConfig | null;
+  setPiConfigDraft: React.Dispatch<React.SetStateAction<PiRuntimeConfig | null>>;
+  setReadiness: React.Dispatch<React.SetStateAction<AgentConfigReadiness | null>>;
 }
 
-function ProviderHelpSection({ providerId, isProviderReady, isOpen, onOpenChange }: ProviderHelpSectionProps) {
+function ProviderHelpSection({ 
+  providerId, 
+  isProviderReady, 
+  isOpen, 
+  onOpenChange,
+  piConfigDraft,
+  setPiConfigDraft,
+  setReadiness
+}: ProviderHelpSectionProps) {
   const help = getProviderHelp(providerId);
 
   if (!help) {
@@ -893,6 +907,32 @@ function ProviderHelpSection({ providerId, isProviderReady, isOpen, onOpenChange
                 onSaveComplete={() => {
                   // Refresh provider status after save
                   window.dispatchEvent(new CustomEvent('refresh-agent-config'));
+                }}
+                onProviderActivate={async () => {
+                  // Activate this provider as the active provider
+                  if (piConfigDraft && piConfigDraft.activeProvider !== providerId) {
+                    try {
+                      const payload = await fetchJson<AgentConfigResponse>(
+                        '/api/agents/config',
+                        {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            piConfig: {
+                              ...piConfigDraft,
+                              activeProvider: providerId,
+                            },
+                          }),
+                        },
+                      );
+                      // Update local state
+                      setPiConfigDraft(deepClone(payload.piConfig));
+                      setReadiness(payload.readiness);
+                    } catch (error) {
+                      console.error('Failed to activate provider:', error);
+                      throw error;
+                    }
+                  }
                 }}
               />
             </div>
