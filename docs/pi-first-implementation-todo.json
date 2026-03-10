@@ -568,7 +568,7 @@
       "order": 51,
       "phase": "P11 Hotfix",
       "title": "Bootstrap session creation in chat UI before first /api/stream call",
-      "status": "pending",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "pi-050"
