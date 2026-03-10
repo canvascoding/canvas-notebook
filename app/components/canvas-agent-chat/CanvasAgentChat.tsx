@@ -30,6 +30,7 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'toolResult';
   content: string;
+  thinking?: string; // Extracted thinking/reasoning content
   type?: 'tool_use' | 'tool_result' | 'system';
   status?: 'pending' | 'sending' | 'sent' | 'error';
   attachments?: Attachment[];
@@ -518,13 +519,29 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     setSessionId(null);
     setMessages([]);
     setShowHistory(false);
-    setActiveModel(DEFAULT_MODEL_ID);
+    // Use model from agentConfig if available, otherwise fall back to default
+    if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
+      const provider = agentConfig.piConfig.activeProvider;
+      const model = agentConfig.piConfig.providers[provider]?.model;
+      setActiveModel(model || DEFAULT_MODEL_ID);
+    } else {
+      setActiveModel(DEFAULT_MODEL_ID);
+    }
     toolMessageIdsRef.current = {};
-  }, []);
+  }, [agentConfig]);
 
   const loadSession = useCallback(async (session: AISession) => {
     setSessionId(session.sessionId);
-    setActiveModel(session.model || DEFAULT_MODEL_ID);
+    // Use session's model if available, otherwise fall back to current config model
+    if (session.model) {
+      setActiveModel(session.model);
+    } else if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
+      const provider = agentConfig.piConfig.activeProvider;
+      const model = agentConfig.piConfig.providers[provider]?.model;
+      setActiveModel(model || DEFAULT_MODEL_ID);
+    } else {
+      setActiveModel(DEFAULT_MODEL_ID);
+    }
     setMessages([{ id: 'system', role: 'system', content: 'Loading...' }]);
     setShowHistory(false);
     toolMessageIdsRef.current = {};
@@ -556,7 +573,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: 'Failed to load message history.' }]);
     }
-  }, []);
+  }, [agentConfig]);
 
   const deleteSession = useCallback(async (id: string) => {
     if (!confirm('Are you sure you want to delete this session?')) return;
@@ -891,7 +908,16 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     fetchConfig();
   }, []);
 
-  // Check if current model supports vision
+  // Update activeModel when agentConfig is loaded
+  useEffect(() => {
+    if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
+      const provider = agentConfig.piConfig.activeProvider;
+      const model = agentConfig.piConfig.providers[provider]?.model;
+      if (model) {
+        setActiveModel(model);
+      }
+    }
+  }, [agentConfig]);
   const currentModelSupportsVision = useCallback(() => {
     if (!agentConfig) return false;
     const activeProvider = agentConfig.piConfig.activeProvider;
@@ -1095,13 +1121,22 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             {showHistory ? (
               <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">History</span>
             ) : (
-              <div
-                data-testid="chat-session-id"
-                title={sessionId || 'New chat'}
-                className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground"
-              >
-                <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
-                <span className="min-w-0 truncate font-mono">{formatSessionId(sessionId)}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <div
+                  data-testid="chat-session-id"
+                  title={sessionId || 'New chat'}
+                  className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground"
+                >
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
+                  <span className="min-w-0 truncate font-mono">{formatSessionId(sessionId)}</span>
+                </div>
+                <div
+                  title={`Model: ${activeModel}`}
+                  className="inline-flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-1 text-xs text-foreground"
+                >
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Model</span>
+                  <span className="font-mono text-[10px]">{activeModel}</span>
+                </div>
               </div>
             )}
           </div>
