@@ -59,3 +59,11 @@
 - Production uses `systemd` (`canvas-notebook.service`).
 - Workspace path is configured via `WORKSPACE_DIR` (default: `./workspace`).
 - Keep secrets in `.env.local` / `.env.systemd` and out of git.
+
+## Agent Storage Locations
+Agent-managed files are persisted in `/data` for easy access and backup:
+- **System Prompt Files:** `/data/canvas-agent/` (AGENTS.md, MEMORY.md, SOUL.md, TOOLS.md)
+- **Runtime Config:** `/data/canvas-agent/pi-runtime-config.json`
+- **Secrets:** `/data/secrets/` (Canvas-Integrations.env, Canvas-Agents.env)
+
+These paths replace the legacy `/home/node/canvas-agent/` location. The bootstrap script automatically migrates existing files on container startup.

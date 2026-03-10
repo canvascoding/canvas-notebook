@@ -77,14 +77,14 @@ const SCOPE_CARDS: ScopeCardConfig[] = [
     title: 'Micro-SaaS Integrations',
     description:
       'Keys fuer VEO, Nano Banana und weitere Micro-SaaS-Apps. Gemini-basierte Apps koennen hier denselben GEMINI_API_KEY teilen.',
-    emptyPath: '/home/node/Canvas-Integrations.env',
+    emptyPath: '/data/secrets/Canvas-Integrations.env',
     keyHint: 'Canvas-Integrations.env',
   },
   {
     scope: 'agents',
     title: 'Agent Environment',
     description: 'Keys und Agent-Env-Werte fuer OpenRouter, Ollama und die Agent-Runtime.',
-    emptyPath: '/home/node/Canvas-Agents.env',
+    emptyPath: '/data/secrets/Canvas-Agents.env',
     keyHint: 'Canvas-Agents.env',
   },
 ];
