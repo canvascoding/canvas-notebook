@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -32,6 +32,7 @@ interface PiOAuthButtonProps {
 export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<OAuthStatus | null>(null);
   const [flowId, setFlowId] = useState('');
   const [authUrl, setAuthUrl] = useState('');
@@ -41,11 +42,65 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
   const [providers, setProviders] = useState<OAuthStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pollStatus, setPollStatus] = useState('waiting');
 
   // Load OAuth status on mount
   useEffect(() => {
     void loadStatus();
   }, []);
+
+  // Poll for auth URL when flow is active
+  useEffect(() => {
+    if (!flowId || !isOpen || authUrl) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/oauth/pi/poll?flowId=${flowId}`, {
+          credentials: 'include',
+        });
+        
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          setPollStatus(data.status);
+          
+          if (data.authUrl) {
+            setAuthUrl(data.authUrl);
+            setInstructions(data.instructions || '');
+            setRequiresCode(true);
+            clearInterval(pollInterval);
+            
+            // Auto-open the auth URL
+            window.open(data.authUrl, '_blank');
+          }
+          
+          if (data.status === 'failed' || data.error) {
+            setError(data.error || 'OAuth flow failed');
+            setIsPolling(false);
+            clearInterval(pollInterval);
+          }
+        }
+      } catch (err) {
+        console.error('Poll error:', err);
+      }
+    }, 1000);
+
+    // Stop polling after 60 seconds
+    const timeout = setTimeout(() => {
+      clearInterval(pollInterval);
+      if (!authUrl) {
+        setError('Timeout waiting for authorization URL');
+        setIsPolling(false);
+      }
+    }, 60000);
+
+    return () => {
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+    };
+  }, [flowId, isOpen, authUrl]);
 
   const loadStatus = async () => {
     try {
@@ -69,12 +124,14 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     }
 
     setIsLoading(true);
+    setIsPolling(true);
     setError(null);
     setAuthUrl('');
     setInstructions('');
     setRequiresCode(false);
     setCode('');
     setFlowId('');
+    setPollStatus('waiting');
 
     try {
       const response = await fetch('/api/oauth/pi/initiate', {
@@ -91,17 +148,20 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       }
 
       setFlowId(data.flowId);
-      setAuthUrl(data.authUrl || '');
-      setInstructions(data.instructions || '');
-      setRequiresCode(data.requiresCode ?? true); // Default to requiring code
       setIsOpen(true);
       
-      // Open the auth URL immediately if available
+      // If auth URL is already available, use it
       if (data.authUrl) {
+        setAuthUrl(data.authUrl);
+        setInstructions(data.instructions || '');
+        setRequiresCode(true);
+        setIsPolling(false);
         window.open(data.authUrl, '_blank');
       }
+      // Otherwise, polling will handle it
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
+      setIsPolling(false);
     } finally {
       setIsLoading(false);
     }
@@ -142,6 +202,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       setIsOpen(false);
       setCode('');
       setFlowId('');
+      setAuthUrl('');
       setSelectedProvider(null);
       await loadStatus();
       onStatusChange?.();
@@ -277,6 +338,14 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {/* Waiting for URL */}
+            {isPolling && !authUrl && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Waiting for authorization URL...</span>
+              </div>
+            )}
+
             {/* Auth URL */}
             {authUrl && (
               <div className="space-y-2">
@@ -323,7 +392,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
             )}
 
             {/* Code Input */}
-            {requiresCode && (
+            {requiresCode && authUrl && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Step 2: Enter authorization code</label>
                 <p className="text-xs text-muted-foreground">
@@ -346,7 +415,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
             <Button
               onClick={() => void exchangeCode()}
-              disabled={isLoading || (requiresCode && !code.trim())}
+              disabled={isLoading || !authUrl || (requiresCode && !code.trim())}
               className="w-full"
             >
               {isLoading ? (
