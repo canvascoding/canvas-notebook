@@ -60,7 +60,7 @@ COPY --from=builder /app/proxy.ts ./proxy.ts
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/docs ./docs
 
-RUN mkdir -p /data/workspace
+RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills
 RUN chmod +x ./scripts/docker-entrypoint.sh
 RUN printf '%s\n' \
   'NPM_GLOBAL_BIN="/home/node/.npm-global/bin"' \

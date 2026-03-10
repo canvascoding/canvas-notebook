@@ -7,11 +7,13 @@ import {
 } from '@/app/lib/pi/oauth';
 import { spawn } from 'child_process';
 import { writeFile, mkdir, readFile, unlink, access } from 'fs/promises';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
+import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
-// Use relative path for local dev, /data for container
-const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || './data/canvas-agent/auth.json';
-const OAUTH_STATE_DIR = '/tmp/pi-oauth-states';
+// Use container data root (/data) or fallback to relative path for local dev
+const DATA_ROOT = resolveCanvasDataRoot(process.cwd());
+const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(DATA_ROOT, 'canvas-agent', 'auth.json');
+const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
 
 /**
  * POST /api/oauth/pi/initiate
@@ -47,10 +49,22 @@ export async function POST(request: NextRequest) {
     // Create unique flow ID
     const flowId = `flow_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const stateFile = `${OAUTH_STATE_DIR}/${flowId}.json`;
-    const tempScriptPath = `${OAUTH_STATE_DIR}/${flowId}.mjs`;
-    const tempAuthPath = `${OAUTH_STATE_DIR}/${flowId}_credentials.json`;
+    const tempScriptDir = `${OAUTH_STATE_DIR}/${flowId}_oauth`;
+    const tempScriptPath = `${tempScriptDir}/oauth.mjs`;
+    const tempAuthPath = `${tempScriptDir}/credentials.json`;
 
-    // Initial state: pending
+    // Ensure script directory exists
+    await mkdir(tempScriptDir, { recursive: true });
+
+    // Create package.json for the temp script to resolve modules
+    const tempPackageJson = JSON.stringify({
+      name: `pi-oauth-${flowId}`,
+      type: 'module',
+      dependencies: {
+        '@mariozechner/pi-ai': '*'
+      }
+    }, null, 2);
+    await writeFile(`${tempScriptDir}/package.json`, tempPackageJson);
     await writeFile(stateFile, JSON.stringify({
       flowId,
       provider,
@@ -139,6 +153,7 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { ${loginFn} } from '@mariozechner/pi-ai/oauth';
 
 // Helper to update state
 function updateState(updates) {
@@ -153,9 +168,7 @@ function updateState(updates) {
 
 async function run() {
   try {
-    // Import from absolute path to ensure module resolution works
-    const piModule = await import('${process.cwd().replace(/'/g, "'\\''")}/node_modules/@mariozechner/pi-ai/dist/oauth.js');
-    const ${loginFn} = piModule.${loginFn};
+    // Module imported via package name for container compatibility
     
     // Update state to waiting for auth
     updateState({ status: 'waiting_for_auth', startedAt: Date.now() });

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { readFile } from 'fs/promises';
+import { join } from 'path';
+import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
-const OAUTH_STATE_DIR = '/tmp/pi-oauth-states';
+// Use container data root (/data) or fallback to relative path for local dev
+const DATA_ROOT = resolveCanvasDataRoot(process.cwd());
+const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
 
 /**
  * GET /api/oauth/pi/poll?flowId=xxx
