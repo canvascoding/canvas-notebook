@@ -1,5 +1,5 @@
 import { readScopedEnvState } from '../integrations/env-config';
-import { getProviderApiKey, isOAuthProvider } from './oauth';
+import { getProviderApiKey, isOAuthProvider, type OAuthProviderId } from './oauth';
 import { supportsBothAuthMethods } from './provider-help';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 
@@ -15,7 +15,7 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
   const supportsBoth = supportsBothAuthMethods(providerId);
   
   // Check if this is an OAuth provider
-  const isOAuth = isOAuthProvider(providerId as any);
+  const isOAuth = isOAuthProvider(providerId as OAuthProviderId);
   
   // If provider supports both, check config for preferred method
   if (supportsBoth) {
@@ -26,22 +26,22 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
       
       // If OAuth is explicitly selected, use OAuth
       if (authMethod === 'oauth' && isOAuth) {
-        const result = await getProviderApiKey(providerId as any);
+        const result = await getProviderApiKey(providerId as OAuthProviderId);
         return result?.apiKey;
       }
       
-      // If API Key is selected or no method set, fall through to API key lookup
+      // If API Key is selected or no method set, fall through to API key lookup below
       if (authMethod === 'api-key' || !authMethod) {
         // Fall through to API key lookup below
       }
-    } catch (e) {
+    } catch {
       // Config read failed, continue with default behavior
     }
   }
   
   // If it's an OAuth-only provider (not dual-support), try OAuth first
   if (isOAuth && !supportsBoth) {
-    const result = await getProviderApiKey(providerId as any);
+    const result = await getProviderApiKey(providerId as OAuthProviderId);
     return result?.apiKey;
   }
 
@@ -52,7 +52,7 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
   const allEntries = new Map<string, string>([
     ...(integrationsState.entries.map(e => [e.key, e.value]) as [string, string][]),
     ...(agentsState.entries.map(e => [e.key, e.value]) as [string, string][]),
-    ...Object.entries(process.env).filter(([_, v]) => v !== undefined) as [string, string][],
+    ...Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][],
   ]);
 
   switch (providerId) {

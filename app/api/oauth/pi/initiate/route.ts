@@ -6,7 +6,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
 } from '@/app/lib/pi/oauth';
 import { spawn } from 'child_process';
-import { writeFile, mkdir, readFile, unlink, access } from 'fs/promises';
+import { writeFile, mkdir, readFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
