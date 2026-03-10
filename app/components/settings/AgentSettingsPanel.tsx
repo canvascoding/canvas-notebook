@@ -29,6 +29,7 @@ import {
   type ProviderHelpInfo,
 } from '@/app/lib/pi/provider-help';
 import { ProviderEnvEditor } from './ProviderEnvEditor';
+import { OpenAICodexOAuth } from './OpenAICodexOAuth';
 
 const MANAGED_FILES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
@@ -163,6 +164,10 @@ export function AgentSettingsPanel() {
 
   // Provider help collapsible state
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+
+  // Selected provider status (for live preview)
+  const [selectedProviderStatus, setSelectedProviderStatus] = useState<{ isReady: boolean; hasApiKey: boolean; hasOAuth: boolean; requiresKey: boolean; requiresOAuth: boolean; issues: string[] } | null>(null);
+  const [selectedProviderLoading, setSelectedProviderLoading] = useState(false);
 
   const loadConfig = useCallback(async () => {
     setConfigLoading(true);
@@ -342,7 +347,42 @@ export function AgentSettingsPanel() {
       
       return next;
     });
+
+    // Load status for the newly selected provider
+    void loadProviderStatus(providerId);
   };
+
+  const loadProviderStatus = useCallback(async (providerId: string) => {
+    setSelectedProviderLoading(true);
+    try {
+      const response = await fetch(`/api/agents/provider-status?providerId=${encodeURIComponent(providerId)}`, {
+        credentials: 'include',
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setSelectedProviderStatus({
+          isReady: data.isReady,
+          hasApiKey: data.hasApiKey,
+          hasOAuth: data.hasOAuth,
+          requiresKey: data.requiresKey,
+          requiresOAuth: data.requiresOAuth,
+          issues: data.issues,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load provider status:', error);
+    } finally {
+      setSelectedProviderLoading(false);
+    }
+  }, []);
+
+  // Load provider status when config is loaded or activeProvider changes
+  useEffect(() => {
+    if (piConfigDraft?.activeProvider) {
+      void loadProviderStatus(piConfigDraft.activeProvider);
+    }
+  }, [piConfigDraft?.activeProvider, loadProviderStatus]);
 
   const saveActiveFile = async () => {
     setFilesSaving(true);
@@ -496,6 +536,7 @@ export function AgentSettingsPanel() {
               <label className="space-y-2 text-sm">
                 <span className="font-semibold">Aktiver Provider</span>
                 <select
+                  data-testid="provider-select"
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   value={piConfigDraft.activeProvider}
                   onChange={(event) => setActivePiProvider(event.target.value)}
@@ -553,11 +594,25 @@ export function AgentSettingsPanel() {
 
               <div className="rounded border border-border bg-muted/40 p-3 text-xs">
                 <p className="font-semibold mb-1">Provider-Status</p>
-                <p className={readiness?.pi?.ready ? 'text-primary' : 'text-destructive font-bold'}>
-                  {readiness?.pi?.ready ? 'Bereit (Ready)' : 'Nicht bereit (Not ready)'}
-                </p>
-                {readiness?.pi?.issues?.[0] && (
-                  <p className="mt-1 text-muted-foreground">{readiness.pi.issues[0]}</p>
+                {selectedProviderLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span className="text-muted-foreground">Prüfe...</span>
+                  </div>
+                ) : (
+                  <>
+                    <p className={selectedProviderStatus?.isReady ? 'text-primary' : 'text-destructive font-bold'}>
+                      {selectedProviderStatus?.isReady ? 'Bereit (Ready)' : 'Nicht bereit (Not ready)'}
+                    </p>
+                    {selectedProviderStatus?.issues?.[0] && (
+                      <p className="mt-1 text-muted-foreground">{selectedProviderStatus.issues[0]}</p>
+                    )}
+                    {piConfigDraft.activeProvider === 'openai-codex' && (
+                      <div className="mt-2">
+                        <OpenAICodexOAuth providerId="openai-codex" />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
