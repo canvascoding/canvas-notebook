@@ -606,6 +606,17 @@
       "dependsOn": [
         "pi-053"
       ]
+    },
+    {
+      "id": "pi-055",
+      "order": 55,
+      "phase": "P11 Hotfix",
+      "title": "Show PI tool cards before the final assistant reply in the chat timeline",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-054"
+      ]
     }
   ]
 }
