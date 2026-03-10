@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { spawn } from 'child_process';
+import { codexCallbackPorts } from '../initiate/route';
 
 /**
  * POST /api/oauth/openai-codex/exchange
- * Pass callback URL to Codex CLI to complete authentication
+ * Send callback URL to Codex CLI's local server to complete authentication
  */
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse callback URL to extract code and state
+    // Parse the callback URL
     let url: URL;
     try {
       url = new URL(callbackUrl);
@@ -54,9 +54,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Complete the OAuth flow by passing the code to Codex CLI
-    // Codex CLI will exchange the code for a token and store it locally
-    const result = await completeCodexLogin(code, state || '');
+    // Extract the port from the callback URL
+    // Format: http://localhost:PORT/auth/callback
+    const portMatch = callbackUrl.match(/localhost:(\d+)/);
+    let port: number;
+    
+    if (portMatch) {
+      port = parseInt(portMatch[1], 10);
+    } else {
+      // Fallback: try to get from stored ports
+      port = codexCallbackPorts.get(session.user.id) || 1455;
+    }
+
+    console.log('Sending callback to Codex CLI on port:', port);
+    console.log('Code:', code);
+    console.log('State:', state);
+
+    // Send the callback to Codex CLI's local server
+    const result = await sendToCodexCallbackServer(port, code, state || '');
 
     if (!result.success) {
       return NextResponse.json(
@@ -64,6 +79,9 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Clean up stored port
+    codexCallbackPorts.delete(session.user.id);
 
     return NextResponse.json({
       success: true,
@@ -79,80 +97,48 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function completeCodexLogin(code: string, state: string): Promise<{ success: boolean; email?: string; error?: string }> {
-  return new Promise((resolve) => {
-    // Spawn codex login process
-    // We'll simulate the callback by passing the code via environment variables
-    // or by making a request to the local callback server if running
-    const env = {
-      ...process.env,
-      CODEX_OAUTH_CODE: code,
-      CODEX_OAUTH_STATE: state,
+async function sendToCodexCallbackServer(
+  port: number, 
+  code: string, 
+  state: string
+): Promise<{ success: boolean; email?: string; error?: string }> {
+  try {
+    // Construct the callback URL for Codex CLI
+    // Format: http://localhost:PORT/auth/callback?code=...&state=...
+    const callbackPath = `/auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+    const callbackUrl = `http://localhost:${port}${callbackPath}`;
+
+    console.log('Sending request to:', callbackUrl);
+
+    // Send GET request to Codex CLI's callback endpoint
+    const response = await fetch(callbackUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+      },
+    });
+
+    console.log('Codex callback response status:', response.status);
+    const responseText = await response.text();
+    console.log('Codex callback response:', responseText.substring(0, 500));
+
+    if (response.ok || response.status === 302 || response.status === 301) {
+      // Success! Codex CLI should now be authenticated
+      return { success: true };
+    } else {
+      return { 
+        success: false, 
+        error: `Codex CLI returned status ${response.status}: ${responseText.substring(0, 200)}` 
+      };
+    }
+  } catch (error) {
+    console.error('Error sending to Codex callback server:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to send callback to Codex CLI' 
     };
-
-    // Try to complete the login by spawning codex with the code
-    // Codex CLI might accept the code via stdin or environment
-    const codex = spawn('codex', ['login', '--code', code], {
-      env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    codex.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    codex.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    codex.on('close', (code) => {
-      console.log('Codex login stdout:', stdout);
-      console.log('Codex login stderr:', stderr);
-      console.log('Codex login exit code:', code);
-
-      // Check if successful
-      if (code === 0 || stdout.includes('success') || stdout.includes('authenticated')) {
-        // Try to extract email from output
-        const emailMatch = stdout.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
-        resolve({
-          success: true,
-          email: emailMatch ? emailMatch[1] : undefined,
-        });
-      } else if (stderr.includes('already') || stderr.includes('authenticated')) {
-        resolve({
-          success: true,
-          email: undefined,
-        });
-      } else {
-        resolve({
-          success: false,
-          error: stderr || 'Codex login failed',
-        });
-      }
-    });
-
-    codex.on('error', (error) => {
-      console.error('Failed to spawn codex:', error);
-      resolve({
-        success: false,
-        error: error.message,
-      });
-    });
-
-    // Send code via stdin as alternative method
-    codex.stdin.write(`${code}\n`);
-    codex.stdin.end();
-
-    // Timeout after 30 seconds
-    setTimeout(() => {
-      codex.kill();
-      resolve({
-        success: false,
-        error: 'Codex login timed out',
-      });
-    }, 30000);
-  });
+  }
 }
