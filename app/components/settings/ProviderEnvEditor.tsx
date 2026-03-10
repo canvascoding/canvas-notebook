@@ -22,9 +22,10 @@ interface ProviderEnvEditorProps {
   providerId: string;
   envVars: ProviderHelpInfo['envVars'];
   onSaveComplete?: () => void;
+  onProviderActivate?: () => Promise<void>;
 }
 
-export function ProviderEnvEditor({ providerId, envVars, onSaveComplete }: ProviderEnvEditorProps) {
+export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProviderActivate }: ProviderEnvEditorProps) {
   const [envStates, setEnvStates] = useState<EnvVarState[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -186,6 +187,11 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete }: Provi
     setMessage(null);
 
     try {
+      // First, activate the provider if callback is provided
+      if (onProviderActivate) {
+        await onProviderActivate();
+      }
+
       // Group by scope
       const byScope: Record<string, EnvVarState[]> = {};
 
@@ -258,7 +264,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete }: Provi
         }))
       );
 
-      setMessage({ type: 'success', text: 'Alle Werte erfolgreich gespeichert' });
+      setMessage({ type: 'success', text: 'API Key und Provider erfolgreich gespeichert' });
       setHasChanges(false);
       onSaveComplete?.();
     } catch (error) {
