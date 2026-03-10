@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "status": "in_progress",
+  "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
     "primaryLibraries": [
@@ -579,7 +579,7 @@
       "order": 52,
       "phase": "P11 Hotfix",
       "title": "Run container rebuild, integration checks, and Playwright regression for stream/session fixes",
-      "status": "pending",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "pi-051"

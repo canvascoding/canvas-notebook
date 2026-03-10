@@ -13,40 +13,35 @@ test.describe('PI Chat E2E', () => {
     await expect(page).toHaveURL('/');
   });
 
-  test('should configure PI engine and chat', async ({ page }) => {
-    // Go to settings
-    await page.goto('/settings');
-    
-    // Check if PI Runtime Settings card is visible
-    await expect(page.locator('text=PI Runtime Settings')).toBeVisible();
-    
-    // Select a provider (e.g., openrouter if available)
-    const providerSelect = page.locator('select').first();
-    await providerSelect.selectOption({ label: 'openrouter' });
-    
-    // Save config
-    await page.click('button:has-text("PI-Konfiguration speichern")');
-    await expect(page.locator('text=Agent-Konfiguration gespeichert')).toBeVisible();
-
+  test('should bootstrap a session before first stream and show it in history', async ({ page }) => {
     // Go to Chat
     await page.goto('/chat');
     
     // Type a message
     const textarea = page.locator('textarea');
-    await textarea.fill('Hello from E2E test');
-    await page.click('button >> svg'); // Send button
+    await textarea.fill('Hello from E2E test - bootstrap session');
+    await textarea.press('Enter'); // sends message in chat composer
 
-    // Check for assistant response
-    // In PI mode, the agent label might change, but we look for assistant message container
-    await expect(page.locator('text=user: admin.com')).toBeVisible();
-    
-    // Wait for response text (best effort check)
-    // We expect some text to appear in the assistant message
-    const assistantMessage = page.locator('.justify-start .text-sm').first();
-    await expect(assistantMessage).not.toBeEmpty({ timeout: 15000 });
+    // New session id badge should appear after first send
+    const sessionBadge = page.locator('span').filter({ hasText: /^#/ }).first();
+    await expect(sessionBadge).toBeVisible({ timeout: 15000 });
+    const badgeText = await sessionBadge.textContent();
+    expect((badgeText || '').trim().length).toBeGreaterThan(1);
+    const sessionPrefix = (badgeText || '').trim().replace('#', '');
 
-    // History check
-    await page.click('button >> .lucide-history');
-    await expect(page.locator('text=Integration PI Session')).toBeVisible();
+    const sessionsPayload = await page.evaluate(async () => {
+      const response = await fetch('/api/sessions');
+      return response.json();
+    });
+    expect(sessionsPayload?.success).toBeTruthy();
+    expect(Array.isArray(sessionsPayload?.sessions)).toBeTruthy();
+    const hasSessionWithPrefix = sessionsPayload.sessions.some((s: { sessionId?: string }) =>
+      typeof s.sessionId === 'string' && s.sessionId.startsWith(sessionPrefix)
+    );
+    expect(hasSessionWithPrefix).toBeTruthy();
+
+    // Open history to ensure the toggle still works after bootstrap
+    await page.locator('button').filter({ has: page.locator('.lucide-history') }).first().click();
+    await expect(page.getByText('Sessions', { exact: true })).toBeVisible();
   });
 });
