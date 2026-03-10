@@ -640,15 +640,26 @@
         "pi-009"
       ]
     },
-    {
-      "id": "pi-058",
-      "order": 58,
+  {
+      "id": "pi-059",
+      "order": 59,
       "phase": "P12 Enhancement",
-      "title": "Add inline API key editing in Agent Settings with multi-key support",
+      "title": "Add Ollama provider to PI discovery with custom model list and comprehensive documentation",
       "status": "completed",
       "priority": "should",
       "dependsOn": [
-        "pi-057"
+        "pi-009"
+      ]
+    },
+    {
+      "id": "pi-060",
+      "order": 60,
+      "phase": "P12 Enhancement",
+      "title": "Create integration tests for Ollama provider discovery and configuration",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-059"
       ]
     }
   ]
