@@ -215,6 +215,20 @@ export async function POST(request: NextRequest) {
         } catch (error: unknown) {
           if ((error instanceof Error && error.name === 'AbortError') || abortController.signal.aborted) {
             console.log(`[PI Stream] [${logSessionId}] Loop aborted successfully.`);
+            // Still save any messages that were generated before abort
+            if (sessionId && finalMessages.length > usedLlmContextLength) {
+              const newTurnMessages = finalMessages.slice(usedLlmContextLength);
+              const fullHistory = [...historyMessages, ...newTurnMessages];
+              console.log(`[PI Stream] [${logSessionId}] Persisting ${fullHistory.length} messages after abort.`);
+              await savePiSession(
+                sessionId,
+                session.user.id,
+                activeProviderName,
+                model.id,
+                fullHistory,
+                updatedSummary,
+              );
+            }
             return;
           }
           console.error(`[PI Stream] [${logSessionId}] Loop error:`, error);
