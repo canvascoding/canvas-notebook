@@ -90,10 +90,8 @@ function runWatchMode(rootDir) {
     timeout = setTimeout(() => {
       try {
         const result = validateOnce(rootDir);
-        // eslint-disable-next-line no-console
         console.log(`[agent-todos] validated ${result.planPath} and ${result.todoPath}`);
       } catch (error) {
-        // eslint-disable-next-line no-console
         console.error(`[agent-todos] validation failed: ${error.message}`);
       }
     }, 150);
@@ -103,7 +101,6 @@ function runWatchMode(rootDir) {
   fs.watch(planPath, { persistent: true }, scheduleValidation);
   fs.watch(todoPath, { persistent: true }, scheduleValidation);
 
-  // eslint-disable-next-line no-console
   console.log(`[agent-todos] watching ${planPath} and ${todoPath}`);
 }
 
@@ -118,10 +115,8 @@ function main() {
     }
 
     const result = validateOnce(rootDir);
-    // eslint-disable-next-line no-console
     console.log(`[agent-todos] validated ${result.planPath} and ${result.todoPath}`);
   } catch (error) {
-    // eslint-disable-next-line no-console
     console.error(`[agent-todos] ${error.message}`);
     process.exitCode = 1;
   }

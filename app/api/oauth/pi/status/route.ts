@@ -3,7 +3,6 @@ import { auth } from '@/app/lib/auth';
 import { 
   getAllProviderStatus,
   isOAuthProvider,
-  PI_OAUTH_PROVIDERS,
 } from '@/app/lib/pi/oauth';
 
 /**

@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages, piSessions, piMessages } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
-import { and, asc, desc, eq } from 'drizzle-orm';
-import { isAgentId } from '@/app/lib/agents/catalog';
+import { asc, eq } from 'drizzle-orm';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
