@@ -2,6 +2,7 @@ import { db } from '../db';
 import { piSessions, piMessages, aiSessions, aiMessages } from '../db/schema';
 import { eq, and, asc } from 'drizzle-orm';
 import { type AgentMessage } from '@mariozechner/pi-agent-core';
+import { type PiSessionSummaryState } from './history-budget';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -66,11 +67,12 @@ function getAgentMessageTimestamp(message: AgentMessage): number {
 }
 
 export async function savePiSession(
-  sessionId: string, 
+  sessionId: string,
   userId: string,
   provider: string,
   model: string,
-  messages: AgentMessage[]
+  messages: AgentMessage[],
+  summary?: PiSessionSummaryState,
 ): Promise<void> {
   // Find or create session
   const session = await db.query.piSessions.findFirst({
@@ -79,6 +81,14 @@ export async function savePiSession(
   const derivedTitle = deriveSessionTitle(messages);
 
   let sessionDbId: number;
+
+  const summaryFields = summary
+    ? {
+        summaryText: summary.summaryText ?? null,
+        summaryUpdatedAt: summary.summaryUpdatedAt ?? null,
+        summaryThroughTimestamp: summary.summaryThroughTimestamp ?? null,
+      }
+    : {};
 
   if (!session) {
     const [inserted] = await db.insert(piSessions).values({
@@ -89,6 +99,7 @@ export async function savePiSession(
       title: derivedTitle,
       createdAt: new Date(),
       updatedAt: new Date(),
+      ...summaryFields,
     }).returning({ id: piSessions.id });
     sessionDbId = inserted.id;
   } else {
@@ -96,7 +107,7 @@ export async function savePiSession(
     const nextTitle = isAutomaticSessionTitle(session.title) ? derivedTitle : session.title;
 
     await db.update(piSessions)
-      .set({ updatedAt: new Date(), title: nextTitle })
+      .set({ updatedAt: new Date(), title: nextTitle, ...summaryFields })
       .where(eq(piSessions.id, sessionDbId));
   }
 
@@ -162,4 +173,31 @@ export async function loadPiSession(sessionId: string, userId: string): Promise<
   }
 
   return null;
+}
+
+export async function loadPiSessionWithSummary(
+  sessionId: string,
+  userId: string,
+): Promise<{ messages: AgentMessage[]; summary: PiSessionSummaryState } | null> {
+  const session = await db.query.piSessions.findFirst({
+    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
+  });
+
+  if (!session) {
+    return null;
+  }
+
+  const rows = await db.select()
+    .from(piMessages)
+    .where(eq(piMessages.piSessionDbId, session.id))
+    .orderBy(asc(piMessages.timestamp));
+
+  return {
+    messages: rows.map(m => JSON.parse(m.content) as AgentMessage),
+    summary: {
+      summaryText: session.summaryText ?? null,
+      summaryUpdatedAt: session.summaryUpdatedAt ?? null,
+      summaryThroughTimestamp: session.summaryThroughTimestamp ?? null,
+    },
+  };
 }
