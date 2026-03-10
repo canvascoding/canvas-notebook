@@ -47,24 +47,6 @@ export const verification = sqliteTable("verification", {
   updatedAt: integer("updated_at", { mode: "timestamp" })
 });
 
-export const claudeSessions = sqliteTable("claude_sessions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  sessionId: text("session_id").notNull(),
-  userId: text("user_id").notNull().references(() => user.id),
-  title: text("title"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
-
-export const claudeMessages = sqliteTable("claude_messages", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  claudeSessionDbId: integer("claude_session_db_id").notNull().references(() => claudeSessions.id),
-  role: text("role").notNull(), // 'user', 'assistant', 'system'
-  content: text("content").notNull(),
-  type: text("type"),
-  attachments: text("attachments"), // JSON string
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
-
 export const aiSessions = sqliteTable("ai_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sessionId: text("session_id").notNull(),
@@ -82,4 +64,26 @@ export const aiMessages = sqliteTable("ai_messages", {
   type: text("type"),
   attachments: text("attachments"), // JSON string
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const piSessions = sqliteTable("pi_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull(),
+  userId: text("user_id").notNull().references(() => user.id),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  title: text("title"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  summaryText: text("summary_text"),
+  summaryUpdatedAt: integer("summary_updated_at", { mode: "timestamp" }),
+  summaryThroughTimestamp: integer("summary_through_timestamp"),
+});
+
+export const piMessages = sqliteTable("pi_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  piSessionDbId: integer("pi_session_db_id").notNull().references(() => piSessions.id),
+  role: text("role").notNull(), // 'user', 'assistant', 'toolResult'
+  content: text("content").notNull(), // Full JSON of Message object
+  timestamp: integer("timestamp").notNull(),
 });

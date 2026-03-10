@@ -1,0 +1,493 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Loader2, Copy, Check, Link2, Unlink, ExternalLink, ChevronDown, ShieldCheck } from 'lucide-react';
+
+interface OAuthStatus {
+  provider: string;
+  displayName: string;
+  connected: boolean;
+  expiresAt?: number;
+}
+
+interface PiOAuthButtonProps {
+  onStatusChange?: () => void;
+}
+
+export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<OAuthStatus | null>(null);
+  const [flowId, setFlowId] = useState('');
+  const [authUrl, setAuthUrl] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [requiresCode, setRequiresCode] = useState(false);
+  const [code, setCode] = useState('');
+  const [providers, setProviders] = useState<OAuthStatus[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Load OAuth status on mount
+  useEffect(() => {
+    void loadStatus();
+  }, []);
+
+  // Poll for auth URL when flow is active
+  useEffect(() => {
+    if (!flowId || !isOpen || authUrl) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/oauth/pi/poll?flowId=${flowId}`, {
+          credentials: 'include',
+        });
+        
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          if (data.authUrl) {
+            setAuthUrl(data.authUrl);
+            setInstructions(data.instructions || '');
+            setRequiresCode(true);
+            clearInterval(pollInterval);
+            
+            // Auto-open the auth URL
+            window.open(data.authUrl, '_blank');
+          }
+          
+          if (data.status === 'failed' || data.error) {
+            setError(data.error || 'OAuth flow failed');
+            setIsPolling(false);
+            clearInterval(pollInterval);
+          }
+        }
+      } catch (err) {
+        console.error('Poll error:', err);
+      }
+    }, 1000);
+
+    // Stop polling after 60 seconds
+    const timeout = setTimeout(() => {
+      clearInterval(pollInterval);
+      if (!authUrl) {
+        setError('Timeout waiting for authorization URL');
+        setIsPolling(false);
+      }
+    }, 60000);
+
+    return () => {
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+    };
+  }, [flowId, isOpen, authUrl]);
+
+  // Clear success message after 5 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timeout = setTimeout(() => {
+        setSuccessMessage(null);
+      }, 5000);
+      return () => clearTimeout(timeout);
+    }
+  }, [successMessage]);
+
+  const loadStatus = async () => {
+    try {
+      const response = await fetch('/api/oauth/pi/status', {
+        credentials: 'include',
+      });
+      const data = await response.json();
+      
+      if (data.success && data.providers) {
+        setProviders(data.providers);
+      }
+    } catch (err) {
+      console.error('Failed to load OAuth status:', err);
+    }
+  };
+
+  const initiateAuth = async () => {
+    if (!selectedProvider) {
+      setError('Please select a provider');
+      return;
+    }
+
+    setIsLoading(true);
+    setIsPolling(true);
+    setError(null);
+    setSuccessMessage(null);
+    setAuthUrl('');
+    setInstructions('');
+    setRequiresCode(false);
+    setCode('');
+    setFlowId('');
+
+    try {
+      const response = await fetch('/api/oauth/pi/initiate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: selectedProvider.provider }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to initiate OAuth');
+      }
+
+      setFlowId(data.flowId);
+      setIsOpen(true);
+      
+      // If auth URL is already available, use it
+      if (data.authUrl) {
+        setAuthUrl(data.authUrl);
+        setInstructions(data.instructions || '');
+        setRequiresCode(true);
+        setIsPolling(false);
+        window.open(data.authUrl, '_blank');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      setIsPolling(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const exchangeCode = async () => {
+    if (requiresCode && !code.trim()) {
+      setError('Please enter the authorization code');
+      return;
+    }
+
+    if (!flowId || !selectedProvider) {
+      setError('Missing flow information');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/oauth/pi/exchange', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          flowId,
+          provider: selectedProvider.provider,
+          code: code.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to exchange code');
+      }
+
+      setIsOpen(false);
+      setCode('');
+      setFlowId('');
+      setAuthUrl('');
+      setSelectedProvider(null);
+      
+      // Show success message
+      setSuccessMessage(`Successfully connected to ${selectedProvider.displayName}`);
+      
+      await loadStatus();
+      onStatusChange?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const disconnect = async (provider: OAuthStatus) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/oauth/pi/disconnect', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: provider.provider }),
+      });
+
+      if (response.ok) {
+        setSuccessMessage(`Disconnected from ${provider.displayName}`);
+        await loadStatus();
+        onStatusChange?.();
+      }
+    } catch (err) {
+      console.error('Failed to disconnect:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const copyAuthUrl = async () => {
+    if (!authUrl) return;
+    await navigator.clipboard.writeText(authUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const openAuthUrl = () => {
+    if (authUrl) {
+      window.open(authUrl, '_blank');
+    }
+  };
+
+  const availableProviders = providers.filter(p => !p.connected);
+  const connectedProviders = providers.filter(p => p.connected);
+
+  return (
+    <div className="space-y-4">
+      {/* Success Message */}
+      {successMessage && (
+        <div className="rounded-md bg-green-50 border border-green-200 p-3 flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+          <ShieldCheck className="h-5 w-5 text-green-600" />
+          <span className="text-sm font-medium text-green-800">{successMessage}</span>
+        </div>
+      )}
+
+      {/* Connected Accounts Section */}
+      {connectedProviders.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-foreground">Connected Accounts</h4>
+            <span className="text-xs text-muted-foreground bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+              {connectedProviders.length} active
+            </span>
+          </div>
+          
+          <div className="space-y-2">
+            {connectedProviders.map((provider) => (
+              <div
+                key={provider.provider}
+                className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50/50 p-4 shadow-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100">
+                    <Check className="h-4 w-4 text-green-600" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-foreground">{provider.displayName}</span>
+                    <p className="text-xs text-green-600">Connected and ready</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void disconnect(provider)}
+                  disabled={isLoading}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Unlink className="h-4 w-4 mr-1" />
+                  )}
+                  Disconnect
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Divider */}
+      {connectedProviders.length > 0 && availableProviders.length > 0 && (
+        <div className="relative py-2">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-background px-2 text-xs text-muted-foreground">Add another account</span>
+          </div>
+        </div>
+      )}
+
+      {/* Connect New Account Section */}
+      {availableProviders.length > 0 ? (
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-foreground">Connect Account</h4>
+          <div className="flex gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  className="flex-1 justify-between h-10"
+                  disabled={isLoading}
+                >
+                  {selectedProvider ? (
+                    <span className="font-medium">{selectedProvider.displayName}</span>
+                  ) : (
+                    <span className="text-muted-foreground">Select provider...</span>
+                  )}
+                  <ChevronDown className="h-4 w-4 ml-2 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-[300px]" align="start">
+                {availableProviders.map((provider) => (
+                  <DropdownMenuItem 
+                    key={provider.provider}
+                    onClick={() => setSelectedProvider(provider)}
+                    className="cursor-pointer"
+                  >
+                    {provider.displayName}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              onClick={() => void initiateAuth()}
+              disabled={isLoading || !selectedProvider}
+              className="h-10"
+            >
+              {isLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Link2 className="mr-2 h-4 w-4" />
+              )}
+              Connect
+            </Button>
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+      ) : connectedProviders.length === 0 ? (
+        <div className="text-sm text-muted-foreground text-center py-4">
+          No OAuth providers available
+        </div>
+      ) : null}
+
+      {/* OAuth Dialog */}
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Connect OAuth Account</DialogTitle>
+            <DialogDescription>
+              Complete the authentication to connect your account.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Waiting for URL */}
+            {isPolling && !authUrl && (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <div className="text-center">
+                  <p className="text-sm font-medium">Waiting for authorization URL...</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This may take a few seconds
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Auth URL */}
+            {authUrl && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Step 1: Open Authorization URL</label>
+                <p className="text-xs text-muted-foreground">
+                  A new tab should have opened. If not, copy this URL:
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    value={authUrl}
+                    readOnly
+                    className="font-mono text-xs flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => void copyAuthUrl()}
+                    title="Copy URL"
+                  >
+                    {copied ? (
+                      <Check className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={openAuthUrl}
+                    title="Open in new tab"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Instructions */}
+            {instructions && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 text-sm">
+                <p className="font-medium text-blue-900 mb-2">Instructions:</p>
+                <div className="text-blue-800 whitespace-pre-line">{instructions}</div>
+              </div>
+            )}
+
+            {/* Code Input */}
+            {requiresCode && authUrl && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Step 2: Enter Authorization Code</label>
+                <p className="text-xs text-muted-foreground">
+                  After authenticating in the browser, paste the code here:
+                </p>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Paste authorization code or callback URL..."
+                  className="font-mono text-sm"
+                />
+              </div>
+            )}
+
+            {error && (
+              <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
+            <Button
+              onClick={() => void exchangeCode()}
+              disabled={isLoading || !authUrl || (requiresCode && !code.trim())}
+              className="w-full"
+            >
+              {isLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Link2 className="mr-2 h-4 w-4" />
+              )}
+              Complete Connection
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

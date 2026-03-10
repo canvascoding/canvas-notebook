@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Canvas Skills CLI
+# Routes skill commands to Canvas Notebook API endpoints.
+# Usage: /data/skills/skill <skill-name> [options...]
+# ---------------------------------------------------------------------------
+
+SKILLS_TOKEN_PATH="/data/canvas-agent/.skills-token"
+BASE_URL="${CANVAS_BASE_URL:-http://localhost:3000}"
+
+# Resolve auth token
+if [ -n "${CANVAS_SKILLS_TOKEN:-}" ]; then
+  TOKEN="$CANVAS_SKILLS_TOKEN"
+elif [ -f "$SKILLS_TOKEN_PATH" ]; then
+  TOKEN="$(cat "$SKILLS_TOKEN_PATH" | tr -d '[:space:]')"
+else
+  echo "ERROR: Skills token not found. Is the Canvas Notebook server running?" >&2
+  exit 1
+fi
+
+# JSON string escaping via Python3 (available in all Node.js Docker images)
+json_str() {
+  printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+}
+
+call_api() {
+  local endpoint="$1"
+  local payload="$2"
+  curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -H "X-Canvas-Skills-Token: $TOKEN" \
+    -d "$payload" \
+    "${BASE_URL}${endpoint}"
+}
+
+# ---------------------------------------------------------------------------
+# Skill dispatcher
+# ---------------------------------------------------------------------------
+SKILL="${1:-}"
+if [ -z "$SKILL" ]; then
+  echo "Canvas Skills CLI" >&2
+  echo "" >&2
+  echo "Usage: skill <skill-name> [options]" >&2
+  echo "" >&2
+  echo "Available skills:" >&2
+  echo "  image-generation   Generate images with Gemini" >&2
+  echo "  video-generation   Generate videos with Google VEO" >&2
+  echo "  ad-localization    Localize ad images for target markets (Nano Banana)" >&2
+  echo "" >&2
+  echo "For skill-specific help, see /data/skills/<skill-name>/README.md" >&2
+  exit 1
+fi
+shift
+
+case "$SKILL" in
+
+  # -------------------------------------------------------------------------
+  image-generation|image-gen|img)
+    PROMPT=""
+    MODEL="gemini-3.1-flash-image-preview"
+    ASPECT_RATIO="1:1"
+    COUNT=1
+    REF_LIST=""
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --prompt|-p)       PROMPT="$2";        shift 2 ;;
+        --model|-m)        MODEL="$2";         shift 2 ;;
+        --aspect-ratio|-a) ASPECT_RATIO="$2";  shift 2 ;;
+        --count|-n)        COUNT="$2";         shift 2 ;;
+        --ref|-r)
+          REF_LIST="${REF_LIST:+$REF_LIST,}$(json_str "$2")"
+          shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+      esac
+    done
+
+    REFS="[${REF_LIST}]"
+    call_api "/api/image-generation/generate" \
+      "{\"prompt\":$(json_str "$PROMPT"),\"model\":$(json_str "$MODEL"),\"aspectRatio\":$(json_str "$ASPECT_RATIO"),\"imageCount\":$COUNT,\"referenceImagePaths\":$REFS}"
+    echo
+    ;;
+
+  # -------------------------------------------------------------------------
+  video-generation|video-gen|veo)
+    PROMPT=""
+    MODEL="veo-3.1-fast-generate-preview"
+    MODE="text_to_video"
+    ASPECT_RATIO="16:9"
+    RESOLUTION="720p"
+    START_FRAME="null"
+    END_FRAME="null"
+    INPUT_VIDEO="null"
+    REF_LIST=""
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --prompt|-p)       PROMPT="$2";                          shift 2 ;;
+        --model|-m)        MODEL="$2";                           shift 2 ;;
+        --mode)            MODE="$2";                            shift 2 ;;
+        --aspect-ratio|-a) ASPECT_RATIO="$2";                    shift 2 ;;
+        --resolution)      RESOLUTION="$2";                      shift 2 ;;
+        --start-frame)     START_FRAME="$(json_str "$2")";       shift 2 ;;
+        --end-frame)       END_FRAME="$(json_str "$2")";         shift 2 ;;
+        --input-video)     INPUT_VIDEO="$(json_str "$2")";       shift 2 ;;
+        --ref|-r)
+          REF_LIST="${REF_LIST:+$REF_LIST,}$(json_str "$2")"
+          shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+      esac
+    done
+
+    REFS="[${REF_LIST}]"
+    echo "[skill] Starting video generation (this may take 3–10 minutes)..." >&2
+    call_api "/api/veo/generate" \
+      "{\"prompt\":$(json_str "$PROMPT"),\"model\":$(json_str "$MODEL"),\"mode\":$(json_str "$MODE"),\"aspectRatio\":$(json_str "$ASPECT_RATIO"),\"resolution\":$(json_str "$RESOLUTION"),\"startFramePath\":$START_FRAME,\"endFramePath\":$END_FRAME,\"inputVideoPath\":$INPUT_VIDEO,\"referenceImagePaths\":$REFS}"
+    echo
+    ;;
+
+  # -------------------------------------------------------------------------
+  ad-localization|ad-loc|nano-banana)
+    REF=""
+    MARKETS_LIST=""
+    ASPECT_RATIO="16:9"
+    MODEL="gemini-3.1-flash-image-preview"
+    INSTRUCTIONS=""
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --ref|-r)          REF="$2";           shift 2 ;;
+        --market|-t)
+          MARKETS_LIST="${MARKETS_LIST:+$MARKETS_LIST,}$(json_str "$2")"
+          shift 2 ;;
+        --aspect-ratio|-a) ASPECT_RATIO="$2";  shift 2 ;;
+        --model|-m)        MODEL="$2";         shift 2 ;;
+        --instructions|-i) INSTRUCTIONS="$2";  shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+      esac
+    done
+
+    call_api "/api/nano-banana/localize" \
+      "{\"referenceImagePath\":$(json_str "$REF"),\"targetMarkets\":[${MARKETS_LIST}],\"aspectRatio\":$(json_str "$ASPECT_RATIO"),\"model\":$(json_str "$MODEL"),\"customInstructions\":$(json_str "$INSTRUCTIONS")}"
+    echo
+    ;;
+
+  *)
+    echo "Unknown skill: $SKILL" >&2
+    echo "Available: image-generation, video-generation, ad-localization" >&2
+    exit 1
+    ;;
+esac

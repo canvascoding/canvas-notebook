@@ -5,31 +5,11 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import {
   AgentConfigValidationError,
   buildAgentConfigReadiness,
-  readAgentRuntimeConfig,
-  sanitizeAgentRuntimeConfig,
-  writeAgentRuntimeConfig,
+  readPiRuntimeConfig,
+  writePiRuntimeConfig,
 } from '@/app/lib/agents/storage';
-
-function resolveUpdatedBy(session: Awaited<ReturnType<typeof auth.api.getSession>>): string {
-  if (!session) {
-    return 'system:unknown';
-  }
-
-  const userLabel = session.user.email || session.user.id;
-  return `user:${userLabel}`;
-}
-
-function unwrapPayload(payload: unknown): unknown {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return payload;
-  }
-
-  if ('config' in payload) {
-    return (payload as { config?: unknown }).config;
-  }
-
-  return payload;
-}
+import { getPiModels, getPiProviders, modelSupportsVision } from '@/app/lib/pi/model-resolver';
+import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 
 async function requireSession(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -62,14 +42,28 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const config = await readAgentRuntimeConfig();
-    const readiness = await buildAgentConfigReadiness(config);
+    const piConfig = await readPiRuntimeConfig();
+    const readiness = await buildAgentConfigReadiness();
+    const engine = getActiveAiAgentEngine();
+
+    // Discovery metadata with vision support
+    const providers = getPiProviders();
+    const discovery = Object.fromEntries(
+      providers.map(p => [p, { 
+        models: getPiModels(p).map(m => ({
+          ...m,
+          supportsVision: modelSupportsVision(m.id) || (m.input?.includes('image') ?? false),
+        })),
+      }])
+    );
 
     return NextResponse.json({
       success: true,
       data: {
-        config: sanitizeAgentRuntimeConfig(config),
+        piConfig,
+        engine,
         readiness,
+        discovery,
       },
     });
   } catch (error) {
@@ -96,14 +90,17 @@ export async function PUT(request: NextRequest) {
 
   try {
     const payload = await request.json();
-    const input = unwrapPayload(payload);
-    const updatedConfig = await writeAgentRuntimeConfig(input, resolveUpdatedBy(session));
-    const readiness = await buildAgentConfigReadiness(updatedConfig);
+    const piConfigInput = payload.piConfig || payload;
+
+    const piConfig = await writePiRuntimeConfig(piConfigInput);
+    const readiness = await buildAgentConfigReadiness();
+    const engine = getActiveAiAgentEngine();
 
     return NextResponse.json({
       success: true,
       data: {
-        config: sanitizeAgentRuntimeConfig(updatedConfig),
+        piConfig,
+        engine,
         readiness,
       },
     });

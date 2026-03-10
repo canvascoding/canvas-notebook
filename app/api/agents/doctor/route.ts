@@ -5,11 +5,8 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import {
   AgentConfigValidationError,
   buildAgentConfigReadiness,
-  readAgentRuntimeConfig,
-  resolveOllamaApiBase,
-  resolveOllamaApiKey,
-  resolveOpenRouterApiKey,
 } from '@/app/lib/agents/storage';
+import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 
 type DoctorPayload = {
   livePing?: boolean;
@@ -30,173 +27,6 @@ async function requireSession(request: NextRequest) {
   };
 }
 
-async function runOpenRouterLivePing(params: {
-  enabled: boolean;
-  timeoutMs: number;
-  baseUrl: string;
-  apiKey: string | null;
-}) {
-  const { enabled, timeoutMs, baseUrl, apiKey } = params;
-
-  if (!enabled) {
-    return {
-      enabled: false,
-      ok: null as boolean | null,
-      warning: null as string | null,
-      latencyMs: null as number | null,
-      status: null as number | null,
-      target: null as string | null,
-    };
-  }
-
-  if (!apiKey) {
-    return {
-      enabled: true,
-      ok: false,
-      warning: 'OpenRouter API key missing. Ping skipped.',
-      latencyMs: null,
-      status: null,
-      target: `${baseUrl.replace(/\/+$/, '')}/models`,
-    };
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const target = `${baseUrl.replace(/\/+$/, '')}/models`;
-  const startedAt = Date.now();
-
-  try {
-    const response = await fetch(target, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      signal: controller.signal,
-    });
-
-    const latencyMs = Date.now() - startedAt;
-
-    if (!response.ok) {
-      return {
-        enabled: true,
-        ok: false,
-        warning: `OpenRouter ping returned HTTP ${response.status}.`,
-        latencyMs,
-        status: response.status,
-        target,
-      };
-    }
-
-    return {
-      enabled: true,
-      ok: true,
-      warning: null,
-      latencyMs,
-      status: response.status,
-      target,
-    };
-  } catch (error) {
-    const latencyMs = Date.now() - startedAt;
-    const warning =
-      error instanceof Error && error.name === 'AbortError'
-        ? `OpenRouter ping timed out after ${timeoutMs}ms.`
-        : error instanceof Error
-          ? error.message
-          : 'OpenRouter ping failed.';
-
-    return {
-      enabled: true,
-      ok: false,
-      warning,
-      latencyMs,
-      status: null,
-      target,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function runOllamaLivePing(params: {
-  enabled: boolean;
-  timeoutMs: number;
-  baseUrl: string;
-  apiKey: string | null;
-}) {
-  const { enabled, timeoutMs, baseUrl, apiKey } = params;
-  const apiBase = resolveOllamaApiBase(baseUrl);
-  const target = `${apiBase}/api/tags`;
-
-  if (!enabled) {
-    return {
-      enabled: false,
-      ok: null as boolean | null,
-      warning: null as string | null,
-      latencyMs: null as number | null,
-      status: null as number | null,
-      target: null as string | null,
-    };
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const startedAt = Date.now();
-
-  try {
-    const headers: Record<string, string> = {};
-    if (apiKey) {
-      headers.Authorization = `Bearer ${apiKey}`;
-    }
-
-    const response = await fetch(target, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    });
-
-    const latencyMs = Date.now() - startedAt;
-
-    if (!response.ok) {
-      return {
-        enabled: true,
-        ok: false,
-        warning: `Ollama ping returned HTTP ${response.status}.`,
-        latencyMs,
-        status: response.status,
-        target,
-      };
-    }
-
-    return {
-      enabled: true,
-      ok: true,
-      warning: null,
-      latencyMs,
-      status: response.status,
-      target,
-    };
-  } catch (error) {
-    const latencyMs = Date.now() - startedAt;
-    const warning =
-      error instanceof Error && error.name === 'AbortError'
-        ? `Ollama ping timed out after ${timeoutMs}ms.`
-        : error instanceof Error
-          ? error.message
-          : 'Ollama ping failed.';
-
-    return {
-      enabled: true,
-      ok: false,
-      warning,
-      latencyMs,
-      status: null,
-      target,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export async function POST(request: NextRequest) {
   const { response } = await requireSession(request);
   if (response) {
@@ -213,79 +43,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const payload = (await request.json().catch(() => ({}))) as DoctorPayload;
-    const config = await readAgentRuntimeConfig();
-    const readiness = await buildAgentConfigReadiness(config);
-    const openRouterKey = await resolveOpenRouterApiKey(config);
-    const ollamaKey = await resolveOllamaApiKey(config);
-
-    const livePingEnabled =
-      typeof payload.livePing === 'boolean' ? payload.livePing : config.doctor.enableLivePing;
-    const openRouterLivePing = await runOpenRouterLivePing({
-      enabled: livePingEnabled,
-      timeoutMs: config.doctor.timeoutMs,
-      baseUrl: config.providers.openrouter.baseUrl,
-      apiKey: openRouterKey.apiKey,
-    });
-    const ollamaLivePing = await runOllamaLivePing({
-      enabled: livePingEnabled,
-      timeoutMs: config.doctor.timeoutMs,
-      baseUrl: config.providers.ollama.baseUrl,
-      apiKey: ollamaKey.apiKey,
-    });
-
-    const errors = Object.values(readiness.providers).filter((provider) => provider.enabled && !provider.available)
-      .length;
-    const warnings = [openRouterLivePing.warning, ollamaLivePing.warning].filter(Boolean).length;
+    await request.json().catch(() => ({} as DoctorPayload));
+    // buildAgentConfigReadiness no longer requires a config parameter
+    const readiness = await buildAgentConfigReadiness();
+    const { diagnostics } = await loadManagedAgentSystemPrompt();
 
     return NextResponse.json({
       success: true,
       data: {
         checkedAt: new Date().toISOString(),
-        timeoutMs: config.doctor.timeoutMs,
-        checks: {
-          cli: {
-            'codex-cli': {
-              command: readiness.providers['codex-cli'].command,
-              available: readiness.providers['codex-cli'].commandExists,
-            },
-            'claude-cli': {
-              command: readiness.providers['claude-cli'].command,
-              available: readiness.providers['claude-cli'].commandExists,
-            },
-          },
-          openrouter: {
-            key: {
-              isSet: openRouterKey.isSet,
-              source: openRouterKey.source,
-              last4: openRouterKey.last4,
-            },
-            model: {
-              value: config.providers.openrouter.model,
-              plausible: readiness.providers.openrouter.modelPlausible,
-            },
-          },
-          ollama: {
-            key: {
-              isSet: ollamaKey.isSet,
-              source: ollamaKey.source,
-              last4: ollamaKey.last4,
-            },
-            model: {
-              value: config.providers.ollama.model,
-              plausible: readiness.providers.ollama.modelPlausible,
-            },
-          },
-          livePing: {
-            openrouter: openRouterLivePing,
-            ollama: ollamaLivePing,
-          },
-        },
         readiness,
+        promptDiagnostics: diagnostics,
         summary: {
-          ready: readiness.activeProviderReady,
-          errors,
-          warnings,
+          ready: readiness.activeProviderReady && !diagnostics.usedFallback,
+          errors: readiness.pi?.issues.length || 0,
+          warnings: diagnostics.usedFallback ? 1 : 0,
         },
       },
     });

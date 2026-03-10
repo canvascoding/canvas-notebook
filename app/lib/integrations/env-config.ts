@@ -1,11 +1,12 @@
 import crypto from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
+import { resolveDefaultAgentsEnvPath, resolveDefaultIntegrationsEnvPath } from '../runtime-data-paths';
 
 const ENCRYPTED_PREFIX = 'enc:v1';
 
-export const DEFAULT_INTEGRATIONS_ENV_PATH = '/home/node/Canvas-Integrations.env';
-export const DEFAULT_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
+export const DEFAULT_INTEGRATIONS_ENV_PATH = resolveDefaultIntegrationsEnvPath();
+export const DEFAULT_AGENTS_ENV_PATH = resolveDefaultAgentsEnvPath();
 
 export type EnvScope = 'integrations' | 'agents';
 

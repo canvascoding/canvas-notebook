@@ -5,7 +5,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
-import ClaudeChat from '@/app/components/claude-chat/ClaudeChat';
+import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { auth } from '@/app/lib/auth';
@@ -53,7 +53,9 @@ export default async function ChatPage() {
         </div>
       </header>
       <main className="flex-1 min-h-0">
-        <ClaudeChat initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY} />
+        <CanvasAgentChat 
+          initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY} 
+        />
       </main>
     </div>
   );
