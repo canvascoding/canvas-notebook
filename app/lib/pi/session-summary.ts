@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { completeSimple, type AssistantMessage, type Message, type Model } from '@mariozechner/pi-ai';
+import { completeSimple, type AssistantMessage, type Message, type Model, type Api } from '@mariozechner/pi-ai';
 
 import { resolvePiApiKey } from './api-key-resolver';
 import {
@@ -17,7 +17,7 @@ type PreparePiHistoryContextOptions = {
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
   systemPrompt: string;
-  model: Model<unknown>;
+  model: Model<Api>;
   toolCount: number;
   sessionId?: string;
   signal?: AbortSignal;
@@ -26,7 +26,7 @@ type PreparePiHistoryContextOptions = {
 type SummarizeHistoryInput = {
   previousSummaryText: string | null;
   messagesToSummarize: AgentMessage[];
-  model: Model<unknown>;
+  model: Model<Api>;
   sessionId?: string;
   signal?: AbortSignal;
 };

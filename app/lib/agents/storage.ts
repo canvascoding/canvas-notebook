@@ -239,7 +239,7 @@ export function sanitizeAgentRuntimeConfig(config: unknown): AgentRuntimeConfig 
   };
 }
 
-export async function buildAgentConfigReadiness(_config: AgentRuntimeConfig): Promise<AgentConfigReadiness> {
+export async function buildAgentConfigReadiness(_config?: AgentRuntimeConfig): Promise<AgentConfigReadiness> {
   let piReadiness: AgentConfigReadiness['pi'] | undefined;
   try {
     const piConfig = await readPiRuntimeConfig();
