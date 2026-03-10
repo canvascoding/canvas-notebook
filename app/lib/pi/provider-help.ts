@@ -4,6 +4,17 @@
  */
 
 export type ProviderCategory = 'api-key' | 'oauth-cli' | 'adc' | 'aws' | 'ollama' | 'azure';
+export type OllamaProviderMode = 'local' | 'cloud';
+
+export interface OllamaModeConfig {
+  mode: OllamaProviderMode;
+  label: string;
+  description: string;
+  defaultHost: string;
+  apiKeyRequired: boolean;
+  setupSteps: string[];
+  notes: string[];
+}
 
 export interface ProviderHelpInfo {
   category: ProviderCategory;
@@ -22,6 +33,8 @@ export interface ProviderHelpInfo {
   }[];
   notes?: string[];
   documentationUrl?: string;
+  // Ollama-specific mode configuration
+  ollamaModes?: OllamaModeConfig[];
 }
 
 /**
@@ -413,66 +426,83 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     documentationUrl: 'https://learn.microsoft.com/azure/cognitive-services/openai/',
   },
 
-  // Local Provider
+  // Ollama Provider with Mode Selection
   ollama: {
     category: 'ollama',
     title: 'Ollama',
-    shortDescription: 'Local and remote LLM inference with Ollama. Supports local models and cloud-hosted models via Ollama Cloud.',
+    shortDescription: 'Run LLMs locally or connect to Ollama Cloud',
     setupSteps: [
-      'Für LOKALE Nutzung: Ollama installieren: https://ollama.ai/',
-      'Für OLLAMA CLOUD: Account erstellen auf https://cloud.ollama.com',
-      'Modell auswählen (im Dropdown sind alle verfügbaren Modelle gelistet)',
-      'Für LOKAL: "ollama pull <modell>" ausführen (z.B. ollama pull llama3.1)',
-      'Für CLOUD: Kein pull nötig - Modelle sind sofort verfügbar',
-      'Ollama Server starten: "ollama serve" (lokal) oder URL/Key konfigurieren (Cloud)',
-      'Bei CLOUD: OLLAMA_HOST und OLLAMA_API_KEY in den Einstellungen setzen',
-      'Bei LOKAL: OLLAMA_HOST leer lassen (Standard: http://127.0.0.1:11434)',
-      'Verbindung testen: "curl http://localhost:11434/api/tags" (lokal) oder Cloud-Status prüfen',
+      'Wähle unten "Local" oder "Cloud" Mode aus',
+      'Folge den angezeigten Schritten für deinen gewählten Mode',
+      'Trage die erforderlichen Werte in die Felder ein',
+      'Speichere die Konfiguration',
     ],
     envVars: [
-      { 
-        name: 'OLLAMA_HOST', 
-        description: 'Ollama server URL (leer lassen für lokale Nutzung = http://127.0.0.1:11434, für Cloud: https://cloud.ollama.com)', 
-        scope: 'agents', 
-        required: false 
+      {
+        name: 'OLLAMA_HOST',
+        description: 'Wird automatisch basierend auf Mode gesetzt',
+        scope: 'agents',
+        required: false
       },
-      { 
-        name: 'OLLAMA_API_KEY', 
-        description: 'NUR für Ollama Cloud erforderlich. Bei lokaler Nutzung leer lassen.', 
-        scope: 'agents', 
-        required: false 
+      {
+        name: 'OLLAMA_API_KEY',
+        description: 'Nur für Cloud Mode erforderlich',
+        scope: 'agents',
+        required: false
       },
     ],
     cliCommands: [
-      { command: 'ollama pull llama3.1', description: 'Download Llama 3.1 model locally' },
-      { command: 'ollama pull llama3.2', description: 'Download Llama 3.2 model locally' },
-      { command: 'ollama pull mistral', description: 'Download Mistral model locally' },
-      { command: 'ollama pull qwen2.5-coder:32b', description: 'Download Qwen 2.5 Coder 32B' },
-      { command: 'ollama pull deepseek-r1:32b', description: 'Download DeepSeek R1 32B (reasoning model)' },
-      { command: 'ollama pull glm-4', description: 'Download GLM-4 (Zhipu AI)' },
-      { command: 'ollama list', description: 'List all installed models' },
-      { command: 'ollama serve', description: 'Start Ollama server' },
+      { command: 'ollama pull llama3.1', description: 'Download model (nur Local)' },
+      { command: 'ollama list', description: 'List installed models' },
+      { command: 'ollama serve', description: 'Start server (nur Local)' },
       { command: 'ollama ps', description: 'Show running models' },
     ],
     notes: [
-      '🏠 LOKALE NUTZUNG (Standard):',
-      '  • OLLAMA_HOST leer lassen → verwendet automatisch http://127.0.0.1:11434',
-      '  • Kein API Key nötig für lokale Installation',
-      '  • Modelle müssen lokal gepullt werden: ollama pull <model>',
-      '  • Benötigt ausreichend RAM/VRAM für lokale Modelle',
-      '',
-      '☁️ OLLAMA CLOUD NUTZUNG:',
-      '  • OLLAMA_HOST auf Cloud-URL setzen (z.B. https://cloud.ollama.com)',
-      '  • OLLAMA_API_KEY ist für Cloud-Zugriff erforderlich',
-      '  • Bei Cloud-Modellen KEIN "ollama pull" nötig - Modelle sind sofort verfügbar',
-      '  • Cloud-Modelle: GLM 5.6, Kimi K2.5, Qwen 3.5 über Ollama Cloud',
-      '',
-      '⚙️ WICHTIGE HINWEISE:',      '  • Native Ollama API (nicht /v1!) für bestes Tool-Calling verwenden',
-      '  • Modelle müssen entweder lokal gepullt ODER über Cloud verfügbar sein',
-      '  • Im Dropdown werden alle Modelle angezeigt - Verfügbarkeit hängt von Setup ab',
-      '  • "ollama ps" zeigt aktuell geladene Modelle an',
+      'Wähle unten den Mode aus, um die spezifischen Konfigurationsschritte zu sehen',
     ],
     documentationUrl: 'https://ollama.ai/',
+    ollamaModes: [
+      {
+        mode: 'local',
+        label: '🏠 Lokal',
+        description: 'Ollama auf deinem eigenen Computer ausführen',
+        defaultHost: 'http://127.0.0.1:11434',
+        apiKeyRequired: false,
+        setupSteps: [
+          'Ollama installieren: https://ollama.ai/',
+          'Modell herunterladen: ollama pull llama3.1',
+          'Server starten: ollama serve',
+          'Verbindung testen: curl http://localhost:11434/api/tags',
+          'OLLAMA_HOST leer lassen (wird automatisch auf http://127.0.0.1:11434 gesetzt)',
+        ],
+        notes: [
+          'Kein API Key erforderlich',
+          'Modelle müssen vorher mit "ollama pull" heruntergeladen werden',
+          'Benötigt ausreichend RAM/VRAM',
+          'Funktioniert offline',
+        ]
+      },
+      {
+        mode: 'cloud',
+        label: '☁️ Cloud',
+        description: 'Mit Ollama Cloud verbinden',
+        defaultHost: 'https://cloud.ollama.com',
+        apiKeyRequired: true,
+        setupSteps: [
+          'Account erstellen auf https://cloud.ollama.com',
+          'API Key generieren im Dashboard',
+          'OLLAMA_HOST wird automatisch auf https://cloud.ollama.com gesetzt',
+          'OLLAMA_API_KEY mit deinem Cloud-API-Key füllen',
+        ],
+        notes: [
+          'API Key ist zwingend erforderlich',
+          'Kein "ollama pull" nötig - Modelle sind sofort verfügbar',
+          'Cloud-Modelle: GLM 5.6, Kimi K2.5, Qwen 3.5',
+          'Internetverbindung erforderlich',
+          'Eventuelle Kosten je nach Nutzung',
+        ],
+      },
+    ],
   },
 };
 
