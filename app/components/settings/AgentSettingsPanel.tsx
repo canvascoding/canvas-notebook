@@ -29,7 +29,7 @@ import {
   type ProviderHelpInfo,
 } from '@/app/lib/pi/provider-help';
 import { ProviderEnvEditor } from './ProviderEnvEditor';
-import { OpenAICodexOAuth } from './OpenAICodexOAuth';
+import { PiOAuthButton } from './PiOAuthButton';
 
 const MANAGED_FILES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
@@ -639,11 +639,7 @@ export function AgentSettingsPanel() {
                     {selectedProviderStatus?.issues?.[0] && (
                       <p className="mt-1 text-muted-foreground">{selectedProviderStatus.issues[0]}</p>
                     )}
-                    {piConfigDraft.activeProvider === 'openai-codex' && (
-                      <div className="mt-2">
-                        <OpenAICodexOAuth providerId="openai-codex" />
-                      </div>
-                    )}
+                    <PiOAuthButton onStatusChange={() => void loadConfig()} />
                   </>
                 )}
               </div>

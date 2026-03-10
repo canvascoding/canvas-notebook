@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { resolveActivePiModel, resolvePiModel } from '@/app/lib/pi/model-resolver';
+import { resolveActivePiModel, resolvePiModel, modelSupportsVision } from '@/app/lib/pi/model-resolver';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
@@ -15,6 +15,7 @@ import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { agentLoop, type AgentMessage, type AgentContext, type ThinkingLevel } from '@mariozechner/pi-agent-core';
+import type { Model } from '@mariozechner/pi-ai';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown agent error';
@@ -87,6 +88,36 @@ export async function POST(request: NextRequest) {
     const tools = getPiTools();
     const activeProviderName = providerName || piConfig.activeProvider;
     const logSessionId = sessionId ?? 'no-session';
+    
+    // Check if model supports vision
+    const visionSupported = modelSupportsVision(model.id) || (model.input?.includes('image') ?? false);
+    
+    if (!visionSupported) {
+      // Filter out image content from messages for non-vision models
+      const filteredMessages = messages.map(msg => {
+        if (msg.role === 'user' && Array.isArray(msg.content)) {
+          const textOnlyContent = msg.content.filter(part => {
+            if (typeof part === 'object' && part !== null) {
+              return part.type !== 'image';
+            }
+            return true;
+          });
+          
+          if (textOnlyContent.length < msg.content.length) {
+            console.log(`[PI Stream] [${logSessionId}] Filtered out image content from message - model ${model.id} doesn't support vision`);
+          }
+          
+          return { ...msg, content: textOnlyContent };
+        }
+        return msg;
+      });
+      
+      // Replace messages with filtered versions
+      messages.splice(0, messages.length, ...filteredMessages);
+    } else {
+      console.log(`[PI Stream] [${logSessionId}] Model ${model.id} supports vision - processing images`);
+    }
+    
     const { systemPrompt, diagnostics } = await loadManagedAgentSystemPrompt();
 
     if (diagnostics.usedFallback) {
