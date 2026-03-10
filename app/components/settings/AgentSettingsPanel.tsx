@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2 } from 'lucide-react';
 
@@ -59,6 +59,13 @@ type DoctorResult = {
     warnings: number;
   };
   readiness: AgentConfigReadiness;
+  promptDiagnostics: {
+    loadedFiles: ManagedFileName[];
+    includedFiles: ManagedFileName[];
+    emptyFiles: ManagedFileName[];
+    usedFallback: boolean;
+    fallbackReason: 'all-empty' | 'read-failed' | null;
+  };
 };
 
 type SessionItem = {
@@ -102,7 +109,6 @@ export function AgentSettingsPanel() {
   const searchParams = useSearchParams();
 
   const [piConfigDraft, setPiConfigDraft] = useState<PiRuntimeConfig | null>(null);
-  const [engine, setEngine] = useState<'legacy' | 'pi'>('pi');
   const [discovery, setDiscovery] = useState<DiscoveryMetadata>({});
   const [readiness, setReadiness] = useState<AgentConfigReadiness | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
@@ -143,7 +149,6 @@ export function AgentSettingsPanel() {
         '/api/agents/config',
       );
       setPiConfigDraft(deepClone(payload.piConfig));
-      setEngine(payload.engine);
       setDiscovery(payload.discovery || {});
       setReadiness(payload.readiness);
     } catch (error) {
@@ -252,7 +257,6 @@ export function AgentSettingsPanel() {
       );
 
       setPiConfigDraft(deepClone(payload.piConfig));
-      setEngine(payload.engine);
       setReadiness(payload.readiness);
       setConfigSuccess('Agent-Konfiguration gespeichert.');
     } catch (error) {
@@ -262,7 +266,11 @@ export function AgentSettingsPanel() {
     }
   };
 
-  const setPiProviderField = (providerId: string, field: keyof PiProviderConfig, value: any) => {
+  const setPiProviderField = <K extends keyof PiProviderConfig>(
+    providerId: string,
+    field: K,
+    value: PiProviderConfig[K]
+  ) => {
     setPiConfigDraft((current) => {
       if (!current) {
         return current;
@@ -276,7 +284,7 @@ export function AgentSettingsPanel() {
           enabledTools: [],
         };
       }
-      (next.providers[providerId] as any)[field] = value;
+      next.providers[providerId][field] = value;
       return next;
     });
   };
@@ -565,7 +573,19 @@ export function AgentSettingsPanel() {
                 Status: <span className={doctorResult.summary.ready ? 'text-primary' : 'text-destructive'}>{doctorResult.summary.ready ? 'Ready' : 'Issues detected'}</span>
               </p>
               <p>Errors: {doctorResult.summary.errors}</p>
+              <p>Warnings: {doctorResult.summary.warnings}</p>
               <p>Checked: {new Date(doctorResult.checkedAt).toLocaleString()}</p>
+              <p>Prompt files loaded: {doctorResult.promptDiagnostics.loadedFiles.join(', ') || 'None'}</p>
+              <p>Prompt files included: {doctorResult.promptDiagnostics.includedFiles.join(', ') || 'None'}</p>
+              <p>Prompt files empty: {doctorResult.promptDiagnostics.emptyFiles.join(', ') || 'None'}</p>
+              <p>
+                Prompt fallback:{' '}
+                <span className={doctorResult.promptDiagnostics.usedFallback ? 'text-destructive font-medium' : 'text-primary'}>
+                  {doctorResult.promptDiagnostics.usedFallback
+                    ? `Active (${doctorResult.promptDiagnostics.fallbackReason || 'unknown'})`
+                    : 'Inactive'}
+                </span>
+              </p>
               {doctorResult.readiness.pi?.issues.map((issue, idx) => (
                 <p key={idx} className="text-destructive font-medium mt-1">• {issue}</p>
               ))}
@@ -598,6 +618,7 @@ export function AgentSettingsPanel() {
               </Tabs>
 
               <textarea
+                data-testid="agent-managed-file-editor"
                 className="min-h-[260px] w-full border border-input rounded-md bg-background p-3 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 value={fileDrafts[activeFile] ?? ''}
                 onChange={(event) =>
@@ -614,7 +635,7 @@ export function AgentSettingsPanel() {
               {filesSuccess && <p className="text-sm text-primary">{filesSuccess}</p>}
 
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => void saveActiveFile()} disabled={filesSaving}>
+                <Button data-testid="agent-managed-file-save" onClick={() => void saveActiveFile()} disabled={filesSaving}>
                   {filesSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   Speichern
                 </Button>
