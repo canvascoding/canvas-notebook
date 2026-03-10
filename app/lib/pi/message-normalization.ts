@@ -19,8 +19,10 @@ const DATA_URL_PATTERN = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 // Regex to detect image file references in text
+// Supports both quoted: "path/to/file.jpg" and unquoted: path/to/file.jpg
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
-const IMAGE_PATH_REGEX = new RegExp(`\\b([\\w\\-./]+(?:${IMAGE_EXTENSIONS.map(ext => ext.replace(/\./g, '\\.')).join('|')}))\\b`, 'gi');
+const EXT_PATTERN = IMAGE_EXTENSIONS.map(ext => ext.replace(/\./g, '\\.')).join('|');
+const IMAGE_PATH_REGEX = new RegExp(`(?:"([^"]*(?:${EXT_PATTERN}))"|\\b([\\w\\-./]+(?:${EXT_PATTERN}))\\b)`, 'gi');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -105,9 +107,14 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
 async function extractImageReferencesFromText(text: string): Promise<ImageContent[]> {
   const images: ImageContent[] = [];
   const matches = [...text.matchAll(IMAGE_PATH_REGEX)];
+  const processedPaths = new Set<string>();
   
   for (const match of matches) {
-    const filePath = match[1];
+    // match[1] is quoted path, match[2] is unquoted path
+    const filePath = match[1] || match[2];
+    if (!filePath || processedPaths.has(filePath)) continue;
+    processedPaths.add(filePath);
+    
     try {
       const workspacePath = getWorkspacePath();
       const fullPath = path.isAbsolute(filePath) ? filePath : path.join(workspacePath, filePath);

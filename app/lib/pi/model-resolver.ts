@@ -54,6 +54,7 @@ export function getPiModels(provider: string) {
 
 /**
  * Resolves the PI model instance based on user configuration.
+ * For Ollama, dynamically sets the correct baseUrl based on mode.
  */
 export async function resolvePiModel(provider: string, modelName: string) {
   const models = getPiModels(provider);
@@ -61,6 +62,33 @@ export async function resolvePiModel(provider: string, modelName: string) {
   
   if (!model) {
     throw new Error(`Model ${modelName} not found for provider ${provider}`);
+  }
+  
+  // For Ollama, we need to check the config to determine local vs cloud mode
+  if (provider === OLLAMA_PROVIDER_ID) {
+    const config = await readPiRuntimeConfig();
+    const providerConfig = config.providers[provider];
+    
+    if (providerConfig) {
+      // Determine base URL based on mode
+      let baseUrl = 'http://localhost:11434/v1'; // default local
+      
+      if (providerConfig.ollamaMode === 'cloud') {
+        // Cloud mode - use cloud URL
+        baseUrl = providerConfig.ollamaHost || 'https://cloud.ollama.com/v1';
+      } else if (providerConfig.ollamaHost) {
+        // Local mode with custom host
+        baseUrl = providerConfig.ollamaHost.endsWith('/v1') 
+          ? providerConfig.ollamaHost 
+          : `${providerConfig.ollamaHost}/v1`;
+      }
+      
+      // Return model with correct baseUrl
+      return {
+        ...model,
+        baseUrl,
+      };
+    }
   }
   
   return model;
