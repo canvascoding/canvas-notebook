@@ -11,7 +11,7 @@ import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { AppLayout } from '@/app/components/layout/AppLayout';
-import ClaudeChat from '@/app/components/claude-chat/ClaudeChat';
+import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 
 interface DashboardShellProps {
@@ -295,7 +295,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   `}
                 >
                   <div className="flex flex-col w-full h-full relative">
-                      <ClaudeChat onClose={() => setChatVisible(false)} />
+                      <CanvasAgentChat onClose={() => setChatVisible(false)} />
                   </div>
                 </div>
               </div>

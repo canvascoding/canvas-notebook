@@ -26,10 +26,16 @@ test.describe('OpenAI Codex OAuth E2E', () => {
 
   test('should show OAuth button for openai-codex provider', async ({ page }) => {
     await page.goto('/settings?tab=agent-settings');
-    await page.getByTestId('provider-select').click();
-    await page.getByText('OpenAI Codex').click();
+    
+    // Select openai-codex from dropdown using the option value
+    await page.getByTestId('provider-select').selectOption('openai-codex');
+    
+    // Wait for the provider status to load
+    await page.waitForTimeout(500);
+    
+    // Check that OAuth button is visible
     const oauthButton = page.getByTestId('openai-codex-oauth-button');
-    await expect(oauthButton).toBeVisible();
+    await expect(oauthButton).toBeVisible({ timeout: 10000 });
     await expect(oauthButton).toHaveText(/Connect/);
   });
 });

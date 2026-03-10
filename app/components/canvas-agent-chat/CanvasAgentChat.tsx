@@ -82,7 +82,7 @@ type QueuedMessage = {
 
 type UpdateFunction = (content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => void;
 
-interface ClaudeChatProps {
+interface CanvasAgentChatProps {
   onClose?: () => void;
   initialPrompt?: string | null;
   initialPromptStorageKey?: string;
@@ -289,7 +289,7 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
   );
 }
 
-export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorageKey }: ClaudeChatProps) {
+export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptStorageKey }: CanvasAgentChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
