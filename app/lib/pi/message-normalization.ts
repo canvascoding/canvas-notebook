@@ -268,3 +268,51 @@ async function normalizePiMessage(message: AgentMessage): Promise<Message> {
 export async function normalizePiMessagesForLlm(messages: AgentMessage[]): Promise<Message[]> {
   return Promise.all(messages.map((message) => normalizePiMessage(message)));
 }
+
+/**
+ * Filters out image content from messages for non-vision models.
+ * Converts image content to text descriptions.
+ */
+export function filterImagesForNonVisionModel(messages: AgentMessage[]): AgentMessage[] {
+  return messages.map((message) => {
+    if (!Array.isArray(message.content)) {
+      return message;
+    }
+
+    // Count images before filtering
+    const imageCount = message.content.filter((part) => isImageContentPart(part)).length;
+    
+    // Filter out image content
+    const filteredContent = message.content.filter((part) => {
+      if (isImageContentPart(part)) {
+        console.log('[Message Normalization] Filtering out image content for non-vision model');
+        return false;
+      }
+      return true;
+    });
+
+    // If we removed images and there's a text part, add a note to it
+    if (imageCount > 0) {
+      const textPartIndex = filteredContent.findIndex((p) => isRecord(p) && p.type === 'text');
+      
+      if (textPartIndex >= 0) {
+        const textPart = filteredContent[textPartIndex];
+        if (isRecord(textPart) && typeof textPart.text === 'string') {
+          (filteredContent[textPartIndex] as { type: 'text'; text: string }).text += 
+            `\n\n[Note: ${imageCount} image(s) were attached but removed because the current model does not support vision capabilities.]`;
+        }
+      } else {
+        // No text part exists, add one with the note
+        (filteredContent as Array<{ type: 'text'; text: string }>).push({
+          type: 'text',
+          text: `[Note: ${imageCount} image(s) were attached but removed because the current model does not support vision capabilities.]`,
+        });
+      }
+    }
+
+    return {
+      ...message,
+      content: filteredContent,
+    } as AgentMessage;
+  });
+}
