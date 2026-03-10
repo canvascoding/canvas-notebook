@@ -15,7 +15,6 @@ import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { agentLoop, type AgentMessage, type AgentContext, type ThinkingLevel } from '@mariozechner/pi-agent-core';
-import type { Model } from '@mariozechner/pi-ai';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown agent error';
@@ -94,7 +93,6 @@ export async function POST(request: NextRequest) {
     
     if (!visionSupported) {
       // Filter out image content from messages for non-vision models
-      const originalMessageCount = messages.length;
       const filteredMessages = filterImagesForNonVisionModel(messages);
       
       // Check if any images were filtered

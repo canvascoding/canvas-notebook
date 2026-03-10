@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
       const state = JSON.parse(stateContent);
       authUrl = state.authUrl || '';
       instructions = state.instructions || '';
-    } catch (e) {
+    } catch {
       // State file might not be ready yet
     }
 

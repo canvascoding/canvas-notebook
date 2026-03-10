@@ -8,7 +8,6 @@ import { auth } from '@/app/lib/auth';
 const MAX_IMAGE_DIMENSION = 1024; // Max width/height in pixels
 const MAX_FILE_SIZE_MB = 5; // Max file size in MB before processing
 const OUTPUT_QUALITY = 85; // WebP quality (0-100)
-const OUTPUT_FORMAT = 'webp'; // Output format for better compression
 
 interface ProcessedImageResult {
   buffer: Buffer;

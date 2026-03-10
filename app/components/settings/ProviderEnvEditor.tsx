@@ -25,7 +25,7 @@ interface ProviderEnvEditorProps {
   onProviderActivate?: () => Promise<void>;
 }
 
-export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProviderActivate }: ProviderEnvEditorProps) {
+export function ProviderEnvEditor({ providerId: _providerId, envVars, onSaveComplete, onProviderActivate }: ProviderEnvEditorProps) {
   const [envStates, setEnvStates] = useState<EnvVarState[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
