@@ -1,50 +1,76 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 const TEST_EMAIL = 'info@canvasstudios.store';
 const TEST_PASSWORD = 'Canvas2026!';
+const EMPTY_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+};
+
+async function login(page: Page) {
+  await page.goto('/login');
+  await page.fill('input[type="email"]', TEST_EMAIL);
+  await page.fill('input[type="password"]', TEST_PASSWORD);
+  await page.click('button[type="submit"]');
+  await expect(page).toHaveURL('/');
+}
 
 test.describe('PI Chat E2E', () => {
   test.setTimeout(90000);
 
   test.beforeEach(async ({ page }) => {
-    // Login
-    await page.goto('/login');
-    await page.fill('input[type="email"]', TEST_EMAIL);
-    await page.fill('input[type="password"]', TEST_PASSWORD);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL('/');
+    await login(page);
   });
 
-  test('should bootstrap a session before first stream and show it in history', async ({ page }) => {
-    // Go to Chat
+  test('should bootstrap a session, show the session id, and derive a history title', async ({ page }) => {
     await page.goto('/chat');
-    
-    // Type a message
-    const textarea = page.locator('textarea');
-    await textarea.fill('Hello from E2E test - bootstrap session');
-    await textarea.press('Enter'); // sends message in chat composer
 
-    // New session id badge should appear after first send
-    const sessionBadge = page.locator('span').filter({ hasText: /^#/ }).first();
-    await expect(sessionBadge).toBeVisible({ timeout: 15000 });
-    const badgeText = await sessionBadge.textContent();
-    expect((badgeText || '').trim().length).toBeGreaterThan(1);
-    const sessionPrefix = (badgeText || '').trim().replace('#', '');
+    const prompt = `Session title smoke ${Date.now()} should become the visible history title after the first streamed reply finishes.`;
+    const input = page.getByTestId('chat-input');
 
-    const sessionsPayload = await page.evaluate(async () => {
-      const response = await fetch('/api/sessions');
-      return response.json();
-    });
-    expect(sessionsPayload?.success).toBeTruthy();
-    expect(Array.isArray(sessionsPayload?.sessions)).toBeTruthy();
-    const hasSessionWithPrefix = sessionsPayload.sessions.some((s: { sessionId?: string }) =>
-      typeof s.sessionId === 'string' && s.sessionId.startsWith(sessionPrefix)
-    );
-    expect(hasSessionWithPrefix).toBeTruthy();
+    await input.fill(prompt);
+    await input.press('Enter');
 
-    // Open history to ensure the toggle still works after bootstrap
+    const sessionIdBadge = page.getByTestId('chat-session-id');
+    await expect(sessionIdBadge).toBeVisible({ timeout: 15000 });
+    await expect(sessionIdBadge).not.toContainText('Main Agent');
+    await expect.poll(async () => sessionIdBadge.getAttribute('title'), { timeout: 15000 }).toMatch(/^sess-/);
+
+    const fullSessionId = await sessionIdBadge.getAttribute('title');
+    expect(fullSessionId).toMatch(/^sess-/);
+
+    let currentSession: { sessionId?: string; title?: string } | null = null;
+    await expect.poll(async () => {
+      currentSession = await page.evaluate(async (sessionId) => {
+        const response = await fetch('/api/sessions');
+        const payload = await response.json();
+        if (!payload?.success || !Array.isArray(payload.sessions)) {
+          return null;
+        }
+
+        return payload.sessions.find((session: { sessionId?: string }) => session.sessionId === sessionId) || null;
+      }, fullSessionId);
+
+      return currentSession?.title || null;
+    }, { timeout: 60000 }).not.toBe('New session');
+
+    expect(currentSession).toBeTruthy();
+    expect(currentSession?.title?.startsWith(prompt.slice(0, 20))).toBeTruthy();
+    expect((currentSession?.title || '').length).toBeLessThanOrEqual(48);
+
     await page.locator('button').filter({ has: page.locator('.lucide-history') }).first().click();
     await expect(page.getByText('Sessions', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /session title smoke/i }).first()).toBeVisible();
   });
 
   test('should keep structured PI context for a second turn', async ({ page }) => {
@@ -71,5 +97,82 @@ test.describe('PI Chat E2E', () => {
       const text = await assistantMessages.last().textContent();
       return (text || '').replace(/\s+/g, ' ').trim();
     }, { timeout: 60000 }).toContain(marker);
+  });
+
+  test('should render markdown and tool output separately in the chat UI', async ({ page }) => {
+    await page.route('**/api/stream', async (route) => {
+      const body = [
+        JSON.stringify({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'text_delta',
+            delta: '   Here is **bold** output\n\n- first item\n- second item',
+          },
+        }),
+        JSON.stringify({
+          type: 'tool_execution_start',
+          toolCallId: 'tool-call-1',
+          toolName: 'ls',
+          args: {
+            path: '.',
+          },
+        }),
+        JSON.stringify({
+          type: 'tool_execution_end',
+          toolCallId: 'tool-call-1',
+          toolName: 'ls',
+          result: {
+            content: [{ type: 'text', text: 'alpha.md\\nbeta.ts' }],
+          },
+        }),
+        JSON.stringify({
+          type: 'agent_end',
+          messages: [
+            {
+              role: 'user',
+              content: 'Show markdown and tool output.',
+              timestamp: Date.now(),
+            },
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Here is **bold** output\n\n- first item\n- second item' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now(),
+            },
+            {
+              role: 'toolResult',
+              content: [{ type: 'text', text: 'alpha.md\\nbeta.ts' }],
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      ].join('\n') + '\n';
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body,
+      });
+    });
+
+    await page.goto('/chat');
+    const input = page.getByTestId('chat-input');
+    await input.fill('Render markdown and tools.');
+    await input.press('Enter');
+
+    const assistantMessage = page.getByTestId('chat-message-assistant').first();
+    await expect(assistantMessage.locator('strong')).toHaveText('bold');
+    await expect(assistantMessage.locator('li')).toHaveCount(2);
+    await expect(assistantMessage.locator('p').first()).toHaveText(/Here is bold output/);
+
+    const toolMessage = page.getByTestId('chat-message-toolResult').first();
+    await expect(toolMessage).toContainText('ls');
+    await expect(toolMessage).toContainText('alpha.md');
+    await expect(toolMessage).toContainText('beta.ts');
+    await expect(toolMessage).not.toContainText('Assistant');
   });
 });

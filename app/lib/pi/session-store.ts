@@ -1,11 +1,69 @@
 import { db } from '../db';
 import { piSessions, piMessages, aiSessions, aiMessages } from '../db/schema';
-import { eq, desc, and, asc } from 'drizzle-orm';
+import { eq, and, asc } from 'drizzle-orm';
 import { type AgentMessage } from '@mariozechner/pi-agent-core';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
  */
+
+const DEFAULT_PI_SESSION_TITLE = 'New PI Chat';
+const SESSION_TITLE_MAX_LENGTH = 48;
+const AUTOMATIC_SESSION_TITLES = new Set(['', 'New session', DEFAULT_PI_SESSION_TITLE]);
+
+function extractFirstUserText(messages: AgentMessage[]): string {
+  const firstUserMessage = messages.find((message) => message.role === 'user');
+  if (!firstUserMessage) {
+    return '';
+  }
+
+  if (typeof firstUserMessage.content === 'string') {
+    return firstUserMessage.content;
+  }
+
+  if (!Array.isArray(firstUserMessage.content)) {
+    return '';
+  }
+
+  const firstTextPart = firstUserMessage.content.find((part) => {
+    return typeof part === 'object' && part !== null && 'type' in part && part.type === 'text' && typeof (part as { text?: unknown }).text === 'string';
+  }) as { text: string } | undefined;
+
+  return firstTextPart?.text ?? '';
+}
+
+function truncateSessionTitle(value: string): string {
+  if (value.length <= SESSION_TITLE_MAX_LENGTH) {
+    return value;
+  }
+
+  return `${value.slice(0, SESSION_TITLE_MAX_LENGTH - 3).trimEnd()}...`;
+}
+
+function deriveSessionTitle(messages: AgentMessage[]): string {
+  const normalized = extractFirstUserText(messages).replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return DEFAULT_PI_SESSION_TITLE;
+  }
+
+  return truncateSessionTitle(normalized);
+}
+
+function isAutomaticSessionTitle(value: string | null | undefined): boolean {
+  if (typeof value !== 'string') {
+    return true;
+  }
+
+  return AUTOMATIC_SESSION_TITLES.has(value.trim());
+}
+
+function getAgentMessageTimestamp(message: AgentMessage): number {
+  if ('timestamp' in message && typeof message.timestamp === 'number') {
+    return message.timestamp;
+  }
+
+  return Date.now();
+}
 
 export async function savePiSession(
   sessionId: string, 
@@ -15,30 +73,30 @@ export async function savePiSession(
   messages: AgentMessage[]
 ): Promise<void> {
   // Find or create session
-  let session = await db.query.piSessions.findFirst({
+  const session = await db.query.piSessions.findFirst({
     where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
   });
+  const derivedTitle = deriveSessionTitle(messages);
 
   let sessionDbId: number;
 
   if (!session) {
-    const title = messages.find(m => m.role === 'user')?.content;
-    const titleStr = typeof title === 'string' ? title : Array.isArray(title) ? (title[0] as any).text : 'New PI Chat';
-    
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
       userId,
       provider,
       model,
-      title: titleStr.substring(0, 100),
+      title: derivedTitle,
       createdAt: new Date(),
       updatedAt: new Date(),
     }).returning({ id: piSessions.id });
     sessionDbId = inserted.id;
   } else {
     sessionDbId = session.id;
+    const nextTitle = isAutomaticSessionTitle(session.title) ? derivedTitle : session.title;
+
     await db.update(piSessions)
-      .set({ updatedAt: new Date() })
+      .set({ updatedAt: new Date(), title: nextTitle })
       .where(eq(piSessions.id, sessionDbId));
   }
 
@@ -51,7 +109,7 @@ export async function savePiSession(
         piSessionDbId: sessionDbId,
         role: m.role,
         content: JSON.stringify(m),
-        timestamp: (m as any).timestamp || Date.now(),
+        timestamp: getAgentMessageTimestamp(m),
       }))
     );
   }
@@ -82,7 +140,7 @@ export async function loadPiSession(sessionId: string, userId: string): Promise<
       .where(eq(aiMessages.aiSessionDbId, legacySession.id))
       .orderBy(asc(aiMessages.createdAt));
 
-    return legacyMessages.map(m => {
+    return legacyMessages.map<AgentMessage>(m => {
       if (m.role === 'assistant') {
         return {
           role: 'assistant',
@@ -93,13 +151,13 @@ export async function loadPiSession(sessionId: string, userId: string): Promise<
           usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
           stopReason: 'stop',
           timestamp: m.createdAt.getTime(),
-        } as any;
+        } as AgentMessage;
       }
       return {
         role: 'user',
         content: m.content,
         timestamp: m.createdAt.getTime(),
-      } as any;
+      } as AgentMessage;
     });
   }
 
