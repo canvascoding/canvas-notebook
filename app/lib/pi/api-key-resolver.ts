@@ -1,9 +1,19 @@
 import { readScopedEnvState } from '../integrations/env-config';
+import { getProviderApiKey, isOAuthProvider } from './oauth';
 
 /**
  * Resolves API keys for PI providers using existing environment stores.
+ * For OAuth providers, returns the OAuth token instead of an API key.
  */
 export async function resolvePiApiKey(provider: string): Promise<string | undefined> {
+  const providerId = provider.toLowerCase();
+
+  // Check if this is an OAuth provider first
+  if (isOAuthProvider(providerId as any)) {
+    const result = await getProviderApiKey(providerId as any);
+    return result?.apiKey;
+  }
+
   // Use existing agents scope for provider keys
   const agentsState = await readScopedEnvState('agents');
   const integrationsState = await readScopedEnvState('integrations');
@@ -14,8 +24,9 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
     ...Object.entries(process.env).filter(([_, v]) => v !== undefined) as [string, string][],
   ]);
 
-  switch (provider.toLowerCase()) {
+  switch (providerId) {
     case 'openai':
+    case 'openai-codex':
       return allEntries.get('OPENAI_API_KEY');
     case 'anthropic':
       return allEntries.get('ANTHROPIC_API_KEY');
