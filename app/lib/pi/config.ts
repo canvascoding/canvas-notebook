@@ -62,30 +62,32 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
 /**
  * Validates PI runtime configuration.
  */
-export function validatePiConfig(config: any): string | null {
+export function validatePiConfig(config: unknown): string | null {
   if (!config || typeof config !== 'object') {
     return 'Configuration must be an object.';
   }
 
-  if (config.version !== 2) {
+  const candidate = config as Partial<PiRuntimeConfig> & { providers?: Record<string, Partial<PiProviderConfig>> };
+
+  if (candidate.version !== 2) {
     return 'Invalid configuration version. Expected 2.';
   }
 
-  if (!config.activeProvider || typeof config.activeProvider !== 'string') {
+  if (!candidate.activeProvider || typeof candidate.activeProvider !== 'string') {
     return 'Active provider must be a non-empty string.';
   }
 
-  if (!config.providers || typeof config.providers !== 'object') {
+  if (!candidate.providers || typeof candidate.providers !== 'object') {
     return 'Providers must be an object.';
   }
 
-  const activeProvider = config.providers[config.activeProvider];
+  const activeProvider = candidate.providers[candidate.activeProvider];
   if (!activeProvider) {
-    return `Configuration for active provider "${config.activeProvider}" is missing.`;
+    return `Configuration for active provider "${candidate.activeProvider}" is missing.`;
   }
 
   if (!activeProvider.model || typeof activeProvider.model !== 'string') {
-    return `Model for provider "${config.activeProvider}" must be a non-empty string.`;
+    return `Model for provider "${candidate.activeProvider}" must be a non-empty string.`;
   }
 
   return null;

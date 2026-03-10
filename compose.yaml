@@ -7,7 +7,7 @@ services:
     ports:
       - "3000:3000"
     env_file:
-      - .env.local
+      - .env.docker.local
     environment:
       HOSTNAME: 0.0.0.0
       WORKSPACE_DIR: /data/workspace
