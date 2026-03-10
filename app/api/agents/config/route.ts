@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const piConfig = await readPiRuntimeConfig();
-    const readiness = await buildAgentConfigReadiness({});
+    const readiness = await buildAgentConfigReadiness();
     const engine = getActiveAiAgentEngine();
 
     // Discovery metadata
@@ -88,7 +88,7 @@ export async function PUT(request: NextRequest) {
     const piConfigInput = payload.piConfig || payload;
 
     const piConfig = await writePiRuntimeConfig(piConfigInput);
-    const readiness = await buildAgentConfigReadiness({});
+    const readiness = await buildAgentConfigReadiness();
     const engine = getActiveAiAgentEngine();
 
     return NextResponse.json({
