@@ -33,6 +33,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<OAuthStatus | null>(null);
+  const [flowId, setFlowId] = useState('');
   const [authUrl, setAuthUrl] = useState('');
   const [instructions, setInstructions] = useState('');
   const [requiresCode, setRequiresCode] = useState(false);
@@ -73,6 +74,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     setInstructions('');
     setRequiresCode(false);
     setCode('');
+    setFlowId('');
 
     try {
       const response = await fetch('/api/oauth/pi/initiate', {
@@ -88,10 +90,16 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
         throw new Error(data.error || 'Failed to initiate OAuth');
       }
 
+      setFlowId(data.flowId);
       setAuthUrl(data.authUrl || '');
       setInstructions(data.instructions || '');
-      setRequiresCode(data.requiresCode || false);
+      setRequiresCode(data.requiresCode ?? true); // Default to requiring code
       setIsOpen(true);
+      
+      // Open the auth URL immediately if available
+      if (data.authUrl) {
+        window.open(data.authUrl, '_blank');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -105,6 +113,11 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       return;
     }
 
+    if (!flowId || !selectedProvider) {
+      setError('Missing flow information');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -114,8 +127,9 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          provider: selectedProvider?.provider,
-          code: code.trim() || undefined,
+          flowId,
+          provider: selectedProvider.provider,
+          code: code.trim(),
         }),
       });
 
@@ -127,6 +141,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
       setIsOpen(false);
       setCode('');
+      setFlowId('');
       setSelectedProvider(null);
       await loadStatus();
       onStatusChange?.();
@@ -265,7 +280,10 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
             {/* Auth URL */}
             {authUrl && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Step 1: Open this URL</label>
+                <label className="text-sm font-medium">Step 1: Authorization URL</label>
+                <p className="text-xs text-muted-foreground">
+                  This URL has been opened in a new tab. If it didn&apos;t open automatically, copy and paste it into your browser.
+                </p>
                 <div className="flex gap-2">
                   <Input
                     value={authUrl}
@@ -276,6 +294,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                     variant="outline"
                     size="icon"
                     onClick={() => void copyAuthUrl()}
+                    title="Copy URL"
                   >
                     {copied ? (
                       <Check className="h-4 w-4 text-primary" />
@@ -287,6 +306,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                     variant="outline"
                     size="icon"
                     onClick={openAuthUrl}
+                    title="Open in new tab"
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>
@@ -306,10 +326,13 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
             {requiresCode && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Step 2: Enter authorization code</label>
+                <p className="text-xs text-muted-foreground">
+                  After completing authentication in the browser, paste the authorization code or the redirect URL here.
+                </p>
                 <Input
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="Paste authorization code here..."
+                  placeholder="Paste authorization code or callback URL here..."
                   className="font-mono text-xs"
                 />
               </div>
