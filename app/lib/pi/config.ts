@@ -14,6 +14,8 @@ export interface PiProviderConfig {
   // Ollama-specific settings
   ollamaMode?: OllamaMode; // 'local' | 'cloud'
   ollamaHost?: string; // Custom Ollama host URL (default: http://127.0.0.1:11434 for local)
+  // Auth method preference for providers supporting both API key and OAuth
+  authMethod?: 'api-key' | 'oauth';
 }
 
 export interface PiRuntimeConfig {
