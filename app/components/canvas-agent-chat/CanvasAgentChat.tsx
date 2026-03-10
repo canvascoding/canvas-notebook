@@ -655,15 +655,28 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
     // Check if we should show file picker
     const lastAtIndex = value.lastIndexOf('@', cursorPos);
-    if (lastAtIndex !== -1 && cursorPos >= lastAtIndex) {
-      const query = value.slice(lastAtIndex + 1, cursorPos);
-      setFilePickerQuery(query);
-      setShowFilePicker(true);
-      // Fetch files with query
-      void fetchFiles(query);
-    } else {
-      setShowFilePicker(false);
+    if (lastAtIndex !== -1 && cursorPos > lastAtIndex) {
+      const textAfterAt = value.slice(lastAtIndex + 1, cursorPos);
+      
+      // Don't show picker if:
+      // 1. There's a space in the query (user is typing after file selection)
+      // 2. There's a closing quote followed by space (file was already selected with quotes)
+      // 3. There's another @ symbol (user started a new mention)
+      const hasSpace = textAfterAt.includes(' ');
+      const hasCompletedQuote = textAfterAt.includes('"') && textAfterAt.indexOf('"') < textAfterAt.length - 1;
+      const hasAnotherAt = textAfterAt.includes('@');
+      
+      if (!hasSpace && !hasCompletedQuote && !hasAnotherAt) {
+        const query = textAfterAt;
+        setFilePickerQuery(query);
+        setShowFilePicker(true);
+        // Fetch files with query
+        void fetchFiles(query);
+        return;
+      }
     }
+    
+    setShowFilePicker(false);
   }, [fetchFiles]);
 
   // Handle file selection from picker
@@ -672,8 +685,8 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     if (lastAtIndex !== -1) {
       const before = input.slice(0, lastAtIndex);
       const after = input.slice(cursorPosition);
-      // Keep the @ at the beginning to make it clear this is a file reference
-      const newValue = `${before}@${file.path}${after}`;
+      // Wrap path in quotes for clarity, with space after
+      const newValue = `${before}"${file.path}" ${after}`;
       setInput(newValue);
       setShowFilePicker(false);
       setFilePickerQuery('');
@@ -681,7 +694,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       // Focus back to textarea after selection
       setTimeout(() => {
         textareaRef.current?.focus();
-        const newCursorPos = before.length + file.path.length + 1; // +1 for the @
+        const newCursorPos = before.length + file.path.length + 3; // +2 for quotes, +1 for space
         textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
       }, 0);
     }
@@ -690,33 +703,74 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
 
   // Scan text for image references and auto-attach them
+  // Supports both quoted paths: "path/to/image.jpg" and unquoted paths: path/to/image.jpg
   const scanForImageReferences = useCallback(async (text: string): Promise<Attachment[]> => {
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
     const escapedExtensions = imageExtensions.map(ext => ext.replace(/\./g, '\\.'));
-    const imageRegex = new RegExp(`\\b([\\w\\-./]+(?:${escapedExtensions.join('|')}))\\b`, 'gi');
     
-    const matches = text.match(imageRegex) || [];
+    // Pattern 1: Quoted paths: "path/to/file.jpg"
+    const quotedPattern = `"([^"]*(?:${escapedExtensions.join('|')}))"`;
+    // Pattern 2: Unquoted paths (word boundaries)
+    const unquotedPattern = `\\b([\\w\\-./]+(?:${escapedExtensions.join('|')}))\\b`;
+    
     const foundAttachments: Attachment[] = [];
+    const processedPaths = new Set<string>();
     
-    for (const match of matches) {
+    // Try quoted pattern first
+    const quotedRegex = new RegExp(quotedPattern, 'gi');
+    let match;
+    while ((match = quotedRegex.exec(text)) !== null) {
+      const path = match[1];
+      if (processedPaths.has(path)) continue;
+      processedPaths.add(path);
+      
       // Skip if already attached
-      if (attachments.some(att => att.path === match)) continue;
+      if (attachments.some(att => att.path === path)) continue;
       
       // Check if file exists
       try {
-        const res = await fetch(`/api/files/read?path=${encodeURIComponent(match)}`);
+        const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
         if (res.ok) {
           const contentType = res.headers.get('content-type') || 'application/octet-stream';
           const isImage = contentType.startsWith('image/');
           if (isImage) {
             foundAttachments.push({
-              name: match.split('/').pop() || match,
-              path: match,
+              name: path.split('/').pop() || path,
+              path: path,
               type: contentType,
             });
           }
         }
-      } catch (err) {
+      } catch {
+        // File doesn't exist or can't be read, skip
+      }
+    }
+    
+    // Try unquoted pattern
+    const unquotedRegex = new RegExp(unquotedPattern, 'gi');
+    while ((match = unquotedRegex.exec(text)) !== null) {
+      const path = match[1];
+      if (processedPaths.has(path)) continue;
+      processedPaths.add(path);
+      
+      // Skip if already attached
+      if (attachments.some(att => att.path === path)) continue;
+      
+      // Check if file exists
+      try {
+        const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+        if (res.ok) {
+          const contentType = res.headers.get('content-type') || 'application/octet-stream';
+          const isImage = contentType.startsWith('image/');
+          if (isImage) {
+            foundAttachments.push({
+              name: path.split('/').pop() || path,
+              path: path,
+              type: contentType,
+            });
+          }
+        }
+      } catch {
         // File doesn't exist or can't be read, skip
       }
     }

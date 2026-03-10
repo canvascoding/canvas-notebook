@@ -27,6 +27,9 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
       return allEntries.get('GROQ_API_KEY');
     case 'mistral':
       return allEntries.get('MISTRAL_API_KEY');
+    case 'ollama':
+      // Ollama Cloud requires API key, local doesn't
+      return allEntries.get('OLLAMA_API_KEY');
     default:
       return undefined;
   }
