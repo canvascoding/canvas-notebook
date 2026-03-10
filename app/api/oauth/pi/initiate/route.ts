@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     // Create unique flow ID
     const flowId = `flow_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const stateFile = `${OAUTH_STATE_DIR}/${flowId}.json`;
-    const tempScriptPath = `${OAUTH_STATE_DIR}/${flowId}.js`;
+    const tempScriptPath = `${OAUTH_STATE_DIR}/${flowId}.mjs`;
     const tempAuthPath = `${OAUTH_STATE_DIR}/${flowId}_credentials.json`;
 
     // Initial state: pending
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     await writeFile(tempScriptPath, scriptContent);
 
     // Spawn the OAuth process in the background with correct working directory
-    const child = spawn('node', [tempScriptPath], {
+    const child = spawn('node', ['--experimental-vm-modules', tempScriptPath], {
       env: { 
         ...process.env,
         NODE_PATH: `${process.cwd()}/node_modules`,
@@ -127,8 +127,9 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   const loginFn = getLoginFunctionName(provider);
   
   return `
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 // Helper to update state
 function updateState(updates) {
@@ -143,13 +144,7 @@ function updateState(updates) {
 
 async function run() {
   try {
-    // Set up module path for the PI library
-    const projectRoot = '${process.cwd().replace(/'/g, "'\\''")}';
-    const nodeModulesPath = projectRoot + '/node_modules';
-    module.paths.unshift(nodeModulesPath);
-    require.main.paths.unshift(nodeModulesPath);
-    
-    const { ${loginFn} } = require('@mariozechner/pi-ai/oauth');
+    const { ${loginFn} } = await import('@mariozechner/pi-ai/oauth');
     
     // Update state to waiting for auth
     updateState({ status: 'waiting_for_auth', startedAt: Date.now() });
