@@ -17,7 +17,45 @@ const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
   'AGENTS.md': `# AGENTS\n\n- Main agent: canvas-main-agent\n- Scope: Canvas Notebook runtime behavior and guardrails\n`,
   'MEMORY.md': `# MEMORY\n\n- Persistent notes and long-lived decisions for the main agent.\n`,
   'SOUL.md': `# SOUL\n\n- Tone and interaction style for the main agent in Canvas Notebook.\n`,
-  'TOOLS.md': `# TOOLS\n\n- Preferred tools and execution constraints for the main agent.\n`,
+  'TOOLS.md': `# TOOLS
+
+## Skills CLI
+
+Canvas Notebook hat eine Skills CLI für den Agenten.
+
+**Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein.
+
+### Image Generation
+\`\`\`bash
+image-generation --prompt "..." [--aspect-ratio 1:1] [--count 1] [--ref path/to/ref.png]
+\`\`\`
+Aspect ratios: 16:9, 1:1, 9:16, 4:3, 3:4. Count: 1–4.
+Output: workspace/image-generation/generations/
+
+### Video Generation (VEO)
+\`\`\`bash
+video-generation --prompt "..." [--mode text_to_video] [--aspect-ratio 16:9] [--resolution 720p]
+\`\`\`
+Modes: text_to_video, frames_to_video (--start-frame), references_to_video (--ref + --prompt), extend_video (--input-video).
+Output: workspace/veo-studio/video-generation/ — Dauer: 3–10 Minuten.
+
+### Ad Localization (Nano Banana)
+\`\`\`bash
+ad-localization --ref "nano-banana-ad-localizer/assets/ad.png" --market "Germany" --market "France"
+\`\`\`
+Referenzbild MUSS unter nano-banana-ad-localizer/ liegen. Bis zu 12 Märkte pro Aufruf.
+Output: workspace/nano-banana-ad-localizer/localizations/
+
+### Antwortformat
+\`{ "success": true, "data": { ... } }\` oder \`{ "success": false, "error": "..." }\`
+"path"-Felder sind workspace-relativ und können mit dem read-Tool geöffnet werden.
+
+### Skill-Dokumentation
+- /data/skills/README.md
+- /data/skills/image-generation/README.md
+- /data/skills/video-generation/README.md
+- /data/skills/ad-localization/README.md
+`,
 };
 
 export type AgentConfigReadiness = {
