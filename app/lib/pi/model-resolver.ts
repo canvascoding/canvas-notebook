@@ -12,21 +12,21 @@ registerBuiltInApiProviders();
 export const OLLAMA_PROVIDER_ID = 'ollama';
 
 // Recommended Ollama models with metadata
-// Format: Model<'openai'> for OpenAI-compatible API
+// Using 'openai-completions' api type for OpenAI-compatible Ollama API
 // [Lokal] = Muss mit "ollama pull" heruntergeladen werden
 // [Cloud] = Direkt über Ollama Cloud verfügbar
-export const OLLAMA_MODELS: Model<'openai'>[] = [
+export const OLLAMA_MODELS: Model<'openai-completions'>[] = [
   // Lokale Modelle (Meta, Mistral, etc.)
-  { id: 'llama3.1', name: 'Llama 3.1 [Lokal]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'llama3.2', name: 'Llama 3.2 [Lokal]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'mistral', name: 'Mistral [Lokal]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 8192 },
-  { id: 'qwen2.5-coder:32b', name: 'Qwen 2.5 Coder 32B [Lokal]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'deepseek-r1:32b', name: 'DeepSeek R1 32B [Lokal/Cloud]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: true, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'llama3.1', name: 'Llama 3.1 [Lokal]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'llama3.2', name: 'Llama 3.2 [Lokal]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'mistral', name: 'Mistral [Lokal]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 8192 },
+  { id: 'qwen2.5-coder:32b', name: 'Qwen 2.5 Coder 32B [Lokal]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'deepseek-r1:32b', name: 'DeepSeek R1 32B [Lokal/Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: true, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
   // Cloud-Modelle (kein "ollama pull" nötig)
-  { id: 'glm-4', name: 'GLM-4 [Cloud]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'glm-5.6', name: 'GLM 5.6 [Cloud]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'kimi-k2.5', name: 'Kimi K2.5 [Cloud]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 256000, maxTokens: 8192 },
-  { id: 'qwen3.5', name: 'Qwen 3.5 [Cloud]', api: 'openai', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'glm-4', name: 'GLM-4 [Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'glm-5.6', name: 'GLM 5.6 [Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'kimi-k2.5', name: 'Kimi K2.5 [Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 256000, maxTokens: 8192 },
+  { id: 'qwen3.5', name: 'Qwen 3.5 [Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
 ];
 
 export function getPiProviders(): string[] {
