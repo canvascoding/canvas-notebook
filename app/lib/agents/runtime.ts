@@ -13,8 +13,6 @@ export function getActiveAiAgentEngine(): AiAgentEngine {
 }
 
 const aliases: Record<string, AgentId> = {
-  claude: 'claude',
-  'claude-cli': 'claude',
   gemini: 'codex',
   'gemini-cli': 'codex',
   codex: 'codex',
@@ -28,8 +26,8 @@ export function resolveAgentId(raw: unknown): AgentId {
     return raw;
   }
   if (typeof raw !== 'string') {
-    return 'claude';
+    return 'openrouter';
   }
   const normalized = raw.trim().toLowerCase();
-  return aliases[normalized] || 'claude';
+  return aliases[normalized] || 'openrouter';
 }
