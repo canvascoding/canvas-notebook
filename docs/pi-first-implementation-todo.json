@@ -628,6 +628,7 @@
       "dependsOn": [
         "pi-055"
       ]
+    },
     {
       "id": "pi-057",
       "order": 57,
@@ -637,6 +638,17 @@
       "priority": "should",
       "dependsOn": [
         "pi-009"
+      ]
+    },
+    {
+      "id": "pi-058",
+      "order": 58,
+      "phase": "P12 Enhancement",
+      "title": "Add inline API key editing in Agent Settings with multi-key support",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-057"
       ]
     }
   ]

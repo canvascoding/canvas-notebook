@@ -28,6 +28,7 @@ import {
   getProviderHelp,
   type ProviderHelpInfo,
 } from '@/app/lib/pi/provider-help';
+import { ProviderEnvEditor } from './ProviderEnvEditor';
 
 const MANAGED_FILES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
@@ -257,6 +258,15 @@ export function AgentSettingsPanel() {
       void runDoctor();
     }
   }, [searchParams, doctorResult, doctorRunning, runDoctor]);
+
+  // Listen for refresh events from ProviderEnvEditor
+  useEffect(() => {
+    const handleRefresh = () => {
+      void loadConfig();
+    };
+    window.addEventListener('refresh-agent-config', handleRefresh);
+    return () => window.removeEventListener('refresh-agent-config', handleRefresh);
+  }, [loadConfig]);
 
   const saveConfig = async () => {
     if (!piConfigDraft) {
@@ -875,44 +885,16 @@ function ProviderHelpSection({ providerId, isProviderReady, isOpen, onOpenChange
 
           {/* Environment Variables */}
           {help.envVars && help.envVars.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold">Benötigte Umgebungsvariablen:</h4>
-              <div className="space-y-2">
-                {help.envVars.map((envVar) => (
-                  <div
-                    key={envVar.name}
-                    className="rounded border border-border bg-background p-2 text-sm"
-                  >
-                    <div className="flex items-center justify-between">
-                      <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
-                        {envVar.name}
-                      </code>
-                      <span className="text-xs text-muted-foreground">
-                        {envVar.scope === 'agents' ? 'Agent Environment' : 'Integrations'}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {envVar.description}
-                      {envVar.required && (
-                        <span className="text-destructive ml-1">*</span>
-                      )}
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={() => {
-                  // Navigate to settings with appropriate tab
-                  const scope = help.envVars?.[0]?.scope || 'agents';
-                  window.location.href = `/settings?tab=${scope === 'agents' ? 'integrations' : 'integrations'}`;
+            <div className="space-y-4 border-t border-border pt-4">
+              <h4 className="text-sm font-semibold">API-Keys konfigurieren:</h4>
+              <ProviderEnvEditor
+                providerId={providerId}
+                envVars={help.envVars}
+                onSaveComplete={() => {
+                  // Refresh provider status after save
+                  window.dispatchEvent(new CustomEvent('refresh-agent-config'));
                 }}
-              >
-                <ExternalLink className="mr-2 h-3 w-3" />
-                Zu den Einstellungen
-              </Button>
+              />
             </div>
           )}
 
