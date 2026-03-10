@@ -687,33 +687,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     }
   }, [input, cursorPosition]);
 
-  // Handle keyboard navigation in file picker
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!showFilePicker || filePickerFiles.length === 0) return;
 
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        setSelectedFileIndex((prev) => 
-          prev < filePickerFiles.length - 1 ? prev + 1 : prev
-        );
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setSelectedFileIndex((prev) => (prev > 0 ? prev - 1 : 0));
-        break;
-      case 'Enter':
-      case 'Tab':
-        e.preventDefault();
-        if (filePickerFiles[selectedFileIndex]) {
-          handleFileSelect(filePickerFiles[selectedFileIndex]);
-        }
-        break;
-      case 'Escape':
-        setShowFilePicker(false);
-        break;
-    }
-  }, [showFilePicker, filePickerFiles, selectedFileIndex, handleFileSelect]);
 
   // Scan text for image references and auto-attach them
   const scanForImageReferences = useCallback(async (text: string): Promise<Attachment[]> => {
@@ -795,6 +769,41 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     setAttachments([]);
     queueMessage(text, currentAttachments);
   }, [input, attachments, queueMessage, scanForImageReferences]);
+
+  // Handle keyboard navigation in file picker and textarea
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Handle file picker navigation when it's open
+    if (showFilePicker && filePickerFiles.length > 0) {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setSelectedFileIndex((prev) => 
+            prev < filePickerFiles.length - 1 ? prev + 1 : prev
+          );
+          return;
+        case 'ArrowUp':
+          e.preventDefault();
+          setSelectedFileIndex((prev) => (prev > 0 ? prev - 1 : 0));
+          return;
+        case 'Enter':
+        case 'Tab':
+          e.preventDefault();
+          if (filePickerFiles[selectedFileIndex]) {
+            handleFileSelect(filePickerFiles[selectedFileIndex]);
+          }
+          return;
+        case 'Escape':
+          setShowFilePicker(false);
+          return;
+      }
+    }
+
+    // Handle Enter key to send message (only when picker is not open)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [showFilePicker, filePickerFiles, selectedFileIndex, handleFileSelect, handleSend]);
 
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
