@@ -131,6 +131,20 @@ async function run() {
         TEST_LOGIN_PASSWORD: credentials.password,
       },
     });
+    await runCommand('npm', ['run', 'test:prompt-builder'], {
+      env: {
+        ...process.env,
+        BASE_URL: resolvedBaseUrl,
+      },
+    });
+    await runCommand('npm', ['run', 'test:integration:pi'], {
+      env: {
+        ...process.env,
+        BASE_URL: resolvedBaseUrl,
+        TEST_LOGIN_EMAIL: credentials.email,
+        TEST_LOGIN_PASSWORD: credentials.password,
+      },
+    });
     await runCommand('npm', ['run', 'test:e2e'], {
       env: {
         ...process.env,

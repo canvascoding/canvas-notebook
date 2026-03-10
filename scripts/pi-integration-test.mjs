@@ -64,6 +64,54 @@ async function testConfig(cookie) {
   console.log('[PI Test] Config update successful.');
 }
 
+async function testManagedFiles(cookie) {
+  console.log('[PI Test] Testing /api/agents/files...');
+  const list = await request('/api/agents/files', { headers: { cookie } });
+  if (!list.response.ok || !list.body?.data?.files?.['AGENTS.md']) {
+    throw new Error('GET agent files failed');
+  }
+
+  const marker = `PI_PROMPT_MARKER_${Date.now()}`;
+  const currentContent = list.body.data.files['AGENTS.md'];
+  const nextContent = `${currentContent.trim()}\n\n- Integration marker: ${marker}\n`;
+
+  const update = await request('/api/agents/files', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({
+      fileName: 'AGENTS.md',
+      content: nextContent,
+    }),
+  });
+  if (!update.response.ok || !update.body?.data?.content?.includes(marker)) {
+    throw new Error('PUT agent file failed');
+  }
+
+  const doctor = await request('/api/agents/doctor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({ livePing: true }),
+  });
+  if (!doctor.response.ok) {
+    throw new Error('Doctor request failed');
+  }
+
+  const promptDiagnostics = doctor.body?.data?.promptDiagnostics;
+  if (!promptDiagnostics) {
+    throw new Error('Doctor response missing prompt diagnostics');
+  }
+
+  if (!Array.isArray(promptDiagnostics.includedFiles) || !promptDiagnostics.includedFiles.includes('AGENTS.md')) {
+    throw new Error('Prompt diagnostics do not include AGENTS.md');
+  }
+
+  if (promptDiagnostics.usedFallback) {
+    throw new Error(`Prompt diagnostics unexpectedly used fallback (${promptDiagnostics.fallbackReason || 'unknown'})`);
+  }
+
+  console.log('[PI Test] Managed files check passed.');
+}
+
 async function testSessions(cookie) {
   console.log('[PI Test] Testing /api/sessions...');
   // Create
@@ -181,6 +229,7 @@ async function run() {
   try {
     const cookie = await signIn();
     await testConfig(cookie);
+    await testManagedFiles(cookie);
     const sessionId = await testSessions(cookie);
     await testStream(cookie, sessionId);
     await testSessionPersistence(cookie, sessionId);
