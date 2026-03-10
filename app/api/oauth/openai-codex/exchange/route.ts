@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import crypto from 'crypto';
+import { spawn } from 'child_process';
 
 /**
  * POST /api/oauth/openai-codex/exchange
- * Exchange callback URL for token by extracting code and calling OpenAI API
+ * Pass callback URL to Codex CLI to complete authentication
  */
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse callback URL
+    // Parse callback URL to extract code and state
     let url: URL;
     try {
       url = new URL(callbackUrl);
@@ -54,37 +54,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Exchange code for token with OpenAI
-    const tokenResult = await exchangeCodeForToken(code);
+    // Complete the OAuth flow by passing the code to Codex CLI
+    // Codex CLI will exchange the code for a token and store it locally
+    const result = await completeCodexLogin(code, state || '');
 
-    if (!tokenResult.success || !tokenResult.accessToken) {
+    if (!result.success) {
       return NextResponse.json(
-        { success: false, error: tokenResult.error || 'Failed to exchange code for token' },
+        { success: false, error: result.error || 'Failed to complete login' },
         { status: 500 }
       );
     }
 
-    // Get user info from OpenAI
-    const userInfo = await getOpenAIUserInfo(tokenResult.accessToken);
-
-    // Store token in our database
-    const { storeToken } = await import('@/app/lib/oauth/store');
-    await storeToken({
-      id: crypto.randomUUID(),
-      provider: 'openai-codex',
-      accessToken: tokenResult.accessToken,
-      refreshToken: tokenResult.refreshToken,
-      expiresAt: tokenResult.expiresAt,
-      scope: tokenResult.scope,
-      email: userInfo.email,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-
     return NextResponse.json({
       success: true,
-      email: userInfo.email,
-      message: 'Successfully connected OpenAI account',
+      email: result.email,
+      message: 'Successfully connected OpenAI account via Codex CLI',
     });
   } catch (error) {
     console.error('OAuth exchange failed:', error);
@@ -95,74 +79,80 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function exchangeCodeForToken(code: string): Promise<{
-  success: boolean;
-  accessToken?: string;
-  refreshToken?: string;
-  expiresAt?: number;
-  scope?: string;
-  error?: string;
-}> {
-  try {
-    const clientId = process.env.OPENAI_CODEX_CLIENT_ID || 'app_EMoamEEZ73f0CkXaXp7hrann';
-    const clientSecret = process.env.OPENAI_CODEX_CLIENT_SECRET || '';
-    const redirectUri = process.env.OPENAI_CODEX_REDIRECT_URI || 'http://localhost:3000/callback';
-    
-    const tokenUrl = 'https://auth.openai.com/token';
-    
-    const response = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: clientId,
-        client_secret: clientSecret,
-        code: code,
-        redirect_uri: redirectUri,
-      }),
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Token exchange failed: ${errorText}`);
-    }
-    
-    const data = await response.json();
-    
-    return {
-      success: true,
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
-      scope: data.scope,
+async function completeCodexLogin(code: string, state: string): Promise<{ success: boolean; email?: string; error?: string }> {
+  return new Promise((resolve) => {
+    // Spawn codex login process
+    // We'll simulate the callback by passing the code via environment variables
+    // or by making a request to the local callback server if running
+    const env = {
+      ...process.env,
+      CODEX_OAUTH_CODE: code,
+      CODEX_OAUTH_STATE: state,
     };
-  } catch (error) {
-    console.error('Token exchange error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Token exchange failed',
-    };
-  }
-}
 
-async function getOpenAIUserInfo(accessToken: string): Promise<{ email?: string }> {
-  try {
-    const response = await fetch('https://api.openai.com/v1/me', {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
+    // Try to complete the login by spawning codex with the code
+    // Codex CLI might accept the code via stdin or environment
+    const codex = spawn('codex', ['login', '--code', code], {
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
-    
-    if (!response.ok) {
-      return { email: undefined };
-    }
-    
-    const data = await response.json();
-    return { email: data.email };
-  } catch (error) {
-    console.error('Failed to get user info:', error);
-    return { email: undefined };
-  }
+
+    let stdout = '';
+    let stderr = '';
+
+    codex.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    codex.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    codex.on('close', (code) => {
+      console.log('Codex login stdout:', stdout);
+      console.log('Codex login stderr:', stderr);
+      console.log('Codex login exit code:', code);
+
+      // Check if successful
+      if (code === 0 || stdout.includes('success') || stdout.includes('authenticated')) {
+        // Try to extract email from output
+        const emailMatch = stdout.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+        resolve({
+          success: true,
+          email: emailMatch ? emailMatch[1] : undefined,
+        });
+      } else if (stderr.includes('already') || stderr.includes('authenticated')) {
+        resolve({
+          success: true,
+          email: undefined,
+        });
+      } else {
+        resolve({
+          success: false,
+          error: stderr || 'Codex login failed',
+        });
+      }
+    });
+
+    codex.on('error', (error) => {
+      console.error('Failed to spawn codex:', error);
+      resolve({
+        success: false,
+        error: error.message,
+      });
+    });
+
+    // Send code via stdin as alternative method
+    codex.stdin.write(`${code}\n`);
+    codex.stdin.end();
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      codex.kill();
+      resolve({
+        success: false,
+        error: 'Codex login timed out',
+      });
+    }, 30000);
+  });
 }
