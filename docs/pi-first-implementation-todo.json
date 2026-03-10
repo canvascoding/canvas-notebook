@@ -661,6 +661,50 @@
       "dependsOn": [
         "pi-059"
       ]
+    },
+    {
+      "id": "pi-061",
+      "order": 61,
+      "phase": "P12 Enhancement",
+      "title": "Add @-mention file picker dropdown in chat UI with workspace file listing",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-054"
+      ]
+    },
+    {
+      "id": "pi-062",
+      "order": 62,
+      "phase": "P12 Enhancement",
+      "title": "Add frontend auto-scan for image references in chat text before sending",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-061"
+      ]
+    },
+    {
+      "id": "pi-063",
+      "order": 63,
+      "phase": "P12 Enhancement",
+      "title": "Add backend message normalization to convert image paths to ImageContent",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-062"
+      ]
+    },
+    {
+      "id": "pi-064",
+      "order": 64,
+      "phase": "P12 Enhancement",
+      "title": "Test image auto-recognition with various image formats and paths",
+      "status": "in_progress",
+      "priority": "should",
+      "dependsOn": [
+        "pi-063"
+      ]
     }
   ]
 }
