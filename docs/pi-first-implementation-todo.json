@@ -584,6 +584,17 @@
       "dependsOn": [
         "pi-051"
       ]
+    },
+    {
+      "id": "pi-053",
+      "order": 53,
+      "phase": "P11 Hotfix",
+      "title": "Fix second-turn PI chat regression by preserving structured assistant context in the existing chat UI",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-052"
+      ]
     }
   ]
 }

@@ -4,6 +4,8 @@ const TEST_EMAIL = 'info@canvasstudios.store';
 const TEST_PASSWORD = 'Canvas2026!';
 
 test.describe('PI Chat E2E', () => {
+  test.setTimeout(90000);
+
   test.beforeEach(async ({ page }) => {
     // Login
     await page.goto('/login');
@@ -43,5 +45,31 @@ test.describe('PI Chat E2E', () => {
     // Open history to ensure the toggle still works after bootstrap
     await page.locator('button').filter({ has: page.locator('.lucide-history') }).first().click();
     await expect(page.getByText('Sessions', { exact: true })).toBeVisible();
+  });
+
+  test('should keep structured PI context for a second turn', async ({ page }) => {
+    await page.goto('/chat');
+
+    const input = page.getByTestId('chat-input');
+    const assistantMessages = page.getByTestId('chat-message-assistant');
+    const marker = 'RESUME_MARKER_ALPHA';
+
+    await input.fill(`Merke dir exakt dieses Token: ${marker}. Antworte nur mit OK.`);
+    await input.press('Enter');
+
+    await expect(assistantMessages).toHaveCount(1, { timeout: 60000 });
+    await expect.poll(async () => {
+      const text = await assistantMessages.first().textContent();
+      return (text || '').replace(/\s+/g, ' ').trim();
+    }, { timeout: 60000 }).toContain('OK');
+
+    await input.fill('Gib exakt das Token aus, das ich dir gerade gegeben habe, und nichts anderes.');
+    await input.press('Enter');
+
+    await expect(assistantMessages).toHaveCount(2, { timeout: 60000 });
+    await expect.poll(async () => {
+      const text = await assistantMessages.last().textContent();
+      return (text || '').replace(/\s+/g, ' ').trim();
+    }, { timeout: 60000 }).toContain(marker);
   });
 });
