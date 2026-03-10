@@ -12,32 +12,40 @@ interface FileEntry {
 }
 
 async function collectFilesRecursive(dirPath: string, basePath: string = ''): Promise<FileEntry[]> {
-  const entries = await listDirectory(dirPath);
-  const files: FileEntry[] = [];
+  try {
+    const entries = await listDirectory(dirPath);
+    const files: FileEntry[] = [];
 
-  for (const entry of entries) {
-    const fullPath = basePath ? `${basePath}/${entry.path}` : entry.path;
-    
-    if (entry.type === 'directory') {
-      // Recursively collect files from subdirectories
-      const subFiles = await collectFilesRecursive(fullPath, fullPath);
-      files.push(...subFiles);
-    } else {
-      // Check if it's an image
-      const extension = entry.path.split('.').pop()?.toLowerCase();
-      const isImage = extension ? ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(extension) : false;
+    for (const entry of entries) {
+      const fullPath = basePath ? `${basePath}/${entry.path}` : entry.path;
       
-      files.push({
-        name: entry.name,
-        path: fullPath,
-        type: 'file',
-        extension,
-        isImage,
-      });
+      if (entry.type === 'directory') {
+        // Recursively collect files from subdirectories
+        try {
+          const subFiles = await collectFilesRecursive(fullPath, fullPath);
+          files.push(...subFiles);
+        } catch {
+          // Skip directories we can't read
+        }
+      } else {
+        // Check if it's an image
+        const extension = entry.path.split('.').pop()?.toLowerCase();
+        const isImage = extension ? ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(extension) : false;
+        
+        files.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'file',
+          extension,
+          isImage,
+        });
+      }
     }
-  }
 
-  return files;
+    return files;
+  } catch {
+    return [];
+  }
 }
 
 export async function GET(request: NextRequest) {
