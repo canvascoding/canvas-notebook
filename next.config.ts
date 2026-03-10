@@ -1,14 +1,23 @@
 import type { NextConfig } from "next";
 
+const externalPackages = [
+  'node-pty',
+  'better-sqlite3',
+  'better-auth',
+  'drizzle-orm',
+  '@mariozechner/pi-ai',
+  '@mariozechner/pi-agent-core',
+];
+
 const nextConfig: NextConfig = {
   // Wichtig für native Server-Pakete: Als external markieren im Server Bundle
   webpack: (config, { isServer }) => {
     if (isServer) {
-      config.externals.push('node-pty', 'better-sqlite3', 'better-auth', 'drizzle-orm');
+      config.externals.push(...externalPackages);
     }
     return config;
   },
-  serverExternalPackages: ['node-pty', 'better-sqlite3', 'better-auth', 'drizzle-orm'],
+  serverExternalPackages: externalPackages,
   poweredByHeader: false,
   compress: true,
 
