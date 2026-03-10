@@ -93,7 +93,7 @@
       "id": "pi-006",
       "order": 6,
       "phase": "P2 Config and Settings",
-      "title": "Extend agent runtime storage to persist PI config in /home/node/canvas-agent",
+      "title": "Extend agent runtime storage to persist PI config in /data/canvas-agent",
       "status": "done",
       "priority": "must",
       "dependsOn": [
@@ -627,6 +627,16 @@
       "priority": "must",
       "dependsOn": [
         "pi-055"
+      ]
+    {
+      "id": "pi-057",
+      "order": 57,
+      "phase": "P12 Enhancement",
+      "title": "Add contextual provider help documentation in Agent Settings with collapsible UI",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-009"
       ]
     }
   ]
