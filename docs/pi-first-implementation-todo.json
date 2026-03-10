@@ -595,6 +595,17 @@
       "dependsOn": [
         "pi-052"
       ]
+    },
+    {
+      "id": "pi-054",
+      "order": 54,
+      "phase": "P11 Hotfix",
+      "title": "Polish PI chat UI rendering for markdown, tool cards, and session metadata",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-053"
+      ]
     }
   ]
 }
