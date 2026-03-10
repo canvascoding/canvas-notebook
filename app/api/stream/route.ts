@@ -6,7 +6,7 @@ import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
-import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
+import { normalizePiMessagesForLlm, filterImagesForNonVisionModel } from '@/app/lib/pi/message-normalization';
 import { savePiSession, loadPiSessionWithSummary } from '@/app/lib/pi/session-store';
 import { composePiHistoryForLlm, type PiSessionSummaryState } from '@/app/lib/pi/history-budget';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
@@ -94,25 +94,24 @@ export async function POST(request: NextRequest) {
     
     if (!visionSupported) {
       // Filter out image content from messages for non-vision models
-      const filteredMessages = messages.map(msg => {
-        if (msg.role === 'user' && Array.isArray(msg.content)) {
-          const textOnlyContent = msg.content.filter(part => {
-            if (typeof part === 'object' && part !== null) {
-              return part.type !== 'image';
-            }
-            return true;
-          });
-          
-          if (textOnlyContent.length < msg.content.length) {
-            console.log(`[PI Stream] [${logSessionId}] Filtered out image content from message - model ${model.id} doesn't support vision`);
-          }
-          
-          return { ...msg, content: textOnlyContent };
-        }
-        return msg;
-      });
+      const originalMessageCount = messages.length;
+      const filteredMessages = filterImagesForNonVisionModel(messages);
       
-      // Replace messages with filtered versions
+      // Check if any images were filtered
+      let imagesFiltered = 0;
+      for (let i = 0; i < messages.length; i++) {
+        const originalContent = messages[i].content;
+        const filteredContent = filteredMessages[i].content;
+        if (Array.isArray(originalContent) && Array.isArray(filteredContent)) {
+          imagesFiltered += originalContent.length - filteredContent.length;
+        }
+      }
+      
+      if (imagesFiltered > 0) {
+        console.log(`[PI Stream] [${logSessionId}] Filtered out ${imagesFiltered} image(s) - model ${model.id} doesn't support vision`);
+      }
+      
+      // Replace messages array contents
       messages.splice(0, messages.length, ...filteredMessages);
     } else {
       console.log(`[PI Stream] [${logSessionId}] Model ${model.id} supports vision - processing images`);

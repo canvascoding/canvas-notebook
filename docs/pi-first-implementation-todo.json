@@ -701,10 +701,54 @@
       "order": 64,
       "phase": "P12 Enhancement",
       "title": "Test image auto-recognition with various image formats and paths",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "should",
       "dependsOn": [
         "pi-063"
+      ]
+    },
+    {
+      "id": "pi-065",
+      "order": 65,
+      "phase": "P12 Enhancement",
+      "title": "Implement vision model detection and filtering for non-vision models",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-063"
+      ]
+    },
+    {
+      "id": "pi-066",
+      "order": 66,
+      "phase": "P12 Enhancement",
+      "title": "Add image resize and compression on upload to reduce token usage",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-065"
+      ]
+    },
+    {
+      "id": "pi-067",
+      "order": 67,
+      "phase": "P12 Enhancement",
+      "title": "Add vision indicator in model selector UI",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-066"
+      ]
+    },
+    {
+      "id": "pi-068",
+      "order": 68,
+      "phase": "P12 Enhancement",
+      "title": "Add frontend warning when images are attached to non-vision models",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "pi-067"
       ]
     }
   ]

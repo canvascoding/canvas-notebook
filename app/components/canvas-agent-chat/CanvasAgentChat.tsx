@@ -80,6 +80,20 @@ type QueuedMessage = {
   attachments: Attachment[];
 };
 
+type DiscoveryModel = {
+  id: string;
+  name: string;
+  supportsVision?: boolean;
+};
+
+type AgentConfig = {
+  piConfig: {
+    activeProvider: string;
+    providers: Record<string, { model: string }>;
+  };
+  discovery: Record<string, { models: DiscoveryModel[] }>;
+};
+
 type UpdateFunction = (content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => void;
 
 interface CanvasAgentChatProps {
@@ -300,6 +314,8 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const [history, setHistory] = useState<AISession[]>([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [showVisionWarning, setShowVisionWarning] = useState(false);
 
   // @-mention file picker state
   const [showFilePicker, setShowFilePicker] = useState(false);
@@ -859,6 +875,34 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     }
   }, [showFilePicker, filePickerFiles, selectedFileIndex, handleFileSelect, handleSend]);
 
+  // Fetch agent config to check vision support
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch('/api/agents/config');
+        const data = await res.json();
+        if (data.success) {
+          setAgentConfig(data.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch agent config', err);
+      }
+    };
+    fetchConfig();
+  }, []);
+
+  // Check if current model supports vision
+  const currentModelSupportsVision = useCallback(() => {
+    if (!agentConfig) return false;
+    const activeProvider = agentConfig.piConfig.activeProvider;
+    const activeModel = agentConfig.piConfig.providers[activeProvider]?.model;
+    if (!activeModel) return false;
+    
+    const models = agentConfig.discovery[activeProvider]?.models || [];
+    const model = models.find(m => m.id === activeModel);
+    return model?.supportsVision || false;
+  }, [agentConfig]);
+
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
     const candidatePrompt = (initialPrompt || '').trim();
@@ -1159,6 +1203,12 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       </div>
 
       <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 p-3">
+        {/* Vision warning */}
+        {attachments.length > 0 && !currentModelSupportsVision() && (
+          <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-600">
+            <strong>Achtung:</strong> Das aktuelle Modell unterstützt keine Bilder. Die angehängten Bilder werden ignoriert.
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
             {attachments.map((attachment, index) => (
