@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { ImageContent, Message, ToolResultMessage, UserMessage } from '@mariozechner/pi-ai';
+import { getWorkspacePath } from '../utils/workspace-manager';
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -10,10 +11,16 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.png': 'image/png',
   '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
 };
 
 const DATA_URL_PATTERN = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+// Regex to detect image file references in text
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
+const IMAGE_PATH_REGEX = new RegExp(`\\b([\\w\\-./]+(?:${IMAGE_EXTENSIONS.map(ext => ext.replace(/\./g, '\\.')).join('|')}))\\b`, 'gi');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -92,12 +99,79 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
   );
 }
 
+/**
+ * Scans text for image file references and converts them to ImageContent
+ */
+async function extractImageReferencesFromText(text: string): Promise<ImageContent[]> {
+  const images: ImageContent[] = [];
+  const matches = [...text.matchAll(IMAGE_PATH_REGEX)];
+  
+  for (const match of matches) {
+    const filePath = match[1];
+    try {
+      const workspacePath = getWorkspacePath();
+      const fullPath = path.isAbsolute(filePath) ? filePath : path.join(workspacePath, filePath);
+      
+      // Check if file exists and is readable
+      const stats = await fs.stat(fullPath);
+      if (stats.isFile()) {
+        const buffer = await fs.readFile(fullPath);
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeType = IMAGE_MIME_BY_EXTENSION[ext];
+        
+        if (mimeType) {
+          images.push({
+            type: 'image',
+            data: buffer.toString('base64'),
+            mimeType,
+          });
+        }
+      }
+    } catch {
+      // File doesn't exist or can't be read, skip
+    }
+  }
+  
+  return images;
+}
+
+/**
+ * Processes text content to extract image references and convert them to ImageContent
+ */
+async function processTextContent(
+  content: Array<{ type: 'text'; text: string } | ImageContent>,
+): Promise<Array<{ type: 'text'; text: string } | ImageContent>> {
+  const result: Array<{ type: 'text'; text: string } | ImageContent> = [];
+  
+  for (const part of content) {
+    if (isImageContentPart(part)) {
+      result.push(part);
+    } else if (part.type === 'text' && part.text) {
+      // Extract image references from text
+      const images = await extractImageReferencesFromText(part.text);
+      if (images.length > 0) {
+        result.push(part);
+        result.push(...images);
+      } else {
+        result.push(part);
+      }
+    } else {
+      result.push(part);
+    }
+  }
+  
+  return result;
+}
+
 async function normalizeImageArray(
   content: Array<{ type: 'text'; text: string } | ImageContent>,
 ): Promise<Array<{ type: 'text'; text: string } | ImageContent>> {
-  let changed = false;
+  // First process text content for image references
+  const processedContent = await processTextContent(content);
+  
+  let changed = processedContent !== content;
   const normalizedContent = await Promise.all(
-    content.map(async (part) => {
+    processedContent.map(async (part) => {
       if (!isImageContentPart(part)) {
         return part;
       }

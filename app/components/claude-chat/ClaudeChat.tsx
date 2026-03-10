@@ -17,6 +17,7 @@ import {
   Pencil,
   Sparkles,
   Wrench,
+  File as FileIcon,
 } from 'lucide-react';
 
 interface Attachment {
@@ -299,6 +300,16 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
   const [history, setHistory] = useState<AISession[]>([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
+
+  // @-mention file picker state
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const [filePickerQuery, setFilePickerQuery] = useState('');
+  const [filePickerFiles, setFilePickerFiles] = useState<Array<{ name: string; path: string; type: 'file' | 'directory'; isImage: boolean }>>([]);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const filePickerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [cursorPosition, setCursorPosition] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -618,6 +629,126 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     }
   }, [handleFileUpload]);
 
+  // Fetch files for @-mention picker
+  const fetchFiles = useCallback(async (query: string = '') => {
+    setIsLoadingFiles(true);
+    try {
+      const res = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=50`);
+      const data = await res.json();
+      if (data.success) {
+        setFilePickerFiles(data.files);
+        setSelectedFileIndex(0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch files', err);
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  }, []);
+
+  // Handle @-mention in textarea
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    setInput(value);
+    setCursorPosition(cursorPos);
+
+    // Check if we should show file picker
+    const lastAtIndex = value.lastIndexOf('@', cursorPos);
+    if (lastAtIndex !== -1 && cursorPos >= lastAtIndex) {
+      const query = value.slice(lastAtIndex + 1, cursorPos);
+      setFilePickerQuery(query);
+      setShowFilePicker(true);
+      // Fetch files with query
+      void fetchFiles(query);
+    } else {
+      setShowFilePicker(false);
+    }
+  }, [fetchFiles]);
+
+  // Handle file selection from picker
+  const handleFileSelect = useCallback((file: { name: string; path: string }) => {
+    const lastAtIndex = input.lastIndexOf('@', cursorPosition);
+    if (lastAtIndex !== -1) {
+      const before = input.slice(0, lastAtIndex);
+      const after = input.slice(cursorPosition);
+      const newValue = `${before}${file.path}${after}`;
+      setInput(newValue);
+      setShowFilePicker(false);
+      setFilePickerQuery('');
+      
+      // Focus back to textarea after selection
+      setTimeout(() => {
+        textareaRef.current?.focus();
+        const newCursorPos = before.length + file.path.length;
+        textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+      }, 0);
+    }
+  }, [input, cursorPosition]);
+
+  // Handle keyboard navigation in file picker
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!showFilePicker || filePickerFiles.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSelectedFileIndex((prev) => 
+          prev < filePickerFiles.length - 1 ? prev + 1 : prev
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSelectedFileIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        break;
+      case 'Enter':
+      case 'Tab':
+        e.preventDefault();
+        if (filePickerFiles[selectedFileIndex]) {
+          handleFileSelect(filePickerFiles[selectedFileIndex]);
+        }
+        break;
+      case 'Escape':
+        setShowFilePicker(false);
+        break;
+    }
+  }, [showFilePicker, filePickerFiles, selectedFileIndex, handleFileSelect]);
+
+  // Scan text for image references and auto-attach them
+  const scanForImageReferences = useCallback(async (text: string): Promise<Attachment[]> => {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
+    const escapedExtensions = imageExtensions.map(ext => ext.replace(/\./g, '\\.'));
+    const imageRegex = new RegExp(`\\b([\\w\\-./]+(?:${escapedExtensions.join('|')}))\\b`, 'gi');
+    
+    const matches = text.match(imageRegex) || [];
+    const foundAttachments: Attachment[] = [];
+    
+    for (const match of matches) {
+      // Skip if already attached
+      if (attachments.some(att => att.path === match)) continue;
+      
+      // Check if file exists
+      try {
+        const res = await fetch(`/api/files/read?path=${encodeURIComponent(match)}`);
+        if (res.ok) {
+          const contentType = res.headers.get('content-type') || 'application/octet-stream';
+          const isImage = contentType.startsWith('image/');
+          if (isImage) {
+            foundAttachments.push({
+              name: match.split('/').pop() || match,
+              path: match,
+              type: contentType,
+            });
+          }
+        }
+      } catch (err) {
+        // File doesn't exist or can't be read, skip
+      }
+    }
+    
+    return foundAttachments;
+  }, [attachments]);
+
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
@@ -645,14 +776,24 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     setQueue((prev) => [...prev, { id: messageId, text, attachments: messageAttachments }]);
   }, []);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if (!input.trim() && attachments.length === 0) return;
     const text = input.trim();
-    const currentAttachments = [...attachments];
+    
+    // Auto-scan for image references in the text
+    const autoAttachments = await scanForImageReferences(text);
+    const allAttachments = [...attachments, ...autoAttachments];
+    
+    // Update attachments state with found images
+    if (autoAttachments.length > 0) {
+      setAttachments((prev) => [...prev, ...autoAttachments]);
+    }
+    
+    const currentAttachments = [...allAttachments];
     setInput('');
     setAttachments([]);
     queueMessage(text, currentAttachments);
-  }, [input, attachments, queueMessage]);
+  }, [input, attachments, queueMessage, scanForImageReferences]);
 
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
@@ -971,20 +1112,54 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
             <Paperclip className="h-5 w-5" />
           </button>
           <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*" />
-          <textarea
-            data-testid="chat-input"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onPaste={handlePaste}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="Ask about your project..."
-            className="min-h-[44px] max-h-32 flex-1 resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          />
+          <div className="relative flex-1">
+            <textarea
+              ref={textareaRef}
+              data-testid="chat-input"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder="Ask about your project... (Type @ to reference files)"
+              className="min-h-[44px] max-h-32 w-full resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            
+            {/* File Picker Dropdown */}
+            {showFilePicker && (
+              <div
+                ref={filePickerRef}
+                className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto border border-border bg-background shadow-lg z-50"
+              >
+                <div className="p-2 text-xs text-muted-foreground border-b border-border">
+                  {isLoadingFiles ? 'Loading files...' : `${filePickerFiles.length} files found`}
+                </div>
+                {filePickerFiles.map((file, index) => (
+                  <button
+                    key={file.path}
+                    onClick={() => handleFileSelect(file)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${
+                      index === selectedFileIndex ? 'bg-accent' : ''
+                    }`}
+                  >
+                    {file.isImage ? (
+                      <ImageIcon className="h-4 w-4 text-blue-500" />
+                    ) : (
+                      <FileIcon className="h-4 w-4 text-gray-500" />
+                    )}
+                    <span className="flex-1 truncate">{file.path}</span>
+                    {index === selectedFileIndex && (
+                      <span className="text-xs text-muted-foreground">↵</span>
+                    )}
+                  </button>
+                ))}
+                {filePickerFiles.length === 0 && !isLoadingFiles && (
+                  <div className="p-3 text-sm text-muted-foreground text-center">
+                    No files found matching &ldquo;{filePickerQuery}&rdquo;
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <button data-testid="chat-send" onClick={handleSend} className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30" disabled={!input.trim() && attachments.length === 0}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
               <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
