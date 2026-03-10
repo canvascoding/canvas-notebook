@@ -121,7 +121,7 @@
                   - tab "MEMORY.md" [ref=e74]
                   - tab "SOUL.md" [ref=e75]
                   - tab "TOOLS.md" [ref=e76]
-                - textbox [ref=e77]: "# AGENTS - Main agent: canvas-main-agent - Scope: Canvas Notebook runtime behavior and guardrails - Integration marker: PI_PROMPT_MARKER_1773153564789"
+                - textbox [ref=e77]: "# AGENTS - Main agent: canvas-main-agent - Scope: Canvas Notebook runtime behavior and guardrails - Integration marker: PI_PROMPT_MARKER_1773153564789 - Integration marker: PI_PROMPT_MARKER_1773156267275"
                 - generic [ref=e78]:
                   - button "Speichern" [ref=e79]:
                     - img
@@ -145,10 +145,10 @@
                 - generic [ref=e90]:
                   - generic [ref=e91]:
                     - generic [ref=e92]:
-                      - generic [ref=e93]: sess-1773154202458-j9hzqwoj
-                      - generic [ref=e94]: 3/10/2026, 3:50:02 PM
+                      - generic [ref=e93]: sess-1773156267293-8e8mk5bk
+                      - generic [ref=e94]: 3/10/2026, 4:24:27 PM
                     - generic [ref=e95]:
-                      - textbox [ref=e96]: New session
+                      - textbox [ref=e96]: Renamed PI Session
                       - button [ref=e97]:
                         - img
                       - button [ref=e98]:
@@ -158,8 +158,8 @@
                       - generic [ref=e101]: "User: Canvas Admin"
                   - generic [ref=e102]:
                     - generic [ref=e103]:
-                      - generic [ref=e104]: sess-1773153574988-gsmrf606
-                      - generic [ref=e105]: 3/10/2026, 3:39:34 PM
+                      - generic [ref=e104]: sess-1773154202458-j9hzqwoj
+                      - generic [ref=e105]: 3/10/2026, 3:50:02 PM
                     - generic [ref=e106]:
                       - textbox [ref=e107]: New session
                       - button [ref=e108]:
@@ -171,10 +171,10 @@
                       - generic [ref=e112]: "User: Canvas Admin"
                   - generic [ref=e113]:
                     - generic [ref=e114]:
-                      - generic [ref=e115]: sess-1773153564810-yw0esppz
-                      - generic [ref=e116]: 3/10/2026, 3:39:24 PM
+                      - generic [ref=e115]: sess-1773153574988-gsmrf606
+                      - generic [ref=e116]: 3/10/2026, 3:39:34 PM
                     - generic [ref=e117]:
-                      - textbox [ref=e118]: Renamed PI Session
+                      - textbox [ref=e118]: New session
                       - button [ref=e119]:
                         - img
                       - button [ref=e120]:
@@ -184,10 +184,10 @@
                       - generic [ref=e123]: "User: Canvas Admin"
                   - generic [ref=e124]:
                     - generic [ref=e125]:
-                      - generic [ref=e126]: sess-1773151421870-puwo1v8d
-                      - generic [ref=e127]: 3/10/2026, 3:03:41 PM
+                      - generic [ref=e126]: sess-1773153564810-yw0esppz
+                      - generic [ref=e127]: 3/10/2026, 3:39:24 PM
                     - generic [ref=e128]:
-                      - textbox [ref=e129]: was siehst du in dem bild?
+                      - textbox [ref=e129]: Renamed PI Session
                       - button [ref=e130]:
                         - img
                       - button [ref=e131]:
@@ -197,10 +197,10 @@
                       - generic [ref=e134]: "User: Canvas Admin"
                   - generic [ref=e135]:
                     - generic [ref=e136]:
-                      - generic [ref=e137]: sess-1773150737105-jqprt0nz
-                      - generic [ref=e138]: 3/10/2026, 2:52:17 PM
+                      - generic [ref=e137]: sess-1773151421870-puwo1v8d
+                      - generic [ref=e138]: 3/10/2026, 3:03:41 PM
                     - generic [ref=e139]:
-                      - textbox [ref=e140]: bauklempnerei.jpg was ist in dem bild zu sehen?
+                      - textbox [ref=e140]: was siehst du in dem bild?
                       - button [ref=e141]:
                         - img
                       - button [ref=e142]:
@@ -210,23 +210,23 @@
                       - generic [ref=e145]: "User: Canvas Admin"
                   - generic [ref=e146]:
                     - generic [ref=e147]:
-                      - generic [ref=e148]: sess-1773142326384-qkaw8d30
-                      - generic [ref=e149]: 3/10/2026, 12:32:06 PM
+                      - generic [ref=e148]: sess-1773150737105-jqprt0nz
+                      - generic [ref=e149]: 3/10/2026, 2:52:17 PM
                     - generic [ref=e150]:
-                      - textbox [ref=e151]: Renamed PI Session
+                      - textbox [ref=e151]: bauklempnerei.jpg was ist in dem bild zu sehen?
                       - button [ref=e152]:
                         - img
                       - button [ref=e153]:
                         - img
                     - generic [ref=e154]:
-                      - generic [ref=e155]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e155]: "Model: qwen/qwen3.5-35b-a3b"
                       - generic [ref=e156]: "User: Canvas Admin"
                   - generic [ref=e157]:
                     - generic [ref=e158]:
-                      - generic [ref=e159]: sess-1773142247112-en7qydr3
-                      - generic [ref=e160]: 3/10/2026, 12:30:47 PM
+                      - generic [ref=e159]: sess-1773142326384-qkaw8d30
+                      - generic [ref=e160]: 3/10/2026, 12:32:06 PM
                     - generic [ref=e161]:
-                      - textbox [ref=e162]: was ist in dem bild bauklempnerei.jpg
+                      - textbox [ref=e162]: Renamed PI Session
                       - button [ref=e163]:
                         - img
                       - button [ref=e164]:
@@ -236,36 +236,36 @@
                       - generic [ref=e167]: "User: Canvas Admin"
                   - generic [ref=e168]:
                     - generic [ref=e169]:
-                      - generic [ref=e170]: sess-1773140395549-66mdtt1r
-                      - generic [ref=e171]: 3/10/2026, 11:59:55 AM
+                      - generic [ref=e170]: sess-1773142247112-en7qydr3
+                      - generic [ref=e171]: 3/10/2026, 12:30:47 PM
                     - generic [ref=e172]:
-                      - textbox [ref=e173]: kannst du das bild bauklempnerei.jpg lesen?
+                      - textbox [ref=e173]: was ist in dem bild bauklempnerei.jpg
                       - button [ref=e174]:
                         - img
                       - button [ref=e175]:
                         - img
                     - generic [ref=e176]:
-                      - generic [ref=e177]: "Model: anthropic/claude-sonnet-4.6"
+                      - generic [ref=e177]: "Model: deepseek/deepseek-chat-v3.1"
                       - generic [ref=e178]: "User: Canvas Admin"
                   - generic [ref=e179]:
                     - generic [ref=e180]:
-                      - generic [ref=e181]: sess-1773139660571-wt71a43h
-                      - generic [ref=e182]: 3/10/2026, 11:47:40 AM
+                      - generic [ref=e181]: sess-1773140395549-66mdtt1r
+                      - generic [ref=e182]: 3/10/2026, 11:59:55 AM
                     - generic [ref=e183]:
-                      - textbox [ref=e184]: was war meine letzte nachricht?
+                      - textbox [ref=e184]: kannst du das bild bauklempnerei.jpg lesen?
                       - button [ref=e185]:
                         - img
                       - button [ref=e186]:
                         - img
                     - generic [ref=e187]:
-                      - generic [ref=e188]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e188]: "Model: anthropic/claude-sonnet-4.6"
                       - generic [ref=e189]: "User: Canvas Admin"
                   - generic [ref=e190]:
                     - generic [ref=e191]:
-                      - generic [ref=e192]: sess-1773139336190-gtncm83z
-                      - generic [ref=e193]: 3/10/2026, 11:42:16 AM
+                      - generic [ref=e192]: sess-1773139660571-wt71a43h
+                      - generic [ref=e193]: 3/10/2026, 11:47:40 AM
                     - generic [ref=e194]:
-                      - textbox [ref=e195]: Antworte nur mit READY.
+                      - textbox [ref=e195]: was war meine letzte nachricht?
                       - button [ref=e196]:
                         - img
                       - button [ref=e197]:
@@ -275,10 +275,10 @@
                       - generic [ref=e200]: "User: Canvas Admin"
                   - generic [ref=e201]:
                     - generic [ref=e202]:
-                      - generic [ref=e203]: sess-1773139335330-g6a5l5fd
-                      - generic [ref=e204]: 3/10/2026, 11:42:15 AM
+                      - generic [ref=e203]: sess-1773139336190-gtncm83z
+                      - generic [ref=e204]: 3/10/2026, 11:42:16 AM
                     - generic [ref=e205]:
-                      - textbox [ref=e206]: New session
+                      - textbox [ref=e206]: Antworte nur mit READY.
                       - button [ref=e207]:
                         - img
                       - button [ref=e208]:
@@ -288,10 +288,10 @@
                       - generic [ref=e211]: "User: Canvas Admin"
                   - generic [ref=e212]:
                     - generic [ref=e213]:
-                      - generic [ref=e214]: sess-1773139332208-lnojdzw8
-                      - generic [ref=e215]: 3/10/2026, 11:42:12 AM
+                      - generic [ref=e214]: sess-1773139335330-g6a5l5fd
+                      - generic [ref=e215]: 3/10/2026, 11:42:15 AM
                     - generic [ref=e216]:
-                      - textbox [ref=e217]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - textbox [ref=e217]: New session
                       - button [ref=e218]:
                         - img
                       - button [ref=e219]:
@@ -301,10 +301,10 @@
                       - generic [ref=e222]: "User: Canvas Admin"
                   - generic [ref=e223]:
                     - generic [ref=e224]:
-                      - generic [ref=e225]: sess-1773139317831-4nr08a21
-                      - generic [ref=e226]: 3/10/2026, 11:41:57 AM
+                      - generic [ref=e225]: sess-1773139332208-lnojdzw8
+                      - generic [ref=e226]: 3/10/2026, 11:42:12 AM
                     - generic [ref=e227]:
-                      - textbox [ref=e228]: Welche Dateien sind im Workspace? Nutze die p...
+                      - textbox [ref=e228]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
                       - button [ref=e229]:
                         - img
                       - button [ref=e230]:
@@ -314,10 +314,10 @@
                       - generic [ref=e233]: "User: Canvas Admin"
                   - generic [ref=e234]:
                     - generic [ref=e235]:
-                      - generic [ref=e236]: sess-1773139312537-5jgp8rdz
-                      - generic [ref=e237]: 3/10/2026, 11:41:52 AM
+                      - generic [ref=e236]: sess-1773139317831-4nr08a21
+                      - generic [ref=e237]: 3/10/2026, 11:41:57 AM
                     - generic [ref=e238]:
-                      - textbox [ref=e239]: Session title smoke 1773139312505 should beco...
+                      - textbox [ref=e239]: Welche Dateien sind im Workspace? Nutze die p...
                       - button [ref=e240]:
                         - img
                       - button [ref=e241]:
@@ -327,10 +327,10 @@
                       - generic [ref=e244]: "User: Canvas Admin"
                   - generic [ref=e245]:
                     - generic [ref=e246]:
-                      - generic [ref=e247]: sess-1773139298366-f6h15r8c
-                      - generic [ref=e248]: 3/10/2026, 11:41:38 AM
+                      - generic [ref=e247]: sess-1773139312537-5jgp8rdz
+                      - generic [ref=e248]: 3/10/2026, 11:41:52 AM
                     - generic [ref=e249]:
-                      - textbox [ref=e250]: Renamed PI Session
+                      - textbox [ref=e250]: Session title smoke 1773139312505 should beco...
                       - button [ref=e251]:
                         - img
                       - button [ref=e252]:
@@ -340,10 +340,10 @@
                       - generic [ref=e255]: "User: Canvas Admin"
                   - generic [ref=e256]:
                     - generic [ref=e257]:
-                      - generic [ref=e258]: sess-1773139291316-5t3jfx7o
-                      - generic [ref=e259]: 3/10/2026, 11:41:31 AM
+                      - generic [ref=e258]: sess-1773139298366-f6h15r8c
+                      - generic [ref=e259]: 3/10/2026, 11:41:38 AM
                     - generic [ref=e260]:
-                      - textbox [ref=e261]: Antworte nur mit READY.
+                      - textbox [ref=e261]: Renamed PI Session
                       - button [ref=e262]:
                         - img
                       - button [ref=e263]:
@@ -353,10 +353,10 @@
                       - generic [ref=e266]: "User: Canvas Admin"
                   - generic [ref=e267]:
                     - generic [ref=e268]:
-                      - generic [ref=e269]: sess-1773139290459-57rv5293
-                      - generic [ref=e270]: 3/10/2026, 11:41:30 AM
+                      - generic [ref=e269]: sess-1773139291316-5t3jfx7o
+                      - generic [ref=e270]: 3/10/2026, 11:41:31 AM
                     - generic [ref=e271]:
-                      - textbox [ref=e272]: New session
+                      - textbox [ref=e272]: Antworte nur mit READY.
                       - button [ref=e273]:
                         - img
                       - button [ref=e274]:
@@ -366,10 +366,10 @@
                       - generic [ref=e277]: "User: Canvas Admin"
                   - generic [ref=e278]:
                     - generic [ref=e279]:
-                      - generic [ref=e280]: sess-1773139285299-nhu9gnf2
-                      - generic [ref=e281]: 3/10/2026, 11:41:25 AM
+                      - generic [ref=e280]: sess-1773139290459-57rv5293
+                      - generic [ref=e281]: 3/10/2026, 11:41:30 AM
                     - generic [ref=e282]:
-                      - textbox [ref=e283]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - textbox [ref=e283]: New session
                       - button [ref=e284]:
                         - img
                       - button [ref=e285]:
@@ -379,10 +379,10 @@
                       - generic [ref=e288]: "User: Canvas Admin"
                   - generic [ref=e289]:
                     - generic [ref=e290]:
-                      - generic [ref=e291]: sess-1773139278915-l434up49
-                      - generic [ref=e292]: 3/10/2026, 11:41:18 AM
+                      - generic [ref=e291]: sess-1773139285299-nhu9gnf2
+                      - generic [ref=e292]: 3/10/2026, 11:41:25 AM
                     - generic [ref=e293]:
-                      - textbox [ref=e294]: Session title smoke 1773139278878 should beco...
+                      - textbox [ref=e294]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
                       - button [ref=e295]:
                         - img
                       - button [ref=e296]:
@@ -392,10 +392,10 @@
                       - generic [ref=e299]: "User: Canvas Admin"
                   - generic [ref=e300]:
                     - generic [ref=e301]:
-                      - generic [ref=e302]: sess-1773138744283-ylo45ywi
-                      - generic [ref=e303]: 3/10/2026, 11:32:24 AM
+                      - generic [ref=e302]: sess-1773139278915-l434up49
+                      - generic [ref=e303]: 3/10/2026, 11:41:18 AM
                     - generic [ref=e304]:
-                      - textbox [ref=e305]: New session
+                      - textbox [ref=e305]: Session title smoke 1773139278878 should beco...
                       - button [ref=e306]:
                         - img
                       - button [ref=e307]:
@@ -405,10 +405,10 @@
                       - generic [ref=e310]: "User: Canvas Admin"
                   - generic [ref=e311]:
                     - generic [ref=e312]:
-                      - generic [ref=e313]: sess-1773138735525-vusv9sab
-                      - generic [ref=e314]: 3/10/2026, 11:32:15 AM
+                      - generic [ref=e313]: sess-1773138744283-ylo45ywi
+                      - generic [ref=e314]: 3/10/2026, 11:32:24 AM
                     - generic [ref=e315]:
-                      - textbox [ref=e316]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - textbox [ref=e316]: New session
                       - button [ref=e317]:
                         - img
                       - button [ref=e318]:
@@ -418,10 +418,10 @@
                       - generic [ref=e321]: "User: Canvas Admin"
                   - generic [ref=e322]:
                     - generic [ref=e323]:
-                      - generic [ref=e324]: sess-1773138729620-rpy584bc
-                      - generic [ref=e325]: 3/10/2026, 11:32:09 AM
+                      - generic [ref=e324]: sess-1773138735525-vusv9sab
+                      - generic [ref=e325]: 3/10/2026, 11:32:15 AM
                     - generic [ref=e326]:
-                      - textbox [ref=e327]: Session title smoke 1773138729591 should beco...
+                      - textbox [ref=e327]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
                       - button [ref=e328]:
                         - img
                       - button [ref=e329]:
@@ -431,10 +431,10 @@
                       - generic [ref=e332]: "User: Canvas Admin"
                   - generic [ref=e333]:
                     - generic [ref=e334]:
-                      - generic [ref=e335]: sess-1773138692776-uknv9h8d
-                      - generic [ref=e336]: 3/10/2026, 11:31:32 AM
+                      - generic [ref=e335]: sess-1773138729620-rpy584bc
+                      - generic [ref=e336]: 3/10/2026, 11:32:09 AM
                     - generic [ref=e337]:
-                      - textbox [ref=e338]: New session
+                      - textbox [ref=e338]: Session title smoke 1773138729591 should beco...
                       - button [ref=e339]:
                         - img
                       - button [ref=e340]:
@@ -444,10 +444,10 @@
                       - generic [ref=e343]: "User: Canvas Admin"
                   - generic [ref=e344]:
                     - generic [ref=e345]:
-                      - generic [ref=e346]: sess-1773138685167-q0w75f35
-                      - generic [ref=e347]: 3/10/2026, 11:31:25 AM
+                      - generic [ref=e346]: sess-1773138692776-uknv9h8d
+                      - generic [ref=e347]: 3/10/2026, 11:31:32 AM
                     - generic [ref=e348]:
-                      - textbox [ref=e349]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - textbox [ref=e349]: New session
                       - button [ref=e350]:
                         - img
                       - button [ref=e351]:
@@ -457,10 +457,10 @@
                       - generic [ref=e354]: "User: Canvas Admin"
                   - generic [ref=e355]:
                     - generic [ref=e356]:
-                      - generic [ref=e357]: sess-1773138681404-8fqsaakd
-                      - generic [ref=e358]: 3/10/2026, 11:31:21 AM
+                      - generic [ref=e357]: sess-1773138685167-q0w75f35
+                      - generic [ref=e358]: 3/10/2026, 11:31:25 AM
                     - generic [ref=e359]:
-                      - textbox [ref=e360]: Session title smoke 1773138681376 should beco...
+                      - textbox [ref=e360]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
                       - button [ref=e361]:
                         - img
                       - button [ref=e362]:
@@ -470,10 +470,10 @@
                       - generic [ref=e365]: "User: Canvas Admin"
                   - generic [ref=e366]:
                     - generic [ref=e367]:
-                      - generic [ref=e368]: sess-1773138082698-1q6g91ns
-                      - generic [ref=e369]: 3/10/2026, 11:21:22 AM
+                      - generic [ref=e368]: sess-1773138681404-8fqsaakd
+                      - generic [ref=e369]: 3/10/2026, 11:31:21 AM
                     - generic [ref=e370]:
-                      - textbox [ref=e371]: was ist in dem bild?
+                      - textbox [ref=e371]: Session title smoke 1773138681376 should beco...
                       - button [ref=e372]:
                         - img
                       - button [ref=e373]:
@@ -483,10 +483,10 @@
                       - generic [ref=e376]: "User: Canvas Admin"
                   - generic [ref=e377]:
                     - generic [ref=e378]:
-                      - generic [ref=e379]: sess-1773138008883-r85q3h1a
-                      - generic [ref=e380]: 3/10/2026, 11:20:08 AM
+                      - generic [ref=e379]: sess-1773138082698-1q6g91ns
+                      - generic [ref=e380]: 3/10/2026, 11:21:22 AM
                     - generic [ref=e381]:
-                      - textbox [ref=e382]: Liste die Dateien im aktuellen Ordner als Mar...
+                      - textbox [ref=e382]: was ist in dem bild?
                       - button [ref=e383]:
                         - img
                       - button [ref=e384]:
@@ -496,10 +496,10 @@
                       - generic [ref=e387]: "User: Canvas Admin"
                   - generic [ref=e388]:
                     - generic [ref=e389]:
-                      - generic [ref=e390]: sess-1773137911504-xxl2rdm3
-                      - generic [ref=e391]: 3/10/2026, 11:18:31 AM
+                      - generic [ref=e390]: sess-1773138008883-r85q3h1a
+                      - generic [ref=e391]: 3/10/2026, 11:20:08 AM
                     - generic [ref=e392]:
-                      - textbox [ref=e393]: New session
+                      - textbox [ref=e393]: Liste die Dateien im aktuellen Ordner als Mar...
                       - button [ref=e394]:
                         - img
                       - button [ref=e395]:
@@ -509,10 +509,10 @@
                       - generic [ref=e398]: "User: Canvas Admin"
                   - generic [ref=e399]:
                     - generic [ref=e400]:
-                      - generic [ref=e401]: sess-1773137905874-y548k9tm
-                      - generic [ref=e402]: 3/10/2026, 11:18:25 AM
+                      - generic [ref=e401]: sess-1773137911504-xxl2rdm3
+                      - generic [ref=e402]: 3/10/2026, 11:18:31 AM
                     - generic [ref=e403]:
-                      - textbox [ref=e404]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - textbox [ref=e404]: New session
                       - button [ref=e405]:
                         - img
                       - button [ref=e406]:
@@ -522,10 +522,10 @@
                       - generic [ref=e409]: "User: Canvas Admin"
                   - generic [ref=e410]:
                     - generic [ref=e411]:
-                      - generic [ref=e412]: sess-1773137892841-v1ll9q2j
-                      - generic [ref=e413]: 3/10/2026, 11:18:12 AM
+                      - generic [ref=e412]: sess-1773137905874-y548k9tm
+                      - generic [ref=e413]: 3/10/2026, 11:18:25 AM
                     - generic [ref=e414]:
-                      - textbox [ref=e415]: Session title smoke 1773137892814 should beco...
+                      - textbox [ref=e415]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
                       - button [ref=e416]:
                         - img
                       - button [ref=e417]:
@@ -535,10 +535,10 @@
                       - generic [ref=e420]: "User: Canvas Admin"
                   - generic [ref=e421]:
                     - generic [ref=e422]:
-                      - generic [ref=e423]: sess-1773137833190-j7uzb41a
-                      - generic [ref=e424]: 3/10/2026, 11:17:13 AM
+                      - generic [ref=e423]: sess-1773137892841-v1ll9q2j
+                      - generic [ref=e424]: 3/10/2026, 11:18:12 AM
                     - generic [ref=e425]:
-                      - textbox [ref=e426]: New session
+                      - textbox [ref=e426]: Session title smoke 1773137892814 should beco...
                       - button [ref=e427]:
                         - img
                       - button [ref=e428]:
@@ -548,10 +548,10 @@
                       - generic [ref=e431]: "User: Canvas Admin"
                   - generic [ref=e432]:
                     - generic [ref=e433]:
-                      - generic [ref=e434]: sess-1773137827559-63ddscyp
-                      - generic [ref=e435]: 3/10/2026, 11:17:07 AM
+                      - generic [ref=e434]: sess-1773137833190-j7uzb41a
+                      - generic [ref=e435]: 3/10/2026, 11:17:13 AM
                     - generic [ref=e436]:
-                      - textbox [ref=e437]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - textbox [ref=e437]: New session
                       - button [ref=e438]:
                         - img
                       - button [ref=e439]:
@@ -561,10 +561,10 @@
                       - generic [ref=e442]: "User: Canvas Admin"
                   - generic [ref=e443]:
                     - generic [ref=e444]:
-                      - generic [ref=e445]: sess-1773137826517-vey4gzjk
-                      - generic [ref=e446]: 3/10/2026, 11:17:06 AM
+                      - generic [ref=e445]: sess-1773137827559-63ddscyp
+                      - generic [ref=e446]: 3/10/2026, 11:17:07 AM
                     - generic [ref=e447]:
-                      - textbox [ref=e448]: New session
+                      - textbox [ref=e448]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
                       - button [ref=e449]:
                         - img
                       - button [ref=e450]:
@@ -574,10 +574,10 @@
                       - generic [ref=e453]: "User: Canvas Admin"
                   - generic [ref=e454]:
                     - generic [ref=e455]:
-                      - generic [ref=e456]: sess-1773136181231-z7eu5brp
-                      - generic [ref=e457]: 3/10/2026, 10:49:41 AM
+                      - generic [ref=e456]: sess-1773137826517-vey4gzjk
+                      - generic [ref=e457]: 3/10/2026, 11:17:06 AM
                     - generic [ref=e458]:
-                      - textbox [ref=e459]: test
+                      - textbox [ref=e459]: New session
                       - button [ref=e460]:
                         - img
                       - button [ref=e461]:
@@ -587,10 +587,10 @@
                       - generic [ref=e464]: "User: Canvas Admin"
                   - generic [ref=e465]:
                     - generic [ref=e466]:
-                      - generic [ref=e467]: sess-1773136128154-n9o3nqcy
-                      - generic [ref=e468]: 3/10/2026, 10:48:48 AM
+                      - generic [ref=e467]: sess-1773136181231-z7eu5brp
+                      - generic [ref=e468]: 3/10/2026, 10:49:41 AM
                     - generic [ref=e469]:
-                      - textbox [ref=e470]: New session
+                      - textbox [ref=e470]: test
                       - button [ref=e471]:
                         - img
                       - button [ref=e472]:
@@ -600,7 +600,7 @@
                       - generic [ref=e475]: "User: Canvas Admin"
                   - generic [ref=e476]:
                     - generic [ref=e477]:
-                      - generic [ref=e478]: sess-1773136128666-25mf2b35
+                      - generic [ref=e478]: sess-1773136128154-n9o3nqcy
                       - generic [ref=e479]: 3/10/2026, 10:48:48 AM
                     - generic [ref=e480]:
                       - textbox [ref=e481]: New session
@@ -613,8 +613,8 @@
                       - generic [ref=e486]: "User: Canvas Admin"
                   - generic [ref=e487]:
                     - generic [ref=e488]:
-                      - generic [ref=e489]: sess-1773136072378-z5k2pcta
-                      - generic [ref=e490]: 3/10/2026, 10:47:52 AM
+                      - generic [ref=e489]: sess-1773136128666-25mf2b35
+                      - generic [ref=e490]: 3/10/2026, 10:48:48 AM
                     - generic [ref=e491]:
                       - textbox [ref=e492]: New session
                       - button [ref=e493]:
@@ -626,8 +626,8 @@
                       - generic [ref=e497]: "User: Canvas Admin"
                   - generic [ref=e498]:
                     - generic [ref=e499]:
-                      - generic [ref=e500]: sess-1773135998094-zmb89o0o
-                      - generic [ref=e501]: 3/10/2026, 10:46:38 AM
+                      - generic [ref=e500]: sess-1773136072378-z5k2pcta
+                      - generic [ref=e501]: 3/10/2026, 10:47:52 AM
                     - generic [ref=e502]:
                       - textbox [ref=e503]: New session
                       - button [ref=e504]:
@@ -639,7 +639,7 @@
                       - generic [ref=e508]: "User: Canvas Admin"
                   - generic [ref=e509]:
                     - generic [ref=e510]:
-                      - generic [ref=e511]: sess-1773135998843-n0mo2xqs
+                      - generic [ref=e511]: sess-1773135998094-zmb89o0o
                       - generic [ref=e512]: 3/10/2026, 10:46:38 AM
                     - generic [ref=e513]:
                       - textbox [ref=e514]: New session
@@ -652,8 +652,8 @@
                       - generic [ref=e519]: "User: Canvas Admin"
                   - generic [ref=e520]:
                     - generic [ref=e521]:
-                      - generic [ref=e522]: sess-1773135490262-s1betpya
-                      - generic [ref=e523]: 3/10/2026, 10:38:10 AM
+                      - generic [ref=e522]: sess-1773135998843-n0mo2xqs
+                      - generic [ref=e523]: 3/10/2026, 10:46:38 AM
                     - generic [ref=e524]:
                       - textbox [ref=e525]: New session
                       - button [ref=e526]:
@@ -665,8 +665,8 @@
                       - generic [ref=e530]: "User: Canvas Admin"
                   - generic [ref=e531]:
                     - generic [ref=e532]:
-                      - generic [ref=e533]: sess-1773135463216-su1g1rjt
-                      - generic [ref=e534]: 3/10/2026, 10:37:43 AM
+                      - generic [ref=e533]: sess-1773135490262-s1betpya
+                      - generic [ref=e534]: 3/10/2026, 10:38:10 AM
                     - generic [ref=e535]:
                       - textbox [ref=e536]: New session
                       - button [ref=e537]:
@@ -678,10 +678,10 @@
                       - generic [ref=e541]: "User: Canvas Admin"
                   - generic [ref=e542]:
                     - generic [ref=e543]:
-                      - generic [ref=e544]: sess-1773135355891-he8nkv9q
-                      - generic [ref=e545]: 3/10/2026, 10:35:55 AM
+                      - generic [ref=e544]: sess-1773135463216-su1g1rjt
+                      - generic [ref=e545]: 3/10/2026, 10:37:43 AM
                     - generic [ref=e546]:
-                      - textbox [ref=e547]: debug ui session
+                      - textbox [ref=e547]: New session
                       - button [ref=e548]:
                         - img
                       - button [ref=e549]:
@@ -691,10 +691,10 @@
                       - generic [ref=e552]: "User: Canvas Admin"
                   - generic [ref=e553]:
                     - generic [ref=e554]:
-                      - generic [ref=e555]: sess-1773135340296-n0zmjvzc
-                      - generic [ref=e556]: 3/10/2026, 10:35:40 AM
+                      - generic [ref=e555]: sess-1773135355891-he8nkv9q
+                      - generic [ref=e556]: 3/10/2026, 10:35:55 AM
                     - generic [ref=e557]:
-                      - textbox [ref=e558]: debug session
+                      - textbox [ref=e558]: debug ui session
                       - button [ref=e559]:
                         - img
                       - button [ref=e560]:
@@ -704,10 +704,10 @@
                       - generic [ref=e563]: "User: Canvas Admin"
                   - generic [ref=e564]:
                     - generic [ref=e565]:
-                      - generic [ref=e566]: sess-1773135137520-hb9tndwk
-                      - generic [ref=e567]: 3/10/2026, 10:32:17 AM
+                      - generic [ref=e566]: sess-1773135340296-n0zmjvzc
+                      - generic [ref=e567]: 3/10/2026, 10:35:40 AM
                     - generic [ref=e568]:
-                      - textbox [ref=e569]: New session
+                      - textbox [ref=e569]: debug session
                       - button [ref=e570]:
                         - img
                       - button [ref=e571]:
@@ -715,6 +715,19 @@
                     - generic [ref=e572]:
                       - generic [ref=e573]: "Model: deepseek/deepseek-chat-v3.1"
                       - generic [ref=e574]: "User: Canvas Admin"
+                  - generic [ref=e575]:
+                    - generic [ref=e576]:
+                      - generic [ref=e577]: sess-1773135137520-hb9tndwk
+                      - generic [ref=e578]: 3/10/2026, 10:32:17 AM
+                    - generic [ref=e579]:
+                      - textbox [ref=e580]: New session
+                      - button [ref=e581]:
+                        - img
+                      - button [ref=e582]:
+                        - img
+                    - generic [ref=e583]:
+                      - generic [ref=e584]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e585]: "User: Canvas Admin"
   - region "Notifications alt+T"
-  - alert [ref=e575]
+  - alert [ref=e586]
 ```
