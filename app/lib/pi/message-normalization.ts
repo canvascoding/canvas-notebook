@@ -71,8 +71,13 @@ async function loadImageDataFromFile(filePath: string, mimeType: string): Promis
 
 async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
   const rawData = part.data.trim();
+  
+  // Log for debugging
+  console.log(`[Message Normalization] Normalizing image part. Data length: ${rawData.length}, starts with: ${rawData.substring(0, 50)}...`);
+  
   const dataUrlMatch = rawData.match(DATA_URL_PATTERN);
   if (dataUrlMatch) {
+    console.log('[Message Normalization] Detected data URL format');
     return {
       type: 'image',
       data: stripWhitespace(dataUrlMatch[2]),
@@ -81,20 +86,35 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
   }
 
   if (rawData.startsWith('file://')) {
+    console.log('[Message Normalization] Detected file:// URL');
     return loadImageDataFromFile(fileURLToPath(rawData), part.mimeType);
   }
 
-  if (path.isAbsolute(rawData)) {
-    return loadImageDataFromFile(rawData, part.mimeType);
-  }
-
+  // Check if it's base64 first (before treating as file path)
   if (isValidBase64(rawData)) {
+    console.log('[Message Normalization] Detected base64 data');
     return {
       type: 'image',
       data: stripWhitespace(rawData),
       mimeType: part.mimeType,
     };
   }
+
+  // Only treat as file path if it's reasonable length and looks like a path
+  // Mac OS has a max path length of 1024, but base64 data can be much longer
+  const MAX_PATH_LENGTH = 4096;
+  if (path.isAbsolute(rawData) && rawData.length < MAX_PATH_LENGTH) {
+    console.log(`[Message Normalization] Attempting to load from path: ${rawData}`);
+    try {
+      return loadImageDataFromFile(rawData, part.mimeType);
+    } catch (error) {
+      // If file reading fails, it's probably not a file path
+      console.warn(`[Message Normalization] Failed to load image from path: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // If we get here, the data format is unrecognized
+  console.error(`[Message Normalization] Unrecognized image data format. Length: ${rawData.length}, preview: ${rawData.substring(0, 100)}`);
 
   throw new Error(
     'Invalid image attachment payload. Expected base64 image data, a base64 data URL, or an absolute file path.',
@@ -113,6 +133,11 @@ async function extractImageReferencesFromText(text: string): Promise<ImageConten
     // match[1] is quoted path, match[2] is unquoted path
     const filePath = match[1] || match[2];
     if (!filePath || processedPaths.has(filePath)) continue;
+    
+    // Skip if the "path" is too long (likely base64 data)
+    const MAX_PATH_LENGTH = 4096;
+    if (filePath.length > MAX_PATH_LENGTH) continue;
+    
     processedPaths.add(filePath);
     
     try {
