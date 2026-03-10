@@ -6,12 +6,12 @@ import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
+import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { savePiSession } from '@/app/lib/pi/session-store';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { agentLoop, type AgentMessage, type AgentContext, type ThinkingLevel } from '@mariozechner/pi-agent-core';
-import type { Message } from '@mariozechner/pi-ai';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown agent error';
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     const config = {
       model,
       thinkingLevel: (piConfig.providers[activeProviderName]?.thinking || 'none') as ThinkingLevel,
-      convertToLlm: async (msgs: AgentMessage[]) => msgs as Message[],
+      convertToLlm: async (msgs: AgentMessage[]) => normalizePiMessagesForLlm(msgs),
       getApiKey: resolvePiApiKey,
       sessionId,
     };

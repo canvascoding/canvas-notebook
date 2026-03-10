@@ -64,15 +64,16 @@ test.describe('PI Chat E2E', () => {
           return null;
         }
 
-        return payload.sessions.find((session: { sessionId?: string }) => session.sessionId === sessionId) || null;
+        return payload.sessions.find((session: { sessionId?: string; title?: string }) => session.sessionId === sessionId) || null;
       }, fullSessionId);
 
       return currentSession?.title || null;
     }, { timeout: 60000 }).not.toBe('New session');
 
-    expect(currentSession).toBeTruthy();
-    expect(currentSession?.title?.startsWith(prompt.slice(0, 20))).toBeTruthy();
-    expect((currentSession?.title || '').length).toBeLessThanOrEqual(48);
+    const resolvedSession = currentSession as { sessionId?: string; title?: string } | null;
+    expect(resolvedSession).toBeTruthy();
+    expect(resolvedSession?.title?.startsWith(prompt.slice(0, 20))).toBeTruthy();
+    expect((resolvedSession?.title || '').length).toBeLessThanOrEqual(48);
 
     await page.locator('button').filter({ has: page.locator('.lucide-history') }).first().click();
     await expect(page.getByText('Sessions', { exact: true })).toBeVisible();
