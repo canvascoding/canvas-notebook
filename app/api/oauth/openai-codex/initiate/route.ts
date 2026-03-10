@@ -2,16 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { readFile } from 'fs/promises';
-import { homedir } from 'os';
-import { join } from 'path';
 
 const execAsync = promisify(exec);
+
+// Store the codex callback port temporarily
+// In production, this should be in a proper session store or database
+const codexCallbackPorts = new Map<string, number>();
 
 /**
  * POST /api/oauth/openai-codex/initiate
  * Start OAuth flow using Codex CLI
- * Returns the auth URL that the user must open in their browser
+ * Captures and stores the dynamic callback port
  */
 export async function POST(request: NextRequest) {
   try {
@@ -23,8 +24,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Start codex login to get the auth URL
-    const result = await getCodexAuthUrl();
+    // Start codex login and capture the auth URL with port
+    const result = await getCodexAuthUrl(session.user.id);
 
     if (!result.success || !result.authUrl) {
       return NextResponse.json(
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       authUrl: result.authUrl,
-      message: 'Open this URL in your browser to authenticate. After successful login, the token will be stored locally and you can click "Verify Connection".',
+      message: 'Open this URL in your browser to authenticate. After successful login, paste the callback URL back here.',
     });
   } catch (error) {
     console.error('OAuth initiate failed:', error);
@@ -47,58 +48,75 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function getCodexAuthUrl(): Promise<{ success: boolean; authUrl?: string; error?: string }> {
+async function getCodexAuthUrl(userId: string): Promise<{ success: boolean; authUrl?: string; error?: string }> {
   try {
-    // Run codex login - it will output the auth URL
-    const { stdout, stderr } = await execAsync('codex login', {
-      timeout: 5000,
+    // Run codex login in background - it will start a server and output the URL
+    const codexProcess = exec('codex login', {
       env: {
         ...process.env,
       },
     });
 
-    const output = stdout + stderr;
-    console.log('Codex login output:', output);
+    let output = '';
+    let authUrl: string | null = null;
+    let callbackPort: number | null = null;
 
-    // Extract auth URL from output
-    // Codex CLI outputs something like:
-    // "Please visit: https://auth.openai.com/oauth/authorize?..."
-    const patterns = [
-      /please\s+visit[:\s]+(https:\/\/auth\.openai\.com\/[^\s]+)/i,
-      /visit[:\s]+(https:\/\/auth\.openai\.com\/[^\s]+)/i,
-      /url[:\s]+(https:\/\/auth\.openai\.com\/[^\s]+)/i,
-      /(https:\/\/auth\.openai\.com\/oauth\/authorize[^\s]+)/,
-    ];
+    // Collect output
+    codexProcess.stdout?.on('data', (data) => {
+      output += data.toString();
+      console.log('Codex stdout:', data.toString());
+    });
 
-    for (const pattern of patterns) {
-      const match = output.match(pattern);
-      if (match) {
-        return { success: true, authUrl: match[1] };
-      }
+    codexProcess.stderr?.on('data', (data) => {
+      output += data.toString();
+      console.log('Codex stderr:', data.toString());
+    });
+
+    // Wait for the auth URL to appear (timeout after 10 seconds)
+    await new Promise<void>((resolve, reject) => {
+      const checkInterval = setInterval(() => {
+        // Look for the auth URL in output
+        // Pattern: http://localhost:PORT/auth/callback
+        const urlMatch = output.match(/(https?:\/\/auth\.openai\.com\/[^\s]+)/);
+        if (urlMatch) {
+          authUrl = urlMatch[1];
+          
+          // Extract the callback port from the URL
+          // The redirect_uri in the URL contains the port
+          const redirectMatch = authUrl.match(/redirect_uri=http[^&]*localhost%3A(\d+)/);
+          if (redirectMatch) {
+            callbackPort = parseInt(redirectMatch[1], 10);
+            console.log('Found Codex callback port:', callbackPort);
+            
+            // Store the port for this user
+            codexCallbackPorts.set(userId, callbackPort);
+          }
+          
+          clearInterval(checkInterval);
+          clearTimeout(timeout);
+          resolve();
+        }
+      }, 100);
+
+      const timeout = setTimeout(() => {
+        clearInterval(checkInterval);
+        reject(new Error('Timeout waiting for auth URL'));
+      }, 10000);
+    });
+
+    if (!authUrl) {
+      return { success: false, error: 'Could not extract auth URL from output' };
     }
 
-    // Check if already authenticated
-    if (output.includes('already') || output.includes('authenticated')) {
-      return { success: true, authUrl: '', error: 'Already authenticated' };
-    }
-
-    return { success: false, error: 'Could not find auth URL in output: ' + output };
+    return { success: true, authUrl };
   } catch (error) {
     console.error('Error running codex login:', error);
-    
-    // Check if timed out (which is expected since codex waits for auth)
-    if (error instanceof Error && error.message.includes('timed out')) {
-      // Extract URL from the error message or stdout
-      const errorStr = String(error);
-      const match = errorStr.match(/(https:\/\/auth\.openai\.com\/[^\s]+)/);
-      if (match) {
-        return { success: true, authUrl: match[1] };
-      }
-    }
-    
     return { 
       success: false, 
       error: error instanceof Error ? error.message : 'Failed to run codex login' 
     };
   }
 }
+
+// Export the ports map for the exchange route
+export { codexCallbackPorts };
