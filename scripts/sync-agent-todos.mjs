@@ -4,203 +4,107 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-const PLAN_FILE = "docs/agent_implementation_plan.md";
-const TODO_FILE = "docs/agent-implementation-todo.json";
-const ACTIONABLE_SECTION_NUMBERS = new Set([5, 6, 7, 8, 9, 10, 11, 14]);
+const PLAN_FILE = "docs/pi-first-migration-plan.md";
+const TODO_FILE = "docs/pi-first-implementation-todo.json";
 
-function parseLeadingSectionNumber(heading) {
-  const match = heading.match(/^(\d+)(?:[.)]|\.\d+|\s|$)/);
-  return match ? Number.parseInt(match[1], 10) : null;
+function readText(filePath) {
+  return fs.readFileSync(filePath, "utf8");
 }
 
-function isActionableSection(heading) {
-  if (!heading) {
-    return false;
+function ensureFileExists(filePath, label) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`${label} file not found: ${filePath}`);
   }
-
-  if (/^Phase\s+\d+/i.test(heading)) {
-    return true;
-  }
-
-  const sectionNumber = parseLeadingSectionNumber(heading);
-  return sectionNumber !== null && ACTIONABLE_SECTION_NUMBERS.has(sectionNumber);
 }
 
-function categoryForHeading(heading) {
-  if (!heading) {
-    return "general";
+function validatePlanFile(planPath) {
+  const plan = readText(planPath);
+  if (!plan.trim()) {
+    throw new Error(`Plan file is empty: ${planPath}`);
   }
-
-  if (/^Phase\s+\d+/i.test(heading) || /^10[.)\s]/.test(heading)) {
-    return "implementation";
+  if (!plan.includes("PI-first")) {
+    throw new Error(`Plan file does not appear to be PI-first plan: ${planPath}`);
   }
-
-  const sectionNumber = parseLeadingSectionNumber(heading);
-  if (sectionNumber === 5) return "api";
-  if (sectionNumber === 6) return "ui";
-  if (sectionNumber === 7) return "bootstrap";
-  if (sectionNumber === 8) return "migration";
-  if (sectionNumber === 9) return "security";
-  if (sectionNumber === 11) return "quality";
-  if (sectionNumber === 14) return "acceptance";
-  return "general";
 }
 
-function loadExistingStatusMap(outputPath) {
-  if (!fs.existsSync(outputPath)) {
-    return new Map();
-  }
-
+function validateTodoFile(todoPath) {
+  let parsed;
   try {
-    const existing = JSON.parse(fs.readFileSync(outputPath, "utf8"));
-    const tasks = Array.isArray(existing.tasks) ? existing.tasks : [];
-    const statusMap = new Map();
+    parsed = JSON.parse(readText(todoPath));
+  } catch (error) {
+    throw new Error(`Failed to parse todo JSON (${todoPath}): ${error.message}`);
+  }
 
-    for (const task of tasks) {
-      if (!task || typeof task !== "object") {
-        continue;
-      }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(`Todo payload must be an object: ${todoPath}`);
+  }
 
-      const section = typeof task.section === "string" ? task.section : "";
-      const title = typeof task.title === "string" ? task.title : "";
-      const status = typeof task.status === "string" ? task.status : "pending";
-      const key = `${section}::${title}`;
-      statusMap.set(key, status);
+  if (!Array.isArray(parsed.tasks)) {
+    throw new Error(`Todo payload must contain a tasks array: ${todoPath}`);
+  }
+
+  const seenIds = new Set();
+  for (const task of parsed.tasks) {
+    if (!task || typeof task !== "object") {
+      throw new Error("Todo tasks must be objects.");
     }
 
-    return statusMap;
-  } catch {
-    return new Map();
+    if (typeof task.id !== "string" || task.id.length === 0) {
+      throw new Error("Every todo task must have a non-empty string id.");
+    }
+
+    if (seenIds.has(task.id)) {
+      throw new Error(`Duplicate task id detected: ${task.id}`);
+    }
+    seenIds.add(task.id);
+
+    if (typeof task.order !== "number") {
+      throw new Error(`Task ${task.id} must have a numeric order field.`);
+    }
+
+    if (typeof task.status !== "string") {
+      throw new Error(`Task ${task.id} must have a string status field.`);
+    }
   }
 }
 
-function extractTasks(planText, existingStatusMap) {
-  const lines = planText.split(/\r?\n/);
-  const tasks = [];
-  let h2 = "";
-  let h3 = "";
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const headingMatch = line.match(/^(#{2,6})\s+(.+)$/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const headingText = headingMatch[2].trim();
-
-      if (level === 2) {
-        h2 = headingText;
-        h3 = "";
-      } else if (level === 3) {
-        h3 = headingText;
-      }
-      continue;
-    }
-
-    if (!isActionableSection(h2)) {
-      continue;
-    }
-
-    const listMatch = line.match(/^(\s*)([-*]|\d+\.)\s+(.+)$/);
-    if (!listMatch) {
-      continue;
-    }
-
-    const depth = Math.floor(listMatch[1].length / 2);
-    let title = listMatch[3].trim();
-    if (!title) {
-      continue;
-    }
-
-    const checkboxMatch = title.match(/^\[([ xX])\]\s+(.+)$/);
-    let status = "pending";
-    if (checkboxMatch) {
-      status = checkboxMatch[1].toLowerCase() === "x" ? "done" : "pending";
-      title = checkboxMatch[2].trim();
-    }
-
-    const section = h3 ? `${h2} / ${h3}` : h2;
-    const preservedStatus = existingStatusMap.get(`${section}::${title}`);
-    if (!checkboxMatch && preservedStatus) {
-      status = preservedStatus;
-    }
-
-    tasks.push({
-      title,
-      status,
-      section,
-      category: categoryForHeading(h2),
-      source: {
-        file: PLAN_FILE,
-        line: index + 1
-      },
-      depth
-    });
-  }
-
-  return tasks.map((task, index) => ({
-    id: `agent-${String(index + 1).padStart(3, "0")}`,
-    order: index + 1,
-    ...task
-  }));
-}
-
-function writeJsonAtomic(filePath, value) {
-  const directory = path.dirname(filePath);
-  fs.mkdirSync(directory, { recursive: true });
-  const tempPath = `${filePath}.tmp`;
-  fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  fs.renameSync(tempPath, filePath);
-}
-
-function syncOnce(rootDir) {
+function validateOnce(rootDir) {
   const planPath = path.resolve(rootDir, PLAN_FILE);
-  const outputPath = path.resolve(rootDir, TODO_FILE);
+  const todoPath = path.resolve(rootDir, TODO_FILE);
 
-  if (!fs.existsSync(planPath)) {
-    throw new Error(`Plan file not found: ${planPath}`);
-  }
+  ensureFileExists(planPath, "Plan");
+  ensureFileExists(todoPath, "Todo");
+  validatePlanFile(planPath);
+  validateTodoFile(todoPath);
 
-  const existingStatusMap = loadExistingStatusMap(outputPath);
-  const planText = fs.readFileSync(planPath, "utf8");
-  const tasks = extractTasks(planText, existingStatusMap);
-  const nowIso = new Date().toISOString();
-
-  const output = {
-    title: "Agent Implementation Todo",
-    sourceFile: PLAN_FILE,
-    generatedAt: nowIso,
-    taskCount: tasks.length,
-    tasks
-  };
-
-  writeJsonAtomic(outputPath, output);
-  return { outputPath, taskCount: tasks.length };
+  return { planPath, todoPath };
 }
 
 function runWatchMode(rootDir) {
   const planPath = path.resolve(rootDir, PLAN_FILE);
+  const todoPath = path.resolve(rootDir, TODO_FILE);
 
   let timeout = null;
-  const scheduleSync = () => {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
+  const scheduleValidation = () => {
+    if (timeout) clearTimeout(timeout);
     timeout = setTimeout(() => {
       try {
-        const result = syncOnce(rootDir);
+        const result = validateOnce(rootDir);
         // eslint-disable-next-line no-console
-        console.log(`[agent-todos] synced ${result.taskCount} tasks -> ${result.outputPath}`);
+        console.log(`[agent-todos] validated ${result.planPath} and ${result.todoPath}`);
       } catch (error) {
         // eslint-disable-next-line no-console
-        console.error(`[agent-todos] sync failed: ${error.message}`);
+        console.error(`[agent-todos] validation failed: ${error.message}`);
       }
     }, 150);
   };
 
-  scheduleSync();
-  fs.watch(planPath, { persistent: true }, scheduleSync);
+  scheduleValidation();
+  fs.watch(planPath, { persistent: true }, scheduleValidation);
+  fs.watch(todoPath, { persistent: true }, scheduleValidation);
+
   // eslint-disable-next-line no-console
-  console.log(`[agent-todos] watching ${planPath}`);
+  console.log(`[agent-todos] watching ${planPath} and ${todoPath}`);
 }
 
 function main() {
@@ -213,9 +117,9 @@ function main() {
       return;
     }
 
-    const result = syncOnce(rootDir);
+    const result = validateOnce(rootDir);
     // eslint-disable-next-line no-console
-    console.log(`[agent-todos] synced ${result.taskCount} tasks -> ${result.outputPath}`);
+    console.log(`[agent-todos] validated ${result.planPath} and ${result.todoPath}`);
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error(`[agent-todos] ${error.message}`);

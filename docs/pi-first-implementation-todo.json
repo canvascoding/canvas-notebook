@@ -546,7 +546,7 @@
       "order": 49,
       "phase": "P11 Hotfix",
       "title": "Switch sync-agent-todos to PI-only validate mode to unblock container rebuilds",
-      "status": "pending",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "pi-048"
