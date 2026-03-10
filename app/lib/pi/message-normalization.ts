@@ -186,18 +186,26 @@ async function extractImageReferencesFromText(text: string): Promise<ImageConten
 
 /**
  * Processes text content to extract image references and convert them to ImageContent
+ * @param content - The content array to process
+ * @param shouldExtractImages - Whether to extract image references from text (default: true)
+ *                           Set to false for tool results to avoid context explosion
  */
 async function processTextContent(
   content: Array<{ type: 'text'; text: string } | ImageContent>,
+  shouldExtractImages: boolean = true,
 ): Promise<Array<{ type: 'text'; text: string } | ImageContent>> {
   const result: Array<{ type: 'text'; text: string } | ImageContent> = [];
-  
+
   for (const part of content) {
     if (isImageContentPart(part)) {
       result.push(part);
     } else if (part.type === 'text' && part.text) {
-      // Extract image references from text
-      const images = await extractImageReferencesFromText(part.text);
+      // Only extract image references if explicitly allowed
+      // This prevents context explosion from tool results like 'ls' showing many images
+      const images = shouldExtractImages
+        ? await extractImageReferencesFromText(part.text)
+        : [];
+
       if (images.length > 0) {
         result.push(part);
         result.push(...images);
@@ -208,15 +216,16 @@ async function processTextContent(
       result.push(part);
     }
   }
-  
+
   return result;
 }
 
 async function normalizeImageArray(
   content: Array<{ type: 'text'; text: string } | ImageContent>,
+  shouldExtractImages: boolean = true,
 ): Promise<Array<{ type: 'text'; text: string } | ImageContent>> {
   // First process text content for image references
-  const processedContent = await processTextContent(content);
+  const processedContent = await processTextContent(content, shouldExtractImages);
   
   let changed = processedContent !== content;
   const normalizedContent = await Promise.all(
@@ -243,7 +252,9 @@ async function normalizePiMessage(message: AgentMessage): Promise<Message> {
   }
 
   if (message.role === 'user') {
-    const normalizedContent = await normalizeImageArray(message.content);
+    // For user messages, extract image references from text
+    // This allows users to reference images with @path/to/image.jpg
+    const normalizedContent = await normalizeImageArray(message.content, true);
     return normalizedContent === message.content
       ? (message as UserMessage)
       : {
@@ -253,7 +264,10 @@ async function normalizePiMessage(message: AgentMessage): Promise<Message> {
   }
 
   if (message.role === 'toolResult') {
-    const normalizedContent = await normalizeImageArray(message.content);
+    // For tool results, DON'T extract image references from text
+    // This prevents context explosion when tools like 'ls' list many image files
+    // Images should only be included when explicitly returned by the tool (e.g., read tool)
+    const normalizedContent = await normalizeImageArray(message.content, false);
     return normalizedContent === message.content
       ? (message as ToolResultMessage)
       : {

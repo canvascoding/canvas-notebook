@@ -905,18 +905,40 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
+    
+    // Handle direct initialPrompt prop
     const candidatePrompt = (initialPrompt || '').trim();
     if (candidatePrompt) {
       initialPromptConsumedRef.current = true;
       queueMessage(candidatePrompt, []);
       return;
     }
+    
     if (!initialPromptStorageKey || typeof window === 'undefined') return;
-    const storedPrompt = window.sessionStorage.getItem(initialPromptStorageKey);
-    if (storedPrompt?.trim()) {
-      initialPromptConsumedRef.current = true;
-      window.sessionStorage.removeItem(initialPromptStorageKey);
-      queueMessage(storedPrompt.trim(), []);
+    
+    const storedData = window.sessionStorage.getItem(initialPromptStorageKey);
+    if (storedData) {
+      try {
+        // Try to parse as JSON (new format with attachments)
+        const parsed = JSON.parse(storedData);
+        if (parsed && (parsed.prompt || parsed.attachments)) {
+          initialPromptConsumedRef.current = true;
+          window.sessionStorage.removeItem(initialPromptStorageKey);
+          const promptText = parsed.prompt || '';
+          const attachments = parsed.attachments || [];
+          queueMessage(promptText, attachments);
+          return;
+        }
+      } catch {
+        // Fall back to old string format
+      }
+      
+      // Legacy: stored as plain string
+      if (storedData.trim()) {
+        initialPromptConsumedRef.current = true;
+        window.sessionStorage.removeItem(initialPromptStorageKey);
+        queueMessage(storedData.trim(), []);
+      }
     }
   }, [initialPrompt, initialPromptStorageKey, queueMessage]);
 
