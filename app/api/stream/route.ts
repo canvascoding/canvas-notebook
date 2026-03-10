@@ -7,7 +7,10 @@ import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
-import { savePiSession } from '@/app/lib/pi/session-store';
+import { savePiSession, loadPiSessionWithSummary } from '@/app/lib/pi/session-store';
+import { composePiHistoryForLlm, type PiSessionSummaryState } from '@/app/lib/pi/history-budget';
+import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
+import { runPiStreamWithOverflowRetry } from '@/app/lib/pi/stream-runner';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
@@ -28,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = await request.json();
-    
+
     // Basic validation
     if (!payload || typeof payload !== 'object') {
       return NextResponse.json({ success: false, error: 'Invalid payload' }, { status: 400 });
@@ -91,12 +94,46 @@ export async function POST(request: NextRequest) {
         `[PI Stream] [${logSessionId}] Falling back to base system prompt (${diagnostics.fallbackReason || 'unknown'}).`
       );
     }
-    
-    const context: AgentContext = {
-      systemPrompt,
-      messages: messages.slice(0, -1), // Everything except the last prompt
-      tools: tools,
+
+    // The last message is the new prompt from the user
+    const prompt = messages[messages.length - 1];
+
+    // Load server-stored history when a session exists (source of truth)
+    let storedSummary: PiSessionSummaryState = {
+      summaryText: null,
+      summaryUpdatedAt: null,
+      summaryThroughTimestamp: null,
     };
+    let historyMessages: AgentMessage[];
+
+    if (sessionId) {
+      const stored = await loadPiSessionWithSummary(sessionId, session.user.id);
+      if (stored) {
+        historyMessages = stored.messages;
+        storedSummary = stored.summary;
+      } else {
+        historyMessages = messages.slice(0, -1);
+      }
+    } else {
+      historyMessages = messages.slice(0, -1);
+    }
+
+    // Build context with history budgeting (may trigger summarization)
+    const abortController = new AbortController();
+    request.signal.addEventListener('abort', () => {
+      console.log(`[PI Stream] [${logSessionId}] Request aborted by client.`);
+      abortController.abort();
+    });
+
+    const { summary: updatedSummary, composition } = await preparePiHistoryContext({
+      messages: historyMessages,
+      summary: storedSummary,
+      systemPrompt,
+      model,
+      toolCount: tools.length,
+      sessionId,
+      signal: abortController.signal,
+    });
 
     const config = {
       model,
@@ -106,40 +143,73 @@ export async function POST(request: NextRequest) {
       sessionId,
     };
 
-    const abortController = new AbortController();
-    request.signal.addEventListener('abort', () => {
-      console.log(`[PI Stream] [${logSessionId}] Request aborted by client.`);
-      abortController.abort();
-    });
+    console.log(
+      `[PI Stream] [${logSessionId}] Starting loop with model ${model.id}, ${tools.length} tools, ` +
+      `${historyMessages.length} stored messages → ${composition.llmMessages.length} LLM messages` +
+      (composition.includedSummary ? ' (with summary)' : '') + '.',
+    );
 
-    console.log(`[PI Stream] [${logSessionId}] Starting loop with model ${model.id} and ${tools.length} tools.`);
-
-    // The last message in the input is the new prompt
-    const prompt = messages[messages.length - 1];
-    const eventStream = agentLoop([prompt], context, config, abortController.signal);
+    // Track how many LLM context messages were used so we can extract new turn messages
+    let usedLlmContextLength = composition.llmMessages.length;
 
     const encoder = new TextEncoder();
     const responseStream = new ReadableStream({
       async start(controller) {
-        let finalMessages: AgentMessage[] = [...messages];
+        let finalMessages: AgentMessage[] = [];
         try {
-          for await (const event of eventStream) {
-            console.log(`[PI Stream] [${logSessionId}] Event: ${event.type}`);
-            controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
-            if (event.type === 'agent_end') {
-              finalMessages = event.messages;
-            }
+          const result = await runPiStreamWithOverflowRetry({
+            runAttempt: (aggressive) => {
+              let llmMessages = composition.llmMessages;
+
+              if (aggressive) {
+                const aggressiveComposition = composePiHistoryForLlm({
+                  messages: historyMessages,
+                  summary: updatedSummary,
+                  systemPrompt,
+                  contextWindow: model.contextWindow,
+                  modelMaxTokens: model.maxTokens,
+                  toolCount: tools.length,
+                  aggressive: true,
+                });
+                llmMessages = aggressiveComposition.llmMessages;
+                usedLlmContextLength = llmMessages.length;
+              }
+
+              const context: AgentContext = {
+                systemPrompt,
+                messages: llmMessages,
+                tools,
+              };
+
+              return agentLoop([prompt], context, config, abortController.signal);
+            },
+            forwardEvent: async (event) => {
+              controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
+            },
+            contextWindow: model.contextWindow,
+          });
+
+          finalMessages = result.finalMessages;
+
+          if (result.retriedForOverflow) {
+            console.log(`[PI Stream] [${logSessionId}] Retried once after context overflow.`);
           }
 
-          console.log(`[PI Stream] [${logSessionId}] Loop finished. Persisting session.`);
-          // Persist the session after completion
+          // finalMessages = [llmContextMessages..., prompt, new agent messages...]
+          // Extract only the new turn messages and append to the full stored history
+          const newTurnMessages = finalMessages.slice(usedLlmContextLength);
+          const fullHistory = [...historyMessages, ...newTurnMessages];
+
+          console.log(`[PI Stream] [${logSessionId}] Loop finished. Persisting ${fullHistory.length} messages.`);
+
           if (sessionId) {
             await savePiSession(
-              sessionId, 
-              session.user.id, 
-              activeProviderName, 
-              model.id, 
-              finalMessages
+              sessionId,
+              session.user.id,
+              activeProviderName,
+              model.id,
+              fullHistory,
+              updatedSummary,
             );
           }
         } catch (error: unknown) {
