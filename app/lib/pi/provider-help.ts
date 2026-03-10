@@ -35,6 +35,8 @@ export interface ProviderHelpInfo {
   documentationUrl?: string;
   // Ollama-specific mode configuration
   ollamaModes?: OllamaModeConfig[];
+  // Whether provider supports both API key and OAuth
+  supportsBothAuthMethods?: boolean;
 }
 
 /**
@@ -61,14 +63,16 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
   anthropic: {
     category: 'api-key',
     title: 'Anthropic',
-    shortDescription: 'Anthropic Claude API',
+    shortDescription: 'Anthropic Claude API (API Key or OAuth)',
+    supportsBothAuthMethods: true,
     setupSteps: [
-      'Get your API key from https://console.anthropic.com/',
-      'Add the key to Agent Environment settings',
+      'Choose your preferred authentication method below',
+      'For API Key: Get your key from https://console.anthropic.com/',
+      'For OAuth: Click "Connect Account" and complete the OAuth flow',
       'Save and verify the provider status',
     ],
     envVars: [
-      { name: 'ANTHROPIC_API_KEY', description: 'Your Anthropic API key', scope: 'agents', required: true },
+      { name: 'ANTHROPIC_API_KEY', description: 'Your Anthropic API key (if using API Key method)', scope: 'agents', required: false },
     ],
     documentationUrl: 'https://docs.anthropic.com/',
   },
@@ -541,4 +545,12 @@ export function getPrimaryEnvVar(providerId: string): string | undefined {
   const envVars = getProviderEnvVars(providerId);
   const required = envVars?.find(ev => ev.required);
   return required?.name || envVars?.[0]?.name;
+}
+
+/**
+ * Check if a provider supports both API key and OAuth authentication.
+ */
+export function supportsBothAuthMethods(providerId: string): boolean {
+  const help = getProviderHelp(providerId);
+  return help?.supportsBothAuthMethods === true;
 }

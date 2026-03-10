@@ -28,6 +28,7 @@ import {
 import {
   getProviderHelp,
   requiresCliAuth,
+  supportsBothAuthMethods,
   type ProviderHelpInfo,
 } from '@/app/lib/pi/provider-help';
 import { ProviderEnvEditor } from './ProviderEnvEditor';
@@ -48,6 +49,7 @@ type PiProviderConfig = {
   enabledTools: string[];
   ollamaMode?: OllamaMode;
   ollamaHost?: string;
+  authMethod?: 'api-key' | 'oauth';
 };
 
 type PiRuntimeConfig = {
@@ -656,8 +658,64 @@ export function AgentSettingsPanel() {
               </div>
             </div>
 
-            {/* OAuth Section - Separate from Provider Status */}
-            {piConfigDraft.activeProvider && requiresOAuthAuth(piConfigDraft.activeProvider) && (
+            {/* Auth Method Selector for providers supporting both API key and OAuth */}
+            {piConfigDraft.activeProvider && supportsBothAuthMethods(piConfigDraft.activeProvider) && (
+              <div className="rounded border border-border bg-card p-4 space-y-3">
+                <h4 className="text-sm font-semibold">Authentication Method</h4>
+                <p className="text-xs text-muted-foreground">
+                  Choose how you want to authenticate with this provider:
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant={piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'api-key' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPiProviderField(piConfigDraft.activeProvider, 'authMethod', 'api-key')}
+                    className="flex-1"
+                  >
+                    API Key
+                  </Button>
+                  <Button
+                    variant={piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPiProviderField(piConfigDraft.activeProvider, 'authMethod', 'oauth')}
+                    className="flex-1"
+                  >
+                    OAuth / CLI
+                  </Button>
+                </div>
+                
+                {/* Show API Key instructions when API Key is selected */}
+                {piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'api-key' && (
+                  <div className="mt-3 p-3 bg-muted/50 rounded text-xs text-muted-foreground">
+                    <p className="font-medium mb-1">API Key Setup:</p>
+                    <p>Add your API key in the Integrations settings.</p>
+                  </div>
+                )}
+                
+                {/* Show OAuth section when OAuth is selected */}
+                {piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' && (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">OAuth Status</span>
+                      {selectedProviderStatus?.hasOAuth ? (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Check className="h-3 w-3" />
+                          Connected
+                        </span>
+                      ) : (
+                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                          Not connected
+                        </span>
+                      )}
+                    </div>
+                    <PiOAuthButton onStatusChange={() => void loadConfig()} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* OAuth Section - Only for OAuth-only providers (not for dual-support providers) */}
+            {piConfigDraft.activeProvider && requiresOAuthAuth(piConfigDraft.activeProvider) && !supportsBothAuthMethods(piConfigDraft.activeProvider) && (
               <div className="rounded border border-border bg-card p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold">OAuth Authentication</h4>
