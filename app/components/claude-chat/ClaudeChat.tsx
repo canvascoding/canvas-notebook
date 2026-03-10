@@ -2,7 +2,22 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { Paperclip, X, Image as ImageIcon, History, Plus, ChevronLeft, ArrowDown, Trash2, Pencil, Sparkles } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import {
+  Paperclip,
+  X,
+  Image as ImageIcon,
+  History,
+  Plus,
+  ChevronLeft,
+  ArrowDown,
+  Trash2,
+  Pencil,
+  Sparkles,
+  Wrench,
+} from 'lucide-react';
 
 interface Attachment {
   name: string;
@@ -14,10 +29,13 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'toolResult';
   content: string;
-  type?: string;
+  type?: 'tool_use' | 'tool_result' | 'system';
   status?: 'pending' | 'sending' | 'sent' | 'error';
   attachments?: Attachment[];
   piMessage?: AgentMessage;
+  toolName?: string;
+  toolCallId?: string;
+  toolArgs?: string;
 }
 
 interface AISession {
@@ -61,7 +79,7 @@ type QueuedMessage = {
   attachments: Attachment[];
 };
 
-type UpdateFunction = (content: string, type?: string, status?: ChatMessage['status']) => void;
+type UpdateFunction = (content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => void;
 
 interface ClaudeChatProps {
   onClose?: () => void;
@@ -69,7 +87,7 @@ interface ClaudeChatProps {
   initialPromptStorageKey?: string;
 }
 
-const DEFAULT_AGENT_LABEL = 'main-agent';
+const DEFAULT_MODEL_ID = 'pi';
 const EMPTY_USAGE = {
   input: 0,
   output: 0,
@@ -97,10 +115,6 @@ function isThinkingPart(value: unknown): value is { type: 'thinking'; thinking: 
   return isRecord(value) && value.type === 'thinking' && typeof value.thinking === 'string';
 }
 
-function isToolCallPart(value: unknown): value is { type: 'toolCall'; name: string } {
-  return isRecord(value) && value.type === 'toolCall' && typeof value.name === 'string';
-}
-
 function isImagePart(value: unknown): value is { type: 'image'; data: string; mimeType: string } {
   return isRecord(value) && value.type === 'image' && typeof value.data === 'string' && typeof value.mimeType === 'string';
 }
@@ -126,6 +140,10 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
   return content;
 }
 
+function normalizeMessageStart(text: string): string {
+  return text.replace(/^\s+/, '');
+}
+
 function extractPiMessageText(piMessage?: AgentMessage | null): string {
   if (!piMessage || !Array.isArray(piMessage.content)) {
     return typeof piMessage?.content === 'string' ? piMessage.content : '';
@@ -135,14 +153,13 @@ function extractPiMessageText(piMessage?: AgentMessage | null): string {
     .map((part) => {
       if (isTextPart(part)) return part.text;
       if (isThinkingPart(part)) return part.thinking;
-      if (isToolCallPart(part)) return `[Tool: ${part.name}]`;
       return '';
     })
     .filter(Boolean)
     .join('\n');
 
   if (textContent) {
-    return textContent;
+    return normalizeMessageStart(textContent);
   }
 
   if (piMessage.role === 'assistant' && piMessage.stopReason === 'error' && piMessage.errorMessage) {
@@ -183,6 +200,14 @@ function toPiMessage(message: ChatMessage, fallbackModel: string) {
     };
   }
 
+  if (message.role === 'toolResult') {
+    return {
+      role: 'toolResult',
+      content: message.content ? [{ type: 'text', text: message.content }] : [],
+      timestamp: Date.now(),
+    } as AgentMessage;
+  }
+
   return null;
 }
 
@@ -191,10 +216,12 @@ function extractToolResultText(content: unknown[] | undefined): string {
     return '';
   }
 
-  return content
-    .map((part) => (isTextPart(part) ? part.text : ''))
-    .filter(Boolean)
-    .join('\n');
+  return normalizeMessageStart(
+    content
+      .map((part) => (isTextPart(part) ? part.text : ''))
+      .filter(Boolean)
+      .join('\n'),
+  );
 }
 
 function extractImageAttachments(content: AgentMessage['content']): Attachment[] | undefined {
@@ -216,6 +243,51 @@ function extractImageAttachments(content: AgentMessage['content']): Attachment[]
   return attachments.length > 0 ? attachments : undefined;
 }
 
+function formatSessionId(value: string | null): string {
+  if (!value) {
+    return 'new chat';
+  }
+
+  if (value.length <= 18) {
+    return value;
+  }
+
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function formatToolArgs(args: unknown): string {
+  if (args === undefined) {
+    return '';
+  }
+
+  if (typeof args === 'string') {
+    return args;
+  }
+
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+function MarkdownMessage({ content, variant }: { content: string; variant: 'user' | 'assistant' | 'tool' }) {
+  const sharedClasses =
+    'break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
+  const toneClasses =
+    variant === 'user'
+      ? '[&_blockquote]:border-primary-foreground/40 [&_pre]:border-primary-foreground/20 [&_pre]:bg-primary-foreground/10 [&_code]:bg-primary-foreground/15 [&_th]:border-primary-foreground/20 [&_td]:border-primary-foreground/20'
+      : '[&_blockquote]:border-border/80 [&_pre]:border-border [&_pre]:bg-background/80 [&_code]:bg-background/80 [&_th]:border-border [&_td]:border-border';
+
+  return (
+    <div className={`${sharedClasses} ${toneClasses}`}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorageKey }: ClaudeChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
@@ -226,12 +298,13 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<AISession[]>([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [agentLabel, setAgentLabel] = useState(DEFAULT_AGENT_LABEL);
+  const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialPromptConsumedRef = useRef(false);
+  const toolMessageIdsRef = useRef<Record<string, string>>({});
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
@@ -260,27 +333,82 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     }
   }, [messages, isAtBottom]);
 
-  const updateAssistantMessage = useCallback((id: string, content: string, type?: string, status?: ChatMessage['status']) => {
-    setMessages(prev => prev.map(m =>
-      m.id === id ? { ...m, content, type: type || m.type, status: status || m.status } : m
-    ));
+  const updateAssistantMessage = useCallback((id: string, content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === id
+          ? { ...message, content: message.content ? content : normalizeMessageStart(content), type: type || message.type, status: status || message.status }
+          : message,
+      ),
+    );
   }, []);
 
   const syncPiMessage = useCallback((id: string, piMessage: AgentMessage) => {
-    setMessages(prev => prev.map(message => {
-      if (message.id !== id) return message;
+    setMessages((prev) =>
+      prev.map((message) => {
+        if (message.id !== id) return message;
 
-      const nextContent = extractPiMessageText(piMessage);
-      const isAssistantError = piMessage.role === 'assistant' && piMessage.stopReason === 'error';
+        const nextContent = extractPiMessageText(piMessage);
+        const isAssistantError = piMessage.role === 'assistant' && piMessage.stopReason === 'error';
 
-      return {
-        ...message,
-        content: nextContent || message.content,
-        status: isAssistantError ? 'error' : message.status,
-        type: isAssistantError ? 'system' : message.type,
+        return {
+          ...message,
+          content: nextContent || message.content,
+          status: isAssistantError ? 'error' : message.status,
+          type: isAssistantError ? 'system' : message.type,
+          piMessage,
+        };
+      }),
+    );
+  }, []);
+
+  const upsertToolMessage = useCallback((params: {
+    content?: string;
+    status?: ChatMessage['status'];
+    toolCallId?: string;
+    toolName?: string;
+    toolArgs?: string;
+    piMessage?: AgentMessage;
+    type?: ChatMessage['type'];
+  }) => {
+    const { toolCallId, toolName, toolArgs, content, status, piMessage, type } = params;
+    const knownMessageId = toolCallId ? toolMessageIdsRef.current[toolCallId] : undefined;
+    const messageId = knownMessageId || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    if (toolCallId && !knownMessageId) {
+      toolMessageIdsRef.current[toolCallId] = messageId;
+    }
+
+    setMessages((prev) => {
+      const index = prev.findIndex((message) => message.id === messageId);
+      const nextMessage: ChatMessage = {
+        id: messageId,
+        role: 'toolResult',
+        content: content || '',
+        status: status || 'sent',
+        toolCallId,
+        toolName,
+        toolArgs,
         piMessage,
+        type: type || 'tool_result',
       };
-    }));
+
+      if (index === -1) {
+        return [...prev, nextMessage];
+      }
+
+      const nextMessages = [...prev];
+      nextMessages[index] = {
+        ...nextMessages[index],
+        ...nextMessage,
+        content: content ?? nextMessages[index].content,
+        toolArgs: toolArgs ?? nextMessages[index].toolArgs,
+        toolName: toolName ?? nextMessages[index].toolName,
+        piMessage: piMessage ?? nextMessages[index].piMessage,
+        type: type || nextMessages[index].type,
+      };
+      return nextMessages;
+    });
   }, []);
 
   const handleEvent = useCallback((event: ChatEvent, msgId: string, updateFn: UpdateFunction) => {
@@ -290,26 +418,42 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
 
     switch (event.type) {
       case 'message_update':
-        if (event.assistantMessageEvent?.type === 'text_delta') {
-          updateFn(event.assistantMessageEvent.delta || '', 'text');
-        } else if (event.assistantMessageEvent?.type === 'thinking_delta') {
-          updateFn(event.assistantMessageEvent.delta || '', 'thought');
+        if (event.assistantMessageEvent?.type === 'text_delta' || event.assistantMessageEvent?.type === 'thinking_delta') {
+          updateFn(event.assistantMessageEvent.delta || '', undefined, 'sending');
         }
         break;
       case 'tool_execution_start':
-        updateFn(`\n[Tool: ${event.toolName}]\n`, 'tool_use');
+        upsertToolMessage({
+          toolCallId: event.toolCallId,
+          toolName: event.toolName || 'Tool',
+          toolArgs: formatToolArgs(event.args),
+          status: 'sending',
+          type: 'tool_use',
+        });
         break;
-      case 'tool_execution_end':
-        if (event.result?.content) {
-          const text = extractToolResultText(event.result.content);
-          updateFn(`\n\`\`\`text\n${text}\n\`\`\`\n`, 'tool_result');
-        }
+      case 'tool_execution_end': {
+        const text = extractToolResultText(event.result?.content);
+        upsertToolMessage({
+          toolCallId: event.toolCallId,
+          toolName: event.toolName || 'Tool',
+          content: text,
+          status: 'sent',
+          type: 'tool_result',
+          piMessage: {
+            role: 'toolResult',
+            content: text ? [{ type: 'text', text }] : [],
+            timestamp: Date.now(),
+          } as AgentMessage,
+        });
         break;
+      }
       case 'error':
         updateFn(`[Error] ${event.error || 'Unknown error'}`, 'system', 'error');
         break;
+      default:
+        break;
     }
-  }, [syncPiMessage]);
+  }, [syncPiMessage, upsertToolMessage]);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -327,30 +471,39 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
     setSessionId(null);
     setMessages([]);
     setShowHistory(false);
-    setAgentLabel(DEFAULT_AGENT_LABEL);
+    setActiveModel(DEFAULT_MODEL_ID);
+    toolMessageIdsRef.current = {};
   }, []);
 
   const loadSession = useCallback(async (session: AISession) => {
     setSessionId(session.sessionId);
-    setAgentLabel(session.model || DEFAULT_AGENT_LABEL);
-    setMessages([{ id: 'system', role: 'system', content: `Loading...` }]);
+    setActiveModel(session.model || DEFAULT_MODEL_ID);
+    setMessages([{ id: 'system', role: 'system', content: 'Loading...' }]);
     setShowHistory(false);
+    toolMessageIdsRef.current = {};
 
     try {
       const res = await fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}`);
       const data = await res.json();
       if (data.success && data.messages) {
-        setMessages(data.messages.map((rawMessage: PersistedChatMessage) => {
-          const content = extractPiMessageText(rawMessage);
-          return {
-            id: rawMessage.id?.toString() || Math.random().toString(),
-            role: rawMessage.role,
-            content,
-            status: 'sent',
-            attachments: extractImageAttachments(rawMessage.content),
-            piMessage: rawMessage,
-          };
-        }));
+        setMessages(
+          data.messages.map((rawMessage: PersistedChatMessage) => {
+            const isToolResult = rawMessage.role === 'toolResult';
+            const content = isToolResult
+              ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
+              : extractPiMessageText(rawMessage);
+
+            return {
+              id: rawMessage.id?.toString() || Math.random().toString(),
+              role: rawMessage.role,
+              content,
+              status: 'sent',
+              type: isToolResult ? 'tool_result' : undefined,
+              attachments: extractImageAttachments(rawMessage.content),
+              piMessage: rawMessage,
+            };
+          }),
+        );
       }
     } catch (err) {
       console.error('Failed to load messages', err);
@@ -363,11 +516,11 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
 
     try {
       const res = await fetch(`/api/sessions?sessionId=${encodeURIComponent(id)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
       });
       const data = await res.json();
       if (data.success) {
-        setHistory(prev => prev.filter(s => s.sessionId !== id));
+        setHistory((prev) => prev.filter((session) => session.sessionId !== id));
         if (sessionId === id) {
           startNewChat();
         }
@@ -399,7 +552,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
           prev.map((item) =>
             item.sessionId === session.sessionId
               ? { ...item, title: nextTitle.trim() }
-              : item
+              : item,
           ),
         );
       }
@@ -416,24 +569,24 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
       const res = await fetch('/api/upload/screenshot', { method: 'POST', body: formData });
       const data = await res.json();
       if (data.success) {
-        setAttachments(prev => [...prev, { name: data.name, path: data.path, type: file.type }]);
+        setAttachments((prev) => [...prev, { name: data.name, path: data.path, type: file.type }]);
       }
     } catch (err) {
       console.error('Upload failed', err);
     }
   }, []);
 
-  const onFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (file) handleFileUpload(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [handleFileUpload]);
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
+  const handlePaste = useCallback((event: React.ClipboardEvent) => {
+    const items = event.clipboardData?.items;
     if (!items) return;
 
-    for (let i = 0; i < items.length; i++) {
+    for (let i = 0; i < items.length; i += 1) {
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile();
         if (file) {
@@ -446,7 +599,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
   }, [handleFileUpload]);
 
   const removeAttachment = useCallback((index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
+    setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
   const queueMessage = useCallback((text: string, messageAttachments: Attachment[]) => {
@@ -457,16 +610,19 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
       timestamp: Date.now(),
     };
 
-    setMessages(prev => [...prev, {
-      id: messageId,
-      role: 'user',
-      content: text,
-      status: 'pending',
-      attachments: messageAttachments,
-      piMessage,
-    }]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: messageId,
+        role: 'user',
+        content: text,
+        status: 'pending',
+        attachments: messageAttachments,
+        piMessage,
+      },
+    ]);
 
-    setQueue(prev => [...prev, { id: messageId, text, attachments: messageAttachments }]);
+    setQueue((prev) => [...prev, { id: messageId, text, attachments: messageAttachments }]);
   }, []);
 
   const handleSend = useCallback(() => {
@@ -497,9 +653,7 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
 
   const processMessage = useCallback(async ({ id, text, attachments: currentAttachments }: QueuedMessage) => {
     setIsProcessing(true);
-    setMessages(prev => prev.map(message =>
-      message.id === id ? { ...message, status: 'sending' } : message
-    ));
+    setMessages((prev) => prev.map((message) => (message.id === id ? { ...message, status: 'sending' } : message)));
 
     try {
       let effectiveSessionId = sessionId;
@@ -521,10 +675,10 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
         setSessionId(effectiveSessionId);
       }
 
-      const currentUserMessage = messages.find(message => message.id === id);
+      const currentUserMessage = messages.find((message) => message.id === id);
       const piMessages: AgentMessage[] = messages
-        .filter(message => message.id !== id && message.role !== 'system')
-        .map(message => toPiMessage(message, agentLabel))
+        .filter((message) => message.id !== id && message.role !== 'system')
+        .map((message) => toPiMessage(message, activeModel))
         .filter((message): message is AgentMessage => message !== null);
 
       piMessages.push(
@@ -532,27 +686,30 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
           role: 'user',
           content: buildPromptContent(text, currentAttachments),
           timestamp: Date.now(),
-        }
+        },
       );
 
       const response = await fetch('/api/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: piMessages, sessionId: effectiveSessionId })
+        body: JSON.stringify({ messages: piMessages, sessionId: effectiveSessionId }),
       });
 
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      const assistantMsgId = Date.now().toString() + '-assistant';
+      const assistantMsgId = `${Date.now()}-assistant`;
 
-      setMessages(prev => [...prev, {
-        id: assistantMsgId,
-        role: 'assistant',
-        content: '',
-        status: 'sending'
-      }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: '',
+          status: 'sending',
+        },
+      ]);
 
       let fullContent = '';
       let lineBuffer = '';
@@ -570,64 +727,92 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
           try {
             const event = JSON.parse(line) as ChatEvent;
             handleEvent(event, assistantMsgId, (content, type, status) => {
-              fullContent += content;
+              fullContent += fullContent ? content : normalizeMessageStart(content);
               updateAssistantMessage(assistantMsgId, fullContent, type, status);
             });
-          } catch {}
+          } catch {
+            // Ignore malformed stream lines.
+          }
         }
       }
 
-      setMessages(prev => prev.map(message => {
-        if (message.id === id) {
-          return { ...message, status: 'sent' };
-        }
+      setMessages((prev) =>
+        prev.map((message) => {
+          if (message.id === id) {
+            return { ...message, status: 'sent' };
+          }
 
-        if (message.id === assistantMsgId) {
-          return message.status === 'error' ? message : { ...message, status: 'sent' };
-        }
+          if (message.id === assistantMsgId) {
+            return message.status === 'error' ? message : { ...message, status: 'sent' };
+          }
 
-        return message;
-      }));
+          if (message.role === 'toolResult' && message.status === 'sending') {
+            return { ...message, status: 'sent' };
+          }
+
+          return message;
+        }),
+      );
       void fetchHistory();
     } catch (error) {
       console.error('Chat error:', error);
-      setMessages(prev => prev.map(message =>
-        message.id === id ? { ...message, status: 'error' } : message
-      ));
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'system',
-        content: `Error: ${error instanceof Error ? error.message : String(error)}`,
-        status: 'error'
-      }]);
+      setMessages((prev) => prev.map((message) => (message.id === id ? { ...message, status: 'error' } : message)));
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'system',
+          content: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          status: 'error',
+          type: 'system',
+        },
+      ]);
     } finally {
       setIsProcessing(false);
     }
-  }, [messages, sessionId, handleEvent, updateAssistantMessage, fetchHistory, agentLabel]);
+  }, [messages, sessionId, handleEvent, updateAssistantMessage, fetchHistory, activeModel]);
 
   useEffect(() => {
     if (!isProcessing && queue.length > 0) {
       const next = queue[0];
-      setQueue(prev => prev.slice(1));
+      setQueue((prev) => prev.slice(1));
       processMessage(next);
     }
   }, [isProcessing, queue, processMessage]);
 
   return (
-    <div className="flex flex-col h-full bg-card text-card-foreground relative overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
       <div className="z-10 flex items-center justify-between border-b border-border bg-background/95 p-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
           {showHistory ? (
-            <button onClick={() => setShowHistory(false)} className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"><ChevronLeft /></button>
+            <button onClick={() => setShowHistory(false)} className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent" title="Back to chat">
+              <ChevronLeft />
+            </button>
           ) : (
-            <button onClick={() => { setShowHistory(true); void fetchHistory(); }} className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"><History size={20} /></button>
+            <button
+              onClick={() => {
+                setShowHistory(true);
+                void fetchHistory();
+              }}
+              className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
+              title="Open history"
+            >
+              <History size={20} />
+            </button>
           )}
-          <div className="flex flex-col min-w-0">
-            <span className="text-[10px] uppercase font-bold text-muted-foreground leading-none mb-1">{showHistory ? 'History' : 'Chat'}</span>
-            <div className="flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-0.5">
-              <span className="text-xs font-bold uppercase tracking-wide">Main Agent</span>
-              {!showHistory && sessionId && <span className="text-[10px] text-muted-foreground border-l border-border pl-1.5">#{sessionId.substring(0, 4)}</span>}
-            </div>
+          <div className="min-w-0">
+            {showHistory ? (
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">History</span>
+            ) : (
+              <div
+                data-testid="chat-session-id"
+                title={sessionId || 'New chat'}
+                className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground"
+              >
+                <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
+                <span className="min-w-0 truncate font-mono">{formatSessionId(sessionId)}</span>
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -637,110 +822,157 @@ export default function ClaudeChat({ onClose, initialPrompt, initialPromptStorag
             title="New Chat"
           >
             <Plus size={18} />
-            <span className="text-xs font-bold hidden sm:inline group-hover:inline-block">New</span>
+            <span className="hidden text-xs font-bold sm:inline">New</span>
           </button>
           {onClose && (
-            <button onClick={onClose} className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Close Chat"><X size={18} /></button>
+            <button onClick={onClose} className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Close Chat">
+              <X size={18} />
+            </button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 relative">
+      <div className="relative flex-1">
         {showHistory && (
-          <div className="absolute inset-0 bg-background z-20 overflow-y-auto p-2 space-y-1 pb-20">
-            <div className="px-2 py-2 text-[10px] font-bold text-muted-foreground uppercase flex items-center gap-2 tracking-widest border-b border-border mb-2">
+          <div className="absolute inset-0 z-20 space-y-1 overflow-y-auto bg-background p-2 pb-20">
+            <div className="mb-2 flex items-center gap-2 border-b border-border px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
               <History size={10} /> Sessions
             </div>
-            {history.length === 0 && <div className="text-center p-8 text-muted-foreground text-sm italic">No recent sessions</div>}
+            {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">No recent sessions</div>}
             {history.map((session) => (
               <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
                 <button onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left">
-                  <div className="text-sm font-medium truncate group-hover:text-primary text-foreground">{session.title || 'Untitled Session'}</div>
-                  <div className="text-[10px] text-muted-foreground mt-1 flex flex-wrap gap-2">
+                  <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">{session.title || session.sessionId}</div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                     <span>{new Date(session.createdAt).toLocaleString()}</span>
-                    <span>•</span>
+                    <span>&bull;</span>
                     <span>{session.model}</span>
                   </div>
                 </button>
-                <button onClick={() => void renameSession(session)} className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Rename Session"><Pencil size={15} /></button>
-                <button onClick={() => void deleteSession(session.sessionId)} className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive" title="Delete Session"><Trash2 size={15} /></button>
+                <button onClick={() => void renameSession(session)} className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Rename Session">
+                  <Pencil size={15} />
+                </button>
+                <button onClick={() => void deleteSession(session.sessionId)} className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive" title="Delete Session">
+                  <Trash2 size={15} />
+                </button>
               </div>
             ))}
           </div>
         )}
 
-        <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto p-4 space-y-4 pb-24 scroll-smooth">
+        <div ref={scrollContainerRef} className="absolute inset-0 space-y-4 overflow-y-auto p-4 pb-24 scroll-smooth">
           {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4 opacity-40">
+            <div className="flex h-full flex-col items-center justify-center space-y-4 text-muted-foreground opacity-40">
               <Sparkles size={48} />
               <div className="text-center">
-                <p className="text-sm font-bold uppercase tracking-widest mb-1">Main Agent</p>
-                <p className="text-[11px] italic px-8">Ask the main agent to help with your project</p>
+                <p className="mb-1 text-sm font-bold uppercase tracking-widest">Start a conversation</p>
+                <p className="px-8 text-[11px] italic">Markdown replies, tool output, and session history will appear here.</p>
               </div>
             </div>
           )}
-          {messages.map((msg) => (
-            <div key={msg.id} data-testid={`chat-message-${msg.role}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[95%] border p-3 sm:max-w-[90%] ${
-                msg.role === 'user' ? 'border-primary bg-primary text-primary-foreground shadow-sm' :
-                msg.role === 'assistant' ? 'bg-muted border-border text-foreground' : 'border-destructive/40 bg-destructive/10 text-destructive'
-                }`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">{msg.role === 'assistant' ? agentLabel : msg.role}</span>
-                  {msg.status === 'sending' && <span className="h-1.5 w-1.5 animate-pulse bg-primary" />}
-                </div>
-                <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">
-                  {msg.content || (msg.status === 'sending' ? `${agentLabel} is processing...` : '')}
-                </div>
-                {msg.attachments && msg.attachments.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {msg.attachments.map((a, i) => (
-                      <div key={i} className="flex items-center gap-1.5 border border-border bg-background/50 p-1.5 px-2.5 text-[10px]">
-                        <ImageIcon className="h-3 w-3" /> {a.name}
-                      </div>
-                    ))}
+          {messages.map((message) => {
+            const isUser = message.role === 'user';
+            const isAssistant = message.role === 'assistant';
+            const isTool = message.role === 'toolResult';
+
+            const bubbleClass = isUser
+              ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+              : isAssistant
+                ? 'border-border bg-muted text-foreground'
+                : isTool
+                  ? 'border-amber-500/40 bg-amber-500/10 text-foreground'
+                  : 'border-destructive/40 bg-destructive/10 text-destructive';
+
+            const title = isUser ? 'You' : isTool ? (message.toolName || 'Tool') : isAssistant ? 'Assistant' : 'System';
+            const bodyContent = message.content || (message.status === 'sending' ? (isTool ? 'Running tool...' : 'Thinking...') : '');
+
+            return (
+              <div key={message.id} data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[95%] border p-3 sm:max-w-[90%] ${bubbleClass}`}>
+                  <div className="mb-2 flex items-center gap-2">
+                    {isTool ? <Wrench className="h-3.5 w-3.5 opacity-70" /> : null}
+                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
+                    {message.status === 'sending' && <span className="h-1.5 w-1.5 animate-pulse bg-current opacity-70" />}
                   </div>
-                )}
+
+                  {isTool && message.toolArgs ? (
+                    <div className="mb-3 rounded-md border border-amber-500/30 bg-background/60 p-2">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Input</div>
+                      <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">{message.toolArgs}</pre>
+                    </div>
+                  ) : null}
+
+                  {isUser ? (
+                    <MarkdownMessage content={bodyContent} variant="user" />
+                  ) : isAssistant || isTool ? (
+                    <MarkdownMessage content={bodyContent} variant={isTool ? 'tool' : 'assistant'} />
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
+                  )}
+
+                  {message.attachments && message.attachments.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {message.attachments.map((attachment, index) => (
+                        <div key={index} className="flex items-center gap-1.5 border border-border bg-background/50 p-1.5 px-2.5 text-[10px]">
+                          <ImageIcon className="h-3 w-3" /> {attachment.name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
 
         {!isAtBottom && messages.length > 0 && (
-          <button onClick={() => scrollToBottom()} className="absolute bottom-28 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90" title="Scroll to bottom"><ArrowDown size={20} /></button>
+          <button onClick={() => scrollToBottom()} className="absolute bottom-28 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90" title="Scroll to bottom">
+            <ArrowDown size={20} />
+          </button>
         )}
       </div>
 
       <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 p-3">
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
-            {attachments.map((a, i) => (
-              <div key={i} className="flex items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
-                <ImageIcon className="h-3.5 w-3.5" /> {a.name}
-                <button onClick={() => removeAttachment(i)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+            {attachments.map((attachment, index) => (
+              <div key={index} className="flex items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
+                <ImageIcon className="h-3.5 w-3.5" /> {attachment.name}
+                <button onClick={() => removeAttachment(index)} className="hover:text-destructive">
+                  <X className="h-3 w-3" />
+                </button>
               </div>
             ))}
           </div>
         )}
-        <div className="flex gap-2 items-end">
-          <button onClick={() => fileInputRef.current?.click()} className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"><Paperclip className="h-5 w-5" /></button>
+        <div className="flex items-end gap-2">
+          <button onClick={() => fileInputRef.current?.click()} className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent" title="Attach image">
+            <Paperclip className="h-5 w-5" />
+          </button>
           <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*" />
           <textarea
             data-testid="chat-input"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(event) => setInput(event.target.value)}
             onPaste={handlePaste}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder={`Ask ${agentLabel}...`}
-            className="max-h-32 min-h-[44px] flex-1 resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="Ask about your project..."
+            className="min-h-[44px] max-h-32 flex-1 resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <button data-testid="chat-send" onClick={handleSend} className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30" disabled={!input.trim() && attachments.length === 0}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5"><path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
+              <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
         </div>
         {queue.length > 0 && (
-          <div className="mt-2 text-[10px] text-muted-foreground flex items-center gap-2 px-1">
+          <div className="mt-2 flex items-center gap-2 px-1 text-[10px] text-muted-foreground">
             <span className="h-1 w-1 animate-ping bg-primary" />
             {queue.length} in queue
           </div>
