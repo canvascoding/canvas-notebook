@@ -65,26 +65,6 @@ CREATE TABLE IF NOT EXISTS verification (
   updated_at INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS claude_sessions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-  session_id TEXT NOT NULL,
-  user_id TEXT NOT NULL,
-  title TEXT,
-  created_at INTEGER NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
-);
-
-CREATE TABLE IF NOT EXISTS claude_messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-  claude_session_db_id INTEGER NOT NULL,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL,
-  type TEXT,
-  attachments TEXT,
-  created_at INTEGER NOT NULL,
-  FOREIGN KEY (claude_session_db_id) REFERENCES claude_sessions(id) ON UPDATE NO ACTION ON DELETE NO ACTION
-);
-
 CREATE TABLE IF NOT EXISTS ai_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
   session_id TEXT NOT NULL,

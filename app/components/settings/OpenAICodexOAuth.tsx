@@ -194,7 +194,7 @@ export function OpenAICodexOAuth({ providerId }: OpenAICodexOAuthProps) {
 
   return (
     <>
-      <div className="space-y-2">
+      <div data-testid="openai-codex-oauth-button" className="space-y-2">
         <Button
           onClick={() => void initiateAuth()}
           disabled={isLoading}
