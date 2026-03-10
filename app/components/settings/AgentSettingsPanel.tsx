@@ -578,8 +578,8 @@ export function AgentSettingsPanel() {
                   </select>
                   <p className="text-xs text-muted-foreground">
                     {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' 
-                      ? 'Cloud Mode: API Key erforderlich, keine lokalen Downloads nötig'
-                      : 'Lokal Mode: Kein API Key nötig, Modelle müssen heruntergeladen werden'}
+                      ? 'Remote Server: Verbindung zu externem Ollama Server'
+                      : 'Lokal Mode: Modelle werden lokal über localhost:11434 ausgeführt'}
                   </p>
                 </div>
               )}

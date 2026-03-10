@@ -11,22 +11,24 @@ registerBuiltInApiProviders();
 // Ollama provider ID - used for custom provider discovery
 export const OLLAMA_PROVIDER_ID = 'ollama';
 
-// Recommended Ollama models with metadata
+  // Recommended Ollama models with metadata
 // Using 'openai-completions' api type for OpenAI-compatible Ollama API
-// [Lokal] = Muss mit "ollama pull" heruntergeladen werden
-// [Cloud] = Direkt über Ollama Cloud verfügbar
+// Alle Modelle (lokal und cloud) werden über localhost API aufgerufen
 export const OLLAMA_MODELS: Model<'openai-completions'>[] = [
-  // Lokale Modelle (Meta, Mistral, etc.)
-  { id: 'llama3.1', name: 'Llama 3.1 [Lokal]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'llama3.2', name: 'Llama 3.2 [Lokal]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'mistral', name: 'Mistral [Lokal]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 8192 },
-  { id: 'qwen2.5-coder:32b', name: 'Qwen 2.5 Coder 32B [Lokal]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'deepseek-r1:32b', name: 'DeepSeek R1 32B [Lokal/Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: true, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  // Cloud-Modelle (kein "ollama pull" nötig)
-  { id: 'glm-4', name: 'GLM-4 [Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'glm-5.6', name: 'GLM 5.6 [Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'kimi-k2.5', name: 'Kimi K2.5 [Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 256000, maxTokens: 8192 },
-  { id: 'qwen3.5', name: 'Qwen 3.5 [Cloud]', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  // Lokale Open-Source Modelle (mit 'ollama pull' herunterladen)
+  { id: 'llama3.1', name: 'Llama 3.1 (Meta)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'llama3.2', name: 'Llama 3.2 (Meta)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'mistral', name: 'Mistral (Mistral AI)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 8192 },
+  { id: 'qwen2.5-coder:32b', name: 'Qwen 2.5 Coder 32B (Alibaba)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'deepseek-r1:32b', name: 'DeepSeek R1 32B (DeepSeek)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: true, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  // Cloud-Modelle (automatisch aus Ollama Cloud gepullt)
+  { id: 'glm-4.6:cloud', name: 'GLM 4.6 Cloud (Zhipu AI)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'kimi-k2.5:cloud', name: 'Kimi K2.5 Cloud (Moonshot AI)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 256000, maxTokens: 8192 },
+  { id: 'qwen3.5:397b-cloud', name: 'Qwen 3.5 397B Cloud (Alibaba)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'qwen3-coder:480b-cloud', name: 'Qwen 3 Coder 480B Cloud (Alibaba)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'qwen3-vl:235b-cloud', name: 'Qwen 3 VL 235B Cloud (Alibaba)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'minimax-m2:cloud', name: 'MiniMax M2 Cloud (MiniMax)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'gpt-oss:120b', name: 'GPT-OSS 120B (OpenAI)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
 ];
 
 export function getPiProviders(): string[] {
@@ -64,31 +66,32 @@ export async function resolvePiModel(provider: string, modelName: string) {
     throw new Error(`Model ${modelName} not found for provider ${provider}`);
   }
   
-  // For Ollama, we need to check the config to determine local vs cloud mode
+  // For Ollama, we always use the local API endpoint (localhost:11434)
+  // Cloud vs Local is distinguished by the model ID, not the URL
   if (provider === OLLAMA_PROVIDER_ID) {
     const config = await readPiRuntimeConfig();
     const providerConfig = config.providers[provider];
     
-    if (providerConfig) {
-      // Determine base URL based on mode
-      let baseUrl = 'http://localhost:11434/v1'; // default local
+    console.log(`[Ollama Debug] Resolving model ${modelName} for provider ${provider}`);
+    console.log(`[Ollama Debug] Mode: ${providerConfig?.ollamaMode || 'local'}`);
+    
+    if (providerConfig?.ollamaHost) {
+      // Use custom host if provided
+      const baseUrl = providerConfig.ollamaHost.endsWith('/v1') 
+        ? providerConfig.ollamaHost 
+        : `${providerConfig.ollamaHost}/v1`;
       
-      if (providerConfig.ollamaMode === 'cloud') {
-        // Cloud mode - use cloud URL
-        baseUrl = providerConfig.ollamaHost || 'https://cloud.ollama.com/v1';
-      } else if (providerConfig.ollamaHost) {
-        // Local mode with custom host
-        baseUrl = providerConfig.ollamaHost.endsWith('/v1') 
-          ? providerConfig.ollamaHost 
-          : `${providerConfig.ollamaHost}/v1`;
-      }
+      console.log(`[Ollama Debug] Using custom host: ${baseUrl}`);
       
-      // Return model with correct baseUrl
       return {
         ...model,
         baseUrl,
       };
     }
+    
+    // Default: localhost for both local and cloud models
+    // Cloud models are pulled via 'ollama pull <cloud-model>' and served locally
+    console.log(`[Ollama Debug] Using default localhost: http://localhost:11434/v1`);
   }
   
   return model;
