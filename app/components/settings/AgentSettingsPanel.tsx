@@ -37,11 +37,15 @@ type ManagedFileName = (typeof MANAGED_FILES)[number];
 
 type PiThinkingLevel = 'none' | 'low' | 'medium' | 'high';
 
+type OllamaMode = 'local' | 'cloud';
+
 type PiProviderConfig = {
   id: string;
   model: string;
   thinking: PiThinkingLevel;
   enabledTools: string[];
+  ollamaMode?: OllamaMode;
+  ollamaHost?: string;
 };
 
 type PiRuntimeConfig = {
@@ -552,6 +556,33 @@ export function AgentSettingsPanel() {
                   }
                 </select>
               </label>
+
+              {/* Ollama Mode Selector */}
+              {piConfigDraft.activeProvider === 'ollama' && (
+                <div className="space-y-2 text-sm">
+                  <span className="font-semibold">Ollama Mode</span>
+                  <select
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={piConfigDraft.providers.ollama?.ollamaMode || 'local'}
+                    onChange={(event) => {
+                      const mode = event.target.value as OllamaMode;
+                      setPiProviderField('ollama', 'ollamaMode', mode);
+                      // Auto-set host based on mode
+                      const host = mode === 'local' ? 'http://127.0.0.1:11434' : 'https://cloud.ollama.com';
+                      setPiProviderField('ollama', 'ollamaHost', host);
+                    }}
+                    disabled={configSaving}
+                  >
+                    <option value="local">🏠 Lokal (localhost:11434)</option>
+                    <option value="cloud">☁️ Cloud (cloud.ollama.com)</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' 
+                      ? 'Cloud Mode: API Key erforderlich, keine lokalen Downloads nötig'
+                      : 'Lokal Mode: Kein API Key nötig, Modelle müssen heruntergeladen werden'}
+                  </p>
+                </div>
+              )}
 
               {piConfigDraft.providers[piConfigDraft.activeProvider] && (
                 <div className="space-y-2 text-sm">

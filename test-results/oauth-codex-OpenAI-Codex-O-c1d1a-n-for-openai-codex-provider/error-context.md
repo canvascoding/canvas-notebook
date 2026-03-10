@@ -54,896 +54,667 @@
                       - option "mistral"
                       - option "ollama"
                       - option "openai"
-                      - option "openai-codex"
+                      - option "openai-codex" [selected]
                       - option "opencode"
                       - option "opencode-go"
-                      - option "openrouter" [selected]
+                      - option "openrouter"
                       - option "vercel-ai-gateway"
                       - option "xai"
                       - option "zai"
                   - generic [ref=e31]:
-                    - generic [ref=e32]: Modell für openrouter
+                    - generic [ref=e32]: Modell für openai-codex
                     - combobox [ref=e33]:
-                      - option "-- Modell wählen --"
-                      - 'option "AI21: Jamba Large 1.7"'
-                      - option "Tongyi DeepResearch 30B A3B"
-                      - 'option "AllenAI: Olmo 3.1 32B Instruct"'
-                      - 'option "Amazon: Nova 2 Lite"'
-                      - 'option "Amazon: Nova Lite 1.0"'
-                      - 'option "Amazon: Nova Micro 1.0"'
-                      - 'option "Amazon: Nova Premier 1.0"'
-                      - 'option "Amazon: Nova Pro 1.0"'
-                      - 'option "Anthropic: Claude 3 Haiku"'
-                      - 'option "Anthropic: Claude 3.5 Haiku"'
-                      - 'option "Anthropic: Claude 3.5 Sonnet"'
-                      - 'option "Anthropic: Claude 3.7 Sonnet"'
-                      - 'option "Anthropic: Claude 3.7 Sonnet (thinking)"'
-                      - 'option "Anthropic: Claude Haiku 4.5"'
-                      - 'option "Anthropic: Claude Opus 4"'
-                      - 'option "Anthropic: Claude Opus 4.1"'
-                      - 'option "Anthropic: Claude Opus 4.5"'
-                      - 'option "Anthropic: Claude Opus 4.6"'
-                      - 'option "Anthropic: Claude Sonnet 4"'
-                      - 'option "Anthropic: Claude Sonnet 4.5"'
-                      - 'option "Anthropic: Claude Sonnet 4.6"'
-                      - 'option "Arcee AI: Trinity Large Preview (free)"'
-                      - 'option "Arcee AI: Trinity Mini"'
-                      - 'option "Arcee AI: Trinity Mini (free)"'
-                      - 'option "Arcee AI: Virtuoso Large"'
-                      - option "Auto"
-                      - 'option "Baidu: ERNIE 4.5 21B A3B"'
-                      - 'option "Baidu: ERNIE 4.5 VL 28B A3B"'
-                      - 'option "ByteDance Seed: Seed 1.6"'
-                      - 'option "ByteDance Seed: Seed 1.6 Flash"'
-                      - 'option "ByteDance Seed: Seed-2.0-Mini"'
-                      - 'option "Cohere: Command R (08-2024)"'
-                      - 'option "Cohere: Command R+ (08-2024)"'
-                      - 'option "DeepSeek: DeepSeek V3"'
-                      - 'option "DeepSeek: DeepSeek V3 0324"'
-                      - 'option "DeepSeek: DeepSeek V3.1"'
-                      - 'option "DeepSeek: R1"'
-                      - 'option "DeepSeek: R1 0528"'
-                      - 'option "DeepSeek: DeepSeek V3.1 Terminus"'
-                      - 'option "DeepSeek: DeepSeek V3.1 Terminus (exacto)"'
-                      - 'option "DeepSeek: DeepSeek V3.2"'
-                      - 'option "DeepSeek: DeepSeek V3.2 Exp"'
-                      - 'option "EssentialAI: Rnj 1 Instruct"'
-                      - 'option "Google: Gemini 2.0 Flash"'
-                      - 'option "Google: Gemini 2.0 Flash Lite"'
-                      - 'option "Google: Gemini 2.5 Flash"'
-                      - 'option "Google: Gemini 2.5 Flash Lite"'
-                      - 'option "Google: Gemini 2.5 Flash Lite Preview 09-2025"'
-                      - 'option "Google: Gemini 2.5 Pro"'
-                      - 'option "Google: Gemini 2.5 Pro Preview 06-05"'
-                      - 'option "Google: Gemini 2.5 Pro Preview 05-06"'
-                      - 'option "Google: Gemini 3 Flash Preview"'
-                      - 'option "Google: Gemini 3 Pro Preview"'
-                      - 'option "Google: Gemini 3.1 Flash Lite Preview"'
-                      - 'option "Google: Gemini 3.1 Pro Preview"'
-                      - 'option "Google: Gemini 3.1 Pro Preview Custom Tools"'
-                      - 'option "Google: Gemma 3 27B"'
-                      - 'option "Google: Gemma 3 27B (free)"'
-                      - 'option "Inception: Mercury"'
-                      - 'option "Inception: Mercury 2"'
-                      - 'option "Inception: Mercury Coder"'
-                      - 'option "Kwaipilot: KAT-Coder-Pro V1"'
-                      - 'option "Meituan: LongCat Flash Chat"'
-                      - 'option "Meta: Llama 3 8B Instruct"'
-                      - 'option "Meta: Llama 3.1 405B Instruct"'
-                      - 'option "Meta: Llama 3.1 70B Instruct"'
-                      - 'option "Meta: Llama 3.1 8B Instruct"'
-                      - 'option "Meta: Llama 3.3 70B Instruct"'
-                      - 'option "Meta: Llama 3.3 70B Instruct (free)"'
-                      - 'option "Meta: Llama 4 Maverick"'
-                      - 'option "Meta: Llama 4 Scout"'
-                      - 'option "MiniMax: MiniMax M1"'
-                      - 'option "MiniMax: MiniMax M2"'
-                      - 'option "MiniMax: MiniMax M2.1"'
-                      - 'option "MiniMax: MiniMax M2.5"'
-                      - 'option "Mistral: Codestral 2508"'
-                      - 'option "Mistral: Devstral 2 2512"'
-                      - 'option "Mistral: Devstral Medium"'
-                      - 'option "Mistral: Devstral Small 1.1"'
-                      - 'option "Mistral: Ministral 3 14B 2512"'
-                      - 'option "Mistral: Ministral 3 3B 2512"'
-                      - 'option "Mistral: Ministral 3 8B 2512"'
-                      - option "Mistral Large"
-                      - option "Mistral Large 2407"
-                      - option "Mistral Large 2411"
-                      - 'option "Mistral: Mistral Large 3 2512"'
-                      - 'option "Mistral: Mistral Medium 3"'
-                      - 'option "Mistral: Mistral Medium 3.1"'
-                      - 'option "Mistral: Mistral Nemo"'
-                      - 'option "Mistral: Saba"'
-                      - 'option "Mistral: Mistral Small 3"'
-                      - 'option "Mistral: Mistral Small 3.1 24B (free)"'
-                      - 'option "Mistral: Mistral Small 3.2 24B"'
-                      - 'option "Mistral: Mistral Small Creative"'
-                      - 'option "Mistral: Mixtral 8x22B Instruct"'
-                      - 'option "Mistral: Mixtral 8x7B Instruct"'
-                      - 'option "Mistral: Pixtral Large 2411"'
-                      - 'option "Mistral: Voxtral Small 24B 2507"'
-                      - 'option "MoonshotAI: Kimi K2 0711"'
-                      - 'option "MoonshotAI: Kimi K2 0905"'
-                      - 'option "MoonshotAI: Kimi K2 0905 (exacto)"'
-                      - 'option "MoonshotAI: Kimi K2 Thinking"'
-                      - 'option "MoonshotAI: Kimi K2.5"'
-                      - 'option "Nex AGI: DeepSeek V3.1 Nex N1"'
-                      - 'option "NVIDIA: Llama 3.1 Nemotron 70B Instruct"'
-                      - 'option "NVIDIA: Llama 3.3 Nemotron Super 49B V1.5"'
-                      - 'option "NVIDIA: Nemotron 3 Nano 30B A3B"'
-                      - 'option "NVIDIA: Nemotron 3 Nano 30B A3B (free)"'
-                      - 'option "NVIDIA: Nemotron Nano 12B 2 VL (free)"'
-                      - 'option "NVIDIA: Nemotron Nano 9B V2"'
-                      - 'option "NVIDIA: Nemotron Nano 9B V2 (free)"'
-                      - 'option "OpenAI: GPT-3.5 Turbo"'
-                      - 'option "OpenAI: GPT-3.5 Turbo (older v0613)"'
-                      - 'option "OpenAI: GPT-3.5 Turbo 16k"'
-                      - 'option "OpenAI: GPT-4"'
-                      - 'option "OpenAI: GPT-4 (older v0314)"'
-                      - 'option "OpenAI: GPT-4 Turbo (older v1106)"'
-                      - 'option "OpenAI: GPT-4 Turbo"'
-                      - 'option "OpenAI: GPT-4 Turbo Preview"'
-                      - 'option "OpenAI: GPT-4.1"'
-                      - 'option "OpenAI: GPT-4.1 Mini"'
-                      - 'option "OpenAI: GPT-4.1 Nano"'
-                      - 'option "OpenAI: GPT-4o"'
-                      - 'option "OpenAI: GPT-4o (2024-05-13)"'
-                      - 'option "OpenAI: GPT-4o (2024-08-06)"'
-                      - 'option "OpenAI: GPT-4o (2024-11-20)"'
-                      - 'option "OpenAI: GPT-4o Audio"'
-                      - 'option "OpenAI: GPT-4o-mini"'
-                      - 'option "OpenAI: GPT-4o-mini (2024-07-18)"'
-                      - 'option "OpenAI: GPT-4o (extended)"'
-                      - 'option "OpenAI: GPT-5"'
-                      - 'option "OpenAI: GPT-5 Codex"'
-                      - 'option "OpenAI: GPT-5 Image"'
-                      - 'option "OpenAI: GPT-5 Image Mini"'
-                      - 'option "OpenAI: GPT-5 Mini"'
-                      - 'option "OpenAI: GPT-5 Nano"'
-                      - 'option "OpenAI: GPT-5 Pro"'
-                      - 'option "OpenAI: GPT-5.1"'
-                      - 'option "OpenAI: GPT-5.1 Chat"'
-                      - 'option "OpenAI: GPT-5.1-Codex"'
-                      - 'option "OpenAI: GPT-5.1-Codex-Max"'
-                      - 'option "OpenAI: GPT-5.1-Codex-Mini"'
-                      - 'option "OpenAI: GPT-5.2"'
-                      - 'option "OpenAI: GPT-5.2 Chat"'
-                      - 'option "OpenAI: GPT-5.2-Codex"'
-                      - 'option "OpenAI: GPT-5.2 Pro"'
-                      - 'option "OpenAI: GPT-5.3 Chat"'
-                      - 'option "OpenAI: GPT-5.3-Codex"'
-                      - 'option "OpenAI: GPT-5.4"'
-                      - 'option "OpenAI: GPT-5.4 Pro"'
-                      - 'option "OpenAI: gpt-oss-120b"'
-                      - 'option "OpenAI: gpt-oss-120b (exacto)"'
-                      - 'option "OpenAI: gpt-oss-120b (free)"'
-                      - 'option "OpenAI: gpt-oss-20b"'
-                      - 'option "OpenAI: gpt-oss-20b (free)"'
-                      - 'option "OpenAI: gpt-oss-safeguard-20b"'
-                      - 'option "OpenAI: o1"'
-                      - 'option "OpenAI: o3"'
-                      - 'option "OpenAI: o3 Deep Research"'
-                      - 'option "OpenAI: o3 Mini"'
-                      - 'option "OpenAI: o3 Mini High"'
-                      - 'option "OpenAI: o3 Pro"'
-                      - 'option "OpenAI: o4 Mini"'
-                      - 'option "OpenAI: o4 Mini Deep Research"'
-                      - 'option "OpenAI: o4 Mini High"'
-                      - option "Auto Router"
-                      - option "Free Models Router"
-                      - 'option "Prime Intellect: INTELLECT-3"'
-                      - option "Qwen2.5 72B Instruct"
-                      - 'option "Qwen: Qwen2.5 7B Instruct"'
-                      - 'option "Qwen: Qwen-Max"'
-                      - 'option "Qwen: Qwen-Plus"'
-                      - 'option "Qwen: Qwen Plus 0728"'
-                      - 'option "Qwen: Qwen Plus 0728 (thinking)"'
-                      - 'option "Qwen: Qwen-Turbo"'
-                      - 'option "Qwen: Qwen VL Max"'
-                      - 'option "Qwen: Qwen3 14B"'
-                      - 'option "Qwen: Qwen3 235B A22B"'
-                      - 'option "Qwen: Qwen3 235B A22B Instruct 2507"'
-                      - 'option "Qwen: Qwen3 235B A22B Thinking 2507"'
-                      - 'option "Qwen: Qwen3 30B A3B"'
-                      - 'option "Qwen: Qwen3 30B A3B Instruct 2507"'
-                      - 'option "Qwen: Qwen3 30B A3B Thinking 2507"'
-                      - 'option "Qwen: Qwen3 32B"'
-                      - 'option "Qwen: Qwen3 4B (free)"'
-                      - 'option "Qwen: Qwen3 8B"'
-                      - 'option "Qwen: Qwen3 Coder 480B A35B"'
-                      - 'option "Qwen: Qwen3 Coder 30B A3B Instruct"'
-                      - 'option "Qwen: Qwen3 Coder Flash"'
-                      - 'option "Qwen: Qwen3 Coder Next"'
-                      - 'option "Qwen: Qwen3 Coder Plus"'
-                      - 'option "Qwen: Qwen3 Coder 480B A35B (exacto)"'
-                      - 'option "Qwen: Qwen3 Coder 480B A35B (free)"'
-                      - 'option "Qwen: Qwen3 Max"'
-                      - 'option "Qwen: Qwen3 Max Thinking"'
-                      - 'option "Qwen: Qwen3 Next 80B A3B Instruct"'
-                      - 'option "Qwen: Qwen3 Next 80B A3B Instruct (free)"'
-                      - 'option "Qwen: Qwen3 Next 80B A3B Thinking"'
-                      - 'option "Qwen: Qwen3 VL 235B A22B Instruct"'
-                      - 'option "Qwen: Qwen3 VL 235B A22B Thinking"'
-                      - 'option "Qwen: Qwen3 VL 30B A3B Instruct"'
-                      - 'option "Qwen: Qwen3 VL 30B A3B Thinking"'
-                      - 'option "Qwen: Qwen3 VL 32B Instruct"'
-                      - 'option "Qwen: Qwen3 VL 8B Instruct"'
-                      - 'option "Qwen: Qwen3 VL 8B Thinking"'
-                      - 'option "Qwen: Qwen3.5-122B-A10B"'
-                      - 'option "Qwen: Qwen3.5-27B"'
-                      - 'option "Qwen: Qwen3.5-35B-A3B" [selected]'
-                      - 'option "Qwen: Qwen3.5 397B A17B"'
-                      - 'option "Qwen: Qwen3.5-Flash"'
-                      - 'option "Qwen: Qwen3.5 Plus 2026-02-15"'
-                      - 'option "Qwen: QwQ 32B"'
-                      - 'option "Relace: Relace Search"'
-                      - 'option "Sao10k: Llama 3 Euryale 70B v2.1"'
-                      - 'option "Sao10K: Llama 3.1 Euryale 70B v2.2"'
-                      - 'option "StepFun: Step 3.5 Flash"'
-                      - 'option "StepFun: Step 3.5 Flash (free)"'
-                      - 'option "TheDrummer: Rocinante 12B"'
-                      - 'option "TheDrummer: UnslopNemo 12B"'
-                      - 'option "TNG: DeepSeek R1T2 Chimera"'
-                      - 'option "Upstage: Solar Pro 3"'
-                      - 'option "xAI: Grok 3"'
-                      - 'option "xAI: Grok 3 Beta"'
-                      - 'option "xAI: Grok 3 Mini"'
-                      - 'option "xAI: Grok 3 Mini Beta"'
-                      - 'option "xAI: Grok 4"'
-                      - 'option "xAI: Grok 4 Fast"'
-                      - 'option "xAI: Grok 4.1 Fast"'
-                      - 'option "xAI: Grok Code Fast 1"'
-                      - 'option "Xiaomi: MiMo-V2-Flash"'
-                      - 'option "Z.ai: GLM 4 32B"'
-                      - 'option "Z.ai: GLM 4.5"'
-                      - 'option "Z.ai: GLM 4.5 Air"'
-                      - 'option "Z.ai: GLM 4.5 Air (free)"'
-                      - 'option "Z.ai: GLM 4.5V"'
-                      - 'option "Z.ai: GLM 4.6"'
-                      - 'option "Z.ai: GLM 4.6 (exacto)"'
-                      - 'option "Z.ai: GLM 4.6V"'
-                      - 'option "Z.ai: GLM 4.7"'
-                      - 'option "Z.ai: GLM 4.7 Flash"'
-                      - 'option "Z.ai: GLM 5"'
+                      - option "-- Modell wählen --" [selected]
+                      - option "GPT-5.1"
+                      - option "GPT-5.1 Codex Max"
+                      - option "GPT-5.1 Codex Mini"
+                      - option "GPT-5.2"
+                      - option "GPT-5.2 Codex"
+                      - option "GPT-5.3 Codex"
+                      - option "GPT-5.3 Codex Spark"
+                      - option "GPT-5.4"
                 - generic [ref=e34]:
                   - generic [ref=e35]:
                     - text: Thinking Level
                     - combobox "Thinking Level" [ref=e36]:
-                      - option "None (Standard)"
+                      - option "None (Standard)" [selected]
                       - option "Low"
-                      - option "Medium" [selected]
+                      - option "Medium"
                       - option "High / Reasoning"
                   - generic [ref=e37]:
                     - paragraph [ref=e38]: Provider-Status
-                    - paragraph [ref=e39]: Bereit (Ready)
-                - generic [ref=e40]:
-                  - paragraph [ref=e41]: System Info
-                  - paragraph [ref=e42]: Die Engine nutzt API-Keys aus den Integrations-Einstellungen. Modell-Discovery erfolgt über die PI-Registry.
-                - button "🔑 OpenRouter - Konfiguration Konfiguriert" [ref=e44]:
-                  - generic [ref=e45]:
-                    - img [ref=e46]
-                    - generic [ref=e49]: 🔑 OpenRouter - Konfiguration
-                    - generic [ref=e50]: Konfiguriert
-                  - img [ref=e51]
-                - generic [ref=e53]:
-                  - button "Einstellungen speichern" [ref=e54]:
+                    - paragraph [ref=e39]: Nicht bereit (Not ready)
+                    - paragraph [ref=e40]: OAuth not connected. Please connect your OpenAI account.
+                    - button "Connect OpenAI Account" [ref=e43]:
+                      - img
+                      - text: Connect OpenAI Account
+                - generic [ref=e44]:
+                  - paragraph [ref=e45]: System Info
+                  - paragraph [ref=e46]: Die Engine nutzt API-Keys aus den Integrations-Einstellungen. Modell-Discovery erfolgt über die PI-Registry.
+                - button "🔐 OpenAI Codex CLI - Konfiguration Konfiguriert" [ref=e48]:
+                  - generic [ref=e49]:
+                    - img [ref=e50]
+                    - generic [ref=e53]: 🔐 OpenAI Codex CLI - Konfiguration
+                    - generic [ref=e54]: Konfiguriert
+                  - img [ref=e55]
+                - generic [ref=e57]:
+                  - button "Einstellungen speichern" [ref=e58]:
                     - img
                     - text: Einstellungen speichern
-                  - button "Neu laden" [ref=e55]:
+                  - button "Neu laden" [ref=e59]:
                     - img
                     - text: Neu laden
-            - generic [ref=e56]:
-              - generic [ref=e57]:
-                - generic [ref=e58]: Doctor
-                - generic [ref=e59]: System-Check für Provider und Konnektivität.
-              - button "Doctor ausführen" [ref=e61]:
+            - generic [ref=e60]:
+              - generic [ref=e61]:
+                - generic [ref=e62]: Doctor
+                - generic [ref=e63]: System-Check für Provider und Konnektivität.
+              - button "Doctor ausführen" [ref=e65]:
                 - img
                 - text: Doctor ausführen
-            - generic [ref=e62]:
-              - generic [ref=e63]:
-                - generic [ref=e64]: Agent Managed Files
-                - generic [ref=e65]: System-relevante Markdown-Dateien für das Agent-Verhalten.
-              - generic [ref=e66]:
-                - tablist [ref=e68]:
-                  - tab "AGENTS.md" [selected] [ref=e69]
-                  - tab "MEMORY.md" [ref=e70]
-                  - tab "SOUL.md" [ref=e71]
-                  - tab "TOOLS.md" [ref=e72]
-                - textbox [ref=e73]: "# AGENTS - Main agent: canvas-main-agent - Scope: Canvas Notebook runtime behavior and guardrails - Integration marker: PI_PROMPT_MARKER_1773153564789"
-                - generic [ref=e74]:
-                  - button "Speichern" [ref=e75]:
+            - generic [ref=e66]:
+              - generic [ref=e67]:
+                - generic [ref=e68]: Agent Managed Files
+                - generic [ref=e69]: System-relevante Markdown-Dateien für das Agent-Verhalten.
+              - generic [ref=e70]:
+                - tablist [ref=e72]:
+                  - tab "AGENTS.md" [selected] [ref=e73]
+                  - tab "MEMORY.md" [ref=e74]
+                  - tab "SOUL.md" [ref=e75]
+                  - tab "TOOLS.md" [ref=e76]
+                - textbox [ref=e77]: "# AGENTS - Main agent: canvas-main-agent - Scope: Canvas Notebook runtime behavior and guardrails - Integration marker: PI_PROMPT_MARKER_1773153564789"
+                - generic [ref=e78]:
+                  - button "Speichern" [ref=e79]:
                     - img
                     - text: Speichern
-                  - button "Neu laden" [ref=e76]:
+                  - button "Neu laden" [ref=e80]:
                     - img
                     - text: Neu laden
-            - generic [ref=e77]:
-              - generic [ref=e78]:
-                - generic [ref=e79]: Sessions
-                - generic [ref=e80]: Chat-Historie verwalten.
-              - generic [ref=e81]:
-                - generic [ref=e82]:
-                  - textbox "Neue Session (Titel optional)" [ref=e83]
-                  - button "Neu" [ref=e84]:
+            - generic [ref=e81]:
+              - generic [ref=e82]:
+                - generic [ref=e83]: Sessions
+                - generic [ref=e84]: Chat-Historie verwalten.
+              - generic [ref=e85]:
+                - generic [ref=e86]:
+                  - textbox "Neue Session (Titel optional)" [ref=e87]
+                  - button "Neu" [ref=e88]:
                     - img
                     - text: Neu
-                  - button "Alle löschen" [ref=e85]:
+                  - button "Alle löschen" [ref=e89]:
                     - img
                     - text: Alle löschen
-                - generic [ref=e86]:
-                  - generic [ref=e87]:
-                    - generic [ref=e88]:
-                      - generic [ref=e89]: sess-1773154202458-j9hzqwoj
-                      - generic [ref=e90]: 3/10/2026, 3:50:02 PM
-                    - generic [ref=e91]:
-                      - textbox [ref=e92]: New session
-                      - button [ref=e93]:
-                        - img
-                      - button [ref=e94]:
-                        - img
+                - generic [ref=e90]:
+                  - generic [ref=e91]:
+                    - generic [ref=e92]:
+                      - generic [ref=e93]: sess-1773154202458-j9hzqwoj
+                      - generic [ref=e94]: 3/10/2026, 3:50:02 PM
                     - generic [ref=e95]:
-                      - generic [ref=e96]: "Model: qwen/qwen3.5-35b-a3b"
-                      - generic [ref=e97]: "User: Canvas Admin"
-                  - generic [ref=e98]:
+                      - textbox [ref=e96]: New session
+                      - button [ref=e97]:
+                        - img
+                      - button [ref=e98]:
+                        - img
                     - generic [ref=e99]:
-                      - generic [ref=e100]: sess-1773153574988-gsmrf606
-                      - generic [ref=e101]: 3/10/2026, 3:39:34 PM
-                    - generic [ref=e102]:
-                      - textbox [ref=e103]: New session
-                      - button [ref=e104]:
-                        - img
-                      - button [ref=e105]:
-                        - img
+                      - generic [ref=e100]: "Model: qwen/qwen3.5-35b-a3b"
+                      - generic [ref=e101]: "User: Canvas Admin"
+                  - generic [ref=e102]:
+                    - generic [ref=e103]:
+                      - generic [ref=e104]: sess-1773153574988-gsmrf606
+                      - generic [ref=e105]: 3/10/2026, 3:39:34 PM
                     - generic [ref=e106]:
-                      - generic [ref=e107]: "Model: qwen/qwen3.5-35b-a3b"
-                      - generic [ref=e108]: "User: Canvas Admin"
-                  - generic [ref=e109]:
+                      - textbox [ref=e107]: New session
+                      - button [ref=e108]:
+                        - img
+                      - button [ref=e109]:
+                        - img
                     - generic [ref=e110]:
-                      - generic [ref=e111]: sess-1773153564810-yw0esppz
-                      - generic [ref=e112]: 3/10/2026, 3:39:24 PM
-                    - generic [ref=e113]:
-                      - textbox [ref=e114]: Renamed PI Session
-                      - button [ref=e115]:
-                        - img
-                      - button [ref=e116]:
-                        - img
+                      - generic [ref=e111]: "Model: qwen/qwen3.5-35b-a3b"
+                      - generic [ref=e112]: "User: Canvas Admin"
+                  - generic [ref=e113]:
+                    - generic [ref=e114]:
+                      - generic [ref=e115]: sess-1773153564810-yw0esppz
+                      - generic [ref=e116]: 3/10/2026, 3:39:24 PM
                     - generic [ref=e117]:
-                      - generic [ref=e118]: "Model: qwen/qwen3.5-35b-a3b"
-                      - generic [ref=e119]: "User: Canvas Admin"
-                  - generic [ref=e120]:
+                      - textbox [ref=e118]: Renamed PI Session
+                      - button [ref=e119]:
+                        - img
+                      - button [ref=e120]:
+                        - img
                     - generic [ref=e121]:
-                      - generic [ref=e122]: sess-1773151421870-puwo1v8d
-                      - generic [ref=e123]: 3/10/2026, 3:03:41 PM
-                    - generic [ref=e124]:
-                      - textbox [ref=e125]: was siehst du in dem bild?
-                      - button [ref=e126]:
-                        - img
-                      - button [ref=e127]:
-                        - img
+                      - generic [ref=e122]: "Model: qwen/qwen3.5-35b-a3b"
+                      - generic [ref=e123]: "User: Canvas Admin"
+                  - generic [ref=e124]:
+                    - generic [ref=e125]:
+                      - generic [ref=e126]: sess-1773151421870-puwo1v8d
+                      - generic [ref=e127]: 3/10/2026, 3:03:41 PM
                     - generic [ref=e128]:
-                      - generic [ref=e129]: "Model: qwen/qwen3.5-35b-a3b"
-                      - generic [ref=e130]: "User: Canvas Admin"
-                  - generic [ref=e131]:
+                      - textbox [ref=e129]: was siehst du in dem bild?
+                      - button [ref=e130]:
+                        - img
+                      - button [ref=e131]:
+                        - img
                     - generic [ref=e132]:
-                      - generic [ref=e133]: sess-1773150737105-jqprt0nz
-                      - generic [ref=e134]: 3/10/2026, 2:52:17 PM
-                    - generic [ref=e135]:
-                      - textbox [ref=e136]: bauklempnerei.jpg was ist in dem bild zu sehen?
-                      - button [ref=e137]:
-                        - img
-                      - button [ref=e138]:
-                        - img
+                      - generic [ref=e133]: "Model: qwen/qwen3.5-35b-a3b"
+                      - generic [ref=e134]: "User: Canvas Admin"
+                  - generic [ref=e135]:
+                    - generic [ref=e136]:
+                      - generic [ref=e137]: sess-1773150737105-jqprt0nz
+                      - generic [ref=e138]: 3/10/2026, 2:52:17 PM
                     - generic [ref=e139]:
-                      - generic [ref=e140]: "Model: qwen/qwen3.5-35b-a3b"
-                      - generic [ref=e141]: "User: Canvas Admin"
-                  - generic [ref=e142]:
+                      - textbox [ref=e140]: bauklempnerei.jpg was ist in dem bild zu sehen?
+                      - button [ref=e141]:
+                        - img
+                      - button [ref=e142]:
+                        - img
                     - generic [ref=e143]:
-                      - generic [ref=e144]: sess-1773142326384-qkaw8d30
-                      - generic [ref=e145]: 3/10/2026, 12:32:06 PM
-                    - generic [ref=e146]:
-                      - textbox [ref=e147]: Renamed PI Session
-                      - button [ref=e148]:
-                        - img
-                      - button [ref=e149]:
-                        - img
+                      - generic [ref=e144]: "Model: qwen/qwen3.5-35b-a3b"
+                      - generic [ref=e145]: "User: Canvas Admin"
+                  - generic [ref=e146]:
+                    - generic [ref=e147]:
+                      - generic [ref=e148]: sess-1773142326384-qkaw8d30
+                      - generic [ref=e149]: 3/10/2026, 12:32:06 PM
                     - generic [ref=e150]:
-                      - generic [ref=e151]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e152]: "User: Canvas Admin"
-                  - generic [ref=e153]:
+                      - textbox [ref=e151]: Renamed PI Session
+                      - button [ref=e152]:
+                        - img
+                      - button [ref=e153]:
+                        - img
                     - generic [ref=e154]:
-                      - generic [ref=e155]: sess-1773142247112-en7qydr3
-                      - generic [ref=e156]: 3/10/2026, 12:30:47 PM
-                    - generic [ref=e157]:
-                      - textbox [ref=e158]: was ist in dem bild bauklempnerei.jpg
-                      - button [ref=e159]:
-                        - img
-                      - button [ref=e160]:
-                        - img
+                      - generic [ref=e155]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e156]: "User: Canvas Admin"
+                  - generic [ref=e157]:
+                    - generic [ref=e158]:
+                      - generic [ref=e159]: sess-1773142247112-en7qydr3
+                      - generic [ref=e160]: 3/10/2026, 12:30:47 PM
                     - generic [ref=e161]:
-                      - generic [ref=e162]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e163]: "User: Canvas Admin"
-                  - generic [ref=e164]:
+                      - textbox [ref=e162]: was ist in dem bild bauklempnerei.jpg
+                      - button [ref=e163]:
+                        - img
+                      - button [ref=e164]:
+                        - img
                     - generic [ref=e165]:
-                      - generic [ref=e166]: sess-1773140395549-66mdtt1r
-                      - generic [ref=e167]: 3/10/2026, 11:59:55 AM
-                    - generic [ref=e168]:
-                      - textbox [ref=e169]: kannst du das bild bauklempnerei.jpg lesen?
-                      - button [ref=e170]:
-                        - img
-                      - button [ref=e171]:
-                        - img
+                      - generic [ref=e166]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e167]: "User: Canvas Admin"
+                  - generic [ref=e168]:
+                    - generic [ref=e169]:
+                      - generic [ref=e170]: sess-1773140395549-66mdtt1r
+                      - generic [ref=e171]: 3/10/2026, 11:59:55 AM
                     - generic [ref=e172]:
-                      - generic [ref=e173]: "Model: anthropic/claude-sonnet-4.6"
-                      - generic [ref=e174]: "User: Canvas Admin"
-                  - generic [ref=e175]:
+                      - textbox [ref=e173]: kannst du das bild bauklempnerei.jpg lesen?
+                      - button [ref=e174]:
+                        - img
+                      - button [ref=e175]:
+                        - img
                     - generic [ref=e176]:
-                      - generic [ref=e177]: sess-1773139660571-wt71a43h
-                      - generic [ref=e178]: 3/10/2026, 11:47:40 AM
-                    - generic [ref=e179]:
-                      - textbox [ref=e180]: was war meine letzte nachricht?
-                      - button [ref=e181]:
-                        - img
-                      - button [ref=e182]:
-                        - img
+                      - generic [ref=e177]: "Model: anthropic/claude-sonnet-4.6"
+                      - generic [ref=e178]: "User: Canvas Admin"
+                  - generic [ref=e179]:
+                    - generic [ref=e180]:
+                      - generic [ref=e181]: sess-1773139660571-wt71a43h
+                      - generic [ref=e182]: 3/10/2026, 11:47:40 AM
                     - generic [ref=e183]:
-                      - generic [ref=e184]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e185]: "User: Canvas Admin"
-                  - generic [ref=e186]:
+                      - textbox [ref=e184]: was war meine letzte nachricht?
+                      - button [ref=e185]:
+                        - img
+                      - button [ref=e186]:
+                        - img
                     - generic [ref=e187]:
-                      - generic [ref=e188]: sess-1773139336190-gtncm83z
-                      - generic [ref=e189]: 3/10/2026, 11:42:16 AM
-                    - generic [ref=e190]:
-                      - textbox [ref=e191]: Antworte nur mit READY.
-                      - button [ref=e192]:
-                        - img
-                      - button [ref=e193]:
-                        - img
+                      - generic [ref=e188]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e189]: "User: Canvas Admin"
+                  - generic [ref=e190]:
+                    - generic [ref=e191]:
+                      - generic [ref=e192]: sess-1773139336190-gtncm83z
+                      - generic [ref=e193]: 3/10/2026, 11:42:16 AM
                     - generic [ref=e194]:
-                      - generic [ref=e195]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e196]: "User: Canvas Admin"
-                  - generic [ref=e197]:
+                      - textbox [ref=e195]: Antworte nur mit READY.
+                      - button [ref=e196]:
+                        - img
+                      - button [ref=e197]:
+                        - img
                     - generic [ref=e198]:
-                      - generic [ref=e199]: sess-1773139335330-g6a5l5fd
-                      - generic [ref=e200]: 3/10/2026, 11:42:15 AM
-                    - generic [ref=e201]:
-                      - textbox [ref=e202]: New session
-                      - button [ref=e203]:
-                        - img
-                      - button [ref=e204]:
-                        - img
+                      - generic [ref=e199]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e200]: "User: Canvas Admin"
+                  - generic [ref=e201]:
+                    - generic [ref=e202]:
+                      - generic [ref=e203]: sess-1773139335330-g6a5l5fd
+                      - generic [ref=e204]: 3/10/2026, 11:42:15 AM
                     - generic [ref=e205]:
-                      - generic [ref=e206]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e207]: "User: Canvas Admin"
-                  - generic [ref=e208]:
+                      - textbox [ref=e206]: New session
+                      - button [ref=e207]:
+                        - img
+                      - button [ref=e208]:
+                        - img
                     - generic [ref=e209]:
-                      - generic [ref=e210]: sess-1773139332208-lnojdzw8
-                      - generic [ref=e211]: 3/10/2026, 11:42:12 AM
-                    - generic [ref=e212]:
-                      - textbox [ref=e213]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
-                      - button [ref=e214]:
-                        - img
-                      - button [ref=e215]:
-                        - img
+                      - generic [ref=e210]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e211]: "User: Canvas Admin"
+                  - generic [ref=e212]:
+                    - generic [ref=e213]:
+                      - generic [ref=e214]: sess-1773139332208-lnojdzw8
+                      - generic [ref=e215]: 3/10/2026, 11:42:12 AM
                     - generic [ref=e216]:
-                      - generic [ref=e217]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e218]: "User: Canvas Admin"
-                  - generic [ref=e219]:
+                      - textbox [ref=e217]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - button [ref=e218]:
+                        - img
+                      - button [ref=e219]:
+                        - img
                     - generic [ref=e220]:
-                      - generic [ref=e221]: sess-1773139317831-4nr08a21
-                      - generic [ref=e222]: 3/10/2026, 11:41:57 AM
-                    - generic [ref=e223]:
-                      - textbox [ref=e224]: Welche Dateien sind im Workspace? Nutze die p...
-                      - button [ref=e225]:
-                        - img
-                      - button [ref=e226]:
-                        - img
+                      - generic [ref=e221]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e222]: "User: Canvas Admin"
+                  - generic [ref=e223]:
+                    - generic [ref=e224]:
+                      - generic [ref=e225]: sess-1773139317831-4nr08a21
+                      - generic [ref=e226]: 3/10/2026, 11:41:57 AM
                     - generic [ref=e227]:
-                      - generic [ref=e228]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e229]: "User: Canvas Admin"
-                  - generic [ref=e230]:
+                      - textbox [ref=e228]: Welche Dateien sind im Workspace? Nutze die p...
+                      - button [ref=e229]:
+                        - img
+                      - button [ref=e230]:
+                        - img
                     - generic [ref=e231]:
-                      - generic [ref=e232]: sess-1773139312537-5jgp8rdz
-                      - generic [ref=e233]: 3/10/2026, 11:41:52 AM
-                    - generic [ref=e234]:
-                      - textbox [ref=e235]: Session title smoke 1773139312505 should beco...
-                      - button [ref=e236]:
-                        - img
-                      - button [ref=e237]:
-                        - img
+                      - generic [ref=e232]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e233]: "User: Canvas Admin"
+                  - generic [ref=e234]:
+                    - generic [ref=e235]:
+                      - generic [ref=e236]: sess-1773139312537-5jgp8rdz
+                      - generic [ref=e237]: 3/10/2026, 11:41:52 AM
                     - generic [ref=e238]:
-                      - generic [ref=e239]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e240]: "User: Canvas Admin"
-                  - generic [ref=e241]:
+                      - textbox [ref=e239]: Session title smoke 1773139312505 should beco...
+                      - button [ref=e240]:
+                        - img
+                      - button [ref=e241]:
+                        - img
                     - generic [ref=e242]:
-                      - generic [ref=e243]: sess-1773139298366-f6h15r8c
-                      - generic [ref=e244]: 3/10/2026, 11:41:38 AM
-                    - generic [ref=e245]:
-                      - textbox [ref=e246]: Renamed PI Session
-                      - button [ref=e247]:
-                        - img
-                      - button [ref=e248]:
-                        - img
+                      - generic [ref=e243]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e244]: "User: Canvas Admin"
+                  - generic [ref=e245]:
+                    - generic [ref=e246]:
+                      - generic [ref=e247]: sess-1773139298366-f6h15r8c
+                      - generic [ref=e248]: 3/10/2026, 11:41:38 AM
                     - generic [ref=e249]:
-                      - generic [ref=e250]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e251]: "User: Canvas Admin"
-                  - generic [ref=e252]:
+                      - textbox [ref=e250]: Renamed PI Session
+                      - button [ref=e251]:
+                        - img
+                      - button [ref=e252]:
+                        - img
                     - generic [ref=e253]:
-                      - generic [ref=e254]: sess-1773139291316-5t3jfx7o
-                      - generic [ref=e255]: 3/10/2026, 11:41:31 AM
-                    - generic [ref=e256]:
-                      - textbox [ref=e257]: Antworte nur mit READY.
-                      - button [ref=e258]:
-                        - img
-                      - button [ref=e259]:
-                        - img
+                      - generic [ref=e254]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e255]: "User: Canvas Admin"
+                  - generic [ref=e256]:
+                    - generic [ref=e257]:
+                      - generic [ref=e258]: sess-1773139291316-5t3jfx7o
+                      - generic [ref=e259]: 3/10/2026, 11:41:31 AM
                     - generic [ref=e260]:
-                      - generic [ref=e261]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e262]: "User: Canvas Admin"
-                  - generic [ref=e263]:
+                      - textbox [ref=e261]: Antworte nur mit READY.
+                      - button [ref=e262]:
+                        - img
+                      - button [ref=e263]:
+                        - img
                     - generic [ref=e264]:
-                      - generic [ref=e265]: sess-1773139290459-57rv5293
-                      - generic [ref=e266]: 3/10/2026, 11:41:30 AM
-                    - generic [ref=e267]:
-                      - textbox [ref=e268]: New session
-                      - button [ref=e269]:
-                        - img
-                      - button [ref=e270]:
-                        - img
+                      - generic [ref=e265]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e266]: "User: Canvas Admin"
+                  - generic [ref=e267]:
+                    - generic [ref=e268]:
+                      - generic [ref=e269]: sess-1773139290459-57rv5293
+                      - generic [ref=e270]: 3/10/2026, 11:41:30 AM
                     - generic [ref=e271]:
-                      - generic [ref=e272]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e273]: "User: Canvas Admin"
-                  - generic [ref=e274]:
+                      - textbox [ref=e272]: New session
+                      - button [ref=e273]:
+                        - img
+                      - button [ref=e274]:
+                        - img
                     - generic [ref=e275]:
-                      - generic [ref=e276]: sess-1773139285299-nhu9gnf2
-                      - generic [ref=e277]: 3/10/2026, 11:41:25 AM
-                    - generic [ref=e278]:
-                      - textbox [ref=e279]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
-                      - button [ref=e280]:
-                        - img
-                      - button [ref=e281]:
-                        - img
+                      - generic [ref=e276]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e277]: "User: Canvas Admin"
+                  - generic [ref=e278]:
+                    - generic [ref=e279]:
+                      - generic [ref=e280]: sess-1773139285299-nhu9gnf2
+                      - generic [ref=e281]: 3/10/2026, 11:41:25 AM
                     - generic [ref=e282]:
-                      - generic [ref=e283]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e284]: "User: Canvas Admin"
-                  - generic [ref=e285]:
+                      - textbox [ref=e283]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - button [ref=e284]:
+                        - img
+                      - button [ref=e285]:
+                        - img
                     - generic [ref=e286]:
-                      - generic [ref=e287]: sess-1773139278915-l434up49
-                      - generic [ref=e288]: 3/10/2026, 11:41:18 AM
-                    - generic [ref=e289]:
-                      - textbox [ref=e290]: Session title smoke 1773139278878 should beco...
-                      - button [ref=e291]:
-                        - img
-                      - button [ref=e292]:
-                        - img
+                      - generic [ref=e287]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e288]: "User: Canvas Admin"
+                  - generic [ref=e289]:
+                    - generic [ref=e290]:
+                      - generic [ref=e291]: sess-1773139278915-l434up49
+                      - generic [ref=e292]: 3/10/2026, 11:41:18 AM
                     - generic [ref=e293]:
-                      - generic [ref=e294]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e295]: "User: Canvas Admin"
-                  - generic [ref=e296]:
+                      - textbox [ref=e294]: Session title smoke 1773139278878 should beco...
+                      - button [ref=e295]:
+                        - img
+                      - button [ref=e296]:
+                        - img
                     - generic [ref=e297]:
-                      - generic [ref=e298]: sess-1773138744283-ylo45ywi
-                      - generic [ref=e299]: 3/10/2026, 11:32:24 AM
-                    - generic [ref=e300]:
-                      - textbox [ref=e301]: New session
-                      - button [ref=e302]:
-                        - img
-                      - button [ref=e303]:
-                        - img
+                      - generic [ref=e298]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e299]: "User: Canvas Admin"
+                  - generic [ref=e300]:
+                    - generic [ref=e301]:
+                      - generic [ref=e302]: sess-1773138744283-ylo45ywi
+                      - generic [ref=e303]: 3/10/2026, 11:32:24 AM
                     - generic [ref=e304]:
-                      - generic [ref=e305]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e306]: "User: Canvas Admin"
-                  - generic [ref=e307]:
+                      - textbox [ref=e305]: New session
+                      - button [ref=e306]:
+                        - img
+                      - button [ref=e307]:
+                        - img
                     - generic [ref=e308]:
-                      - generic [ref=e309]: sess-1773138735525-vusv9sab
-                      - generic [ref=e310]: 3/10/2026, 11:32:15 AM
-                    - generic [ref=e311]:
-                      - textbox [ref=e312]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
-                      - button [ref=e313]:
-                        - img
-                      - button [ref=e314]:
-                        - img
+                      - generic [ref=e309]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e310]: "User: Canvas Admin"
+                  - generic [ref=e311]:
+                    - generic [ref=e312]:
+                      - generic [ref=e313]: sess-1773138735525-vusv9sab
+                      - generic [ref=e314]: 3/10/2026, 11:32:15 AM
                     - generic [ref=e315]:
-                      - generic [ref=e316]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e317]: "User: Canvas Admin"
-                  - generic [ref=e318]:
+                      - textbox [ref=e316]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - button [ref=e317]:
+                        - img
+                      - button [ref=e318]:
+                        - img
                     - generic [ref=e319]:
-                      - generic [ref=e320]: sess-1773138729620-rpy584bc
-                      - generic [ref=e321]: 3/10/2026, 11:32:09 AM
-                    - generic [ref=e322]:
-                      - textbox [ref=e323]: Session title smoke 1773138729591 should beco...
-                      - button [ref=e324]:
-                        - img
-                      - button [ref=e325]:
-                        - img
+                      - generic [ref=e320]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e321]: "User: Canvas Admin"
+                  - generic [ref=e322]:
+                    - generic [ref=e323]:
+                      - generic [ref=e324]: sess-1773138729620-rpy584bc
+                      - generic [ref=e325]: 3/10/2026, 11:32:09 AM
                     - generic [ref=e326]:
-                      - generic [ref=e327]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e328]: "User: Canvas Admin"
-                  - generic [ref=e329]:
+                      - textbox [ref=e327]: Session title smoke 1773138729591 should beco...
+                      - button [ref=e328]:
+                        - img
+                      - button [ref=e329]:
+                        - img
                     - generic [ref=e330]:
-                      - generic [ref=e331]: sess-1773138692776-uknv9h8d
-                      - generic [ref=e332]: 3/10/2026, 11:31:32 AM
-                    - generic [ref=e333]:
-                      - textbox [ref=e334]: New session
-                      - button [ref=e335]:
-                        - img
-                      - button [ref=e336]:
-                        - img
+                      - generic [ref=e331]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e332]: "User: Canvas Admin"
+                  - generic [ref=e333]:
+                    - generic [ref=e334]:
+                      - generic [ref=e335]: sess-1773138692776-uknv9h8d
+                      - generic [ref=e336]: 3/10/2026, 11:31:32 AM
                     - generic [ref=e337]:
-                      - generic [ref=e338]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e339]: "User: Canvas Admin"
-                  - generic [ref=e340]:
+                      - textbox [ref=e338]: New session
+                      - button [ref=e339]:
+                        - img
+                      - button [ref=e340]:
+                        - img
                     - generic [ref=e341]:
-                      - generic [ref=e342]: sess-1773138685167-q0w75f35
-                      - generic [ref=e343]: 3/10/2026, 11:31:25 AM
-                    - generic [ref=e344]:
-                      - textbox [ref=e345]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
-                      - button [ref=e346]:
-                        - img
-                      - button [ref=e347]:
-                        - img
+                      - generic [ref=e342]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e343]: "User: Canvas Admin"
+                  - generic [ref=e344]:
+                    - generic [ref=e345]:
+                      - generic [ref=e346]: sess-1773138685167-q0w75f35
+                      - generic [ref=e347]: 3/10/2026, 11:31:25 AM
                     - generic [ref=e348]:
-                      - generic [ref=e349]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e350]: "User: Canvas Admin"
-                  - generic [ref=e351]:
+                      - textbox [ref=e349]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - button [ref=e350]:
+                        - img
+                      - button [ref=e351]:
+                        - img
                     - generic [ref=e352]:
-                      - generic [ref=e353]: sess-1773138681404-8fqsaakd
-                      - generic [ref=e354]: 3/10/2026, 11:31:21 AM
-                    - generic [ref=e355]:
-                      - textbox [ref=e356]: Session title smoke 1773138681376 should beco...
-                      - button [ref=e357]:
-                        - img
-                      - button [ref=e358]:
-                        - img
+                      - generic [ref=e353]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e354]: "User: Canvas Admin"
+                  - generic [ref=e355]:
+                    - generic [ref=e356]:
+                      - generic [ref=e357]: sess-1773138681404-8fqsaakd
+                      - generic [ref=e358]: 3/10/2026, 11:31:21 AM
                     - generic [ref=e359]:
-                      - generic [ref=e360]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e361]: "User: Canvas Admin"
-                  - generic [ref=e362]:
+                      - textbox [ref=e360]: Session title smoke 1773138681376 should beco...
+                      - button [ref=e361]:
+                        - img
+                      - button [ref=e362]:
+                        - img
                     - generic [ref=e363]:
-                      - generic [ref=e364]: sess-1773138082698-1q6g91ns
-                      - generic [ref=e365]: 3/10/2026, 11:21:22 AM
-                    - generic [ref=e366]:
-                      - textbox [ref=e367]: was ist in dem bild?
-                      - button [ref=e368]:
-                        - img
-                      - button [ref=e369]:
-                        - img
+                      - generic [ref=e364]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e365]: "User: Canvas Admin"
+                  - generic [ref=e366]:
+                    - generic [ref=e367]:
+                      - generic [ref=e368]: sess-1773138082698-1q6g91ns
+                      - generic [ref=e369]: 3/10/2026, 11:21:22 AM
                     - generic [ref=e370]:
-                      - generic [ref=e371]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e372]: "User: Canvas Admin"
-                  - generic [ref=e373]:
+                      - textbox [ref=e371]: was ist in dem bild?
+                      - button [ref=e372]:
+                        - img
+                      - button [ref=e373]:
+                        - img
                     - generic [ref=e374]:
-                      - generic [ref=e375]: sess-1773138008883-r85q3h1a
-                      - generic [ref=e376]: 3/10/2026, 11:20:08 AM
-                    - generic [ref=e377]:
-                      - textbox [ref=e378]: Liste die Dateien im aktuellen Ordner als Mar...
-                      - button [ref=e379]:
-                        - img
-                      - button [ref=e380]:
-                        - img
+                      - generic [ref=e375]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e376]: "User: Canvas Admin"
+                  - generic [ref=e377]:
+                    - generic [ref=e378]:
+                      - generic [ref=e379]: sess-1773138008883-r85q3h1a
+                      - generic [ref=e380]: 3/10/2026, 11:20:08 AM
                     - generic [ref=e381]:
-                      - generic [ref=e382]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e383]: "User: Canvas Admin"
-                  - generic [ref=e384]:
+                      - textbox [ref=e382]: Liste die Dateien im aktuellen Ordner als Mar...
+                      - button [ref=e383]:
+                        - img
+                      - button [ref=e384]:
+                        - img
                     - generic [ref=e385]:
-                      - generic [ref=e386]: sess-1773137911504-xxl2rdm3
-                      - generic [ref=e387]: 3/10/2026, 11:18:31 AM
-                    - generic [ref=e388]:
-                      - textbox [ref=e389]: New session
-                      - button [ref=e390]:
-                        - img
-                      - button [ref=e391]:
-                        - img
+                      - generic [ref=e386]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e387]: "User: Canvas Admin"
+                  - generic [ref=e388]:
+                    - generic [ref=e389]:
+                      - generic [ref=e390]: sess-1773137911504-xxl2rdm3
+                      - generic [ref=e391]: 3/10/2026, 11:18:31 AM
                     - generic [ref=e392]:
-                      - generic [ref=e393]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e394]: "User: Canvas Admin"
-                  - generic [ref=e395]:
+                      - textbox [ref=e393]: New session
+                      - button [ref=e394]:
+                        - img
+                      - button [ref=e395]:
+                        - img
                     - generic [ref=e396]:
-                      - generic [ref=e397]: sess-1773137905874-y548k9tm
-                      - generic [ref=e398]: 3/10/2026, 11:18:25 AM
-                    - generic [ref=e399]:
-                      - textbox [ref=e400]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
-                      - button [ref=e401]:
-                        - img
-                      - button [ref=e402]:
-                        - img
+                      - generic [ref=e397]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e398]: "User: Canvas Admin"
+                  - generic [ref=e399]:
+                    - generic [ref=e400]:
+                      - generic [ref=e401]: sess-1773137905874-y548k9tm
+                      - generic [ref=e402]: 3/10/2026, 11:18:25 AM
                     - generic [ref=e403]:
-                      - generic [ref=e404]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e405]: "User: Canvas Admin"
-                  - generic [ref=e406]:
+                      - textbox [ref=e404]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - button [ref=e405]:
+                        - img
+                      - button [ref=e406]:
+                        - img
                     - generic [ref=e407]:
-                      - generic [ref=e408]: sess-1773137892841-v1ll9q2j
-                      - generic [ref=e409]: 3/10/2026, 11:18:12 AM
-                    - generic [ref=e410]:
-                      - textbox [ref=e411]: Session title smoke 1773137892814 should beco...
-                      - button [ref=e412]:
-                        - img
-                      - button [ref=e413]:
-                        - img
+                      - generic [ref=e408]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e409]: "User: Canvas Admin"
+                  - generic [ref=e410]:
+                    - generic [ref=e411]:
+                      - generic [ref=e412]: sess-1773137892841-v1ll9q2j
+                      - generic [ref=e413]: 3/10/2026, 11:18:12 AM
                     - generic [ref=e414]:
-                      - generic [ref=e415]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e416]: "User: Canvas Admin"
-                  - generic [ref=e417]:
+                      - textbox [ref=e415]: Session title smoke 1773137892814 should beco...
+                      - button [ref=e416]:
+                        - img
+                      - button [ref=e417]:
+                        - img
                     - generic [ref=e418]:
-                      - generic [ref=e419]: sess-1773137833190-j7uzb41a
-                      - generic [ref=e420]: 3/10/2026, 11:17:13 AM
-                    - generic [ref=e421]:
-                      - textbox [ref=e422]: New session
-                      - button [ref=e423]:
-                        - img
-                      - button [ref=e424]:
-                        - img
+                      - generic [ref=e419]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e420]: "User: Canvas Admin"
+                  - generic [ref=e421]:
+                    - generic [ref=e422]:
+                      - generic [ref=e423]: sess-1773137833190-j7uzb41a
+                      - generic [ref=e424]: 3/10/2026, 11:17:13 AM
                     - generic [ref=e425]:
-                      - generic [ref=e426]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e427]: "User: Canvas Admin"
-                  - generic [ref=e428]:
+                      - textbox [ref=e426]: New session
+                      - button [ref=e427]:
+                        - img
+                      - button [ref=e428]:
+                        - img
                     - generic [ref=e429]:
-                      - generic [ref=e430]: sess-1773137827559-63ddscyp
-                      - generic [ref=e431]: 3/10/2026, 11:17:07 AM
-                    - generic [ref=e432]:
-                      - textbox [ref=e433]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
-                      - button [ref=e434]:
-                        - img
-                      - button [ref=e435]:
-                        - img
+                      - generic [ref=e430]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e431]: "User: Canvas Admin"
+                  - generic [ref=e432]:
+                    - generic [ref=e433]:
+                      - generic [ref=e434]: sess-1773137827559-63ddscyp
+                      - generic [ref=e435]: 3/10/2026, 11:17:07 AM
                     - generic [ref=e436]:
-                      - generic [ref=e437]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e438]: "User: Canvas Admin"
-                  - generic [ref=e439]:
+                      - textbox [ref=e437]: "Merke dir exakt dieses Token: RESUME_MARKER_A..."
+                      - button [ref=e438]:
+                        - img
+                      - button [ref=e439]:
+                        - img
                     - generic [ref=e440]:
-                      - generic [ref=e441]: sess-1773137826517-vey4gzjk
-                      - generic [ref=e442]: 3/10/2026, 11:17:06 AM
-                    - generic [ref=e443]:
-                      - textbox [ref=e444]: New session
-                      - button [ref=e445]:
-                        - img
-                      - button [ref=e446]:
-                        - img
+                      - generic [ref=e441]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e442]: "User: Canvas Admin"
+                  - generic [ref=e443]:
+                    - generic [ref=e444]:
+                      - generic [ref=e445]: sess-1773137826517-vey4gzjk
+                      - generic [ref=e446]: 3/10/2026, 11:17:06 AM
                     - generic [ref=e447]:
-                      - generic [ref=e448]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e449]: "User: Canvas Admin"
-                  - generic [ref=e450]:
+                      - textbox [ref=e448]: New session
+                      - button [ref=e449]:
+                        - img
+                      - button [ref=e450]:
+                        - img
                     - generic [ref=e451]:
-                      - generic [ref=e452]: sess-1773136181231-z7eu5brp
-                      - generic [ref=e453]: 3/10/2026, 10:49:41 AM
-                    - generic [ref=e454]:
-                      - textbox [ref=e455]: test
-                      - button [ref=e456]:
-                        - img
-                      - button [ref=e457]:
-                        - img
+                      - generic [ref=e452]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e453]: "User: Canvas Admin"
+                  - generic [ref=e454]:
+                    - generic [ref=e455]:
+                      - generic [ref=e456]: sess-1773136181231-z7eu5brp
+                      - generic [ref=e457]: 3/10/2026, 10:49:41 AM
                     - generic [ref=e458]:
-                      - generic [ref=e459]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e460]: "User: Canvas Admin"
-                  - generic [ref=e461]:
+                      - textbox [ref=e459]: test
+                      - button [ref=e460]:
+                        - img
+                      - button [ref=e461]:
+                        - img
                     - generic [ref=e462]:
-                      - generic [ref=e463]: sess-1773136128154-n9o3nqcy
-                      - generic [ref=e464]: 3/10/2026, 10:48:48 AM
-                    - generic [ref=e465]:
-                      - textbox [ref=e466]: New session
-                      - button [ref=e467]:
-                        - img
-                      - button [ref=e468]:
-                        - img
+                      - generic [ref=e463]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e464]: "User: Canvas Admin"
+                  - generic [ref=e465]:
+                    - generic [ref=e466]:
+                      - generic [ref=e467]: sess-1773136128154-n9o3nqcy
+                      - generic [ref=e468]: 3/10/2026, 10:48:48 AM
                     - generic [ref=e469]:
-                      - generic [ref=e470]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e471]: "User: Canvas Admin"
-                  - generic [ref=e472]:
+                      - textbox [ref=e470]: New session
+                      - button [ref=e471]:
+                        - img
+                      - button [ref=e472]:
+                        - img
                     - generic [ref=e473]:
-                      - generic [ref=e474]: sess-1773136128666-25mf2b35
-                      - generic [ref=e475]: 3/10/2026, 10:48:48 AM
-                    - generic [ref=e476]:
-                      - textbox [ref=e477]: New session
-                      - button [ref=e478]:
-                        - img
-                      - button [ref=e479]:
-                        - img
+                      - generic [ref=e474]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e475]: "User: Canvas Admin"
+                  - generic [ref=e476]:
+                    - generic [ref=e477]:
+                      - generic [ref=e478]: sess-1773136128666-25mf2b35
+                      - generic [ref=e479]: 3/10/2026, 10:48:48 AM
                     - generic [ref=e480]:
-                      - generic [ref=e481]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e482]: "User: Canvas Admin"
-                  - generic [ref=e483]:
+                      - textbox [ref=e481]: New session
+                      - button [ref=e482]:
+                        - img
+                      - button [ref=e483]:
+                        - img
                     - generic [ref=e484]:
-                      - generic [ref=e485]: sess-1773136072378-z5k2pcta
-                      - generic [ref=e486]: 3/10/2026, 10:47:52 AM
-                    - generic [ref=e487]:
-                      - textbox [ref=e488]: New session
-                      - button [ref=e489]:
-                        - img
-                      - button [ref=e490]:
-                        - img
+                      - generic [ref=e485]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e486]: "User: Canvas Admin"
+                  - generic [ref=e487]:
+                    - generic [ref=e488]:
+                      - generic [ref=e489]: sess-1773136072378-z5k2pcta
+                      - generic [ref=e490]: 3/10/2026, 10:47:52 AM
                     - generic [ref=e491]:
-                      - generic [ref=e492]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e493]: "User: Canvas Admin"
-                  - generic [ref=e494]:
+                      - textbox [ref=e492]: New session
+                      - button [ref=e493]:
+                        - img
+                      - button [ref=e494]:
+                        - img
                     - generic [ref=e495]:
-                      - generic [ref=e496]: sess-1773135998094-zmb89o0o
-                      - generic [ref=e497]: 3/10/2026, 10:46:38 AM
-                    - generic [ref=e498]:
-                      - textbox [ref=e499]: New session
-                      - button [ref=e500]:
-                        - img
-                      - button [ref=e501]:
-                        - img
+                      - generic [ref=e496]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e497]: "User: Canvas Admin"
+                  - generic [ref=e498]:
+                    - generic [ref=e499]:
+                      - generic [ref=e500]: sess-1773135998094-zmb89o0o
+                      - generic [ref=e501]: 3/10/2026, 10:46:38 AM
                     - generic [ref=e502]:
-                      - generic [ref=e503]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e504]: "User: Canvas Admin"
-                  - generic [ref=e505]:
+                      - textbox [ref=e503]: New session
+                      - button [ref=e504]:
+                        - img
+                      - button [ref=e505]:
+                        - img
                     - generic [ref=e506]:
-                      - generic [ref=e507]: sess-1773135998843-n0mo2xqs
-                      - generic [ref=e508]: 3/10/2026, 10:46:38 AM
-                    - generic [ref=e509]:
-                      - textbox [ref=e510]: New session
-                      - button [ref=e511]:
-                        - img
-                      - button [ref=e512]:
-                        - img
+                      - generic [ref=e507]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e508]: "User: Canvas Admin"
+                  - generic [ref=e509]:
+                    - generic [ref=e510]:
+                      - generic [ref=e511]: sess-1773135998843-n0mo2xqs
+                      - generic [ref=e512]: 3/10/2026, 10:46:38 AM
                     - generic [ref=e513]:
-                      - generic [ref=e514]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e515]: "User: Canvas Admin"
-                  - generic [ref=e516]:
+                      - textbox [ref=e514]: New session
+                      - button [ref=e515]:
+                        - img
+                      - button [ref=e516]:
+                        - img
                     - generic [ref=e517]:
-                      - generic [ref=e518]: sess-1773135490262-s1betpya
-                      - generic [ref=e519]: 3/10/2026, 10:38:10 AM
-                    - generic [ref=e520]:
-                      - textbox [ref=e521]: New session
-                      - button [ref=e522]:
-                        - img
-                      - button [ref=e523]:
-                        - img
+                      - generic [ref=e518]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e519]: "User: Canvas Admin"
+                  - generic [ref=e520]:
+                    - generic [ref=e521]:
+                      - generic [ref=e522]: sess-1773135490262-s1betpya
+                      - generic [ref=e523]: 3/10/2026, 10:38:10 AM
                     - generic [ref=e524]:
-                      - generic [ref=e525]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e526]: "User: Canvas Admin"
-                  - generic [ref=e527]:
+                      - textbox [ref=e525]: New session
+                      - button [ref=e526]:
+                        - img
+                      - button [ref=e527]:
+                        - img
                     - generic [ref=e528]:
-                      - generic [ref=e529]: sess-1773135463216-su1g1rjt
-                      - generic [ref=e530]: 3/10/2026, 10:37:43 AM
-                    - generic [ref=e531]:
-                      - textbox [ref=e532]: New session
-                      - button [ref=e533]:
-                        - img
-                      - button [ref=e534]:
-                        - img
+                      - generic [ref=e529]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e530]: "User: Canvas Admin"
+                  - generic [ref=e531]:
+                    - generic [ref=e532]:
+                      - generic [ref=e533]: sess-1773135463216-su1g1rjt
+                      - generic [ref=e534]: 3/10/2026, 10:37:43 AM
                     - generic [ref=e535]:
-                      - generic [ref=e536]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e537]: "User: Canvas Admin"
-                  - generic [ref=e538]:
+                      - textbox [ref=e536]: New session
+                      - button [ref=e537]:
+                        - img
+                      - button [ref=e538]:
+                        - img
                     - generic [ref=e539]:
-                      - generic [ref=e540]: sess-1773135355891-he8nkv9q
-                      - generic [ref=e541]: 3/10/2026, 10:35:55 AM
-                    - generic [ref=e542]:
-                      - textbox [ref=e543]: debug ui session
-                      - button [ref=e544]:
-                        - img
-                      - button [ref=e545]:
-                        - img
+                      - generic [ref=e540]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e541]: "User: Canvas Admin"
+                  - generic [ref=e542]:
+                    - generic [ref=e543]:
+                      - generic [ref=e544]: sess-1773135355891-he8nkv9q
+                      - generic [ref=e545]: 3/10/2026, 10:35:55 AM
                     - generic [ref=e546]:
-                      - generic [ref=e547]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e548]: "User: Canvas Admin"
-                  - generic [ref=e549]:
+                      - textbox [ref=e547]: debug ui session
+                      - button [ref=e548]:
+                        - img
+                      - button [ref=e549]:
+                        - img
                     - generic [ref=e550]:
-                      - generic [ref=e551]: sess-1773135340296-n0zmjvzc
-                      - generic [ref=e552]: 3/10/2026, 10:35:40 AM
-                    - generic [ref=e553]:
-                      - textbox [ref=e554]: debug session
-                      - button [ref=e555]:
-                        - img
-                      - button [ref=e556]:
-                        - img
+                      - generic [ref=e551]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e552]: "User: Canvas Admin"
+                  - generic [ref=e553]:
+                    - generic [ref=e554]:
+                      - generic [ref=e555]: sess-1773135340296-n0zmjvzc
+                      - generic [ref=e556]: 3/10/2026, 10:35:40 AM
                     - generic [ref=e557]:
-                      - generic [ref=e558]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e559]: "User: Canvas Admin"
-                  - generic [ref=e560]:
+                      - textbox [ref=e558]: debug session
+                      - button [ref=e559]:
+                        - img
+                      - button [ref=e560]:
+                        - img
                     - generic [ref=e561]:
-                      - generic [ref=e562]: sess-1773135137520-hb9tndwk
-                      - generic [ref=e563]: 3/10/2026, 10:32:17 AM
-                    - generic [ref=e564]:
-                      - textbox [ref=e565]: New session
-                      - button [ref=e566]:
-                        - img
-                      - button [ref=e567]:
-                        - img
+                      - generic [ref=e562]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e563]: "User: Canvas Admin"
+                  - generic [ref=e564]:
+                    - generic [ref=e565]:
+                      - generic [ref=e566]: sess-1773135137520-hb9tndwk
+                      - generic [ref=e567]: 3/10/2026, 10:32:17 AM
                     - generic [ref=e568]:
-                      - generic [ref=e569]: "Model: deepseek/deepseek-chat-v3.1"
-                      - generic [ref=e570]: "User: Canvas Admin"
+                      - textbox [ref=e569]: New session
+                      - button [ref=e570]:
+                        - img
+                      - button [ref=e571]:
+                        - img
+                    - generic [ref=e572]:
+                      - generic [ref=e573]: "Model: deepseek/deepseek-chat-v3.1"
+                      - generic [ref=e574]: "User: Canvas Admin"
   - region "Notifications alt+T"
-  - alert [ref=e571]
+  - alert [ref=e575]
 ```
