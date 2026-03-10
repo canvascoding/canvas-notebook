@@ -617,6 +617,17 @@
       "dependsOn": [
         "pi-054"
       ]
+    },
+    {
+      "id": "pi-056",
+      "order": 56,
+      "phase": "P11 Hotfix",
+      "title": "Compose the PI system prompt from managed agent markdown files with diagnostics and regression coverage",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-055"
+      ]
     }
   ]
 }

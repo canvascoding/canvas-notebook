@@ -5,6 +5,7 @@ import { resolveActivePiModel, resolvePiModel } from '@/app/lib/pi/model-resolve
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
+import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import { savePiSession } from '@/app/lib/pi/session-store';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
@@ -82,9 +83,17 @@ export async function POST(request: NextRequest) {
 
     const tools = getPiTools();
     const activeProviderName = providerName || piConfig.activeProvider;
+    const logSessionId = sessionId ?? 'no-session';
+    const { systemPrompt, diagnostics } = await loadManagedAgentSystemPrompt();
+
+    if (diagnostics.usedFallback) {
+      console.warn(
+        `[PI Stream] [${logSessionId}] Falling back to base system prompt (${diagnostics.fallbackReason || 'unknown'}).`
+      );
+    }
     
     const context: AgentContext = {
-      systemPrompt: 'You are an AI assistant in Canvas Notebook. You have access to the local workspace.',
+      systemPrompt,
       messages: messages.slice(0, -1), // Everything except the last prompt
       tools: tools,
     };
@@ -96,7 +105,6 @@ export async function POST(request: NextRequest) {
       getApiKey: resolvePiApiKey,
       sessionId,
     };
-    const logSessionId = sessionId ?? 'no-session';
 
     const abortController = new AbortController();
     request.signal.addEventListener('abort', () => {
