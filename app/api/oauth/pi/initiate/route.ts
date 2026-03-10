@@ -144,7 +144,9 @@ function updateState(updates) {
 
 async function run() {
   try {
-    const { ${loginFn} } = await import('@mariozechner/pi-ai/oauth');
+    // Import from absolute path to ensure module resolution works
+    const piModule = await import('${process.cwd().replace(/'/g, "'\\''")}/node_modules/@mariozechner/pi-ai/dist/oauth.js');
+    const ${loginFn} = piModule.${loginFn};
     
     // Update state to waiting for auth
     updateState({ status: 'waiting_for_auth', startedAt: Date.now() });
