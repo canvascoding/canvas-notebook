@@ -8,11 +8,36 @@ registerBuiltInApiProviders();
  * Discovery helpers for PI providers and models.
  */
 
+// Ollama provider ID - used for custom provider discovery
+export const OLLAMA_PROVIDER_ID = 'ollama';
+
+// Recommended Ollama models with metadata
+export const OLLAMA_MODELS = [
+  { id: 'llama3.1', name: 'Llama 3.1 (Meta)' },
+  { id: 'llama3.2', name: 'Llama 3.2 (Meta)' },
+  { id: 'mistral', name: 'Mistral (Mistral AI)' },
+  { id: 'qwen2.5-coder:32b', name: 'Qwen 2.5 Coder 32B (Alibaba)' },
+  { id: 'deepseek-r1:32b', name: 'DeepSeek R1 32B (DeepSeek)' },
+  { id: 'glm-4', name: 'GLM-4 (Zhipu AI)' },
+  { id: 'kimi-k2.5', name: 'Kimi K2.5 (Moonshot AI)' },
+];
+
 export function getPiProviders(): string[] {
-  return getProviders();
+  const providers = getProviders();
+  // Add Ollama if not already present (it's not a built-in PI-AI provider)
+  // TypeScript workaround: cast to string array for includes check
+  if (!(providers as string[]).includes(OLLAMA_PROVIDER_ID)) {
+    (providers as string[]).push(OLLAMA_PROVIDER_ID);
+  }
+  return providers as string[];
 }
 
 export function getPiModels(provider: string) {
+  // Special handling for Ollama provider
+  if (provider === OLLAMA_PROVIDER_ID) {
+    return OLLAMA_MODELS;
+  }
+  
   try {
     return getModels(provider as KnownProvider);
   } catch {

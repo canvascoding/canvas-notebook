@@ -9,6 +9,8 @@ export interface PiProviderConfig {
   model: string;
   thinking: PiThinkingLevel;
   enabledTools: string[];
+  // Ollama-specific settings
+  ollamaHost?: string; // Custom Ollama host URL (default: http://127.0.0.1:11434)
 }
 
 export interface PiRuntimeConfig {
@@ -46,6 +48,7 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
       model: 'llama3.1',
       thinking: 'none',
       enabledTools: ['filesystem', 'terminal'],
+      ollamaHost: 'http://127.0.0.1:11434',
     },
   },
   updatedAt: new Date().toISOString(),
