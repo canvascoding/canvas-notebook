@@ -560,26 +560,27 @@ export function AgentSettingsPanel() {
               {/* Ollama Mode Selector */}
               {piConfigDraft.activeProvider === 'ollama' && (
                 <div className="space-y-2 text-sm">
-                  <span className="font-semibold">Ollama Mode</span>
+                  <span className="font-semibold">Ollama Server</span>
                   <select
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     value={piConfigDraft.providers.ollama?.ollamaMode || 'local'}
                     onChange={(event) => {
                       const mode = event.target.value as OllamaMode;
                       setPiProviderField('ollama', 'ollamaMode', mode);
-                      // Auto-set host based on mode
-                      const host = mode === 'local' ? 'http://127.0.0.1:11434' : 'https://cloud.ollama.com';
-                      setPiProviderField('ollama', 'ollamaHost', host);
+                      // Clear host when switching to local mode
+                      if (mode === 'local') {
+                        setPiProviderField('ollama', 'ollamaHost', undefined);
+                      }
                     }}
                     disabled={configSaving}
                   >
                     <option value="local">🏠 Lokal (localhost:11434)</option>
-                    <option value="cloud">☁️ Cloud (cloud.ollama.com)</option>
+                    <option value="cloud">☁️ Remote Server (custom URL)</option>
                   </select>
                   <p className="text-xs text-muted-foreground">
                     {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' 
-                      ? 'Remote Server: Verbindung zu externem Ollama Server'
-                      : 'Lokal Mode: Modelle werden lokal über localhost:11434 ausgeführt'}
+                      ? 'Remote Server: Verbindung zu externem Ollama Server (z.B. http://192.168.1.100:11434)'
+                      : 'Lokal Mode: Alle Modelle (inkl. Cloud-Modelle) werden lokal über localhost:11434 ausgeführt'}
                   </p>
                 </div>
               )}

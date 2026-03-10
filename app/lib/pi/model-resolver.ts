@@ -75,23 +75,31 @@ export async function resolvePiModel(provider: string, modelName: string) {
     console.log(`[Ollama Debug] Resolving model ${modelName} for provider ${provider}`);
     console.log(`[Ollama Debug] Mode: ${providerConfig?.ollamaMode || 'local'}`);
     
-    if (providerConfig?.ollamaHost) {
-      // Use custom host if provided
-      const baseUrl = providerConfig.ollamaHost.endsWith('/v1') 
+    // Always use localhost:11434 for all Ollama models (both local and cloud)
+    // Cloud models are pulled via 'ollama pull <cloud-model>' and served locally via API
+    const baseUrl = 'http://localhost:11434/v1';
+    
+    // Only use custom host if it's explicitly set and not the default cloud URL
+    if (providerConfig?.ollamaHost && 
+        !providerConfig.ollamaHost.includes('cloud.ollama.com')) {
+      const customUrl = providerConfig.ollamaHost.endsWith('/v1') 
         ? providerConfig.ollamaHost 
         : `${providerConfig.ollamaHost}/v1`;
       
-      console.log(`[Ollama Debug] Using custom host: ${baseUrl}`);
+      console.log(`[Ollama Debug] Using custom host: ${customUrl}`);
       
       return {
         ...model,
-        baseUrl,
+        baseUrl: customUrl,
       };
     }
     
-    // Default: localhost for both local and cloud models
-    // Cloud models are pulled via 'ollama pull <cloud-model>' and served locally
-    console.log(`[Ollama Debug] Using default localhost: http://localhost:11434/v1`);
+    console.log(`[Ollama Debug] Using localhost: ${baseUrl}`);
+    
+    return {
+      ...model,
+      baseUrl,
+    };
   }
   
   return model;
