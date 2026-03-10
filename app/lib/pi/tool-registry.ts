@@ -1,4 +1,5 @@
 import { type AgentTool, type AgentToolResult } from '@mariozechner/pi-agent-core';
+import { type ImageContent } from '@mariozechner/pi-ai';
 import { Type } from '@sinclair/typebox';
 import { listDirectory, readFile, writeFile, createDirectory } from '../filesystem/workspace-files';
 import { exec } from 'child_process';
@@ -7,6 +8,20 @@ import { getWorkspacePath } from '../utils/workspace-manager';
 import path from 'path';
 
 const execAsync = promisify(exec);
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  '.gif':  'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg':  'image/jpeg',
+  '.png':  'image/png',
+  '.webp': 'image/webp',
+};
+
+function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent | null {
+  const mimeType = IMAGE_EXTENSIONS[path.extname(filePath).toLowerCase()];
+  if (!mimeType) return null;
+  return { type: 'image', data: buffer.toString('base64'), mimeType };
+}
 
 /**
  * Registry for PI-compatible tools.
@@ -46,9 +61,15 @@ export const piTools: AgentTool<any>[] = [
     execute: async (toolCallId, { path: filePath }) => {
       try {
         const buffer = await readFile(filePath);
-        const content = buffer.toString('utf8');
+        const image = imageContentForBuffer(filePath, buffer);
+        if (image) {
+          return {
+            content: [image],
+            details: { filePath, size: buffer.length, type: 'image' },
+          };
+        }
         return {
-          content: [{ type: 'text', text: content }],
+          content: [{ type: 'text', text: buffer.toString('utf8') }],
           details: { filePath, size: buffer.length },
         };
       } catch (error: any) {
