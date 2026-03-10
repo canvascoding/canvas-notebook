@@ -4,6 +4,7 @@ const dev = process.env.NODE_ENV !== 'production';
 loadEnvConfig(process.cwd(), dev);
 
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const next = require('next');
@@ -75,6 +76,60 @@ function resolveMediaPath(requestPath) {
 function getContentType(filePath) {
   const ext = path.extname(filePath).slice(1).toLowerCase();
   return MEDIA_TYPES[ext] || 'application/octet-stream';
+}
+
+const SKILLS_TOKEN_PATH = '/data/canvas-agent/.skills-token';
+const SKILLS_REPO_DIR = path.resolve(process.cwd(), 'skills');
+const SKILLS_DATA_DIR = '/data/skills';
+
+function ensureSkillsToken() {
+  try {
+    fs.mkdirSync('/data/canvas-agent', { recursive: true });
+    let token;
+    try {
+      token = fs.readFileSync(SKILLS_TOKEN_PATH, 'utf8').trim();
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+      token = crypto.randomBytes(32).toString('hex');
+      fs.writeFileSync(SKILLS_TOKEN_PATH, token + '\n', { encoding: 'utf8', mode: 0o600 });
+      console.log(`[Startup] Generated new skills token at ${SKILLS_TOKEN_PATH}`);
+    }
+    process.env.CANVAS_SKILLS_TOKEN = token;
+  } catch (error) {
+    console.error('[Startup] Failed to ensure skills token:', error);
+  }
+}
+
+const SKILL_COMMANDS = ['image-generation', 'video-generation', 'ad-localization'];
+
+function ensureSkillsDirectory() {
+  try {
+    if (!fs.existsSync(SKILLS_REPO_DIR)) {
+      return;
+    }
+    fs.mkdirSync(SKILLS_DATA_DIR, { recursive: true });
+    fs.cpSync(SKILLS_REPO_DIR, SKILLS_DATA_DIR, { recursive: true, force: true });
+    const skillBin = path.join(SKILLS_DATA_DIR, 'skill');
+    if (fs.existsSync(skillBin)) {
+      fs.chmodSync(skillBin, 0o755);
+    }
+    console.log(`[Startup] Skills synced to ${SKILLS_DATA_DIR}`);
+
+    // Install short-name wrappers in /usr/local/bin so the agent can call
+    // `image-generation --prompt "..."` directly without the full path.
+    for (const name of SKILL_COMMANDS) {
+      const wrapperPath = `/usr/local/bin/${name}`;
+      const content = `#!/usr/bin/env bash\nexec /data/skills/skill ${name} "$@"\n`;
+      try {
+        fs.writeFileSync(wrapperPath, content, { encoding: 'utf8', mode: 0o755 });
+      } catch (e) {
+        // Non-fatal: /usr/local/bin may not be writable in all environments
+        console.warn(`[Startup] Could not install wrapper for ${name}:`, e.message);
+      }
+    }
+  } catch (error) {
+    console.error('[Startup] Failed to sync skills directory:', error);
+  }
 }
 
 function ensureRuntimeDirectories() {
@@ -212,6 +267,8 @@ function serveMedia(req, res) {
 }
 
 ensureRuntimeDirectories();
+ensureSkillsToken();
+ensureSkillsDirectory();
 
 app
   .prepare()

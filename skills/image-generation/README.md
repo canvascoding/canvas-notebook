@@ -6,7 +6,7 @@ Output: `workspace/image-generation/generations/`
 ## Verwendung
 
 ```bash
-/data/skills/skill image-generation [options]
+image-generation [options]
 ```
 
 ## Optionen
@@ -28,17 +28,17 @@ Output: `workspace/image-generation/generations/`
 
 Einzelnes Bild generieren:
 ```bash
-/data/skills/skill image-generation --prompt "Eine futuristische Stadt bei Sonnenuntergang" --aspect-ratio 16:9
+image-generation --prompt "Eine futuristische Stadt bei Sonnenuntergang" --aspect-ratio 16:9
 ```
 
 4 Variationen generieren:
 ```bash
-/data/skills/skill image-generation --prompt "Produktfoto auf weißem Hintergrund" --count 4
+image-generation --prompt "Produktfoto auf weißem Hintergrund" --count 4
 ```
 
 Mit Referenzbild:
 ```bash
-/data/skills/skill image-generation \
+image-generation \
   --prompt "Gleicher Stil, andere Farbgebung" \
   --ref "image-generation/assets/original.png" \
   --count 2

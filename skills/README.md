@@ -2,7 +2,17 @@
 
 Skills sind CLI-Werkzeuge, die der Agent über das `bash`-Tool aufrufen kann, um die eingebauten Micro-SaaS-Integrationen von Canvas Notebook zu nutzen.
 
-## Einstiegspunkt
+## Aufruf
+
+Die Skills sind direkt als Befehle verfügbar (in `/usr/local/bin/` installiert):
+
+```bash
+image-generation --prompt "..."
+video-generation --prompt "..."
+ad-localization --ref "..." --market "..."
+```
+
+Alternativ über den vollständigen Pfad:
 
 ```bash
 /data/skills/skill <skill-name> [options]
@@ -10,11 +20,11 @@ Skills sind CLI-Werkzeuge, die der Agent über das `bash`-Tool aufrufen kann, um
 
 ## Verfügbare Skills
 
-| Skill | Alias | Beschreibung |
-|-------|-------|-------------|
-| `image-generation` | `image-gen`, `img` | Bilder mit Gemini generieren |
-| `video-generation` | `video-gen`, `veo` | Videos mit Google VEO generieren |
-| `ad-localization` | `ad-loc`, `nano-banana` | Werbeanzeigen für Zielmärkte lokalisieren |
+| Befehl | Beschreibung |
+|--------|-------------|
+| `image-generation` | Bilder mit Gemini generieren |
+| `video-generation` | Videos mit Google VEO generieren |
+| `ad-localization` | Werbeanzeigen für Zielmärkte lokalisieren |
 
 ## Output-Verzeichnisse (workspace-relativ)
 
