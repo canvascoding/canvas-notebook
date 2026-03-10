@@ -55,7 +55,7 @@ type ScopeCardConfig = {
 };
 
 const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
-  integrations: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'NANO_BANANA_API_KEY', 'IMAGE_GENERATION_API_KEY', 'API_KEY'],
+  integrations: ['GEMINI_API_KEY'],
   agents: ['OPENROUTER_API_KEY', 'OLLAMA_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
 };
 
