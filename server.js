@@ -1,4 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+const { loadAppEnv } = require('./server/load-app-env');
+loadAppEnv(process.cwd());
+
 const { loadEnvConfig } = require('@next/env');
 const dev = process.env.NODE_ENV !== 'production';
 loadEnvConfig(process.cwd(), dev);
@@ -11,10 +14,15 @@ const next = require('next');
 const { attachTerminalServer } = require('./server/terminal-server');
 const { terminateAllSessions } = require('./server/terminal-manager');
 const { auth } = require('./app/lib/auth');
+const {
+  resolveAgentStorageDir,
+  resolveSkillsDataDir,
+  resolveSkillsTokenPath,
+} = require('./app/lib/runtime-data-paths');
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = process.env.HOSTNAME || 'localhost';
-const app = next({ dev, hostname, port });
+const app = next({ dev, hostname, port, webpack: dev, turbopack: false });
 const handle = app.getRequestHandler();
 
 // Helper to get session from Node.js request using better-auth
@@ -78,13 +86,14 @@ function getContentType(filePath) {
   return MEDIA_TYPES[ext] || 'application/octet-stream';
 }
 
-const SKILLS_TOKEN_PATH = '/data/canvas-agent/.skills-token';
+const AGENT_STORAGE_DIR = resolveAgentStorageDir();
+const SKILLS_TOKEN_PATH = resolveSkillsTokenPath();
 const SKILLS_REPO_DIR = path.resolve(process.cwd(), 'skills');
-const SKILLS_DATA_DIR = '/data/skills';
+const SKILLS_DATA_DIR = resolveSkillsDataDir();
 
 function ensureSkillsToken() {
   try {
-    fs.mkdirSync('/data/canvas-agent', { recursive: true });
+    fs.mkdirSync(AGENT_STORAGE_DIR, { recursive: true });
     let token;
     try {
       token = fs.readFileSync(SKILLS_TOKEN_PATH, 'utf8').trim();
@@ -113,18 +122,32 @@ function ensureSkillsDirectory() {
     if (fs.existsSync(skillBin)) {
       fs.chmodSync(skillBin, 0o755);
     }
+    const wrapperDir = path.join(SKILLS_DATA_DIR, 'bin');
+    fs.mkdirSync(wrapperDir, { recursive: true });
+
+    for (const name of SKILL_COMMANDS) {
+      const wrapperPath = path.join(wrapperDir, name);
+      const content = `#!/usr/bin/env bash\nexec "${SKILLS_DATA_DIR}/skill" ${name} "$@"\n`;
+      fs.writeFileSync(wrapperPath, content, { encoding: 'utf8', mode: 0o755 });
+    }
+
+    const currentPath = process.env.PATH || '';
+    if (!currentPath.split(path.delimiter).includes(wrapperDir)) {
+      process.env.PATH = `${wrapperDir}${path.delimiter}${currentPath}`;
+    }
+
     console.log(`[Startup] Skills synced to ${SKILLS_DATA_DIR}`);
 
-    // Install short-name wrappers in /usr/local/bin so the agent can call
-    // `image-generation --prompt "..."` directly without the full path.
-    for (const name of SKILL_COMMANDS) {
-      const wrapperPath = `/usr/local/bin/${name}`;
-      const content = `#!/usr/bin/env bash\nexec /data/skills/skill ${name} "$@"\n`;
-      try {
-        fs.writeFileSync(wrapperPath, content, { encoding: 'utf8', mode: 0o755 });
-      } catch (e) {
-        // Non-fatal: /usr/local/bin may not be writable in all environments
-        console.warn(`[Startup] Could not install wrapper for ${name}:`, e.message);
+    // Best effort only: install global wrappers when the runtime allows it.
+    if (process.env.CANVAS_RUNTIME_ENV === 'docker') {
+      for (const name of SKILL_COMMANDS) {
+        const wrapperPath = `/usr/local/bin/${name}`;
+        const content = `#!/usr/bin/env bash\nexec "${SKILLS_DATA_DIR}/skill" ${name} "$@"\n`;
+        try {
+          fs.writeFileSync(wrapperPath, content, { encoding: 'utf8', mode: 0o755 });
+        } catch (e) {
+          console.warn(`[Startup] Could not install global wrapper for ${name}:`, e.message);
+        }
       }
     }
   } catch (error) {

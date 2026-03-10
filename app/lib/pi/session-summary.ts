@@ -17,7 +17,7 @@ type PreparePiHistoryContextOptions = {
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
   systemPrompt: string;
-  model: Model<any>;
+  model: Model<unknown>;
   toolCount: number;
   sessionId?: string;
   signal?: AbortSignal;
@@ -26,7 +26,7 @@ type PreparePiHistoryContextOptions = {
 type SummarizeHistoryInput = {
   previousSummaryText: string | null;
   messagesToSummarize: AgentMessage[];
-  model: Model<any>;
+  model: Model<unknown>;
   sessionId?: string;
   signal?: AbortSignal;
 };

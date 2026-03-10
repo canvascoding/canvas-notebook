@@ -97,7 +97,7 @@ pm2 start server.js --name "canvas-notebook"
    ```
 
 ### Konfiguration
-Erstellen Sie eine `.env.local` Datei im Wurzelverzeichnis (siehe `.env.example` oder bestehende Dokumentation):
+Für lokale Entwicklung eine `.env.local` Datei im Wurzelverzeichnis anlegen:
 
 ```bash
 # Workspace
@@ -114,7 +114,9 @@ ALLOW_SIGNUP=false
 ```bash
 npm run dev
 ```
-Die App ist nun unter [http://localhost:3000](http://localhost:3000) erreichbar.
+Wenn Port `3000` bereits vom Test-Container belegt ist, wechselt der Dev-Start automatisch auf einen freien lokalen Port ab `3001`.
+
+Für Docker/Compose eine separate `.env.docker.local` verwenden, z. B. auf Basis von `.env.docker.example`.
 
 ---
 
@@ -157,7 +159,7 @@ Die Datenbank liegt zur Laufzeit unter `/data/sqlite.db` und bleibt über ein Vo
 ### Container lokal starten (Bind-Mount auf `./data`)
 ```bash
 docker run --rm -p 3000:3000 \
-  --env-file .env.local \
+  --env-file .env.docker.local \
   -e HOSTNAME=0.0.0.0 \
   -e BETTER_AUTH_SECRET=change-me-long-random-secret \
   -e WORKSPACE_DIR=/data/workspace \
@@ -172,7 +174,7 @@ docker run --rm -p 3000:3000 \
 docker volume create canvas_notebook_data
 
 docker run --rm -p 3000:3000 \
-  --env-file .env.local \
+  --env-file .env.docker.local \
   -e HOSTNAME=0.0.0.0 \
   -e BETTER_AUTH_SECRET=change-me-long-random-secret \
   -e WORKSPACE_DIR=/data/workspace \
@@ -184,6 +186,7 @@ docker run --rm -p 3000:3000 \
 
 ### Mit Docker Compose (empfohlen)
 ```bash
+cp .env.docker.example .env.docker.local
 docker compose up -d --build
 ```
 

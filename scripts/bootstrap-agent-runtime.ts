@@ -3,11 +3,17 @@ import path from 'node:path';
 
 import { db } from '../app/lib/db';
 import { aiMessages, aiSessions } from '../app/lib/db/schema';
+import {
+  resolveAgentStorageDir,
+  resolveDefaultAgentsEnvPath,
+  resolveDefaultIntegrationsEnvPath,
+  resolveSecretsDir,
+} from '../app/lib/runtime-data-paths';
 
-const AGENT_STORAGE_DIR = '/data/canvas-agent';
-const SECRETS_DIR = '/data/secrets';
-const DEFAULT_INTEGRATIONS_ENV_PATH = '/data/secrets/Canvas-Integrations.env';
-const DEFAULT_AGENTS_ENV_PATH = '/data/secrets/Canvas-Agents.env';
+const AGENT_STORAGE_DIR = resolveAgentStorageDir();
+const SECRETS_DIR = resolveSecretsDir();
+const DEFAULT_INTEGRATIONS_ENV_PATH = resolveDefaultIntegrationsEnvPath();
+const DEFAULT_AGENTS_ENV_PATH = resolveDefaultAgentsEnvPath();
 const LEGACY_WIPE_MARKER_PATH = path.join(AGENT_STORAGE_DIR, '.legacy-session-wipe-done');
 const RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, 'agent-runtime-config.json');
 

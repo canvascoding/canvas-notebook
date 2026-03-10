@@ -1,4 +1,4 @@
-import { type AgentTool, type AgentToolResult } from '@mariozechner/pi-agent-core';
+import { type AgentTool } from '@mariozechner/pi-agent-core';
 import { type ImageContent } from '@mariozechner/pi-ai';
 import { Type } from '@sinclair/typebox';
 import { listDirectory, readFile, writeFile, createDirectory } from '../filesystem/workspace-files';
@@ -23,11 +23,25 @@ function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent |
   return { type: 'image', data: buffer.toString('base64'), mimeType };
 }
 
+type CommandExecutionError = Error & {
+  code?: number;
+  stdout?: string;
+  stderr?: string;
+};
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown tool error';
+}
+
+function asCommandExecutionError(error: unknown): CommandExecutionError {
+  return error instanceof Error ? (error as CommandExecutionError) : new Error(String(error));
+}
+
 /**
  * Registry for PI-compatible tools.
  */
 
-export const piTools: AgentTool<any>[] = [
+export const piTools: AgentTool[] = [
   {
     name: 'ls',
     label: 'Listing directory',
@@ -43,10 +57,11 @@ export const piTools: AgentTool<any>[] = [
           content: [{ type: 'text', text: content || '(empty)' }],
           details: { files },
         };
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
         return {
-          content: [{ type: 'text', text: `Error: ${error.message}` }],
-          details: { error: error.message },
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
         };
       }
     },
@@ -72,10 +87,11 @@ export const piTools: AgentTool<any>[] = [
           content: [{ type: 'text', text: buffer.toString('utf8') }],
           details: { filePath, size: buffer.length },
         };
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
         return {
-          content: [{ type: 'text', text: `Error: ${error.message}` }],
-          details: { error: error.message },
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
         };
       }
     },
@@ -99,10 +115,11 @@ export const piTools: AgentTool<any>[] = [
           content: [{ type: 'text', text: `Successfully wrote ${content.length} bytes to ${filePath}` }],
           details: { filePath, size: content.length },
         };
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
         return {
-          content: [{ type: 'text', text: `Error: ${error.message}` }],
-          details: { error: error.message },
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
         };
       }
     },
@@ -123,11 +140,12 @@ export const piTools: AgentTool<any>[] = [
           content: [{ type: 'text', text: output || '(no output)' }],
           details: { stdout, stderr },
         };
-      } catch (error: any) {
-        const output = [error.stdout, error.stderr, error.message].filter(Boolean).join('\n');
+      } catch (error: unknown) {
+        const execError = asCommandExecutionError(error);
+        const output = [execError.stdout, execError.stderr, execError.message].filter(Boolean).join('\n');
         return {
           content: [{ type: 'text', text: output }],
-          details: { error: error.message, stdout: error.stdout, stderr: error.stderr },
+          details: { error: execError.message, stdout: execError.stdout, stderr: execError.stderr },
         };
       }
     },
@@ -152,13 +170,15 @@ export const piTools: AgentTool<any>[] = [
           content: [{ type: 'text', text: output || '(no matches found)' }],
           details: { stdout, stderr },
         };
-      } catch (error: any) {
-        if (error.code === 1) { // No matches
+      } catch (error: unknown) {
+        const execError = asCommandExecutionError(error);
+        if (execError.code === 1) {
           return { content: [{ type: 'text', text: '(no matches found)' }], details: { stdout: '', stderr: '' } };
         }
+        const message = execError.message;
         return {
-          content: [{ type: 'text', text: `Error: ${error.message}` }],
-          details: { error: error.message },
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
         };
       }
     },
@@ -179,16 +199,17 @@ export const piTools: AgentTool<any>[] = [
           content: [{ type: 'text', text: stdout || '(no matches found)' }],
           details: { stdout, stderr },
         };
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
         return {
-          content: [{ type: 'text', text: `Error: ${error.message}` }],
-          details: { error: error.message },
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
         };
       }
     },
   },
 ];
 
-export function getPiTools(): AgentTool<any>[] {
+export function getPiTools(): AgentTool[] {
   return piTools;
 }

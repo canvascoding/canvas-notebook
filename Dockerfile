@@ -35,6 +35,7 @@ RUN echo "${APP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${APP_USER} \
 RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \
+    CANVAS_RUNTIME_ENV=docker \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     WORKSPACE_DIR=/data/workspace \
