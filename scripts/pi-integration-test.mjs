@@ -149,12 +149,41 @@ async function testStream(cookie, sessionId) {
   }
 }
 
+async function testSessionPersistence(cookie, sessionId) {
+  console.log('[PI Test] Testing persisted PI session messages...');
+  const result = await request(`/api/sessions/messages?sessionId=${encodeURIComponent(sessionId)}`, {
+    headers: { cookie },
+  });
+
+  if (!result.response.ok) {
+    throw new Error(`Failed to load session messages: ${result.response.status}`);
+  }
+
+  if (!result.body?.success || !Array.isArray(result.body.messages)) {
+    throw new Error('Invalid session messages payload');
+  }
+
+  const messages = result.body.messages;
+  if (messages.length === 0) {
+    throw new Error('Expected persisted PI messages, got empty list');
+  }
+
+  const hasUserMessage = messages.some((m) => m.role === 'user');
+  const hasAssistantMessage = messages.some((m) => m.role === 'assistant');
+  if (!hasUserMessage || !hasAssistantMessage) {
+    throw new Error('Persisted session is missing user/assistant messages');
+  }
+
+  console.log(`[PI Test] Persistence check passed (${messages.length} messages).`);
+}
+
 async function run() {
   try {
     const cookie = await signIn();
     await testConfig(cookie);
     const sessionId = await testSessions(cookie);
     await testStream(cookie, sessionId);
+    await testSessionPersistence(cookie, sessionId);
     console.log('[PI Test] All integration tests passed! 🚀');
   } catch (error) {
     console.error('[PI Test] FAILED:', error.message);
