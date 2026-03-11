@@ -6,7 +6,8 @@ import {
   PROVIDER_DISPLAY_NAMES,
 } from '@/app/lib/pi/oauth';
 import { spawn } from 'child_process';
-import { writeFile, mkdir, readFile } from 'fs/promises';
+import { writeFile, mkdir, readFile, symlink } from 'fs/promises';
+import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
@@ -56,6 +57,18 @@ export async function POST(request: NextRequest) {
     // Ensure script directory exists
     await mkdir(tempScriptDir, { recursive: true });
 
+    // Create symlink to node_modules so ES modules can resolve @mariozechner/pi-ai
+    const nodeModulesPath = join(process.cwd(), 'node_modules');
+    const tempNodeModulesPath = join(tempScriptDir, 'node_modules');
+    if (!existsSync(tempNodeModulesPath)) {
+      try {
+        await symlink(nodeModulesPath, tempNodeModulesPath, 'dir');
+      } catch (e) {
+        // Symlink might already exist or permission issue, continue anyway
+        console.warn(`[OAuth ${flowId}] Could not create node_modules symlink:`, e);
+      }
+    }
+
     // Create package.json for the temp script to resolve modules
     const tempPackageJson = JSON.stringify({
       name: `pi-oauth-${flowId}`,
@@ -76,13 +89,13 @@ export async function POST(request: NextRequest) {
     const scriptContent = generateOAuthScript(provider, flowId, stateFile, tempAuthPath);
     await writeFile(tempScriptPath, scriptContent);
 
-    // Spawn the OAuth process in the background with correct working directory
+    // Spawn the OAuth process in the temp script directory (where node_modules symlink exists)
     const child = spawn('node', ['--experimental-vm-modules', tempScriptPath], {
       env: { 
         ...process.env,
-        NODE_PATH: `${process.cwd()}/node_modules`,
+        // No NODE_PATH needed - ES modules resolve via node_modules symlink in cwd
       },
-      cwd: process.cwd(),
+      cwd: tempScriptDir,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
