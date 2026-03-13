@@ -126,6 +126,10 @@ export async function POST(request: NextRequest) {
       // State file might not be ready yet
     }
 
+    // Determine if this provider requires manual code entry
+    // Anthropic is the only provider that requires manual code entry
+    const requiresManualCode = provider === 'anthropic';
+    
     return NextResponse.json({
       success: true,
       flowId,
@@ -133,9 +137,11 @@ export async function POST(request: NextRequest) {
       displayName: PROVIDER_DISPLAY_NAMES[provider],
       authUrl,
       instructions,
-      requiresCode: !authUrl.includes('callback'), // Some flows need manual code entry
+      requiresManualCode, // true = user must enter code manually, false = automatic callback
       message: authUrl 
-        ? 'Please open the URL in your browser to complete authentication'
+        ? requiresManualCode
+          ? 'Please open the URL in your browser, then paste the authorization code below'
+          : 'Please complete authentication in the opened browser window'
         : 'Waiting for OAuth flow to start...',
     });
   } catch (error) {
@@ -153,14 +159,16 @@ export async function POST(request: NextRequest) {
 function generateOAuthScript(provider: string, flowId: string, stateFile: string, tempAuthPath: string): string {
   const loginFn = getLoginFunctionName(provider);
   
-  // Different providers have different signatures
-  // anthropic: loginAnthropic(onAuthUrl, onPromptCode)
-  // openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress })
-  // github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress })
-  // google-gemini-cli: loginGeminiCli(onAuth, onProgress?, onManualCodeInput?)
-  // google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?)
+  // Different providers have different signatures and OAuth flows:
+  // - anthropic: loginAnthropic(onAuthUrl, onPromptCode) - MANUAL CODE ENTRY
+  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress }) - AUTOMATIC (has callback server)
+  // - github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress }) - AUTOMATIC (has callback server)
+  // - google-gemini-cli: loginGeminiCli(onAuth, onProgress?, onManualCodeInput?) - AUTOMATIC
+  // - google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?) - AUTOMATIC
   const isOptionsBased = ['openai-codex', 'github-copilot'].includes(provider);
   const isSimpleCallback = provider === 'anthropic';
+  // Providers that have their own callback server (don't need manual code entry)
+  const hasOwnCallback = ['openai-codex', 'github-copilot', 'google-gemini-cli', 'google-antigravity'].includes(provider);
   
   return `
 import fs from 'fs';
@@ -203,8 +211,35 @@ async function run() {
     };
 
     const handlePromptCode = async () => {
-      console.log('WAITING_FOR_CODE');
-      updateState({ status: 'waiting_for_code', updatedAt: Date.now() });
+      ${hasOwnCallback ? `
+      // ${provider} has its own callback server - this should not be called
+      // The PI library receives the code directly from the browser
+      console.log('WAITING_FOR_CODE (automatic - callback server)');
+      updateState({ status: 'waiting_for_code', updatedAt: Date.now(), automatic: true });
+      
+      // Wait for credentials to be saved (the PI library handles everything)
+      const maxWait = 10 * 60 * 1000; // 10 minutes
+      const startTime = Date.now();
+      
+      while (Date.now() - startTime < maxWait) {
+        try {
+          const state = JSON.parse(fs.readFileSync('${stateFile}', 'utf-8'));
+          if (state.status === 'completed' || state.status === 'failed') {
+            // OAuth completed automatically, return empty string
+            console.log('AUTOMATIC_OAUTH_COMPLETED');
+            return '';
+          }
+        } catch (e) {
+          // Continue waiting
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      
+      throw new Error('Timeout waiting for automatic OAuth completion');
+      ` : `
+      // ${provider} requires manual code entry
+      console.log('WAITING_FOR_CODE (manual entry required)');
+      updateState({ status: 'waiting_for_code', requiresManualCode: true, updatedAt: Date.now() });
       
       // Wait for the code file to be created by the exchange endpoint
       const codeFile = '${stateFile}'.replace('.json', '_code.txt');
@@ -226,6 +261,7 @@ async function run() {
       }
       
       throw new Error('Timeout waiting for authorization code');
+      `}
     };
 
     const handleProgress = (message) => {
