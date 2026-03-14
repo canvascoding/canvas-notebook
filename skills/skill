@@ -48,6 +48,7 @@ if [ -z "$SKILL" ]; then
   echo "  image-generation   Generate images with Gemini" >&2
   echo "  video-generation   Generate videos with Google VEO" >&2
   echo "  ad-localization    Localize ad images for target markets (Nano Banana)" >&2
+  echo "  qmd                Search markdown notes and docs in workspace" >&2
   echo "" >&2
   echo "For skill-specific help, see /data/skills/<skill-name>/README.md" >&2
   exit 1
@@ -145,9 +146,24 @@ case "$SKILL" in
     echo
     ;;
 
+  # -------------------------------------------------------------------------
+  qmd|markdown-search|search-notes)
+    # qmd is a local CLI tool, not an API endpoint
+    # Ensure qmd is in PATH
+    export PATH="$HOME/.bun/bin:$PATH"
+    
+    if ! command -v qmd >/dev/null 2>&1; then
+      echo "ERROR: qmd is not installed. Please wait for the container to finish setup." >&2
+      exit 1
+    fi
+    
+    # Pass all arguments directly to qmd
+    qmd "$@"
+    ;;
+
   *)
     echo "Unknown skill: $SKILL" >&2
-    echo "Available: image-generation, video-generation, ad-localization" >&2
+    echo "Available: image-generation, video-generation, ad-localization, qmd" >&2
     exit 1
     ;;
 esac

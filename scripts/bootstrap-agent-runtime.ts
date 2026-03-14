@@ -34,6 +34,7 @@ Du läufst auf linux in einem docker container.
 Du hast in /data/skills ein paar readmes zu den folgenden tools die du nutzen kannst: die werden über das cli bedient.
 - video generierung mit veo 3 
 - foto generierung mit nano banana bzw google image gen
+- markdown suche mit qmd
 
 Wenn ein user nach etwas dazu fragt dann ruf die jeweiligen ordner auf und lies die readmes dazu um sie zu verwenden.
 
@@ -64,15 +65,49 @@ ad-localization --ref "nano-banana-ad-localizer/assets/ad.png" --market "Germany
 Referenzbild MUSS unter nano-banana-ad-localizer/ liegen. Bis zu 12 Märkte pro Aufruf.
 Output: workspace/nano-banana-ad-localizer/localizations/
 
+### Markdown Search (qmd)
+Lokale Suche für Markdown-Notizen im Workspace. Indexiert automatisch alle .md Dateien.
+
+**Wann zu verwenden:**
+- "suche in meinen Notizen / Dokumenten"
+- "finde verwandte Notizen"
+- "durchsuche meine Markdown-Dateien"
+
+**Standard-Verhalten:**
+- Bevorzuge \`qmd search\` (schnelle Keyword-Suche mit BM25)
+- Nutze \`qmd vsearch\` nur wenn semantische Ähnlichkeit nötig ist (langsamer)
+
+\`\`\`bash
+# Schnelle Keyword-Suche (Standard)
+qmd search "mein Suchbegriff"
+
+# Mit mehr Ergebnissen
+qmd search "Suchbegriff" -n 10
+
+# JSON Output für Agenten
+qmd search "Suchbegriff" --json
+
+# Semantische Suche (langsamer, nur wenn nötig)
+qmd vsearch "konzeptionell ähnliche Inhalte"
+
+# Dokument abrufen
+qmd get "pfad/zur/datei.md"
+\`\`\`
+
+Collection: \`workspace\` (indexiert /data/workspace/**/*.md)
+
 ### Antwortformat
 \`{ "success": true, "data": { ... } }\` oder \`{ "success": false, "error": "..." }\`
 "path"-Felder sind workspace-relativ und können mit dem read-Tool geöffnet werden.
+
+**Ausnahme:** qmd gibt direkte Text-/JSON-Ausgabe zurück (kein API-Call nötig).
 
 ### Skill-Dokumentation
 - /data/skills/README.md
 - /data/skills/image-generation/README.md
 - /data/skills/video-generation/README.md
 - /data/skills/ad-localization/README.md
+- /data/skills/qmd/README.md
 `,
   'SOUL.md': `# SOUL
 

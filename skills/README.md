@@ -25,6 +25,7 @@ Alternativ über den vollständigen Pfad:
 | `image-generation` | Bilder mit Gemini generieren |
 | `video-generation` | Videos mit Google VEO generieren |
 | `ad-localization` | Werbeanzeigen für Zielmärkte lokalisieren |
+| `qmd` | Markdown-Notizen und Dokumente im Workspace durchsuchen |
 
 ## Output-Verzeichnisse (workspace-relativ)
 
@@ -39,7 +40,7 @@ Alternativ über den vollständigen Pfad:
 
 ## Antwortformat
 
-Alle Skills geben JSON zurück:
+Die meisten Skills geben JSON zurück:
 
 ```json
 { "success": true, "data": { ... } }
@@ -53,8 +54,11 @@ oder bei Fehler:
 
 Die `path`-Felder in der Antwort sind workspace-relativ und können mit dem `read`-Tool geöffnet werden.
 
+**Ausnahme:** `qmd` ist ein lokales CLI-Tool und gibt direkte Text-/JSON-Ausgabe zurück (kein API-Call nötig).
+
 ## Skill-Dokumentation
 
 - `/data/skills/image-generation/README.md`
 - `/data/skills/video-generation/README.md`
 - `/data/skills/ad-localization/README.md`
+- `/data/skills/qmd/README.md`
