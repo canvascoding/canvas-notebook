@@ -56,7 +56,8 @@ export async function POST(request: NextRequest) {
 
     const stateFile = `${OAUTH_STATE_DIR}/${flowId}.json`;
     const codeFile = `${OAUTH_STATE_DIR}/${flowId}_code.txt`;
-    const tempAuthPath = `${OAUTH_STATE_DIR}/${flowId}_credentials.json`;
+    // Credentials are saved in the temp script directory by the background process
+    const tempAuthPath = `${OAUTH_STATE_DIR}/${flowId}_oauth/credentials.json`;
 
     // Check if flow exists
     try {
