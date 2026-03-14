@@ -58,16 +58,17 @@ const suiteApps: SuiteApp[] = [
     icon: Globe,
   },
   {
+    title: 'Automationen',
+    description: 'Wiederkehrende Agent-Aufträge für den gemeinsamen Workspace planen.',
+    status: 'ready',
+    href: '/automationen',
+    icon: Workflow,
+  },
+  {
     title: 'Content Studio',
     description: 'Copywriting und Summaries für produktive Workflows.',
     status: 'planned',
     icon: FileText,
-  },
-  {
-    title: 'Workflow Automations',
-    description: 'Standardabläufe über mehrere Apps orchestrieren.',
-    status: 'planned',
-    icon: Workflow,
   },
   {
     title: 'Creative Remix',
