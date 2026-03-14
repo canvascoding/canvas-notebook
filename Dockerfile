@@ -59,6 +59,7 @@ COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/proxy.ts ./proxy.ts
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/docs ./docs
+COPY --from=builder /app/skills ./skills
 
 RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills
 RUN chmod +x ./scripts/docker-entrypoint.sh

@@ -125,10 +125,6 @@ export async function POST(request: NextRequest) {
     } catch {
       // State file might not be ready yet
     }
-
-    // Determine if this provider requires manual code entry
-    // Anthropic is the only provider that requires manual code entry
-    const requiresManualCode = provider === 'anthropic';
     
     return NextResponse.json({
       success: true,
@@ -137,11 +133,8 @@ export async function POST(request: NextRequest) {
       displayName: PROVIDER_DISPLAY_NAMES[provider],
       authUrl,
       instructions,
-      requiresManualCode, // true = user must enter code manually, false = automatic callback
       message: authUrl 
-        ? requiresManualCode
-          ? 'Please open the URL in your browser, then paste the authorization code below'
-          : 'Please complete authentication in the opened browser window'
+        ? 'Please open the URL in your browser, then paste the authorization code or callback URL below'
         : 'Waiting for OAuth flow to start...',
     });
   } catch (error) {
@@ -155,20 +148,19 @@ export async function POST(request: NextRequest) {
 
 /**
  * Generate the OAuth script that runs in a background process
+ * All providers use manual code entry for consistency (works in Docker/containers)
  */
 function generateOAuthScript(provider: string, flowId: string, stateFile: string, tempAuthPath: string): string {
   const loginFn = getLoginFunctionName(provider);
   
-  // Different providers have different signatures and OAuth flows:
-  // - anthropic: loginAnthropic(onAuthUrl, onPromptCode) - MANUAL CODE ENTRY
-  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress }) - AUTOMATIC (has callback server)
-  // - github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress }) - AUTOMATIC (has callback server)
-  // - google-gemini-cli: loginGeminiCli(onAuth, onProgress?, onManualCodeInput?) - AUTOMATIC
-  // - google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?) - AUTOMATIC
+  // Different providers have different signatures:
+  // - anthropic: loginAnthropic(onAuthUrl, onPromptCode)
+  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress })
+  // - github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress })
+  // - google-gemini-cli: loginGeminiCli(onAuth, onProgress?, onManualCodeInput?)
+  // - google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?)
   const isOptionsBased = ['openai-codex', 'github-copilot'].includes(provider);
   const isSimpleCallback = provider === 'anthropic';
-  // Providers that have their own callback server (don't need manual code entry)
-  const hasOwnCallback = ['openai-codex', 'github-copilot', 'google-gemini-cli', 'google-antigravity'].includes(provider);
   
   return `
 import fs from 'fs';
@@ -187,10 +179,30 @@ function updateState(updates) {
   }
 }
 
+// Helper to extract code from URL or return code directly
+function extractCode(input) {
+  if (!input) return input;
+  
+  // Check if input looks like a URL
+  if (input.startsWith('http://') || input.startsWith('https://')) {
+    try {
+      const url = new URL(input);
+      const code = url.searchParams.get('code');
+      if (code) {
+        console.log('CODE_EXTRACTED_FROM_URL');
+        return code;
+      }
+    } catch (e) {
+      // Not a valid URL, return as-is
+    }
+  }
+  
+  // Return input as-is (could be code#state format for Anthropic)
+  return input;
+}
+
 async function run() {
   try {
-    // Module imported via package name for container compatibility
-    
     // Update state to waiting for auth
     updateState({ status: 'waiting_for_auth', startedAt: Date.now() });
 
@@ -211,35 +223,8 @@ async function run() {
     };
 
     const handlePromptCode = async () => {
-      ${hasOwnCallback ? `
-      // ${provider} has its own callback server - this should not be called
-      // The PI library receives the code directly from the browser
-      console.log('WAITING_FOR_CODE (automatic - callback server)');
-      updateState({ status: 'waiting_for_code', updatedAt: Date.now(), automatic: true });
-      
-      // Wait for credentials to be saved (the PI library handles everything)
-      const maxWait = 10 * 60 * 1000; // 10 minutes
-      const startTime = Date.now();
-      
-      while (Date.now() - startTime < maxWait) {
-        try {
-          const state = JSON.parse(fs.readFileSync('${stateFile}', 'utf-8'));
-          if (state.status === 'completed' || state.status === 'failed') {
-            // OAuth completed automatically, return empty string
-            console.log('AUTOMATIC_OAUTH_COMPLETED');
-            return '';
-          }
-        } catch (e) {
-          // Continue waiting
-        }
-        await new Promise(r => setTimeout(r, 1000));
-      }
-      
-      throw new Error('Timeout waiting for automatic OAuth completion');
-      ` : `
-      // ${provider} requires manual code entry
-      console.log('WAITING_FOR_CODE (manual entry required)');
-      updateState({ status: 'waiting_for_code', requiresManualCode: true, updatedAt: Date.now() });
+      console.log('WAITING_FOR_CODE');
+      updateState({ status: 'waiting_for_code', updatedAt: Date.now() });
       
       // Wait for the code file to be created by the exchange endpoint
       const codeFile = '${stateFile}'.replace('.json', '_code.txt');
@@ -249,8 +234,11 @@ async function run() {
       while (Date.now() - startTime < maxWait) {
         try {
           if (fs.existsSync(codeFile)) {
-            const code = fs.readFileSync(codeFile, 'utf-8').trim();
+            const rawInput = fs.readFileSync(codeFile, 'utf-8').trim();
             fs.unlinkSync(codeFile); // Clean up
+            
+            // Extract code from URL if needed
+            const code = extractCode(rawInput);
             console.log('CODE_RECEIVED');
             return code;
           }
@@ -261,7 +249,6 @@ async function run() {
       }
       
       throw new Error('Timeout waiting for authorization code');
-      `}
     };
 
     const handleProgress = (message) => {

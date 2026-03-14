@@ -37,9 +37,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
   const [flowId, setFlowId] = useState('');
   const [authUrl, setAuthUrl] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [requiresManualCode, setRequiresManualCode] = useState(false);
   const [code, setCode] = useState('');
-  const [isAutoCompleting, setIsAutoCompleting] = useState(false);
   const [providers, setProviders] = useState<OAuthStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -68,23 +66,11 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
           if (data.authUrl) {
             setAuthUrl(data.authUrl);
             setInstructions(data.instructions || '');
-            // requiresManualCode comes from initiate response, not poll
             clearInterval(pollInterval);
+            setIsPolling(false);
             
             // Auto-open the auth URL
             window.open(data.authUrl, '_blank');
-            
-            // If status is already completed (automatic flow), trigger completion
-            if (data.status === 'completed') {
-              setIsAutoCompleting(true);
-              void completeOAuth();
-            }
-          }
-          
-          if (data.status === 'completed' && !isAutoCompleting) {
-            // Flow completed automatically
-            setIsAutoCompleting(true);
-            void completeOAuth();
           }
           
           if (data.status === 'failed' || data.error) {
@@ -111,7 +97,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       clearInterval(pollInterval);
       clearTimeout(timeout);
     };
-  }, [flowId, isOpen, authUrl, isAutoCompleting]);
+  }, [flowId, isOpen, authUrl]);
 
   // Clear success message after 5 seconds
   useEffect(() => {
@@ -148,12 +134,10 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     setIsPolling(true);
     setError(null);
     setSuccessMessage(null);
-      setAuthUrl('');
-      setInstructions('');
-      setRequiresManualCode(false);
-      setCode('');
-      setFlowId('');
-      setIsAutoCompleting(false);
+    setAuthUrl('');
+    setInstructions('');
+    setCode('');
+    setFlowId('');
 
     try {
       const response = await fetch('/api/oauth/pi/initiate', {
@@ -176,7 +160,6 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       if (data.authUrl) {
         setAuthUrl(data.authUrl);
         setInstructions(data.instructions || '');
-        setRequiresManualCode(true);
         setIsPolling(false);
         window.open(data.authUrl, '_blank');
       }
@@ -188,59 +171,9 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     }
   };
 
-  const completeOAuth = async () => {
-    if (!flowId || !selectedProvider) {
-      setError('Missing flow information');
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/oauth/pi/complete', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          flowId,
-          provider: selectedProvider.provider,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        // If still processing, wait and retry
-        if (response.status === 202) {
-          setTimeout(() => completeOAuth(), 2000);
-          return;
-        }
-        throw new Error(data.error || 'Failed to complete OAuth');
-      }
-
-      setIsOpen(false);
-      setCode('');
-      setFlowId('');
-      setAuthUrl('');
-      setSelectedProvider(null);
-      
-      // Show success message
-      setSuccessMessage(`Successfully connected to ${selectedProvider.displayName}`);
-      
-      await loadStatus();
-      onStatusChange?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setIsLoading(false);
-      setIsAutoCompleting(false);
-    }
-  };
-
   const exchangeCode = async () => {
-    if (requiresManualCode && !code.trim()) {
-      setError('Please enter the authorization code');
+    if (!code.trim()) {
+      setError('Please enter the authorization code or callback URL');
       return;
     }
 
@@ -515,12 +448,12 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
               </div>
             )}
 
-            {/* Code Input */}
-            {requiresManualCode && authUrl && (
+            {/* Code Input - Always show when authUrl is available */}
+            {authUrl && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Step 2: Enter Authorization Code</label>
                 <p className="text-xs text-muted-foreground">
-                  After authenticating in the browser, paste the code here:
+                  After authenticating in the browser, paste the authorization code or callback URL here:
                 </p>
                 <Input
                   value={code}
@@ -539,7 +472,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
             <Button
               onClick={() => void exchangeCode()}
-              disabled={isLoading || !authUrl || (requiresManualCode && !code.trim())}
+              disabled={isLoading || !authUrl || !code.trim()}
               className="w-full"
             >
               {isLoading ? (
