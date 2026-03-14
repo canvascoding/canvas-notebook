@@ -179,7 +179,17 @@ export function AutomationsClient() {
       if (!options?.keepSelection) {
         const nextSelected = nextJobs[0] || null;
         setSelectedJobId(nextSelected?.id || null);
-        setDraft(nextSelected ? mapJobToDraft(nextSelected) : defaultDraft());
+        setDraft((current) => {
+          if (nextSelected) {
+            return mapJobToDraft(nextSelected);
+          }
+
+          if (current.name || current.prompt || current.workspaceContextText) {
+            return current;
+          }
+
+          return defaultDraft();
+        });
       } else if (selectedJobId) {
         const nextSelected = nextJobs.find((job) => job.id === selectedJobId);
         if (nextSelected) {
