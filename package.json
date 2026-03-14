@@ -24,6 +24,8 @@
     "test:pi:attachments": "tsx scripts/pi-attachments-test.ts",
     "pretest:prompt-builder": "npm run todos:sync:agent",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
+    "pretest:automation:schedule": "npm run todos:sync:agent",
+    "test:automation:schedule": "tsx scripts/automation-schedule-test.ts",
     "pretest:e2e": "npm run todos:sync:agent",
     "test:e2e": "playwright test --pass-with-no-tests",
     "pretest:all": "npm run todos:sync:agent",
