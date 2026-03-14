@@ -66,6 +66,24 @@ function extractAssistantText(messages: AgentMessage[]): string {
   return '';
 }
 
+function getAssistantError(messages: AgentMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role !== 'assistant') {
+      continue;
+    }
+
+    if ('stopReason' in message && message.stopReason === 'error') {
+      if ('errorMessage' in message && typeof message.errorMessage === 'string' && message.errorMessage.trim()) {
+        return message.errorMessage.trim();
+      }
+      return 'Assistant run failed.';
+    }
+  }
+
+  return null;
+}
+
 function buildOutputPaths(job: AutomationJobRecord, run: AutomationRunRecord) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const outputDir = path.posix.join('automationen', slugify(job.name), 'runs', `${timestamp}-${run.id}`);
@@ -173,6 +191,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       }
     }
 
+    const assistantError = getAssistantError(finalMessages);
+    if (assistantError) {
+      throw new Error(assistantError);
+    }
+
     const assistantText = extractAssistantText(finalMessages);
     await writeFile(outputPaths.logPath, `${events.join('\n')}\n`);
     await writeFile(outputPaths.resultPath, assistantText || 'Run completed without assistant text output.');
@@ -188,6 +211,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     const retryAt = calculateRetryAt(run.attemptNumber);
 
     await writeFile(outputPaths.logPath, `${events.join('\n')}\n`);
+    await writeFile(outputPaths.resultPath, `Automation failed: ${message}\n`);
     await writeFile(outputPaths.errorPath, message);
 
     if (retryAt) {
