@@ -161,13 +161,25 @@ if (tableNames.has('pi_sessions')) {
     (sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as Array<{ name: string }>).map((c) => c.name),
   );
   if (!piSessionColumns.has('summary_text')) {
-    sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_text TEXT');
+    try {
+      sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_text TEXT');
+    } catch (e) {
+      // Column might already exist, ignore
+    }
   }
   if (!piSessionColumns.has('summary_updated_at')) {
-    sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_updated_at INTEGER');
+    try {
+      sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_updated_at INTEGER');
+    } catch (e) {
+      // Column might already exist, ignore
+    }
   }
   if (!piSessionColumns.has('summary_through_timestamp')) {
-    sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_through_timestamp INTEGER');
+    try {
+      sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_through_timestamp INTEGER');
+    } catch (e) {
+      // Column might already exist, ignore
+    }
   }
 }
 
