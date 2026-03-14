@@ -31,83 +31,67 @@ Du läufst auf linux in einem docker container.
 `,
   'TOOLS.md': `# TOOLS
 
-Du hast in /data/skills ein paar readmes zu den folgenden tools die du nutzen kannst: die werden über das cli bedient.
-- video generierung mit veo 3 
-- foto generierung mit nano banana bzw google image gen
-- markdown suche mit qmd
+## Verfügbare Skills (Kurzübersicht)
 
-Wenn ein user nach etwas dazu fragt dann ruf die jeweiligen ordner auf und lies die readmes dazu um sie zu verwenden.
+Du hast folgende spezialisierte Tools zur Verfügung:
 
-## Skills CLI
+### image_generation
+Generiert Bilder mit Gemini. Verwenden wenn der User sagt: "erstelle ein Bild", "generiere ein Foto", "mache ein Bild von..."
 
-Canvas Notebook hat eine Skills CLI für den Agenten.
+### video_generation
+Generiert Videos mit VEO. Verwenden wenn der User sagt: "erstelle ein Video", "generiere ein Video", "mache ein Video von..."
 
-**Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein.
+### ad_localization
+Lokalisiert Werbeanzeigen. Verwenden wenn der User sagt: "lokalisiere diese Anzeige", "übersetze für Markt...", "passe an für Land..."
 
-### Image Generation
-\`\`\`bash
-image-generation --prompt "..." [--aspect-ratio 1:1] [--count 1] [--ref path/to/ref.png]
-\`\`\`
-Aspect ratios: 16:9, 1:1, 9:16, 4:3, 3:4. Count: 1–4.
-Output: workspace/image-generation/generations/
+### qmd_search
+Durchsucht Markdown-Notizen. Verwenden wenn der User sagt: "suche in meinen Notizen", "finde verwandte Notizen", "durchsuche meine Markdown-Dateien"
 
-### Video Generation (VEO)
-\`\`\`bash
-video-generation --prompt "..." [--mode text_to_video] [--aspect-ratio 16:9] [--resolution 720p]
-\`\`\`
-Modes: text_to_video, frames_to_video (--start-frame), references_to_video (--ref + --prompt), extend_video (--input-video).
-Output: workspace/veo-studio/video-generation/ — Dauer: 3–10 Minuten.
+## Wichtige Hinweise
 
-### Ad Localization (Nano Banana)
-\`\`\`bash
-ad-localization --ref "nano-banana-ad-localizer/assets/ad.png" --market "Germany" --market "France"
-\`\`\`
-Referenzbild MUSS unter nano-banana-ad-localizer/ liegen. Bis zu 12 Märkte pro Aufruf.
-Output: workspace/nano-banana-ad-localizer/localizations/
+- **Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein (außer qmd)
+- **API-Skills** (image_generation, video_generation, ad_localization): Geben JSON zurück mit { "success": true, "data": { ... } }
+- **CLI-Skill** (qmd_search): Gibt direkte Text-/JSON-Ausgabe zurück
+- **Output-Verzeichnisse:** Alle Ergebnisse sind workspace-relativ unter /data/workspace
 
-### Markdown Search (qmd)
-Lokale Suche für Markdown-Notizen im Workspace. Indexiert automatisch alle .md Dateien.
+## Detaillierte Dokumentation
 
-**Wann zu verwenden:**
-- "suche in meinen Notizen / Dokumenten"
-- "finde verwandte Notizen"
-- "durchsuche meine Markdown-Dateien"
-
-**Standard-Verhalten:**
-- Bevorzuge \`qmd search\` (schnelle Keyword-Suche mit BM25)
-- Nutze \`qmd vsearch\` nur wenn semantische Ähnlichkeit nötig ist (langsamer)
-
-\`\`\`bash
-# Schnelle Keyword-Suche (Standard)
-qmd search "mein Suchbegriff"
-
-# Mit mehr Ergebnissen
-qmd search "Suchbegriff" -n 10
-
-# JSON Output für Agenten
-qmd search "Suchbegriff" --json
-
-# Semantische Suche (langsamer, nur wenn nötig)
-qmd vsearch "konzeptionell ähnliche Inhalte"
-
-# Dokument abrufen
-qmd get "pfad/zur/datei.md"
-\`\`\`
-
-Collection: \`workspace\` (indexiert /data/workspace/**/*.md)
-
-### Antwortformat
-\`{ "success": true, "data": { ... } }\` oder \`{ "success": false, "error": "..." }\`
-"path"-Felder sind workspace-relativ und können mit dem read-Tool geöffnet werden.
-
-**Ausnahme:** qmd gibt direkte Text-/JSON-Ausgabe zurück (kein API-Call nötig).
-
-### Skill-Dokumentation
-- /data/skills/README.md
+Für vollständige Dokumentation, Parameter-Details und Beispiele:
 - /data/skills/image-generation/README.md
 - /data/skills/video-generation/README.md
 - /data/skills/ad-localization/README.md
 - /data/skills/qmd/README.md
+
+## Trigger-Phrasen (Wann welchen Skill verwenden)
+
+**image_generation:**
+- "erstelle ein Bild"
+- "generiere ein Foto"
+- "mache ein Bild von..."
+- "create an image"
+- "generate a picture"
+
+**video_generation:**
+- "erstelle ein Video"
+- "generiere ein Video"
+- "mache ein Video von..."
+- "create a video"
+- "generate a video"
+
+**ad_localization:**
+- "lokalisiere diese Anzeige"
+- "übersetze für Markt..."
+- "passe an für Land..."
+- "localize this ad"
+- "translate for market..."
+
+**qmd_search:**
+- "suche in meinen Notizen"
+- "finde verwandte Notizen"
+- "durchsuche meine Markdown-Dateien"
+- "suche nach ... in meinem Workspace"
+- "search my notes"
+- "find related documents"
 `,
   'SOUL.md': `# SOUL
 
