@@ -118,4 +118,47 @@ else
   echo "[entrypoint] Skipping Ollama CLI auto-install (OLLAMA_CLI_AUTO_INSTALL=${ollama_auto_install})"
 fi
 
+# Install Bun and qmd for markdown search skill
+qmd_auto_install="${QMD_AUTO_INSTALL:-true}"
+if [ "$qmd_auto_install" = "true" ]; then
+  # Install Bun if not present
+  if [ ! -d "$HOME/.bun" ]; then
+    echo "[entrypoint] Installing Bun..."
+    if curl -fsSL https://bun.sh/install | bash; then
+      echo "[entrypoint] Bun installed successfully."
+    else
+      echo "[entrypoint] WARNING: Bun installation failed. Continuing startup."
+    fi
+  else
+    echo "[entrypoint] Bun already available."
+  fi
+
+  # Add Bun to PATH for this session
+  export PATH="$HOME/.bun/bin:$PATH"
+
+  # Install qmd if not present
+  if ! command -v qmd >/dev/null 2>&1; then
+    echo "[entrypoint] Installing qmd..."
+    if bun install -g https://github.com/tobi/qmd; then
+      echo "[entrypoint] qmd installed successfully."
+    else
+      echo "[entrypoint] WARNING: qmd installation failed. Continuing startup."
+    fi
+  else
+    echo "[entrypoint] qmd already available: $(qmd --version 2>/dev/null || echo 'unknown version')."
+  fi
+
+  # Initialize workspace collection if qmd is available and collection doesn't exist
+  if command -v qmd >/dev/null 2>&1 && [ ! -f "/data/workspace/.qmd/collections.json" ]; then
+    echo "[entrypoint] Initializing qmd workspace collection..."
+    if qmd collection add /data/workspace --name workspace --mask "**/*.md" 2>/dev/null; then
+      echo "[entrypoint] qmd workspace collection created."
+    else
+      echo "[entrypoint] WARNING: Failed to create qmd workspace collection. Continuing startup."
+    fi
+  fi
+else
+  echo "[entrypoint] Skipping qmd auto-install (QMD_AUTO_INSTALL=${qmd_auto_install})"
+fi
+
 exec "$@"
