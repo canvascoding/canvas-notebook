@@ -1,10 +1,12 @@
+import { promises as fs } from 'node:fs';
+
 import {
   advanceAutomationJobSchedule,
   listDueAutomationJobs,
   listExecutableAutomationRuns,
   scheduleAutomationJobRun,
 } from '@/app/lib/automations/store';
-import { executeAutomationRun } from '@/app/lib/automations/runner';
+import { resolveSkillsTokenPath } from '@/app/lib/runtime-data-paths';
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -27,10 +29,33 @@ async function queueDueScheduledJobs() {
 
 async function executeReadyRuns() {
   const runs = await listExecutableAutomationRuns(new Date());
+  const port = process.env.PORT || '3000';
+  const baseUrl = process.env.BASE_URL?.trim() || `http://127.0.0.1:${port}`;
+  let internalToken = process.env.CANVAS_SKILLS_TOKEN || '';
+
+  if (!internalToken) {
+    try {
+      internalToken = (await fs.readFile(resolveSkillsTokenPath(), 'utf8')).trim();
+    } catch {
+      internalToken = '';
+    }
+  }
 
   for (const run of runs) {
     try {
-      await executeAutomationRun(run.id);
+      const response = await fetch(`${baseUrl}/api/automations/execute`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-canvas-internal-token': internalToken,
+        },
+        body: JSON.stringify({ runId: run.id }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.text();
+        throw new Error(`Internal execution request failed (${response.status}): ${payload}`);
+      }
     } catch (error) {
       console.error(`[Automationen] Failed to execute run ${run.id}:`, error);
     }

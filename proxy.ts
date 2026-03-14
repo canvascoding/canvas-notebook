@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookie } from "better-auth/cookies";
 
 // Public routes that don't require authentication
-const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth'];
+const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/automations/execute'];
 const PUBLIC_EXACT_ROUTES = ['/'];
 
 function setCommonHeaders(response: NextResponse) {

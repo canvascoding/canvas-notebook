@@ -12,14 +12,17 @@ async function login(page: Page) {
   await expect(page).toHaveURL('/');
 }
 
-test.describe('Automationen', () => {
+test.describe('Automationen API auth', () => {
   test.setTimeout(120000);
 
   test('automation APIs require auth', async ({ request }) => {
     const response = await request.get('/api/automations/jobs');
     expect(response.status()).toBe(401);
   });
+});
 
+test.describe('Automationen UI', () => {
+  test.setTimeout(120000);
   test.describe.configure({ mode: 'serial' });
   test.use({ storageState: AUTH_STATE_PATH });
 
@@ -38,6 +41,7 @@ test.describe('Automationen', () => {
     await expect(page.getByText('Automationen', { exact: true })).toBeVisible();
     await page.goto('/automationen');
     await expect(page).toHaveURL('/automationen');
+    await page.getByTestId('automation-new').click();
 
     await page.getByTestId('automation-name').fill(uniqueName);
     await page.getByTestId('automation-prompt').fill('Schreibe eine kurze Zusammenfassung der relevanten Dateien in result.md oder antworte knapp, wenn nichts zu tun ist.');
@@ -46,13 +50,13 @@ test.describe('Automationen', () => {
     await page.getByTestId('automation-interval-every').fill('1');
     await page.getByTestId('automation-save').click();
 
-    await expect(page.getByText('Automation erstellt.')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId('automation-job-list')).toContainText(uniqueName);
+    await expect(page.getByTestId('automation-job-list')).toContainText(uniqueName, { timeout: 15000 });
+    await expect(page.getByTestId('automation-run-now')).toBeEnabled();
 
     await page.getByTestId('automation-run-now').click();
     await expect(page.getByText('Lauf eingeplant.')).toBeVisible({ timeout: 15000 });
 
-    const runItems = page.locator('[data-testid^="automation-run-"]');
+    const runItems = page.getByTestId('automation-run-list').locator('button[data-testid^="automation-run-"]');
     await expect(runItems.first()).toBeVisible({ timeout: 20000 });
 
     await expect
@@ -61,7 +65,7 @@ test.describe('Automationen', () => {
           await page.reload();
           await expect(page).toHaveURL('/automationen');
           await page.getByText(uniqueName).click();
-          const firstRun = page.locator('[data-testid^="automation-run-"]').first();
+          const firstRun = page.getByTestId('automation-run-list').locator('button[data-testid^="automation-run-"]').first();
           return ((await firstRun.textContent()) || '').toLowerCase();
         },
         { timeout: 45000, intervals: [1000, 2000, 5000] },
@@ -70,6 +74,6 @@ test.describe('Automationen', () => {
 
     const logContent = page.getByTestId('automation-log-content');
     await expect(logContent).not.toHaveText('Noch kein Log vorhanden.', { timeout: 45000 });
-    await expect(page.getByText(/automationen\//)).toBeVisible();
+    await expect(page.getByText(/automationen\/.*\/runs\//)).toBeVisible();
   });
 });
