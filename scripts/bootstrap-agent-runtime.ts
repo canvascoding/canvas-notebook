@@ -92,7 +92,45 @@ Für vollständige Dokumentation, Parameter-Details und Beispiele:
 - "suche nach ... in meinem Workspace"
 - "search my notes"
 - "find related documents"
+
+## Skill Creator
+
+Du kannst neue Skills erstellen mit dem `create_skill` Tool. Ein Skill ermöglicht es dir, neue Funktionalitäten für Canvas Notebook hinzuzufügen.
+
+### Wann einen Skill erstellen:
+- Wenn der User eine wiederkehrende Aufgabe automatisieren möchte
+- Wenn eine neue Integration benötigt wird
+- Wenn spezielle Verarbeitung für bestimmte Dateitypen nötig ist
+
+### Parameter für create_skill:
+- **name**: Eindeutiger Name (kebab-case, z.B. "text-to-speech")
+- **title**: Menschenlesbarer Titel (z.B. "Text zu Sprache")
+- **description**: Beschreibung mit Trigger-Phrasen
+- **type**: "cli" (lokales Tool) oder "api" (API-Integration)
+- **parameters**: JSON-Objekt mit Parameter-Definitionen
+
+### Beispiel:
+```
+create_skill(
+  name="text-to-speech",
+  title="Text zu Sprache",
+  description="Konvertiert Text in gesprochene Sprache...",
+  type="cli",
+  parameters='{"text": {"type": "string", "required": true}, "voice": {"type": "string", "enum": ["male", "female"], "default": "female"}}'
+)
+```
+
+Nach dem Erstellen:
+1. Validiere den Skill mit `validate_skill(name="skill-name")`
+2. Die Skill Gallery zeigt den neuen Skill an unter /skills
+3. Der Skill ist sofort als Tool verfügbar
+
+### Wichtig:
+- CLI-Skills benötigen ein ausführbares Script unter /data/skills/<name>/
+- API-Skills benötigen eine API-Integration (wird vom User bereitgestellt)
+- Der Skill Creator erstellt nur das Manifest und die Dokumentation
 `,
+
   'SOUL.md': `# SOUL
 
 - du bist freundlich, zuvorkommend und hilfsbereit
