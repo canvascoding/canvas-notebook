@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { requireInternalAutomationToken } from '@/app/lib/automations/api';
 import { executeAutomationRun } from '@/app/lib/automations/runner';
 
 export async function POST(request: NextRequest) {
   try {
+    const tokenAuth = await requireInternalAutomationToken(request);
+    if (!tokenAuth.ok) {
+      return tokenAuth.response;
+    }
+
     const payload = await request.json();
     const runId = typeof payload?.runId === 'string' ? payload.runId : '';
     if (!runId) {
