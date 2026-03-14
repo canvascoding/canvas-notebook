@@ -1,3 +1,58 @@
+---
+name: video_generation
+title: Videos mit VEO generieren
+description: |
+  Generiert Videos mit Google VEO.
+  
+  Verwenden wenn der User sagt:
+  - "erstelle ein Video"
+  - "generiere ein Video"
+  - "mache ein Video von..."
+  - "create a video"
+  - "generate a video"
+  
+  Output: workspace/veo-studio/video-generation/
+  Voraussetzung: GEMINI_API_KEY in /settings
+  Hinweis: Dauert typischerweise 3-10 Minuten
+version: "1.0.0"
+type: api
+tool:
+  name: video_generation
+  description: "Generiert Videos mit Google VEO"
+  parameters:
+    prompt:
+      type: string
+      required: true
+      description: "Beschreibung des zu generierenden Videos"
+    mode:
+      type: string
+      enum: ["text_to_video", "frames_to_video", "references_to_video", "extend_video"]
+      default: "text_to_video"
+      description: "Generierungsmodus"
+    aspect_ratio:
+      type: string
+      enum: ["16:9", "9:16"]
+      default: "16:9"
+      description: "Seitenverhältnis des Videos"
+    resolution:
+      type: string
+      enum: ["720p", "1080p", "4k"]
+      default: "720p"
+      description: "Videoauflösung"
+    start_frame:
+      type: string
+      required: false
+      description: "Pfad zum Startbild (für frames_to_video Modus)"
+    end_frame:
+      type: string
+      required: false
+      description: "Pfad zum Endbild (für frames_to_video Modus)"
+    input_video:
+      type: string
+      required: false
+      description: "Pfad zum Eingangsvideo (für extend_video Modus)"
+---
+
 # Video Generation Skill (VEO)
 
 Generiert Videos mit Google VEO. Kann mehrere Minuten dauern.
