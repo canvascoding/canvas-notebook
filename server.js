@@ -13,6 +13,7 @@ const path = require('path');
 const next = require('next');
 const { attachTerminalServer } = require('./server/terminal-server');
 const { terminateAllSessions } = require('./server/terminal-manager');
+const { startAutomationScheduler } = require('./server/automation-scheduler');
 const { auth } = require('./app/lib/auth');
 const {
   resolveAgentStorageDir,
@@ -292,6 +293,7 @@ function serveMedia(req, res) {
 ensureRuntimeDirectories();
 ensureSkillsToken();
 ensureSkillsDirectory();
+startAutomationScheduler();
 
 app
   .prepare()

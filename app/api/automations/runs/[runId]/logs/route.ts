@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
 import { getAutomationRun } from '@/app/lib/automations/store';
+import { readFile } from '@/app/lib/filesystem/workspace-files';
 
 type RouteContext = {
   params: Promise<{ runId: string }>;
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     success: true,
     data: {
       logPath: run.logPath,
-      content: '',
+      content: run.logPath ? (await readFile(run.logPath)).toString('utf8') : '',
     },
   });
 }

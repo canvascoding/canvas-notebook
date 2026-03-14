@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, lte, notInArray, or } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { automationJobs, automationRuns } from '@/app/lib/db/schema';
@@ -272,4 +272,196 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
     .where(and(eq(automationJobs.id, jobId), eq(automationJobs.status, job.status)));
 
   return mapRunRow(inserted);
+}
+
+export async function listDueAutomationJobs(now = new Date()): Promise<AutomationJobRecord[]> {
+  const rows = await db
+    .select()
+    .from(automationJobs)
+    .where(
+      and(
+        eq(automationJobs.status, 'active'),
+        lte(automationJobs.nextRunAt, now),
+      ),
+    )
+    .orderBy(asc(automationJobs.nextRunAt));
+
+  return rows.map(mapJobRow);
+}
+
+export async function listExecutableAutomationRuns(now = new Date()): Promise<AutomationRunRecord[]> {
+  const rows = await db
+    .select()
+    .from(automationRuns)
+    .where(
+      and(
+        or(eq(automationRuns.status, 'pending'), eq(automationRuns.status, 'retry_scheduled')),
+        lte(automationRuns.scheduledFor, now),
+      ),
+    )
+    .orderBy(asc(automationRuns.createdAt));
+
+  return rows.map(mapRunRow);
+}
+
+export async function hasInFlightAutomationRun(jobId: string): Promise<boolean> {
+  const row = await db.query.automationRuns.findFirst({
+    where: and(
+      eq(automationRuns.jobId, jobId),
+      notInArray(automationRuns.status, ['success', 'failed']),
+    ),
+  });
+
+  return Boolean(row);
+}
+
+export async function scheduleAutomationJobRun(jobId: string, triggerType: AutomationRunRecord['triggerType'], scheduledFor: Date): Promise<AutomationRunRecord> {
+  const inFlight = await hasInFlightAutomationRun(jobId);
+  if (inFlight) {
+    throw new Error('Automation already has an in-flight run.');
+  }
+
+  const now = new Date();
+  const [inserted] = await db
+    .insert(automationRuns)
+    .values({
+      id: `run-${randomUUID()}`,
+      jobId,
+      status: 'pending',
+      triggerType,
+      scheduledFor,
+      startedAt: null,
+      finishedAt: null,
+      attemptNumber: 1,
+      outputDir: null,
+      logPath: null,
+      resultPath: null,
+      errorMessage: null,
+      piSessionId: null,
+      createdAt: now,
+    })
+    .returning();
+
+  await db
+    .update(automationJobs)
+    .set({
+      lastRunStatus: 'pending',
+      updatedAt: now,
+    })
+    .where(eq(automationJobs.id, jobId));
+
+  return mapRunRow(inserted);
+}
+
+export async function advanceAutomationJobSchedule(jobId: string, anchor = new Date()): Promise<void> {
+  const job = await getAutomationJob(jobId);
+  if (!job) {
+    return;
+  }
+
+  const nextRunAt = job.status === 'paused'
+    ? null
+    : computeNextRunAt(job.schedule, { from: anchor, lastRunAt: job.lastRunAt ? new Date(job.lastRunAt) : null });
+
+  await db
+    .update(automationJobs)
+    .set({
+      nextRunAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(automationJobs.id, jobId));
+}
+
+export async function markAutomationRunStarted(
+  runId: string,
+  values: { outputDir: string; logPath: string; resultPath: string; piSessionId: string },
+): Promise<AutomationRunRecord | null> {
+  const [updated] = await db
+    .update(automationRuns)
+    .set({
+      status: 'running',
+      startedAt: new Date(),
+      finishedAt: null,
+      outputDir: values.outputDir,
+      logPath: values.logPath,
+      resultPath: values.resultPath,
+      errorMessage: null,
+      piSessionId: values.piSessionId,
+    })
+    .where(eq(automationRuns.id, runId))
+    .returning();
+
+  return updated ? mapRunRow(updated) : null;
+}
+
+export async function markAutomationRunRetryScheduled(
+  runId: string,
+  nextAttemptAt: Date,
+  errorMessage: string,
+): Promise<AutomationRunRecord | null> {
+  const current = await db.query.automationRuns.findFirst({
+    where: eq(automationRuns.id, runId),
+  });
+  if (!current) {
+    return null;
+  }
+
+  const [updated] = await db
+    .update(automationRuns)
+    .set({
+      status: 'retry_scheduled',
+      scheduledFor: nextAttemptAt,
+      errorMessage,
+      finishedAt: new Date(),
+      attemptNumber: current.attemptNumber + 1,
+    })
+    .where(eq(automationRuns.id, runId))
+    .returning();
+
+  await db
+    .update(automationJobs)
+    .set({
+      lastRunStatus: 'retry_scheduled',
+      updatedAt: new Date(),
+    })
+    .where(eq(automationJobs.id, current.jobId));
+
+  return updated ? mapRunRow(updated) : null;
+}
+
+export async function markAutomationRunFinished(
+  runId: string,
+  values: {
+    status: 'success' | 'failed';
+    errorMessage?: string | null;
+  },
+): Promise<AutomationRunRecord | null> {
+  const current = await db.query.automationRuns.findFirst({
+    where: eq(automationRuns.id, runId),
+  });
+  if (!current) {
+    return null;
+  }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(automationRuns)
+    .set({
+      status: values.status,
+      errorMessage: values.errorMessage ?? null,
+      finishedAt: now,
+    })
+    .where(eq(automationRuns.id, runId))
+    .returning();
+
+  await db
+    .update(automationJobs)
+    .set({
+      lastRunAt: now,
+      lastRunStatus: values.status,
+      updatedAt: now,
+    })
+    .where(eq(automationJobs.id, current.jobId));
+
+  return updated ? mapRunRow(updated) : null;
 }
