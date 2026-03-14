@@ -750,6 +750,18 @@
       "dependsOn": [
         "pi-067"
       ]
+    },
+    {
+      "id": "pi-069",
+      "order": 69,
+      "phase": "P12 Enhancement",
+      "title": "Fix provider-specific OAuth flow with automatic/manual completion",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "pi-009"
+      ],
+      "description": "Fixed OAuth flow to handle different provider behaviors: Anthropic requires manual code entry, while OpenAI/Copilot/Google have their own callback servers. Added new /api/oauth/pi/complete endpoint for automatic flows."
     }
   ]
 }

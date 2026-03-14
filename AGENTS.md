@@ -16,10 +16,11 @@
 
 - Diese Regeln gelten für alle Arbeiten an der neuen Agent-Logik.
 - UI- und End-to-End-Prüfungen mit Playwright oder Chrome DevTools durchführen.
-- Für manuelle Tests immer einen Container auf Port `3000` verwenden.
+- immer ein npm run build testen bevor ein container gebaut wird.
 - Sicherstellen, dass nie mehrere Test-Container parallel laufen.
 - Test-Container bei neuem Testlauf immer mit aktuellem Stand neu laden (recreate/rebuild), statt alte Container weiterzuverwenden.
 - commmit sauber die einzelnen fertigen to dos, aber nicht pushen. 
+- container auf port 3000 nur bauen wenn es explizit gefordert wird 
 - login für die app ist email: admin.com und psw: change-me
 - mach mit keinem to do weiter wenn der vorherige to do noch nicht fertig ist
 - update immer /Users/frankalexanderweber/.openclaw/workspace-mango-jerry/canvasstudios-notebook/docs/pi-first-implementation-todo.json damit wir up to date bleiben

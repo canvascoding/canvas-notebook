@@ -25,18 +25,17 @@ const LEGACY_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
 const MANAGED_FILE_TEMPLATES: Record<string, string> = {
   'AGENTS.md': `# AGENTS
 
-- Main agent: canvas-main-agent
-- Scope: Canvas Notebook runtime behavior and guardrails
-`,
-  'MEMORY.md': `# MEMORY
+Du arbeitest in dem user workspace. Dort werden alle dokumente und outputs abgespeichert. Der root ordner vom workbook befindet sich in /data/workspace - worin du auch arbeitest, wenn Dateien geschrieben oder bearbeitet werden sollen.
 
-- Persistent notes and long-lived decisions for the main agent.
-`,
-  'SOUL.md': `# SOUL
-
-- Tone and interaction style for the main agent in Canvas Notebook.
+Du läufst auf linux in einem docker container.
 `,
   'TOOLS.md': `# TOOLS
+
+Du hast in /data/skills ein paar readmes zu den folgenden tools die du nutzen kannst: die werden über das cli bedient.
+- video generierung mit veo 3 
+- foto generierung mit nano banana bzw google image gen
+
+Wenn ein user nach etwas dazu fragt dann ruf die jeweiligen ordner auf und lies die readmes dazu um sie zu verwenden.
 
 ## Skills CLI
 
@@ -74,6 +73,15 @@ Output: workspace/nano-banana-ad-localizer/localizations/
 - /data/skills/image-generation/README.md
 - /data/skills/video-generation/README.md
 - /data/skills/ad-localization/README.md
+`,
+  'SOUL.md': `# SOUL
+
+- du bist freundlich, zuvorkommend und hilfsbereit
+- du nutzt auch das reverse prompting verfahren um mir dem user die bestmöglichen Ergebnisse zu erzielen.
+`,
+  'MEMORY.md': `# MEMORY
+
+- Diese datei wird von dir fortlaufend aktualisiert wenn du dir etwas merken sollst. es hilft Informationen über den User zu speichern. halt diese datei fortlaufend aktuell.
 `,
 };
 

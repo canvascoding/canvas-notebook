@@ -10,6 +10,21 @@ mkdir -p /data/skills
 mkdir -p /data/workspace
 echo "[entrypoint] Data directories ready."
 
+# Copy skills from repo to /data/skills if the directory is empty
+# This ensures skills are available even when /data is a fresh volume
+echo "[entrypoint] Checking skills directory..."
+if [ -d "/app/skills" ]; then
+  if [ -z "$(ls -A /data/skills 2>/dev/null)" ]; then
+    echo "[entrypoint] Copying skills from /app/skills to /data/skills..."
+    cp -r /app/skills/* /data/skills/
+    echo "[entrypoint] Skills copied successfully."
+  else
+    echo "[entrypoint] Skills directory already populated, skipping copy."
+  fi
+else
+  echo "[entrypoint] WARNING: /app/skills not found, cannot copy skills."
+fi
+
 # Runtime bootstrap must happen in the container because /home/node is volume-mounted
 # and not available during image build.
 echo "[entrypoint] Bootstrapping agent runtime in /home/node/canvas-agent..."
