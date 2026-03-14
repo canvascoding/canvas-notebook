@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
       providerName = piConfig.activeProvider;
     }
 
-    const tools = getPiTools();
+    const tools = await getPiTools();
     const activeProviderName = providerName || piConfig.activeProvider;
     const logSessionId = sessionId ?? 'no-session';
     
