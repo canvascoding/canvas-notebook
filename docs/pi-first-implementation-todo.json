@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-14T13:05:00+01:00",
+  "lastUpdatedAt": "2026-03-14T13:35:00+01:00",
   "status": "in_progress",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -790,7 +790,7 @@
       "order": 72,
       "phase": "P13 Automationen",
       "title": "Build Automationen app UI and add suite entry",
-      "status": "in_progress",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "automation-002"
@@ -801,7 +801,7 @@
       "order": 73,
       "phase": "P13 Automationen",
       "title": "Add automation unit, integration, and API auth coverage",
-      "status": "pending",
+      "status": "in_progress",
       "priority": "must",
       "dependsOn": [
         "automation-003"
