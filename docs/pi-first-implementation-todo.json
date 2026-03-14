@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-14T12:25:00+01:00",
+  "lastUpdatedAt": "2026-03-14T13:05:00+01:00",
   "status": "in_progress",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -779,7 +779,7 @@
       "order": 71,
       "phase": "P13 Automationen",
       "title": "Implement automation persistence, scheduler startup hook, and PI runner with workspace artifacts",
-      "status": "in_progress",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "automation-001"
@@ -790,7 +790,7 @@
       "order": 72,
       "phase": "P13 Automationen",
       "title": "Build Automationen app UI and add suite entry",
-      "status": "pending",
+      "status": "in_progress",
       "priority": "must",
       "dependsOn": [
         "automation-002"

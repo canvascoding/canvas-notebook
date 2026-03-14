@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
-import { createPendingAutomationRun, getAutomationJob } from '@/app/lib/automations/store';
+import { getAutomationJob, scheduleAutomationJobRun } from '@/app/lib/automations/store';
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
@@ -25,12 +25,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
 
-    const run = await createPendingAutomationRun(jobId, 'manual');
+    const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
     return NextResponse.json({ success: true, data: run }, { status: 202 });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to queue automation run.' },
-      { status: 400 },
+      { status: 409 },
     );
   }
 }
