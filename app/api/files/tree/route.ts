@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildFileTree } from '@/app/lib/filesystem/workspace-files';
 import { fileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { auth } from '@/app/lib/auth';
 
 export async function GET(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const limited = rateLimit(request, {
       limit: 60,

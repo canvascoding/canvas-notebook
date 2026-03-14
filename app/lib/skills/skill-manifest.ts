@@ -5,7 +5,7 @@
  * Each skill is defined by a manifest.json file in /data/skills/<skill-name>/
  */
 
-import { Type, Static } from '@sinclair/typebox';
+import { Type, Static, TSchema } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
 // Parameter schema for tool parameters
@@ -230,11 +230,11 @@ export function createDefaultManifest(
 /**
  * Convert manifest parameters to TypeBox schema
  */
-export function manifestParamsToTypeBox(parameters: Record<string, ParameterDefinition>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+export function manifestParamsToTypeBox(parameters: Record<string, ParameterDefinition>): Record<string, TSchema> {
+  const result: Record<string, TSchema> = {};
   
   for (const [key, param] of Object.entries(parameters)) {
-    let typeboxType: unknown;
+    let typeboxType: TSchema;
     
     switch (param.type) {
       case 'string':
@@ -263,7 +263,8 @@ export function manifestParamsToTypeBox(parameters: Record<string, ParameterDefi
         typeboxType = Type.Boolean();
         break;
       case 'array':
-        typeboxType = Type.Array(param.items ? manifestParamsToTypeBox({ item: param.items }).item : Type.Any());
+        // For array items, we use Type.Any() as a safe default since items can be any schema
+        typeboxType = Type.Array(Type.Any());
         break;
       case 'object':
         typeboxType = Type.Record(Type.String(), Type.Any());
@@ -272,9 +273,9 @@ export function manifestParamsToTypeBox(parameters: Record<string, ParameterDefi
         typeboxType = Type.Any();
     }
     
-    // Add description
+    // Add description using Type.Unsafe
     if (param.description) {
-      typeboxType = Type.Unsafe({ ...typeboxType, description: param.description });
+      typeboxType = Type.Unsafe({ ...typeboxType as object, description: param.description });
     }
     
     // Make optional if not required

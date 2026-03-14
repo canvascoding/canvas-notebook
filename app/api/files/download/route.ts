@@ -4,11 +4,25 @@ import { createReadStream, getFileStats, validatePath } from '@/app/lib/filesyst
 import { Readable } from 'stream';
 import { auth } from '@/app/lib/auth';
 import archiver from 'archiver';
+import { rateLimit } from '@/app/lib/utils/rate-limit';
+
+// Download limits
+const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024; // 1GB max for ZIP downloads
+const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB max for single file
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const limited = rateLimit(request, {
+    limit: 30,
+    windowMs: 60_000,
+    keyPrefix: 'files-download',
+  });
+  if (!limited.ok) {
+    return limited.response;
   }
 
   const { searchParams } = new URL(request.url);
@@ -23,6 +37,14 @@ export async function GET(request: NextRequest) {
     const filename = path.posix.basename(filePath);
 
     if (stats.isDirectory) {
+      // Check directory size limit for ZIP downloads
+      if (stats.size > MAX_ZIP_DOWNLOAD_SIZE) {
+        return NextResponse.json(
+          { success: false, error: 'Directory is too large to download as ZIP (max 1GB)' },
+          { status: 413 }
+        );
+      }
+
       // ZIP Streaming for directories
       const archive = archiver('zip', {
         zlib: { level: 1 }, // Fastest compression for better UX
@@ -51,6 +73,14 @@ export async function GET(request: NextRequest) {
         },
       });
     } else {
+      // Check single file size limit
+      if (stats.size > MAX_SINGLE_FILE_SIZE) {
+        return NextResponse.json(
+          { success: false, error: 'File is too large to download (max 2GB)' },
+          { status: 413 }
+        );
+      }
+
       // Handle single file download
       const { stream } = await createReadStream(filePath);
       const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;

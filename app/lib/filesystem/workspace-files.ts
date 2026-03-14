@@ -94,13 +94,38 @@ export async function getFileStats(filePath: string) {
   const fullPath = validatePath(filePath);
   const stats = await fs.stat(fullPath);
 
+  // Calculate total size for directories
+  let totalSize = stats.size;
+  if (stats.isDirectory()) {
+    totalSize = await calculateDirectorySize(fullPath);
+  }
+
   return {
-    size: stats.size,
+    size: totalSize,
     modified: Math.floor(stats.mtimeMs / 1000),
     isDirectory: stats.isDirectory(),
     isFile: stats.isFile(),
     permissions: stats.mode?.toString(8),
   };
+}
+
+async function calculateDirectorySize(dirPath: string): Promise<number> {
+  let totalSize = 0;
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        totalSize += await calculateDirectorySize(entryPath);
+      } else {
+        const stats = await fs.stat(entryPath);
+        totalSize += stats.size;
+      }
+    }
+  } catch {
+    // Ignore directories we can't read
+  }
+  return totalSize;
 }
 
 export async function buildFileTree(
