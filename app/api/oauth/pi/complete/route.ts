@@ -6,7 +6,6 @@ import {
   saveProviderCredentials,
 } from '@/app/lib/pi/oauth';
 import { readFile, unlink } from 'fs/promises';
-import { constants } from 'fs';
 import { join } from 'path';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 

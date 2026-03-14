@@ -164,8 +164,6 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   
   return `
 import fs from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { ${loginFn} } from '@mariozechner/pi-ai/oauth';
 
 // Helper to update state
@@ -174,8 +172,8 @@ function updateState(updates) {
     const state = JSON.parse(fs.readFileSync('${stateFile}', 'utf-8'));
     Object.assign(state, updates);
     fs.writeFileSync('${stateFile}', JSON.stringify(state, null, 2));
-  } catch (e) {
-    console.error('Failed to update state:', e.message);
+  } catch (err) {
+    console.error('Failed to update state:', err.message);
   }
 }
 
@@ -192,7 +190,7 @@ function extractCode(input) {
         console.log('CODE_EXTRACTED_FROM_URL');
         return code;
       }
-    } catch (e) {
+    } catch (err) {
       // Not a valid URL, return as-is
     }
   }
@@ -206,8 +204,6 @@ async function run() {
     // Update state to waiting for auth
     updateState({ status: 'waiting_for_auth', startedAt: Date.now() });
 
-    let authUrlReceived = false;
-
     // Common callback functions
     const handleAuthUrl = (url, instructions) => {
       console.log('AUTH_URL:', url);
@@ -219,7 +215,6 @@ async function run() {
         instructions: instructions || '',
         updatedAt: Date.now()
       });
-      authUrlReceived = true;
     };
 
     const handlePromptCode = async () => {
@@ -242,7 +237,7 @@ async function run() {
             console.log('CODE_RECEIVED');
             return code;
           }
-        } catch (e) {
+        } catch {
           // File doesn't exist yet
         }
         await new Promise(r => setTimeout(r, 1000));
