@@ -12,7 +12,7 @@
  */
 
 import { execSync } from 'child_process';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -46,7 +46,7 @@ function exec(command, options = {}) {
       cwd: rootDir,
       ...options 
     });
-  } catch (error) {
+  } catch {
     if (!options.ignoreError) {
       throw error;
     }
@@ -81,7 +81,7 @@ async function main() {
   try {
     execSync('docker --version', { stdio: 'pipe' });
     log('✓ Docker ist verfügbar', 'green');
-  } catch (error) {
+  } catch {
     log('✗ Docker ist nicht verfügbar. Bitte installiere Docker.', 'red');
     process.exit(1);
   }
@@ -108,7 +108,7 @@ async function main() {
     // Lösche auch den benannten Container falls vorhanden
     exec(`docker stop ${CONTAINER_NAME}`, { ignoreError: true });
     exec(`docker rm ${CONTAINER_NAME}`, { ignoreError: true });
-  } catch (error) {
+  } catch {
     log('Kein alter Container zum Löschen gefunden', 'cyan');
   }
   console.log();
@@ -127,7 +127,7 @@ async function main() {
   try {
     exec(`docker build --no-cache -t ${IMAGE_NAME} .`);
     log('✓ Container erfolgreich gebaut', 'green');
-  } catch (error) {
+  } catch {
     log('✗ Fehler beim Bauen des Containers', 'red');
     process.exit(1);
   }
@@ -171,7 +171,7 @@ async function main() {
   try {
     exec(runCommand.replace(/\\\n\s*/g, ' '));
     log('✓ Container gestartet', 'green');
-  } catch (error) {
+  } catch {
     log('✗ Fehler beim Starten des Containers', 'red');
     process.exit(1);
   }
@@ -197,7 +197,7 @@ async function main() {
     
     log('Letzte Logs:', 'blue');
     console.log(logs);
-  } catch (error) {
+  } catch {
     log('Konnte Container-Status nicht abrufen', 'yellow');
   }
   console.log();
