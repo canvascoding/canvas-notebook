@@ -2,8 +2,8 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-10T18:15:31+01:00",
-  "status": "completed",
+  "lastUpdatedAt": "2026-03-14T12:25:00+01:00",
+  "status": "in_progress",
   "decisions": {
     "engineStrategy": "pi-first",
     "primaryLibraries": [
@@ -762,6 +762,61 @@
         "pi-009"
       ],
       "description": "Fixed OAuth flow to handle different provider behaviors: Anthropic requires manual code entry, while OpenAI/Copilot/Google have their own callback servers. Added new /api/oauth/pi/complete endpoint for automatic flows."
+    },
+    {
+      "id": "automation-001",
+      "order": 70,
+      "phase": "P13 Automationen",
+      "title": "Define automation storage, scheduling, and protected API contracts",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-069"
+      ]
+    },
+    {
+      "id": "automation-002",
+      "order": 71,
+      "phase": "P13 Automationen",
+      "title": "Implement automation persistence, scheduler startup hook, and PI runner with workspace artifacts",
+      "status": "in_progress",
+      "priority": "must",
+      "dependsOn": [
+        "automation-001"
+      ]
+    },
+    {
+      "id": "automation-003",
+      "order": 72,
+      "phase": "P13 Automationen",
+      "title": "Build Automationen app UI and add suite entry",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "automation-002"
+      ]
+    },
+    {
+      "id": "automation-004",
+      "order": 73,
+      "phase": "P13 Automationen",
+      "title": "Add automation unit, integration, and API auth coverage",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "automation-003"
+      ]
+    },
+    {
+      "id": "automation-005",
+      "order": 74,
+      "phase": "P13 Automationen",
+      "title": "Verify Automationen UI flow with Playwright and finalize builds and commits",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "automation-004"
+      ]
     }
   ]
 }

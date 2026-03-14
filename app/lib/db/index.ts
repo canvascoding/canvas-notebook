@@ -107,8 +107,49 @@ CREATE TABLE IF NOT EXISTS pi_messages (
   FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 
+CREATE TABLE IF NOT EXISTS automation_jobs (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  preferred_skill TEXT NOT NULL,
+  workspace_context_paths_json TEXT NOT NULL,
+  schedule_kind TEXT NOT NULL,
+  schedule_config_json TEXT NOT NULL,
+  time_zone TEXT NOT NULL,
+  next_run_at INTEGER,
+  last_run_at INTEGER,
+  last_run_status TEXT,
+  created_by_user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id TEXT PRIMARY KEY NOT NULL,
+  job_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  trigger_type TEXT NOT NULL,
+  scheduled_for INTEGER,
+  started_at INTEGER,
+  finished_at INTEGER,
+  attempt_number INTEGER NOT NULL,
+  output_dir TEXT,
+  log_path TEXT,
+  result_path TEXT,
+  error_message TEXT,
+  pi_session_id TEXT,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS user_email_unique ON user (email);
 CREATE UNIQUE INDEX IF NOT EXISTS session_token_unique ON session (token);
+CREATE INDEX IF NOT EXISTS idx_automation_jobs_next_run_at ON automation_jobs (next_run_at);
+CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
 `);
 
 // Idempotent column additions for existing volumes
