@@ -87,3 +87,38 @@ export const piMessages = sqliteTable("pi_messages", {
   content: text("content").notNull(), // Full JSON of Message object
   timestamp: integer("timestamp").notNull(),
 });
+
+export const automationJobs = sqliteTable("automation_jobs", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  status: text("status").notNull(),
+  prompt: text("prompt").notNull(),
+  preferredSkill: text("preferred_skill").notNull(),
+  workspaceContextPathsJson: text("workspace_context_paths_json").notNull(),
+  scheduleKind: text("schedule_kind").notNull(),
+  scheduleConfigJson: text("schedule_config_json").notNull(),
+  timeZone: text("time_zone").notNull(),
+  nextRunAt: integer("next_run_at", { mode: "timestamp" }),
+  lastRunAt: integer("last_run_at", { mode: "timestamp" }),
+  lastRunStatus: text("last_run_status"),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const automationRuns = sqliteTable("automation_runs", {
+  id: text("id").primaryKey(),
+  jobId: text("job_id").notNull().references(() => automationJobs.id),
+  status: text("status").notNull(),
+  triggerType: text("trigger_type").notNull(),
+  scheduledFor: integer("scheduled_for", { mode: "timestamp" }),
+  startedAt: integer("started_at", { mode: "timestamp" }),
+  finishedAt: integer("finished_at", { mode: "timestamp" }),
+  attemptNumber: integer("attempt_number").notNull(),
+  outputDir: text("output_dir"),
+  logPath: text("log_path"),
+  resultPath: text("result_path"),
+  errorMessage: text("error_message"),
+  piSessionId: text("pi_session_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
