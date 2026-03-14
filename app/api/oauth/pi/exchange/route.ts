@@ -109,9 +109,10 @@ export async function POST(request: NextRequest) {
     const maxWait = 30000; // 30 seconds
     const startTime = Date.now();
     
+    // Check immediately first (in case process was already waiting)
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     while (Date.now() - startTime < maxWait) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
       try {
         const currentStateContent = await readFile(stateFile, 'utf-8');
         const currentState = JSON.parse(currentStateContent);
@@ -142,6 +143,8 @@ export async function POST(request: NextRequest) {
       } catch {
         // Continue waiting
       }
+      
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     return NextResponse.json({

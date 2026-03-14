@@ -286,6 +286,9 @@ async function run() {
       hasCredentials: true 
     });
     
+    // Wait for filesystem sync before exiting
+    await new Promise(r => setTimeout(r, 500));
+    
     console.log('SUCCESS: OAuth completed');
     process.exit(0);
   } catch (error) {
