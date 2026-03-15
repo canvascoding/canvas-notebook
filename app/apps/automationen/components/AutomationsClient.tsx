@@ -4,11 +4,13 @@ import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { Clock3, Loader2, Play, Plus, RefreshCw, Save, Trash2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import type { AutomationJobRecord, AutomationRunRecord, AutomationPreferredSkill, AutomationWeekday } from '@/app/lib/automations/types';
 import { describeFriendlySchedule } from '@/app/lib/automations/schedule';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automationen/components/WorkspaceDirectoryPickerDialog';
 
 type ScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
 
@@ -18,6 +20,7 @@ type JobDraft = {
   prompt: string;
   preferredSkill: AutomationPreferredSkill;
   workspaceContextText: string;
+  targetOutputPath: string;
   status: 'active' | 'paused';
   scheduleKind: ScheduleKind;
   timeZone: string;
@@ -58,6 +61,7 @@ function defaultDraft(): JobDraft {
     prompt: '',
     preferredSkill: 'auto',
     workspaceContextText: '',
+    targetOutputPath: '',
     status: 'active',
     scheduleKind: 'daily',
     timeZone,
@@ -102,6 +106,7 @@ function buildPayload(draft: JobDraft) {
     prompt: draft.prompt,
     preferredSkill: draft.preferredSkill,
     workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
+    targetOutputPath: draft.targetOutputPath.trim() || null,
     status: draft.status,
     schedule,
   };
@@ -126,6 +131,7 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.prompt = job.prompt;
   draft.preferredSkill = job.preferredSkill;
   draft.workspaceContextText = job.workspaceContextPaths.join('\n');
+  draft.targetOutputPath = job.targetOutputPath || '';
   draft.status = job.status;
   draft.scheduleKind = job.schedule.kind;
   draft.timeZone = job.timeZone;
@@ -158,10 +164,26 @@ export function AutomationsClient() {
   const [isRunningNow, setIsRunningNow] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshingRuns, setIsRefreshingRuns] = useState(false);
+  const [isDirectoryPickerOpen, setIsDirectoryPickerOpen] = useState(false);
+
+  const selectedJob = useMemo(
+    () => jobs.find((job) => job.id === selectedJobId) || null,
+    [jobs, selectedJobId],
+  );
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
     [runs, selectedRunId],
+  );
+
+  const draftDefaultTargetOutputPath = useMemo(
+    () => getDefaultAutomationTargetOutputPath(draft.name || 'automation'),
+    [draft.name],
+  );
+
+  const draftEffectiveTargetOutputPath = useMemo(
+    () => getEffectiveAutomationTargetOutputPath({ name: draft.name || 'automation', targetOutputPath: draft.targetOutputPath }),
+    [draft.name, draft.targetOutputPath],
   );
 
   async function loadJobs(options?: { keepSelection?: boolean }) {
@@ -364,8 +386,8 @@ export function AutomationsClient() {
             Automationen
           </CardTitle>
           <CardDescription>
-            Plane wiederkehrende Agent-Aufträge für denselben Workspace. Ergebnisse und Logs landen automatisch im Ordner
-            <span className="ml-1 font-mono">automationen/</span>.
+            Plane wiederkehrende Agent-Aufträge für denselben Workspace. Run-Artefakte landen unter
+            <span className="ml-1 font-mono">automationen/</span>, fachliche Ergebnisse optional in einem eigenen Zielordner.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -529,6 +551,40 @@ export function AutomationsClient() {
                 placeholder={'notizen/weekly.md\nbriefings/launch/'}
               />
             </label>
+
+            <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Wo sollen die Ergebnisse gespeichert werden?</p>
+                  <p className="text-xs text-muted-foreground">
+                    Optional. Leer gelassen nutzt die Automation automatisch einen Zielordner pro Job.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsDirectoryPickerOpen(true)}
+                  data-testid="automation-target-output-picker"
+                >
+                  Im Workspace wählen
+                </Button>
+              </div>
+
+              <input
+                data-testid="automation-target-output-path"
+                className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
+                value={draft.targetOutputPath}
+                onChange={(event) => setDraft((current) => ({ ...current, targetOutputPath: event.target.value }))}
+                placeholder={draftDefaultTargetOutputPath}
+              />
+              <p className="text-xs text-muted-foreground">
+                Vorschlag: <span className="font-mono">{draftDefaultTargetOutputPath}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Effektiver Zielordner: <span className="font-mono">{draftEffectiveTargetOutputPath}</span>
+              </p>
+            </div>
 
             <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
               <div className="flex items-center gap-2">
@@ -741,6 +797,22 @@ export function AutomationsClient() {
 
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
               <p className="font-medium">Ergebnisordner</p>
+              <p className="break-all font-mono text-xs text-muted-foreground">
+                {selectedRun?.effectiveTargetOutputPath || selectedJob?.effectiveTargetOutputPath || 'Noch keiner vorhanden.'}
+              </p>
+              {selectedRun?.targetOutputPath ? (
+                <p className="text-xs text-muted-foreground">
+                  Konfiguriert: <span className="font-mono">{selectedRun.targetOutputPath}</span>
+                </p>
+              ) : selectedJob ? (
+                <p className="text-xs text-muted-foreground">
+                  Standard: <span className="font-mono">{selectedJob.effectiveTargetOutputPath}</span>
+                </p>
+              ) : null}
+            </div>
+
+            <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
+              <p className="font-medium">Run-Artefakte</p>
               <p className="break-all font-mono text-xs text-muted-foreground">{selectedRun?.outputDir || 'Noch keiner vorhanden.'}</p>
               {selectedRun?.resultPath ? (
                 <a
@@ -759,6 +831,12 @@ export function AutomationsClient() {
           </CardContent>
         </Card>
       </div>
+
+      <WorkspaceDirectoryPickerDialog
+        open={isDirectoryPickerOpen}
+        onOpenChange={setIsDirectoryPickerOpen}
+        onSelect={(path) => setDraft((current) => ({ ...current, targetOutputPath: path }))}
+      />
     </div>
   );
 }
