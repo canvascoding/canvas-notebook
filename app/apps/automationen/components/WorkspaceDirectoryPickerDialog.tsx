@@ -155,17 +155,7 @@ export function WorkspaceDirectoryPickerDialog({
     return next;
   }, [expandedPaths, filteredDirectories, search]);
 
-  function toggleExpanded(path: string) {
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-  }
+
 
   function renderDirectoryNodes(nodes: FileNode[], depth = 0): ReactNode {
     return nodes.map((directory) => {

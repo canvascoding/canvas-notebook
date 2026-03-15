@@ -150,7 +150,6 @@ export async function parseSkillFile(skillPath: string): Promise<AnthropicSkill 
 
     const skillName = frontmatter!.name;
     const title = extractTitle(body, skillName);
-    const skillDir = path.dirname(skillPath);
 
     return {
       name: skillName,

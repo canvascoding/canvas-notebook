@@ -28,7 +28,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
   const [stats, setStats] = useState(initialStats);
   const [selectedSkill, setSelectedSkill] = useState<AnthropicSkill | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [enabledSkills, setEnabledSkills] = useState<Set<string>>(
+  const [, setEnabledSkills] = useState<Set<string>>(
     new Set(initialSkills.filter(s => s.enabled).map(s => s.name))
   );
 
@@ -69,6 +69,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
         }
       })
       .catch(err => console.error('Failed to sync skill status:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleOpenSkill(skill: AnthropicSkill) {

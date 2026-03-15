@@ -31,7 +31,7 @@ export function HomeChatPrompt() {
   
   // File picker state for @-mention
   const [showFilePicker, setShowFilePicker] = useState(false);
-  const [filePickerQuery, setFilePickerQuery] = useState('');
+  const [, setFilePickerQuery] = useState('');
   const [filePickerFiles, setFilePickerFiles] = useState<FilePickerFile[]>([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);

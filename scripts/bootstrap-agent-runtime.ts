@@ -2,8 +2,11 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 // Database imports are optional - they may not be available in Docker container
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let db: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let aiMessages: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let aiSessions: any;
 
 try {

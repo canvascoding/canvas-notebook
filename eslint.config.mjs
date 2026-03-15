@@ -14,6 +14,13 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Templates are references, not runtime source code.
     "docs/template/**",
+    // Generated OAuth flow files
+    "data/pi-oauth-states/**",
+    // Skill templates and generated files
+    "data/skills/**",
+    "skills/**",
+    // Workspace files
+    "data/workspace/**",
   ]),
 ]);
 
