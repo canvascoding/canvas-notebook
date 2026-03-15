@@ -8,8 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Terminal, Globe, Loader2 } from 'lucide-react';
+import { Terminal, Globe, Loader2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -56,35 +55,45 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
-        <DialogHeader className="flex-shrink-0">
-          <div className="flex items-center gap-3">
-            {skill.type === 'cli' ? (
-              <Terminal className="h-6 w-6 text-muted-foreground" />
-            ) : (
-              <Globe className="h-6 w-6 text-muted-foreground" />
-            )}
-            <div>
-              <DialogTitle className="text-xl">{skill.title}</DialogTitle>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-sm text-muted-foreground">v{skill.version}</span>
-                <Badge variant="secondary" className="text-xs">
-                  {skill.type}
-                </Badge>
-                <Badge variant={isBuiltIn ? 'default' : 'outline'} className="text-xs">
-                  {isBuiltIn ? 'Built-in' : 'Custom'}
-                </Badge>
+      <DialogContent className="fixed inset-4 w-auto h-auto max-w-none max-h-none p-0 overflow-hidden flex flex-col bg-background border rounded-lg shadow-2xl">
+        {/* Header */}
+        <DialogHeader className="flex-shrink-0 border-b bg-muted/50 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {skill.type === 'cli' ? (
+                <Terminal className="h-7 w-7 text-muted-foreground" />
+              ) : (
+                <Globe className="h-7 w-7 text-muted-foreground" />
+              )}
+              <div>
+                <DialogTitle className="text-2xl font-bold">{skill.title}</DialogTitle>
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-sm text-muted-foreground font-medium">v{skill.version}</span>
+                  <Badge variant="secondary" className="text-xs">
+                    {skill.type.toUpperCase()}
+                  </Badge>
+                  <Badge variant={isBuiltIn ? 'default' : 'outline'} className="text-xs">
+                    {isBuiltIn ? 'Built-in' : 'Custom'}
+                  </Badge>
+                </div>
               </div>
             </div>
+            <button
+              onClick={() => onOpenChange(false)}
+              className="p-2 hover:bg-accent rounded-md transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 my-4">
-          <div className="space-y-6 pr-4">
+        {/* Content - Full height with natural scrolling */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
             {/* Description */}
-            <div>
-              <h3 className="text-sm font-semibold mb-2">Description</h3>
-              <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+            <div className="bg-muted/30 rounded-lg p-6">
+              <h2 className="text-lg font-semibold mb-3">Description</h2>
+              <p className="text-base text-muted-foreground whitespace-pre-wrap leading-relaxed">
                 {skill.description}
               </p>
             </div>
@@ -92,32 +101,41 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
             {/* Parameters */}
             {Object.keys(skill.tool.parameters).length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold mb-2">Parameters</h3>
-                <div className="bg-muted rounded-lg p-3 space-y-2">
+                <h2 className="text-lg font-semibold mb-4">Parameters</h2>
+                <div className="grid gap-3">
                   {Object.entries(skill.tool.parameters).map(([key, param]) => (
-                    <div key={key} className="text-sm">
-                      <div className="flex items-center gap-2">
-                        <code className="bg-background px-1.5 py-0.5 rounded text-xs font-mono">
+                    <div key={key} className="bg-muted rounded-lg p-4 border">
+                      <div className="flex items-center gap-3 mb-2">
+                        <code className="bg-background px-2 py-1 rounded text-sm font-mono font-semibold">
                           {key}
                         </code>
-                        <span className="text-xs text-muted-foreground">({param.type})</span>
+                        <span className="text-sm text-muted-foreground">({param.type})</span>
                         {param.required && (
-                          <Badge variant="destructive" className="text-[10px]">required</Badge>
+                          <Badge variant="destructive" className="text-xs">required</Badge>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1 ml-0.5">
+                      <p className="text-sm text-muted-foreground mb-2">
                         {param.description}
                       </p>
-                      {param.default !== undefined && (
-                        <p className="text-xs text-muted-foreground mt-0.5 ml-0.5">
-                          Default: <code className="text-xs">{JSON.stringify(param.default)}</code>
-                        </p>
-                      )}
-                      {param.enum && (
-                        <p className="text-xs text-muted-foreground mt-0.5 ml-0.5">
-                          Options: {param.enum.join(', ')}
-                        </p>
-                      )}
+                      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                        {param.default !== undefined && (
+                          <span>
+                            <span className="font-medium">Default:</span>{' '}
+                            <code className="bg-background px-1 rounded">{JSON.stringify(param.default)}</code>
+                          </span>
+                        )}
+                        {param.enum && (
+                          <span>
+                            <span className="font-medium">Options:</span> {param.enum.join(', ')}
+                          </span>
+                        )}
+                        {(param.minimum !== undefined || param.maximum !== undefined) && (
+                          <span>
+                            <span className="font-medium">Range:</span>{' '}
+                            {param.minimum !== undefined ? param.minimum : '∞'} - {param.maximum !== undefined ? param.maximum : '∞'}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -126,15 +144,15 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
 
             {/* README Content */}
             <div>
-              <h3 className="text-sm font-semibold mb-2">Documentation</h3>
+              <h2 className="text-lg font-semibold mb-4">Documentation</h2>
               {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
               ) : error ? (
-                <div className="text-sm text-destructive">{error}</div>
+                <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">{error}</div>
               ) : (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
+                <div className="prose prose-base dark:prose-invert max-w-none">
                   <ReactMarkdown
                     components={{
                       code({ node, inline, className, children, ...props }: any) {
@@ -162,37 +180,39 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
               )}
             </div>
 
-            {/* Metadata */}
-            <div className="text-xs text-muted-foreground border-t pt-4">
-              <div className="grid grid-cols-2 gap-2">
+            {/* Metadata Footer */}
+            <div className="border-t pt-6 mt-8">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
                 <div>
-                  <span className="font-medium">Tool Name:</span> {skill.tool.name}
+                  <span className="font-medium text-foreground">Tool Name:</span>
+                  <div className="font-mono mt-1">{skill.tool.name}</div>
                 </div>
                 <div>
-                  <span className="font-medium">Created:</span>{' '}
-                  {new Date(skill.created_at).toLocaleDateString()}
+                  <span className="font-medium text-foreground">Created:</span>
+                  <div className="mt-1">{new Date(skill.created_at).toLocaleDateString()}</div>
                 </div>
                 {skill.author && (
                   <div>
-                    <span className="font-medium">Author:</span> {skill.author}
+                    <span className="font-medium text-foreground">Author:</span>
+                    <div className="mt-1">{skill.author}</div>
                   </div>
                 )}
-                {skill.handler.type === 'cli' && skill.handler.command && (
-                  <div>
-                    <span className="font-medium">Command:</span>{' '}
-                    <code className="text-xs">{skill.handler.command}</code>
+                <div>
+                  <span className="font-medium text-foreground">Handler:</span>
+                  <div className="mt-1">
+                    {skill.handler.type === 'cli' && skill.handler.command ? (
+                      <code className="text-xs bg-muted px-1 rounded">{skill.handler.command}</code>
+                    ) : skill.handler.type === 'api' && skill.handler.endpoint ? (
+                      <code className="text-xs bg-muted px-1 rounded">{skill.handler.endpoint}</code>
+                    ) : (
+                      skill.handler.type
+                    )}
                   </div>
-                )}
-                {skill.handler.type === 'api' && skill.handler.endpoint && (
-                  <div>
-                    <span className="font-medium">Endpoint:</span>{' '}
-                    <code className="text-xs">{skill.handler.endpoint}</code>
-                  </div>
-                )}
+                </div>
               </div>
             </div>
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );
