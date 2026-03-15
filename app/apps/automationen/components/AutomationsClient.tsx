@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { Clock3, Loader2, Play, Plus, RefreshCw, Save, Trash2, WandSparkles } from 'lucide-react';
+import { ChevronDown, Clock3, Loader2, Play, Plus, RefreshCw, Save, Trash2, WandSparkles } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
@@ -10,6 +10,7 @@ import type { AutomationJobRecord, AutomationRunRecord, AutomationPreferredSkill
 import { describeFriendlySchedule } from '@/app/lib/automations/schedule';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automationen/components/WorkspaceDirectoryPickerDialog';
 
@@ -170,6 +171,7 @@ export function AutomationsClient() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshingRuns, setIsRefreshingRuns] = useState(false);
   const [isDirectoryPickerOpen, setIsDirectoryPickerOpen] = useState(false);
+  const [isLogSectionOpen, setIsLogSectionOpen] = useState(true);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) || null,
@@ -795,31 +797,51 @@ export function AutomationsClient() {
               )}
             </div>
 
-            <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
-              <div className="flex items-center justify-between gap-2">
+            <Collapsible
+              open={isLogSectionOpen}
+              onOpenChange={setIsLogSectionOpen}
+              className="rounded-lg border border-border bg-muted/20 p-4"
+            >
+              <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium">Logs</p>
                   <p className="text-xs text-muted-foreground">Rohes Event-Log der ausgewählten Ausführung.</p>
                 </div>
-                {selectedRun?.logPath ? (
-                  <Link
-                    href={toNotebookUrl(selectedRun.logPath)}
-                    data-testid="automation-log-open"
-                    className="text-xs font-medium text-primary underline-offset-4 hover:underline"
-                  >
-                    Log-Datei öffnen
-                  </Link>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {selectedRun?.logPath ? (
+                    <Link
+                      href={toNotebookUrl(selectedRun.logPath)}
+                      data-testid="automation-log-open"
+                      className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Log-Datei öffnen
+                    </Link>
+                  ) : null}
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-xs"
+                      data-testid="automation-log-toggle"
+                    >
+                      {isLogSectionOpen ? 'Einklappen' : 'Ausklappen'}
+                      <ChevronDown className={`ml-1 h-4 w-4 transition-transform ${isLogSectionOpen ? 'rotate-180' : ''}`} />
+                    </Button>
+                  </CollapsibleTrigger>
+                </div>
               </div>
-              <ScrollArea className="h-[260px] rounded-md border border-border bg-background" data-testid="automation-log-scroll">
-                <pre
-                  className="min-h-full p-3 text-xs text-foreground"
-                  data-testid="automation-log-content"
-                >
-                  {logContent || 'Noch kein Log vorhanden.'}
-                </pre>
-              </ScrollArea>
-            </div>
+              <CollapsibleContent className="pt-3" data-testid="automation-log-collapsible">
+                <ScrollArea className="h-[260px] rounded-md border border-border bg-background" data-testid="automation-log-scroll">
+                  <pre
+                    className="min-h-full p-3 text-xs text-foreground"
+                    data-testid="automation-log-content"
+                  >
+                    {logContent || 'Noch kein Log vorhanden.'}
+                  </pre>
+                </ScrollArea>
+              </CollapsibleContent>
+            </Collapsible>
 
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
               <p className="font-medium">Ergebnisordner</p>
