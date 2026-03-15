@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T12:10:00+01:00",
+  "lastUpdatedAt": "2026-03-15T12:24:00+01:00",
   "status": "in_progress",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -846,11 +846,12 @@
       "order": 77,
       "phase": "P13 Automationen",
       "title": "Add target output path UI with workspace folder picker and split run output display",
-      "status": "pending",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "automation-007"
-      ]
+      ],
+      "description": "Extended the Automationen app with an optional target output path field, an existing-workspace directory picker, default target path preview, and separate UI sections for business result folders versus technical run artefacts."
     },
     {
       "id": "automation-009",
