@@ -2,7 +2,18 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { SkillManifest, validateManifest } from './skill-manifest';
 
-const SKILLS_DIR = '/data/skills';
+// Dynamically determine skills directory from WORKSPACE_DIR
+// WORKSPACE_DIR is typically /data/workspace (container) or ./data/workspace (dev)
+// We remove /workspace and add /skills to get the skills directory
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/data/workspace';
+const SKILLS_DIR = WORKSPACE_DIR.replace(/\/workspace\/?$/, '') + '/skills';
+
+/**
+ * Get the skills directory path
+ */
+export function getSkillsDir(): string {
+  return SKILLS_DIR;
+}
 
 /**
  * Load all skills from the skills directory
