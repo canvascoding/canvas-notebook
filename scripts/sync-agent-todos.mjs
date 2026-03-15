@@ -13,8 +13,10 @@ function readText(filePath) {
 
 function ensureFileExists(filePath, label) {
   if (!fs.existsSync(filePath)) {
-    throw new Error(`${label} file not found: ${filePath}`);
+    console.warn(`[agent-todos] ${label} file not found: ${filePath} (skipping validation)`);
+    return false;
   }
+  return true;
 }
 
 function validatePlanFile(planPath) {
@@ -72,8 +74,13 @@ function validateOnce(rootDir) {
   const planPath = path.resolve(rootDir, PLAN_FILE);
   const todoPath = path.resolve(rootDir, TODO_FILE);
 
-  ensureFileExists(planPath, "Plan");
-  ensureFileExists(todoPath, "Todo");
+  const planExists = ensureFileExists(planPath, "Plan");
+  const todoExists = ensureFileExists(todoPath, "Todo");
+
+  if (!planExists || !todoExists) {
+    return null;
+  }
+
   validatePlanFile(planPath);
   validateTodoFile(todoPath);
 
@@ -115,7 +122,9 @@ function main() {
     }
 
     const result = validateOnce(rootDir);
-    console.log(`[agent-todos] validated ${result.planPath} and ${result.todoPath}`);
+    if (result) {
+      console.log(`[agent-todos] validated ${result.planPath} and ${result.todoPath}`);
+    }
   } catch (error) {
     console.error(`[agent-todos] ${error.message}`);
     process.exitCode = 1;

@@ -10,13 +10,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Terminal, Globe, Loader2, X } from 'lucide-react';
+import { Power, Loader2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import type { SkillManifest } from '@/app/lib/skills/skill-manifest';
+import remarkGfm from 'remark-gfm';
+import remarkFrontmatter from 'remark-frontmatter';
+import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 
 interface SkillDetailDialogProps {
-  skill: SkillManifest | null;
+  skill: AnthropicSkill | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -27,37 +29,35 @@ type MarkdownCodeProps = ComponentPropsWithoutRef<'code'> & {
 };
 
 export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDialogProps) {
-  const [readme, setReadme] = useState<string>('');
+  const [skillContent, setSkillContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && skill) {
-      loadReadme(skill.name);
+      loadSkillContent(skill.name);
     }
   }, [open, skill]);
 
-  async function loadReadme(skillName: string) {
+  async function loadSkillContent(skillName: string) {
     setLoading(true);
     setError(null);
     try {
       const response = await fetch(`/api/skills/${skillName}/readme`);
       const data = await response.json();
       if (data.success) {
-        setReadme(data.content);
+        setSkillContent(data.content);
       } else {
-        setError(data.error || 'Failed to load README');
+        setError(data.error || 'Failed to load skill content');
       }
     } catch {
-      setError('Failed to load README');
+      setError('Failed to load skill content');
     } finally {
       setLoading(false);
     }
   }
 
   if (!skill) return null;
-
-  const isBuiltIn = !skill.author || skill.author === 'system';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -70,25 +70,23 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
         {/* Header */}
         <DialogHeader className="flex-shrink-0 border-b bg-muted/50 px-4 py-4 text-left sm:px-6">
           <DialogDescription className="sr-only">
-            Details, parameters, and documentation for the selected skill.
+            Details and documentation for the selected skill.
           </DialogDescription>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {skill.type === 'cli' ? (
-                <Terminal className="h-7 w-7 text-muted-foreground" />
-              ) : (
-                <Globe className="h-7 w-7 text-muted-foreground" />
-              )}
+              <Power className={`h-7 w-7 ${skill.enabled ? 'text-green-500' : 'text-muted-foreground'}`} />
               <div>
                 <DialogTitle className="text-2xl font-bold">{skill.title}</DialogTitle>
                 <div className="flex items-center gap-2 mt-1.5">
-                  <span className="text-sm text-muted-foreground font-medium">v{skill.version}</span>
-                  <Badge variant="secondary" className="text-xs">
-                    {skill.type.toUpperCase()}
+                  <span className="text-sm text-muted-foreground font-medium">{skill.name}</span>
+                  <Badge variant={skill.enabled ? 'default' : 'secondary'} className="text-xs">
+                    {skill.enabled ? 'Enabled' : 'Disabled'}
                   </Badge>
-                  <Badge variant={isBuiltIn ? 'default' : 'outline'} className="text-xs">
-                    {isBuiltIn ? 'Built-in' : 'Custom'}
-                  </Badge>
+                  {skill.license && (
+                    <Badge variant="outline" className="text-xs">
+                      {skill.license}
+                    </Badge>
+                  )}
                 </div>
               </div>
             </div>
@@ -118,51 +116,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
               </p>
             </div>
 
-            {/* Parameters */}
-            {Object.keys(skill.tool.parameters).length > 0 && (
-              <div>
-                <h2 className="text-lg font-semibold mb-4">Parameters</h2>
-                <div className="grid gap-3">
-                  {Object.entries(skill.tool.parameters).map(([key, param]) => (
-                    <div key={key} className="bg-muted rounded-lg p-4 border">
-                      <div className="flex items-center gap-3 mb-2">
-                        <code className="bg-background px-2 py-1 rounded text-sm font-mono font-semibold">
-                          {key}
-                        </code>
-                        <span className="text-sm text-muted-foreground">({param.type})</span>
-                        {param.required && (
-                          <Badge variant="destructive" className="text-xs">required</Badge>
-                        )}
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        {param.description}
-                      </p>
-                      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                        {param.default !== undefined && (
-                          <span>
-                            <span className="font-medium">Default:</span>{' '}
-                            <code className="bg-background px-1 rounded">{JSON.stringify(param.default)}</code>
-                          </span>
-                        )}
-                        {param.enum && (
-                          <span>
-                            <span className="font-medium">Options:</span> {param.enum.join(', ')}
-                          </span>
-                        )}
-                        {(param.minimum !== undefined || param.maximum !== undefined) && (
-                          <span>
-                            <span className="font-medium">Range:</span>{' '}
-                            {param.minimum !== undefined ? param.minimum : '∞'} - {param.maximum !== undefined ? param.maximum : '∞'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* README Content */}
+            {/* SKILL.md Content */}
             <div>
               <h2 className="text-lg font-semibold mb-4">Documentation</h2>
               {loading ? (
@@ -172,8 +126,9 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
               ) : error ? (
                 <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">{error}</div>
               ) : (
-                <div className="prose prose-base max-w-none break-words dark:prose-invert [&_code]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
+                <div className="prose prose-base max-w-none break-words dark:prose-invert [&_code]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre">
                   <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkFrontmatter]}
                     components={{
                       code({ className, children, inline, ...props }: MarkdownCodeProps) {
                         const match = /language-(\w+)/.exec(className || '');
@@ -194,7 +149,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
                       },
                     }}
                   >
-                    {readme}
+                    {skillContent}
                   </ReactMarkdown>
                 </div>
               )}
@@ -202,33 +157,27 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
 
             {/* Metadata Footer */}
             <div className="border-t pt-6 mt-8">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-muted-foreground">
                 <div>
-                  <span className="font-medium text-foreground">Tool Name:</span>
-                  <div className="font-mono mt-1">{skill.tool.name}</div>
+                  <span className="font-medium text-foreground">Skill Name:</span>
+                  <div className="font-mono mt-1">{skill.name}</div>
                 </div>
                 <div>
-                  <span className="font-medium text-foreground">Created:</span>
-                  <div className="mt-1">{new Date(skill.created_at).toLocaleDateString()}</div>
+                  <span className="font-medium text-foreground">Status:</span>
+                  <div className="mt-1">{skill.enabled ? 'Enabled' : 'Disabled'}</div>
                 </div>
-                {skill.author && (
+                {skill.license && (
                   <div>
-                    <span className="font-medium text-foreground">Author:</span>
-                    <div className="mt-1">{skill.author}</div>
+                    <span className="font-medium text-foreground">License:</span>
+                    <div className="mt-1">{skill.license}</div>
                   </div>
                 )}
-                <div>
-                  <span className="font-medium text-foreground">Handler:</span>
-                  <div className="mt-1">
-                    {skill.handler.type === 'cli' && skill.handler.command ? (
-                      <code className="text-xs bg-muted px-1 rounded">{skill.handler.command}</code>
-                    ) : skill.handler.type === 'api' && skill.handler.endpoint ? (
-                      <code className="text-xs bg-muted px-1 rounded">{skill.handler.endpoint}</code>
-                    ) : (
-                      skill.handler.type
-                    )}
+                {skill.compatibility && (
+                  <div>
+                    <span className="font-medium text-foreground">Compatibility:</span>
+                    <div className="mt-1">{skill.compatibility}</div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>

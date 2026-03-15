@@ -1,8 +1,22 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { db } from '../app/lib/db';
-import { aiMessages, aiSessions } from '../app/lib/db/schema';
+// Database imports are optional - they may not be available in Docker container
+let db: any;
+let aiMessages: any;
+let aiSessions: any;
+
+try {
+  const dbModule = await import('../app/lib/db');
+  const schemaModule = await import('../app/lib/db/schema');
+  db = dbModule.db;
+  aiMessages = schemaModule.aiMessages;
+  aiSessions = schemaModule.aiSessions;
+} catch {
+  // Database not available in Docker container - legacy cleanup will be skipped
+  console.log('[bootstrap-agent-runtime] Database module not available, skipping legacy session cleanup.');
+}
+
 import {
   resolveAgentStorageDir,
   resolveDefaultAgentsEnvPath,
@@ -314,6 +328,14 @@ async function ensureAgentStorageBootstrap(): Promise<void> {
 async function runLegacySessionCleanupIfNeeded(): Promise<void> {
   if (await fileExists(LEGACY_WIPE_MARKER_PATH)) {
     console.log(`[bootstrap-agent-runtime] Legacy wipe skipped (marker exists: ${LEGACY_WIPE_MARKER_PATH}).`);
+    return;
+  }
+
+  // Skip if database is not available (e.g., in Docker container)
+  if (!db || !aiMessages || !aiSessions) {
+    console.log('[bootstrap-agent-runtime] Legacy wipe skipped (database not available).');
+    // Create marker to avoid repeated attempts
+    await fs.writeFile(LEGACY_WIPE_MARKER_PATH, `${JSON.stringify({ doneAt: new Date().toISOString(), skipped: true, reason: 'database_not_available' }, null, 2)}\n`, 'utf8');
     return;
   }
 

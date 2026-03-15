@@ -1,22 +1,21 @@
 import { type AgentTool } from '@mariozechner/pi-agent-core';
-import { Type, TSchema } from '@sinclair/typebox';
+import { Type } from '@sinclair/typebox';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
-import { SkillManifest, manifestParamsToTypeBox } from './skill-manifest';
-import { loadSkillsFromDisk, getSkillsDir } from './skill-loader';
+import { loadSkillsFromDisk, getSkillsDir, AnthropicSkill } from './skill-loader';
 
 const execAsync = promisify(exec);
 
 // Cache for loaded skills
-let cachedSkills: SkillManifest[] = [];
+let cachedSkills: AnthropicSkill[] = [];
 let lastLoadTime = 0;
 const CACHE_TTL = 5000; // 5 seconds
 
 /**
  * Load skills from disk with caching
  */
-async function getCachedSkills(): Promise<SkillManifest[]> {
+async function getCachedSkills(): Promise<AnthropicSkill[]> {
   const now = Date.now();
   if (now - lastLoadTime > CACHE_TTL || cachedSkills.length === 0) {
     cachedSkills = await loadSkillsFromDisk();
@@ -26,59 +25,55 @@ async function getCachedSkills(): Promise<SkillManifest[]> {
 }
 
 /**
- * Create a PI tool from a skill manifest
+ * Check if a skill has executable capabilities
+ * Skills with bin/ directory or specific executables are treated as tools
  */
-function createToolFromManifest(manifest: SkillManifest): AgentTool {
-  // Convert manifest parameters to TypeBox schema
-  const typeboxParams = manifestParamsToTypeBox(manifest.tool.parameters);
+async function hasExecutableCapability(skillName: string): Promise<boolean> {
+  const skillsDir = getSkillsDir();
+  const binPath = `${skillsDir}/bin/${skillName}`;
   
+  try {
+    await execAsync(`test -x ${binPath}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create a PI tool from a skill
+ * Only creates tools for skills that have executable capabilities
+ */
+async function createToolFromSkill(skill: AnthropicSkill): Promise<AgentTool | null> {
+  // Check if this skill has an executable
+  const hasExecutable = await hasExecutableCapability(skill.name);
+  
+  if (!hasExecutable) {
+    // This is a prompt-based skill, not a tool
+    return null;
+  }
+  
+  // For executable skills, create a generic tool
   return {
-    name: manifest.tool.name,
-    label: `Using ${manifest.title}`,
-    description: manifest.tool.description,
-    parameters: Type.Object(typeboxParams),
+    name: skill.name.replace(/-/g, '_'),
+    label: `Using ${skill.title}`,
+    description: skill.description,
+    parameters: Type.Object({
+      prompt: Type.String({ description: 'The prompt or input for the skill' }),
+    }),
     execute: async (toolCallId, params) => {
       try {
         const workspacePath = getWorkspacePath();
-        const typedParams = params as Record<string, unknown>;
+        const skillsDir = getSkillsDir();
+        const { prompt } = params as { prompt: string };
         
-        if (manifest.handler.type === 'cli') {
-          // Build CLI command
-          const skillsDir = getSkillsDir();
-          let cmd = manifest.handler.command || `${skillsDir}/${manifest.name}/run`;
-          
-          // Add parameters as arguments
-          for (const [key, value] of Object.entries(typedParams)) {
-            if (value !== undefined && value !== null) {
-              const paramDef = manifest.tool.parameters[key];
-              
-              if (paramDef?.type === 'boolean' && value === true) {
-                cmd += ` --${key}`;
-              } else {
-                const stringValue = String(value).replace(/"/g, '\\"');
-                cmd += ` --${key} "${stringValue}"`;
-              }
-            }
-          }
-          
-          const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
-          return {
-            content: [{ type: 'text', text: stdout || stderr || 'Command executed' }],
-            details: { stdout, stderr },
-          };
-          
-        } else if (manifest.handler.type === 'api') {
-          // For API skills, we would call the endpoint
-          // This is a placeholder - actual implementation would depend on the API structure
-          return {
-            content: [{ type: 'text', text: `API skill "${manifest.name}" called with parameters: ${JSON.stringify(params)}` }],
-            details: { params },
-          };
-        }
+        // Execute the skill via the bin wrapper
+        const cmd = `${skillsDir}/bin/${skill.name} "${prompt.replace(/"/g, '\\"')}"`;
         
+        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
         return {
-          content: [{ type: 'text', text: `Unknown handler type for skill "${manifest.name}"` }],
-          details: { error: 'Unknown handler type' },
+          content: [{ type: 'text', text: stdout || stderr || 'Skill executed successfully' }],
+          details: { stdout, stderr },
         };
         
       } catch (error: unknown) {
@@ -94,10 +89,20 @@ function createToolFromManifest(manifest: SkillManifest): AgentTool {
 
 /**
  * Get all dynamic skills as PI tools
+ * Only returns skills that have executable capabilities
  */
 export async function getDynamicSkillTools(): Promise<AgentTool[]> {
   const skills = await getCachedSkills();
-  return skills.map(createToolFromManifest);
+  const tools: AgentTool[] = [];
+  
+  for (const skill of skills) {
+    const tool = await createToolFromSkill(skill);
+    if (tool) {
+      tools.push(tool);
+    }
+  }
+  
+  return tools;
 }
 
 /**
@@ -105,8 +110,8 @@ export async function getDynamicSkillTools(): Promise<AgentTool[]> {
  */
 export async function getSkillToolByName(name: string): Promise<AgentTool | null> {
   const skills = await getCachedSkills();
-  const skill = skills.find(s => s.name === name || s.tool.name === name);
-  return skill ? createToolFromManifest(skill) : null;
+  const skill = skills.find(s => s.name === name || s.name.replace(/-/g, '_') === name);
+  return skill ? createToolFromSkill(skill) : null;
 }
 
 /**
@@ -122,13 +127,39 @@ export function invalidateSkillsCache(): void {
  */
 export async function getDynamicSkillStats(): Promise<{
   total: number;
-  cli: number;
-  api: number;
+  executable: number;
+  promptBased: number;
 }> {
   const skills = await getCachedSkills();
+  let executableCount = 0;
+  
+  for (const skill of skills) {
+    if (await hasExecutableCapability(skill.name)) {
+      executableCount++;
+    }
+  }
+  
   return {
     total: skills.length,
-    cli: skills.filter(s => s.type === 'cli').length,
-    api: skills.filter(s => s.type === 'api').length,
+    executable: executableCount,
+    promptBased: skills.length - executableCount,
   };
+}
+
+/**
+ * Get all prompt-based skills (non-executable)
+ * These are used for system prompt context
+ */
+export async function getPromptBasedSkills(): Promise<AnthropicSkill[]> {
+  const skills = await getCachedSkills();
+  const promptSkills: AnthropicSkill[] = [];
+  
+  for (const skill of skills) {
+    const hasExecutable = await hasExecutableCapability(skill.name);
+    if (!hasExecutable) {
+      promptSkills.push(skill);
+    }
+  }
+  
+  return promptSkills;
 }

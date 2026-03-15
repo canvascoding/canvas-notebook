@@ -23,6 +23,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
+# Remove devDependencies after build to reduce size
+RUN npm prune --production
+
 FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 ARG APP_USER=node
@@ -44,22 +47,15 @@ ENV NODE_ENV=production \
     NPM_CONFIG_PREFIX=/home/${APP_USER}/.npm-global \
     PATH=/home/${APP_USER}/.npm-global/bin:${PATH}
 
-COPY --from=builder /app/package.json /app/package-lock.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
+# Copy only standalone output (much smaller than full .next)
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/app ./app
-COPY --from=builder /app/components ./components
-COPY --from=builder /app/hooks ./hooks
-COPY --from=builder /app/lib ./lib
-COPY --from=builder /app/server ./server
-COPY --from=builder /app/next.config.ts ./next.config.ts
-COPY --from=builder /app/tsconfig.json ./tsconfig.json
-COPY --from=builder /app/server.js ./server.js
-COPY --from=builder /app/proxy.ts ./proxy.ts
 COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/docs ./docs
 COPY --from=builder /app/skills ./skills
+
+# Copy production node_modules for external packages (better-auth, etc.)
+COPY --from=builder /app/node_modules ./node_modules
 
 RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills
 RUN chmod +x ./scripts/docker-entrypoint.sh
@@ -72,12 +68,17 @@ RUN printf '%s\n' \
   'export PATH' \
   > /etc/profile.d/npm-global-path.sh \
   && chmod 0644 /etc/profile.d/npm-global-path.sh
-RUN mkdir -p /home/${APP_USER}/.npm-global \
-  && chown -R ${APP_USER}:${APP_USER} /app /data /home/${APP_USER}
+RUN mkdir -p /home/${APP_USER}/.npm-global
+
+# Create and set permissions for Next.js cache directory
+RUN mkdir -p /app/.next/cache && chown -R ${APP_USER}:${APP_USER} /app/.next
+
+# Only chown /data and /home (not /app to avoid layer duplication)
+RUN chown -R ${APP_USER}:${APP_USER} /data /home/${APP_USER}
 
 USER ${APP_USER}
 
 EXPOSE 3000
 VOLUME ["/data"]
 ENTRYPOINT ["./scripts/docker-entrypoint.sh"]
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]

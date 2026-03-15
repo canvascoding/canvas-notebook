@@ -119,8 +119,18 @@ async function main() {
   log('✓ Datenverzeichnisse sind bereit', 'green');
   console.log();
 
-  // Schritt 4: Baue neuen Container ohne Cache
-  log('Schritt 4: Baue neuen Container (no-cache)...', 'yellow');
+  // Schritt 4: Lösche altes Image vor dem Build
+  log('Schritt 4: Lösche altes Image...', 'yellow');
+  try {
+    exec(`docker rmi ${IMAGE_NAME}`, { ignoreError: true });
+    log('✓ Altes Image entfernt', 'green');
+  } catch {
+    log('Kein altes Image zum Löschen gefunden', 'cyan');
+  }
+  console.log();
+
+  // Schritt 5: Baue neuen Container ohne Cache
+  log('Schritt 5: Baue neuen Container (no-cache)...', 'yellow');
   log('Dies kann einige Minuten dauern...', 'cyan');
   console.log();
   
@@ -133,8 +143,8 @@ async function main() {
   }
   console.log();
 
-  // Schritt 5: Starte neuen Container
-  log('Schritt 5: Starte neuen Container...', 'yellow');
+  // Schritt 6: Starte neuen Container
+  log('Schritt 6: Starte neuen Container...', 'yellow');
   
   const dataDir = join(rootDir, 'data');
   
@@ -177,8 +187,8 @@ async function main() {
   }
   console.log();
 
-  // Schritt 6: Warte und zeige Status
-  log('Schritt 6: Warte auf Container-Start...', 'yellow');
+  // Schritt 7: Warte und zeige Status
+  log('Schritt 7: Warte auf Container-Start...', 'yellow');
   await new Promise(resolve => setTimeout(resolve, 3000));
   
   try {

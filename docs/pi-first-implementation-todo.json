@@ -970,6 +970,136 @@
         "qmd-001"
       ],
       "description": "Added a viewport-based dialog layout mode, moved the skill docs popup to a height-bounded scrollable layout, fixed responsive desktop/mobile sizing, removed the duplicate close button, and added Playwright regression coverage for viewport fit and scroll behavior."
+    },
+    {
+      "id": "skills-anthropic-001",
+      "order": 88,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Clone Anthropic skills repository and extract 10 target skills",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [],
+      "description": "Cloned https://github.com/anthropics/skills/ and extracted algorithmic-art, brand-guidelines, canvas-design, doc-coauthoring, docx, internal-comms, pdf, pptx, skill-creator, xlsx into /data/skills/"
+    },
+    {
+      "id": "skills-anthropic-002",
+      "order": 89,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Create new Anthropic-compatible skill schema with YAML frontmatter parser",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-001"
+      ],
+      "description": "Created skill-manifest-anthropic.ts with SKILL.md format support, YAML frontmatter parser, and AnthropicSkill interface. Skills now use frontmatter with name, description, license fields."
+    },
+    {
+      "id": "skills-anthropic-003",
+      "order": 90,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Rewrite skill-loader.ts to only support SKILL.md format",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-002"
+      ],
+      "description": "Rewrote skill-loader.ts to only support Anthropic-style SKILL.md format. Removed backward compatibility with old manifest.json format."
+    },
+    {
+      "id": "skills-anthropic-004",
+      "order": 91,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Convert existing Canvas skills to SKILL.md format",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-003"
+      ],
+      "description": "Converted image-generation, video-generation, ad-localization, qmd from manifest.json+README.md to SKILL.md format. Deleted old manifest.json and README.md files."
+    },
+    {
+      "id": "skills-anthropic-005",
+      "order": 92,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Extend system prompt composition to include active skills context",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-004"
+      ],
+      "description": "Modified system-prompt.ts and system-prompt-shared.ts to include enabled skills context in PI Agent system prompt. Skills are now automatically loaded and their instructions added to the context."
+    },
+    {
+      "id": "skills-anthropic-006",
+      "order": 93,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Add enabledSkills array to PI runtime config",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-005"
+      ],
+      "description": "Extended PiRuntimeConfig interface with enabledSkills: string[] field. Empty array means all skills enabled by default. Updated DEFAULT_PI_CONFIG and validation."
+    },
+    {
+      "id": "skills-anthropic-007",
+      "order": 94,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Create API endpoints for skill enable/disable/status",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-006"
+      ],
+      "description": "Created /api/skills/[name]/enable, /api/skills/[name]/disable, and /api/skills/status endpoints for managing skill activation state."
+    },
+    {
+      "id": "skills-anthropic-008",
+      "order": 95,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Create SkillToggle component with shadcn Switch",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-007"
+      ],
+      "description": "Created SkillsPageClient.tsx with SkillToggle component using shadcn/ui Switch. Skills can be enabled/disabled from the Skill Gallery UI. Added stats display (total/enabled/disabled)."
+    },
+    {
+      "id": "skills-anthropic-009",
+      "order": 96,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Update SkillDetailDialog for SKILL.md format",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-008"
+      ],
+      "description": "Updated SkillDetailDialog.tsx to display AnthropicSkill format. Shows YAML frontmatter fields (name, description, license, compatibility) and renders full SKILL.md content with ReactMarkdown."
+    },
+    {
+      "id": "skills-anthropic-010",
+      "order": 97,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Remove create_skill and validate_skill tools from tool-registry.ts",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "skills-anthropic-009"
+      ],
+      "description": "Removed custom create_skill and validate_skill tools from tool-registry.ts. Anthropic skill-creator skill replaces our custom implementation."
+    },
+    {
+      "id": "skills-anthropic-011",
+      "order": 98,
+      "phase": "P16 Anthropic Skills Integration",
+      "title": "Run build and verify integration",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-010"
+      ],
+      "description": "Successfully ran npm run build with no TypeScript errors. All 10 Anthropic skills (algorithmic-art, brand-guidelines, canvas-design, doc-coauthoring, docx, internal-comms, pdf, pptx, skill-creator, xlsx) are now available in the Skill Gallery."
     }
   ]
 }

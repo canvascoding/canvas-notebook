@@ -3,13 +3,15 @@ import type { NextConfig } from "next";
 const externalPackages = [
   'node-pty',
   'better-sqlite3',
-  'better-auth',
   'drizzle-orm',
   '@mariozechner/pi-ai',
   '@mariozechner/pi-agent-core',
 ];
 
 const nextConfig: NextConfig = {
+  // Output standalone for smaller Docker image
+  output: 'standalone',
+
   // Wichtig für native Server-Pakete: Als external markieren im Server Bundle
   webpack: (config, { isServer }) => {
     if (isServer) {

@@ -6,6 +6,11 @@ const WORKSPACE_BASE_DIR = process.env.WORKSPACE_DIR
   ? path.resolve(process.env.WORKSPACE_DIR)
   : path.resolve(process.cwd(), 'data', 'workspace');
 
+// Temp directory base path
+const TEMP_BASE_DIR = process.env.WORKSPACE_DIR
+  ? path.resolve(process.env.WORKSPACE_DIR.replace(/\/workspace\/?$/, ''), 'temp')
+  : path.resolve(process.cwd(), 'data', 'temp');
+
 /**
  * Returns the absolute path for the workspace.
  * In this setup, we always use the base workspace directory to keep it consistent with the app.
@@ -15,6 +20,45 @@ export function getWorkspacePath(_sessionId?: string): string {
   // Wir ignorieren die sessionId für den Pfad, um im selben Verzeichnis wie die App zu bleiben,
   // es sei denn, wir wollen explizit Isolation (hier vom User nicht gewünscht).
   return WORKSPACE_BASE_DIR;
+}
+
+/**
+ * Returns the absolute path for the temp directory.
+ * Use this for temporary files during skill processing.
+ */
+export function getTempPath(skillName?: string): string {
+  if (skillName) {
+    return path.join(TEMP_BASE_DIR, 'skills', skillName);
+  }
+  return TEMP_BASE_DIR;
+}
+
+/**
+ * Ensures that the temp directory for a skill exists.
+ */
+export async function ensureSkillTempExists(skillName: string): Promise<string> {
+  const skillTempPath = getTempPath(skillName);
+  try {
+    await fs.mkdir(skillTempPath, { recursive: true });
+    console.log(`[Workspace Manager] Ensured temp directory exists: ${skillTempPath}`);
+    return skillTempPath;
+  } catch (error) {
+    console.error(`[Workspace Manager] Failed to ensure temp directory: ${skillTempPath}`, error);
+    throw error;
+  }
+}
+
+/**
+ * Cleans up temporary files for a specific skill.
+ */
+export async function cleanupSkillTemp(skillName: string): Promise<void> {
+  const skillTempPath = getTempPath(skillName);
+  try {
+    await fs.rm(skillTempPath, { recursive: true, force: true });
+    console.log(`[Workspace Manager] Cleaned up temp directory: ${skillTempPath}`);
+  } catch (error) {
+    console.warn(`[Workspace Manager] Failed to cleanup temp directory: ${skillTempPath}`, error);
+  }
 }
 
 /**

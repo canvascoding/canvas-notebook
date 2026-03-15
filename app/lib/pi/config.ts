@@ -22,6 +22,7 @@ export interface PiRuntimeConfig {
   version: 2; // Version 2 for PI-first
   activeProvider: string;
   providers: Record<string, PiProviderConfig>;
+  enabledSkills: string[]; // List of enabled skill names (empty = all enabled)
   updatedAt: string;
   updatedBy: string;
 }
@@ -56,6 +57,7 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
       ollamaMode: 'local',
     },
   },
+  enabledSkills: [], // Empty array means all skills are enabled by default
   updatedAt: new Date().toISOString(),
   updatedBy: 'system:bootstrap',
 };
