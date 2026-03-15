@@ -8,6 +8,7 @@ import {
 import { auth } from '@/app/lib/auth';
 import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { isValidInternalToken } from '@/app/lib/security/internal-token';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
@@ -159,7 +160,7 @@ async function fetchOperationVideo(
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   const skillsToken = request.headers.get('x-canvas-skills-token');
-  const isSkillsCall = !!skillsToken && skillsToken === process.env.CANVAS_SKILLS_TOKEN;
+  const isSkillsCall = await isValidInternalToken(skillsToken);
   if (!session && !isSkillsCall) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
