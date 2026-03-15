@@ -28,7 +28,7 @@ WORKDIR /app
 ARG APP_USER=node
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 \
+  && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 unzip \
   && rm -rf /var/lib/apt/lists/*
 RUN echo "${APP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${APP_USER} \
   && chmod 0440 /etc/sudoers.d/${APP_USER}

@@ -136,11 +136,33 @@ if [ "$qmd_auto_install" = "true" ]; then
   # Add Bun to PATH for this session
   export PATH="$HOME/.bun/bin:$PATH"
 
-  # Install qmd if not present
+  # Install or repair qmd
+  qmd_needs_install=false
+  qmd_install_path="$HOME/.bun/install/global/node_modules/@tobilu/qmd"
+  
   if ! command -v qmd >/dev/null 2>&1; then
-    echo "[entrypoint] Installing qmd..."
-    if bun install -g https://github.com/tobi/qmd; then
-      echo "[entrypoint] qmd installed successfully."
+    echo "[entrypoint] qmd not found, needs installation."
+    qmd_needs_install=true
+  elif ! qmd --version >/dev/null 2>&1; then
+    echo "[entrypoint] qmd command exists but not working (missing dist/), needs rebuild."
+    qmd_needs_install=true
+  elif [ ! -d "$qmd_install_path/dist" ]; then
+    echo "[entrypoint] qmd dist/ directory missing, needs rebuild."
+    qmd_needs_install=true
+  fi
+  
+  if [ "$qmd_needs_install" = "true" ]; then
+    echo "[entrypoint] Installing qmd from npm..."
+    if bun install -g @tobilu/qmd; then
+      echo "[entrypoint] qmd package installed, building from source..."
+      if [ -d "$qmd_install_path" ]; then
+        (cd "$qmd_install_path" && bun install && bun run build) >/dev/null 2>&1
+        if qmd --version >/dev/null 2>&1; then
+          echo "[entrypoint] qmd built and working successfully."
+        else
+          echo "[entrypoint] WARNING: qmd build may have failed, but continuing."
+        fi
+      fi
     else
       echo "[entrypoint] WARNING: qmd installation failed. Continuing startup."
     fi
@@ -148,14 +170,67 @@ if [ "$qmd_auto_install" = "true" ]; then
     echo "[entrypoint] qmd already available: $(qmd --version 2>/dev/null || echo 'unknown version')."
   fi
 
-  # Initialize workspace collection if qmd is available and collection doesn't exist
-  if command -v qmd >/dev/null 2>&1 && [ ! -f "/data/workspace/.qmd/collections.json" ]; then
-    echo "[entrypoint] Initializing qmd workspace collection..."
-    if qmd collection add /data/workspace --name workspace --mask "**/*.md" 2>/dev/null; then
-      echo "[entrypoint] qmd workspace collection created."
+  # Initialize workspace collection if qmd is working
+  if qmd --version >/dev/null 2>&1; then
+    # Check if collection exists by trying to list it
+    if ! qmd collection list 2>/dev/null | grep -q "workspace"; then
+      echo "[entrypoint] Initializing qmd workspace collection..."
+      if qmd collection add /data/workspace --name workspace --mask "**/*" 2>/dev/null; then
+        echo "[entrypoint] qmd workspace collection created."
+        # Add context for better search results
+        qmd context add qmd://workspace "Canvas Studios workspace files and documents" 2>/dev/null || true
+      else
+        echo "[entrypoint] WARNING: Failed to create qmd workspace collection. Continuing startup."
+      fi
     else
-      echo "[entrypoint] WARNING: Failed to create qmd workspace collection. Continuing startup."
+      echo "[entrypoint] qmd workspace collection already exists."
     fi
+
+    # Run initial update
+    echo "[qmd-indexer] Running initial qmd update..."
+    qmd update 2>/dev/null || echo "[qmd-indexer] Initial update completed with warnings."
+
+    # Start background indexing loops
+    echo "[qmd-indexer] Starting background indexing loops..."
+
+    # Loop 1: Update every 30 minutes
+    (
+      while true; do
+        sleep 1800
+        echo "[qmd-indexer] Running qmd update at $(date)..."
+        qmd update 2>/dev/null || echo "[qmd-indexer] Update completed with warnings at $(date)."
+      done
+    ) &
+
+    # Loop 2: Embed 30 minutes after start, then daily at 01:00
+    (
+      echo "[qmd-indexer] Waiting 30 minutes for initial embed..."
+      sleep 1800
+
+      echo "[qmd-indexer] Running initial qmd embed at $(date)..."
+      qmd embed 2>/dev/null &
+
+      while true; do
+        # Calculate minutes until 01:00
+        current_hour=$(date +%H)
+        current_min=$(date +%M)
+        minutes_until_1am=$(( (24 - current_hour + 1) % 24 * 60 - current_min ))
+        if [ $minutes_until_1am -le 0 ]; then
+          minutes_until_1am=$((minutes_until_1am + 1440))
+        fi
+
+        echo "[qmd-indexer] Next embed at 01:00, sleeping ${minutes_until_1am} minutes..."
+        sleep $((minutes_until_1am * 60))
+
+        echo "[qmd-indexer] Running scheduled qmd embed at $(date)..."
+        qmd embed 2>/dev/null &
+
+        # Wait until next day
+        sleep 86400
+      done
+    ) &
+  else
+    echo "[entrypoint] WARNING: qmd not working properly, skipping indexing setup."
   fi
 else
   echo "[entrypoint] Skipping qmd auto-install (QMD_AUTO_INSTALL=${qmd_auto_install})"
