@@ -54,7 +54,8 @@ export default async function ChatPage() {
       </header>
       <main className="flex-1 min-h-0">
         <CanvasAgentChat 
-          initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY} 
+          initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
+          showSkillsLink={true}
         />
       </main>
     </div>
