@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/app/lib/auth';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
-import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
+
 import SkillsPageClient from './SkillsPageClient';
 
 export const metadata: Metadata = {

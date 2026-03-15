@@ -166,21 +166,21 @@ if (tableNames.has('pi_sessions')) {
   if (!piSessionColumns.has('summary_text')) {
     try {
       sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_text TEXT');
-    } catch (e) {
+    } catch {
       // Column might already exist, ignore
     }
   }
   if (!piSessionColumns.has('summary_updated_at')) {
     try {
       sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_updated_at INTEGER');
-    } catch (e) {
+    } catch {
       // Column might already exist, ignore
     }
   }
   if (!piSessionColumns.has('summary_through_timestamp')) {
     try {
       sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_through_timestamp INTEGER');
-    } catch (e) {
+    } catch {
       // Column might already exist, ignore
     }
   }
@@ -193,7 +193,7 @@ if (tableNames.has('automation_jobs')) {
   if (!automationJobColumns.has('target_output_path')) {
     try {
       sqlite.exec('ALTER TABLE automation_jobs ADD COLUMN target_output_path TEXT');
-    } catch (e) {
+    } catch {
       // Column might already exist, ignore
     }
   }
@@ -206,14 +206,14 @@ if (tableNames.has('automation_runs')) {
   if (!automationRunColumns.has('target_output_path')) {
     try {
       sqlite.exec('ALTER TABLE automation_runs ADD COLUMN target_output_path TEXT');
-    } catch (e) {
+    } catch {
       // Column might already exist, ignore
     }
   }
   if (!automationRunColumns.has('effective_target_output_path')) {
     try {
       sqlite.exec('ALTER TABLE automation_runs ADD COLUMN effective_target_output_path TEXT');
-    } catch (e) {
+    } catch {
       // Column might already exist, ignore
     }
   }

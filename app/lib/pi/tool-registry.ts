@@ -6,7 +6,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
 import path from 'path';
-import { createSkillDirectory, skillExists, validateSkillByName } from '../skills/skill-loader';
+
 
 const execAsync = promisify(exec);
 

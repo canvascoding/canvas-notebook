@@ -319,7 +319,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
-  const [showVisionWarning, setShowVisionWarning] = useState(false);
+
 
   // @-mention file picker state
   const [showFilePicker, setShowFilePicker] = useState(false);
@@ -997,6 +997,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     };
 
     void autoLoadLastSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const processMessage = useCallback(async ({ id, text, attachments: currentAttachments }: QueuedMessage) => {
