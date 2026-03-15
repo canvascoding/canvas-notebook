@@ -6,6 +6,7 @@ import { db } from '@/app/lib/db';
 import { automationJobs, automationRuns } from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 
+import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import {
   type AutomationJobRecord,
@@ -66,9 +67,28 @@ function normalizeWorkspaceContextPaths(value: unknown): string[] {
   return Array.from(new Set(paths));
 }
 
+function normalizeTargetOutputPath(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error('Target output path must be a string.');
+  }
+
+  const normalized = value.trim().replace(/^\/+/, '').replace(/^\.\/+/, '').replace(/\/+$/, '');
+  if (!normalized) {
+    return null;
+  }
+
+  validatePath(normalized);
+  return normalized;
+}
+
 function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord {
   const schedule = JSON.parse(row.scheduleConfigJson) as FriendlySchedule;
   const workspaceContextPaths = JSON.parse(row.workspaceContextPathsJson) as string[];
+  const targetOutputPath = row.targetOutputPath;
 
   return {
     id: row.id,
@@ -77,6 +97,8 @@ function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord
     prompt: row.prompt,
     preferredSkill: row.preferredSkill as AutomationPreferredSkill,
     workspaceContextPaths,
+    targetOutputPath,
+    effectiveTargetOutputPath: getEffectiveAutomationTargetOutputPath({ name: row.name, targetOutputPath }),
     schedule,
     timeZone: row.timeZone,
     nextRunAt: toIsoString(row.nextRunAt),
@@ -99,6 +121,8 @@ function mapRunRow(row: typeof automationRuns.$inferSelect): AutomationRunRecord
     finishedAt: toIsoString(row.finishedAt),
     attemptNumber: row.attemptNumber,
     outputDir: row.outputDir,
+    targetOutputPath: row.targetOutputPath,
+    effectiveTargetOutputPath: row.effectiveTargetOutputPath,
     logPath: row.logPath,
     resultPath: row.resultPath,
     errorMessage: row.errorMessage,
@@ -148,6 +172,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
   const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
   const preferredSkill = normalizePreferredSkill(input.preferredSkill);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
+  const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const { schedule, error } = validateFriendlySchedule(input.schedule);
   if (!schedule || error) {
     throw new Error(error || 'Schedule is invalid.');
@@ -166,6 +191,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
       prompt,
       preferredSkill,
       workspaceContextPathsJson: JSON.stringify(workspaceContextPaths),
+      targetOutputPath,
       scheduleKind: schedule.kind,
       scheduleConfigJson: JSON.stringify(schedule),
       timeZone: schedule.timeZone,
@@ -210,6 +236,9 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
       workspaceContextPathsJson: input.workspaceContextPaths
         ? JSON.stringify(normalizeWorkspaceContextPaths(input.workspaceContextPaths))
         : existing.workspaceContextPathsJson,
+      targetOutputPath: input.targetOutputPath === undefined
+        ? existing.targetOutputPath
+        : normalizeTargetOutputPath(input.targetOutputPath),
       status,
       scheduleKind: schedule.kind,
       scheduleConfigJson: JSON.stringify(schedule),
@@ -255,6 +284,8 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
       finishedAt: null,
       attemptNumber: 1,
       outputDir: null,
+      targetOutputPath: null,
+      effectiveTargetOutputPath: null,
       logPath: null,
       resultPath: null,
       errorMessage: null,
@@ -334,6 +365,8 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
       finishedAt: null,
       attemptNumber: 1,
       outputDir: null,
+      targetOutputPath: null,
+      effectiveTargetOutputPath: null,
       logPath: null,
       resultPath: null,
       errorMessage: null,
@@ -374,7 +407,14 @@ export async function advanceAutomationJobSchedule(jobId: string, anchor = new D
 
 export async function markAutomationRunStarted(
   runId: string,
-  values: { outputDir: string; logPath: string; resultPath: string; piSessionId: string },
+  values: {
+    outputDir: string;
+    targetOutputPath: string | null;
+    effectiveTargetOutputPath: string;
+    logPath: string;
+    resultPath: string;
+    piSessionId: string;
+  },
 ): Promise<AutomationRunRecord | null> {
   const [updated] = await db
     .update(automationRuns)
@@ -383,6 +423,8 @@ export async function markAutomationRunStarted(
       startedAt: new Date(),
       finishedAt: null,
       outputDir: values.outputDir,
+      targetOutputPath: values.targetOutputPath,
+      effectiveTargetOutputPath: values.effectiveTargetOutputPath,
       logPath: values.logPath,
       resultPath: values.resultPath,
       errorMessage: null,

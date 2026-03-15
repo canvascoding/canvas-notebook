@@ -2,8 +2,8 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T11:29:15+01:00",
-  "status": "completed",
+  "lastUpdatedAt": "2026-03-15T12:10:00+01:00",
+  "status": "in_progress",
   "decisions": {
     "engineStrategy": "pi-first",
     "primaryLibraries": [
@@ -830,14 +830,58 @@
       ]
     },
     {
-      "id": "skills-ui-001",
+      "id": "automation-007",
+      "order": 76,
+      "phase": "P13 Automationen",
+      "title": "Persist optional automation target output path and expose effective output folders",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "automation-006"
+      ],
+      "description": "Extended automation jobs and runs with configurable target output paths, added default/effective output path resolution, and updated the runner prompt plus run metadata so deliverables target the configured workspace folder while run artefacts stay under automationen/<job>/runs/."
+    },
+    {
+      "id": "automation-008",
       "order": 77,
+      "phase": "P13 Automationen",
+      "title": "Add target output path UI with workspace folder picker and split run output display",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "automation-007"
+      ]
+    },
+    {
+      "id": "automation-009",
+      "order": 78,
+      "phase": "P13 Automationen",
+      "title": "Cover target output path behavior with tests and deployment documentation",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "automation-008"
+      ]
+    },
+    {
+      "id": "qmd-001",
+      "order": 79,
+      "phase": "P14 Search Infrastructure",
+      "title": "Implement qmd background indexing for workspace search",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [],
+      "description": "Added qmd (Quick Markdown Search) integration with automatic background indexing. Includes: Bun and qmd installation in entrypoint, workspace collection setup with all file types (**/*), background loops for update (every 30 min) and embed (30 min after start, then daily at 01:00), logging with timestamps. Uses embeddinggemma-300M-Q8_0 model (~300MB) for semantic search."
+    },
+    {
+      "id": "skills-ui-001",
+      "order": 80,
       "phase": "P15 UI Hotfix",
       "title": "Fix /skills docs modal viewport layout and scrolling on desktop and mobile",
       "status": "completed",
       "priority": "must",
       "dependsOn": [
-        "automation-006"
+        "qmd-001"
       ],
       "description": "Added a viewport-based dialog layout mode, moved the skill docs popup to a height-bounded scrollable layout, fixed responsive desktop/mobile sizing, removed the duplicate close button, and added Playwright regression coverage for viewport fit and scroll behavior."
     }

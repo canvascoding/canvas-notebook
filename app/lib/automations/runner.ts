@@ -11,6 +11,8 @@ import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { savePiSession } from '@/app/lib/pi/session-store';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 
+import { getEffectiveAutomationTargetOutputPath, slugifyAutomationName } from './paths';
+import { buildAutomationPrompt } from './prompt';
 import {
   getAutomationJob,
   getAutomationRun,
@@ -22,32 +24,6 @@ import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
-
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'automation';
-}
-
-function buildPrompt(job: AutomationJobRecord): string {
-  const sections = [
-    `Automation name: ${job.name}`,
-    `Preferred skill hint: ${job.preferredSkill}`,
-  ];
-
-  if (job.workspaceContextPaths.length > 0) {
-    sections.push(`Relevant workspace paths:\n${job.workspaceContextPaths.map((entry) => `- ${entry}`).join('\n')}`);
-  } else {
-    sections.push('Relevant workspace paths:\n- none selected');
-  }
-
-  sections.push(`Task:\n${job.prompt}`);
-  sections.push('Use workspace-relative file operations. Read the listed paths when relevant instead of assuming their contents.');
-
-  return sections.join('\n\n');
-}
 
 function extractAssistantText(messages: AgentMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -86,7 +62,7 @@ function getAssistantError(messages: AgentMessage[]): string | null {
 
 function buildOutputPaths(job: AutomationJobRecord, run: AutomationRunRecord) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const outputDir = path.posix.join('automationen', slugify(job.name), 'runs', `${timestamp}-${run.id}`);
+  const outputDir = path.posix.join('automationen', slugifyAutomationName(job.name), 'runs', `${timestamp}-${run.id}`);
 
   return {
     outputDir,
@@ -139,15 +115,26 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   }
 
   const outputPaths = buildOutputPaths(job, run);
+  const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
   await createDirectory(outputPaths.outputDir);
+  await createDirectory(effectiveTargetOutputPath);
 
-  const promptText = buildPrompt(job);
+  const promptText = buildAutomationPrompt({
+    name: job.name,
+    preferredSkill: job.preferredSkill,
+    workspaceContextPaths: job.workspaceContextPaths,
+    prompt: job.prompt,
+    effectiveTargetOutputPath,
+    runArtifactDir: outputPaths.outputDir,
+  });
   await writeFile(outputPaths.promptPath, promptText);
   await writeFile(outputPaths.logPath, '');
 
   const piSessionId = `automation-${job.id}-${run.id}`;
   const startedRun = await markAutomationRunStarted(run.id, {
     outputDir: outputPaths.outputDir,
+    targetOutputPath: job.targetOutputPath,
+    effectiveTargetOutputPath,
     logPath: outputPaths.logPath,
     resultPath: outputPaths.resultPath,
     piSessionId,
@@ -205,6 +192,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       provider,
       model: model.id,
       status: 'success',
+      targetOutputPath: job.targetOutputPath,
+      effectiveTargetOutputPath,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Automation run failed.';
@@ -222,6 +211,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         status: 'retry_scheduled',
         retryAt: retryAt.toISOString(),
         error: message,
+        targetOutputPath: job.targetOutputPath,
+        effectiveTargetOutputPath,
       });
       return;
     }
@@ -232,6 +223,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       model: model.id,
       status: 'failed',
       error: message,
+      targetOutputPath: job.targetOutputPath,
+      effectiveTargetOutputPath,
     });
   }
 }
