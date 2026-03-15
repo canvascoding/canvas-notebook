@@ -49,9 +49,11 @@ function DialogOverlay({
 function DialogContent({
   className,
   children,
+  layout = "centered",
   showCloseButton = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  layout?: "centered" | "viewport"
   showCloseButton?: boolean
 }) {
   return (
@@ -60,7 +62,10 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed z-50 gap-4 shadow-lg duration-200 outline-none",
+          layout === "centered"
+            ? "top-[50%] left-[50%] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-lg border p-6 sm:max-w-lg"
+            : "inset-0 flex h-[100dvh] min-h-0 w-screen max-w-none flex-col overflow-hidden rounded-none border-0 p-0 sm:inset-4 sm:h-auto sm:w-auto sm:rounded-lg sm:border sm:max-h-[calc(100dvh-2rem)] md:inset-6 md:max-h-[calc(100dvh-3rem)] lg:inset-8 lg:max-h-[calc(100dvh-4rem)]",
           className
         )}
         {...props}
