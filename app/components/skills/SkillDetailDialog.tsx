@@ -55,7 +55,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="fixed inset-4 w-auto h-auto max-w-none max-h-none p-0 overflow-hidden flex flex-col bg-background border rounded-lg shadow-2xl">
+      <DialogContent className="w-[95vw] h-[95vh] max-w-none p-0 overflow-hidden flex flex-col">
         {/* Header */}
         <DialogHeader className="flex-shrink-0 border-b bg-muted/50 px-6 py-4">
           <div className="flex items-center justify-between">

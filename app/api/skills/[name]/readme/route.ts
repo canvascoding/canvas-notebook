@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { headers } from 'next/headers';
 
 // Dynamically determine skills directory from WORKSPACE_DIR
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/data/workspace';
@@ -11,12 +12,12 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ name: string }> }
 ) {
-  const session = await auth.api.getSession({ headers: new Headers() });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
   try {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { name } = await params;
     const readmePath = path.join(SKILLS_DIR, name, 'README.md');
     
