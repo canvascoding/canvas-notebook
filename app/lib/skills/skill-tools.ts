@@ -4,7 +4,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
 import { SkillManifest, manifestParamsToTypeBox } from './skill-manifest';
-import { loadSkillsFromDisk } from './skill-loader';
+import { loadSkillsFromDisk, getSkillsDir } from './skill-loader';
 
 const execAsync = promisify(exec);
 
@@ -44,7 +44,8 @@ function createToolFromManifest(manifest: SkillManifest): AgentTool {
         
         if (manifest.handler.type === 'cli') {
           // Build CLI command
-          let cmd = manifest.handler.command || `/data/skills/${manifest.name}/run`;
+          const skillsDir = getSkillsDir();
+          let cmd = manifest.handler.command || `${skillsDir}/${manifest.name}/run`;
           
           // Add parameters as arguments
           for (const [key, value] of Object.entries(typedParams)) {
