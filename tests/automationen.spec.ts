@@ -87,6 +87,17 @@ test.describe('Automationen UI', () => {
       .toMatch(/running|success|failed|retry_scheduled/);
 
     await expect(page.getByText('Logs', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('automation-job-list-scroll')).toBeVisible();
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const element = document.querySelector('[data-testid="automation-job-list-scroll"]');
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return Math.round(rect.height);
+        }),
+      )
+      .toBeLessThan(900);
     await expect(page.getByTestId('automation-result-folder')).toHaveText(targetDir);
     await expect(page.getByTestId('automation-artifact-folder')).toBeVisible();
     await expect(page.getByTestId('automation-log-scroll')).toBeVisible();
