@@ -110,11 +110,9 @@ export const SkillManifestSchema = Type.Object({
     description: 'Skill author'
   })),
   created_at: Type.String({
-    format: 'date-time',
     description: 'Creation timestamp (ISO 8601)'
   }),
   updated_at: Type.Optional(Type.String({
-    format: 'date-time',
     description: 'Last update timestamp (ISO 8601)'
   })),
   tool: ToolSchema,
