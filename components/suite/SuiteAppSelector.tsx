@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { ChevronRight, Clapperboard, FileText, Globe, ImageIcon, MessageSquare, NotebookPen, Sparkles, Terminal, Workflow, Wrench } from 'lucide-react';
+import { ChevronRight, Clapperboard, FileText, Globe, HelpCircle, ImageIcon, MessageSquare, NotebookPen, Sparkles, Terminal, Workflow, Wrench } from 'lucide-react';
 
 import { HomeChatPrompt } from '@/app/components/home/HomeChatPrompt';
 import { Button } from '@/components/ui/button';
@@ -70,6 +70,13 @@ const suiteApps: SuiteApp[] = [
     status: 'ready',
     href: '/skills',
     icon: Wrench,
+  },
+  {
+    title: 'Hilfe & Tutorials',
+    description: 'Tutorials, Anleitungen und Hilfe zur Einrichtung.',
+    status: 'ready',
+    href: '/help',
+    icon: HelpCircle,
   },
   {
     title: 'Content Studio',

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, Wrench, BookOpen, Power } from 'lucide-react';
+import { ArrowLeft, Wrench, BookOpen, Power, CheckCircle2, XCircle } from 'lucide-react';
 
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -111,6 +111,55 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
     }
   }
 
+  async function enableAllSkills() {
+    try {
+      const response = await fetch('/api/skills/enable-all', { method: 'POST' });
+      const data = await response.json();
+      
+      if (data.success) {
+        // Enable all skills in local state
+        const allSkillNames = new Set(skills.map(s => s.name));
+        setEnabledSkills(allSkillNames);
+        
+        // Update all skills to enabled
+        setSkills(prev => prev.map(skill => ({ ...skill, enabled: true })));
+        
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          enabled: prev.total,
+          disabled: 0
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to enable all skills:', error);
+    }
+  }
+
+  async function disableAllSkills() {
+    try {
+      const response = await fetch('/api/skills/disable-all', { method: 'POST' });
+      const data = await response.json();
+      
+      if (data.success) {
+        // Clear all enabled skills
+        setEnabledSkills(new Set());
+        
+        // Update all skills to disabled
+        setSkills(prev => prev.map(skill => ({ ...skill, enabled: false })));
+        
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          enabled: 0,
+          disabled: prev.total
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to disable all skills:', error);
+    }
+  }
+
   return (
     <div className="fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-background text-foreground">
       <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
@@ -158,6 +207,30 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
                 <CardTitle className="text-3xl text-muted-foreground">{stats.disabled}</CardTitle>
               </CardHeader>
             </Card>
+          </div>
+
+          {/* Bulk Actions */}
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={enableAllSkills}
+              disabled={stats.enabled === stats.total}
+              className="flex items-center gap-2"
+            >
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              Enable All
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={disableAllSkills}
+              disabled={stats.disabled === stats.total}
+              className="flex items-center gap-2"
+            >
+              <XCircle className="h-4 w-4 text-muted-foreground" />
+              Disable All
+            </Button>
           </div>
 
           {/* Skills Grid */}

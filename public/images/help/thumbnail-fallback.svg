@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="225" viewBox="0 0 400 225" fill="none">
+  <rect width="400" height="225" fill="#f4f4f5"/>
+  <rect x="0.5" y="0.5" width="399" height="224" stroke="#e4e4e7" stroke-dasharray="8 4"/>
+  <circle cx="200" cy="100" r="40" fill="#e4e4e7"/>
+  <text x="200" y="115" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold" fill="#71717a">?</text>
+  <text x="200" y="170" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#a1a1aa">Video coming soon</text>
+</svg>
