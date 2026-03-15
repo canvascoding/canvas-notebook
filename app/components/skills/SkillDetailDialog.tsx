@@ -1,9 +1,11 @@
 'use client';
 
+import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -11,7 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { Terminal, Globe, Loader2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { SkillManifest } from '@/app/lib/skills/skill-manifest';
 
 interface SkillDetailDialogProps {
@@ -19,6 +20,11 @@ interface SkillDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+type MarkdownCodeProps = ComponentPropsWithoutRef<'code'> & {
+  children?: ReactNode;
+  inline?: boolean;
+};
 
 export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDialogProps) {
   const [readme, setReadme] = useState<string>('');
@@ -42,7 +48,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
       } else {
         setError(data.error || 'Failed to load README');
       }
-    } catch (err) {
+    } catch {
       setError('Failed to load README');
     } finally {
       setLoading(false);
@@ -55,9 +61,17 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] h-[95vh] max-w-none p-0 overflow-hidden flex flex-col">
+      <DialogContent
+        layout="viewport"
+        showCloseButton={false}
+        className="flex h-full min-h-0 flex-col overflow-hidden border-0 p-0 sm:border"
+        data-testid="skill-detail-dialog"
+      >
         {/* Header */}
-        <DialogHeader className="flex-shrink-0 border-b bg-muted/50 px-6 py-4">
+        <DialogHeader className="flex-shrink-0 border-b bg-muted/50 px-4 py-4 text-left sm:px-6">
+          <DialogDescription className="sr-only">
+            Details, parameters, and documentation for the selected skill.
+          </DialogDescription>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {skill.type === 'cli' ? (
@@ -80,6 +94,9 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
             </div>
             <button
               onClick={() => onOpenChange(false)}
+              type="button"
+              aria-label="Close skill details"
+              data-testid="skill-detail-close"
               className="p-2 hover:bg-accent rounded-md transition-colors"
             >
               <X className="h-5 w-5" />
@@ -88,8 +105,11 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
         </DialogHeader>
 
         {/* Content - Full height with natural scrolling */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+          data-testid="skill-detail-scroll-area"
+        >
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8">
             {/* Description */}
             <div className="bg-muted/30 rounded-lg p-6">
               <h2 className="text-lg font-semibold mb-3">Description</h2>
@@ -152,22 +172,22 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
               ) : error ? (
                 <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">{error}</div>
               ) : (
-                <div className="prose prose-base dark:prose-invert max-w-none">
+                <div className="prose prose-base max-w-none break-words dark:prose-invert [&_code]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
                   <ReactMarkdown
                     components={{
-                      code({ node, inline, className, children, ...props }: any) {
+                      code({ className, children, inline, ...props }: MarkdownCodeProps) {
                         const match = /language-(\w+)/.exec(className || '');
+
                         return !inline && match ? (
                           <SyntaxHighlighter
-                            style={vscDarkPlus}
                             language={match[1]}
                             PreTag="div"
-                            {...props}
+                            customStyle={{ maxWidth: '100%', overflowX: 'auto' }}
                           >
                             {String(children).replace(/\n$/, '')}
                           </SyntaxHighlighter>
                         ) : (
-                          <code className={className} {...props}>
+                          <code className={`break-words ${className || ''}`.trim()} {...props}>
                             {children}
                           </code>
                         );

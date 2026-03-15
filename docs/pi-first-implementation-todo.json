@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T09:03:43+01:00",
+  "lastUpdatedAt": "2026-03-15T11:29:15+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -828,6 +828,18 @@
       "dependsOn": [
         "automation-005"
       ]
+    },
+    {
+      "id": "skills-ui-001",
+      "order": 77,
+      "phase": "P15 UI Hotfix",
+      "title": "Fix /skills docs modal viewport layout and scrolling on desktop and mobile",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "automation-006"
+      ],
+      "description": "Added a viewport-based dialog layout mode, moved the skill docs popup to a height-bounded scrollable layout, fixed responsive desktop/mobile sizing, removed the duplicate close button, and added Playwright regression coverage for viewport fit and scroll behavior."
     }
   ]
 }
