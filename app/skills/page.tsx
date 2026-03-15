@@ -3,7 +3,9 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { auth } from '@/app/lib/auth';
-import { loadSkillsFromDisk, getSkillStats } from '@/app/lib/skills/skill-loader';
+import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
+import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
+import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 import SkillsPageClient from './SkillsPageClient';
 
 export const metadata: Metadata = {
@@ -21,8 +23,21 @@ export default async function SkillsPage() {
   }
 
   const username = session.user.name || session.user.email;
-  const skills = await loadSkillsFromDisk();
-  const stats = await getSkillStats();
+  
+  // Load enabled skills from config to set correct initial state
+  const piConfig = await readPiRuntimeConfig();
+  const enabledSkills = piConfig.enabledSkills || [];
+  
+  // Pass enabledSkills to loadSkillsFromDisk so skills have correct enabled status from start
+  const skills = await loadSkillsFromDisk(enabledSkills);
+  
+  // Calculate stats based on actual enabled status
+  const enabledCount = skills.filter(s => s.enabled).length;
+  const stats = {
+    total: skills.length,
+    enabled: enabledCount,
+    disabled: skills.length - enabledCount,
+  };
 
   return (
     <SkillsPageClient 

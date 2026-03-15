@@ -19,19 +19,19 @@ export async function GET(
     }
 
     const { name } = await params;
-    const readmePath = path.join(SKILLS_DIR, name, 'README.md');
+    const skillMdPath = path.join(SKILLS_DIR, name, 'SKILL.md');
     
-    // Read README file
-    const content = await fs.readFile(readmePath, 'utf-8');
+    // Read SKILL.md file
+    const content = await fs.readFile(skillMdPath, 'utf-8');
     
     return NextResponse.json({
       success: true,
       content,
     });
   } catch (error) {
-    console.error(`[Skills API] Error reading README for skill:`, error);
+    console.error(`[Skills API] Error reading SKILL.md for skill:`, error);
     return NextResponse.json(
-      { success: false, error: 'Failed to read README' },
+      { success: false, error: 'Failed to read SKILL.md' },
       { status: 500 }
     );
   }

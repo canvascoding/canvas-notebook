@@ -8,6 +8,7 @@ mkdir -p /data/pi-oauth-states
 mkdir -p /data/secrets
 mkdir -p /data/skills
 mkdir -p /data/workspace
+mkdir -p /data/temp/skills
 echo "[entrypoint] Data directories ready."
 
 # Copy skills from repo to /data/skills if the directory is empty

@@ -167,3 +167,52 @@
     display: none;
   }
 }
+
+/* Prose table styles for markdown content */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.prose thead {
+  background-color: var(--muted);
+}
+
+.prose th {
+  border: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.prose td {
+  border: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  color: var(--foreground);
+}
+
+.prose tr:nth-child(even) {
+  background-color: var(--muted);
+}
+
+.prose tr:hover {
+  background-color: var(--accent);
+}
+
+.prose tbody tr:last-child td {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Ensure tables are responsive */
+.prose .table-wrapper {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.prose table {
+  min-width: 100%;
+}
