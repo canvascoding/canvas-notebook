@@ -145,6 +145,7 @@ export function WorkspaceDirectoryPickerDialog({
                 <button
                   key={directory.path}
                   type="button"
+                  data-testid={`automation-directory-option-${directory.path === '.' ? 'root' : directory.path.replace(/[^a-z0-9]+/gi, '-')}`}
                   className="flex w-full items-center gap-2 rounded-md border border-transparent px-3 py-2 text-left text-sm transition hover:border-primary/30 hover:bg-muted"
                   onClick={() => {
                     onSelect(directory.path === '.' ? '' : directory.path);

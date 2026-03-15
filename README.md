@@ -155,6 +155,7 @@ docker build -t canvas-notebook:local .
 ### Warum `sqlite.db` in `.dockerignore` steht
 `sqlite.db` wird absichtlich **nicht** ins Image eingebaut.
 Die Datenbank liegt zur Laufzeit unter `/data/sqlite.db` und bleibt über ein Volume oder Bind-Mount persistent.
+Der Workspace liegt unter `/data/workspace` und bleibt dort ebenfalls persistent. Automationen verwenden einen internen App-Scheduler; es wird kein Linux-`cron` oder `crontab` im Container installiert oder vorausgesetzt.
 
 ### Container lokal starten (Bind-Mount auf `./data`)
 ```bash

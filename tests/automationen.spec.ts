@@ -36,6 +36,7 @@ test.describe('Automationen UI', () => {
 
   test('creates an automation, queues a run, and shows run history/logs', async ({ page }) => {
     const uniqueName = `PW Automation ${Date.now()}`;
+    const targetDir = `automationen/playwright-target-${Date.now()}`;
 
     await page.goto('/');
     await expect(page.getByText('Automationen', { exact: true })).toBeVisible();
@@ -44,8 +45,15 @@ test.describe('Automationen UI', () => {
     await page.getByTestId('automation-new').click();
 
     await page.getByTestId('automation-name').fill(uniqueName);
-    await page.getByTestId('automation-prompt').fill('Schreibe eine kurze Zusammenfassung der relevanten Dateien in result.md oder antworte knapp, wenn nichts zu tun ist.');
+    await page.getByTestId('automation-prompt').fill(
+      'Schreibe eine kurze Datei summary.txt in den angegebenen Output-Ordner. Falls das nicht klappt, erklaere knapp warum.',
+    );
     await page.getByTestId('automation-context-paths').fill('README.md');
+    await page.getByTestId('automation-target-output-picker').click();
+    await expect(page.getByTestId('automation-directory-picker')).toBeVisible();
+    await page.getByTestId('automation-directory-option-automationen').evaluate((element: HTMLElement) => element.click());
+    await expect(page.getByTestId('automation-target-output-path')).toHaveValue('automationen');
+    await page.getByTestId('automation-target-output-path').fill(targetDir);
     await page.getByTestId('automation-schedule-kind').selectOption('interval');
     await page.getByTestId('automation-interval-every').fill('1');
     await page.getByTestId('automation-save').click();
@@ -72,8 +80,22 @@ test.describe('Automationen UI', () => {
       )
       .toMatch(/running|success|failed|retry_scheduled/);
 
-    const logContent = page.getByTestId('automation-log-content');
-    await expect(logContent).not.toHaveText('Noch kein Log vorhanden.', { timeout: 45000 });
+    await expect(page.getByText('Logs', { exact: true })).toBeVisible();
+    await expect(page.getByText(targetDir)).toBeVisible();
     await expect(page.getByText(/automationen\/.*\/runs\//)).toBeVisible();
+
+    const targetDirectoryExists = await page.evaluate(async (path) => {
+      const response = await fetch(`/api/files/tree?path=${encodeURIComponent(path)}&depth=2&noCache=1`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        return false;
+      }
+      const payload = await response.json();
+      return Boolean(payload.success);
+    }, targetDir);
+
+    expect(targetDirectoryExists).toBe(true);
   });
 });
