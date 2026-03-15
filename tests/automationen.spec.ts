@@ -35,7 +35,7 @@ test.describe('Automationen UI', () => {
   });
 
   test('creates an automation, queues a run, and shows run history/logs', async ({ page }) => {
-    const uniqueName = `PW Automation ${Date.now()} mit einem deutlich laengeren Namen fuer die Uebersichts-Karte`;
+    const uniqueName = `PW Automation ${Date.now()} mit langem Titel fuer Overflow-Test`;
     const targetDir = `automationen/playwright-target-${Date.now()}`;
 
     await page.goto('/');
@@ -51,6 +51,9 @@ test.describe('Automationen UI', () => {
     await page.getByTestId('automation-context-paths').fill('README.md');
     await page.getByTestId('automation-target-output-picker').click();
     await expect(page.getByTestId('automation-directory-picker')).toBeVisible();
+    await expect(page.getByTestId('automation-directory-option-image-generation-assets')).toHaveCount(0);
+    await page.getByTestId('automation-directory-toggle-image-generation').click();
+    await expect(page.getByTestId('automation-directory-option-image-generation-assets')).toBeVisible();
     await page.getByTestId('automation-directory-option-automationen').evaluate((element: HTMLElement) => element.click());
     await expect(page.getByTestId('automation-target-output-path')).toHaveValue('automationen');
     await page.getByTestId('automation-target-output-path').fill(targetDir);

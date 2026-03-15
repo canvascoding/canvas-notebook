@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, Folder, Loader2, RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 type FileNode = {
   name: string;
@@ -21,27 +23,38 @@ type FileNode = {
   children?: FileNode[];
 };
 
-type DirectoryOption = {
-  path: string;
-  label: string;
-};
-
-function collectExpandedPaths(nodes: FileNode[], paths = new Set<string>(), depth = 0): Set<string> {
+function collectExpandedPaths(nodes: FileNode[], paths = new Set<string>()): Set<string> {
   for (const node of nodes) {
     if (node.type !== 'directory') {
       continue;
     }
 
-    if (depth < 2) {
-      paths.add(node.path);
-    }
+    paths.add(node.path);
 
     if (node.children?.length) {
-      collectExpandedPaths(node.children, paths, depth + 1);
+      collectExpandedPaths(node.children, paths);
     }
   }
 
   return paths;
+}
+
+function collectAncestorPaths(path: string | undefined): Set<string> {
+  if (!path) {
+    return new Set();
+  }
+
+  const normalized = path.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!normalized) {
+    return new Set();
+  }
+
+  const segments = normalized.split('/');
+  const ancestors = new Set<string>();
+  for (let index = 1; index < segments.length; index += 1) {
+    ancestors.add(segments.slice(0, index).join('/'));
+  }
+  return ancestors;
 }
 
 function filterDirectoryTree(nodes: FileNode[], query: string): FileNode[] {
@@ -92,7 +105,7 @@ export function WorkspaceDirectoryPickerDialog({
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(['.']));
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
 
   async function loadDirectories() {
     setIsLoading(true);
@@ -110,7 +123,6 @@ export function WorkspaceDirectoryPickerDialog({
 
       const nextDirectories = (payload.data || []).filter((node: FileNode) => node.type === 'directory');
       setDirectories(nextDirectories);
-      setExpandedPaths(collectExpandedPaths(nextDirectories));
     } catch (loadError) {
       setDirectories([]);
       setError(loadError instanceof Error ? loadError.message : 'Ordner konnten nicht geladen werden.');
@@ -125,12 +137,23 @@ export function WorkspaceDirectoryPickerDialog({
       return;
     }
 
+    setExpandedPaths(collectAncestorPaths(selectedPath));
     void loadDirectories();
-  }, [open]);
+  }, [open, selectedPath]);
 
   const filteredDirectories = useMemo(() => {
     return filterDirectoryTree(directories, search.trim());
   }, [directories, search]);
+
+  const visibleExpandedPaths = useMemo(() => {
+    if (!search.trim()) {
+      return expandedPaths;
+    }
+
+    const next = new Set(expandedPaths);
+    collectExpandedPaths(filteredDirectories, next);
+    return next;
+  }, [expandedPaths, filteredDirectories, search]);
 
   function toggleExpanded(path: string) {
     setExpandedPaths((current) => {
@@ -147,32 +170,52 @@ export function WorkspaceDirectoryPickerDialog({
   function renderDirectoryNodes(nodes: FileNode[], depth = 0): ReactNode {
     return nodes.map((directory) => {
       const hasChildren = Boolean(directory.children?.length);
-      const isExpanded = expandedPaths.has(directory.path);
+      const isExpanded = visibleExpandedPaths.has(directory.path);
       const isSelected = (selectedPath || '') === (directory.path === '.' ? '' : directory.path);
       const label = buildDirectoryLabel(directory.path);
 
       return (
-        <div key={directory.path} className="space-y-1">
+        <Collapsible
+          key={directory.path}
+          open={hasChildren ? isExpanded : false}
+          onOpenChange={(open) => {
+            if (!hasChildren) return;
+            setExpandedPaths((current) => {
+              const next = new Set(current);
+              if (open) {
+                next.add(directory.path);
+              } else {
+                next.delete(directory.path);
+              }
+              return next;
+            });
+          }}
+          className="space-y-1"
+        >
           <div
-            className={`flex min-w-0 items-center gap-2 rounded-md border px-2 py-2 ${
-              isSelected ? 'border-primary bg-primary/5' : 'border-transparent bg-background'
-            }`}
+            className={cn(
+              'flex min-w-0 items-center gap-2 rounded-md border px-2 py-2',
+              isSelected ? 'border-primary bg-primary/5' : 'border-transparent bg-background',
+            )}
             style={{ marginLeft: `${depth * 12}px` }}
           >
-            <button
+            <CollapsibleTrigger
               type="button"
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border ${
-                hasChildren ? 'border-border text-foreground hover:bg-muted' : 'border-transparent text-muted-foreground'
-              }`}
-              onClick={() => {
-                if (hasChildren) {
-                  toggleExpanded(directory.path);
-                }
-              }}
+              data-testid={`automation-directory-toggle-${directory.path.replace(/[^a-z0-9]+/gi, '-')}`}
+              className={cn(
+                'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border',
+                hasChildren ? 'border-border text-foreground hover:bg-muted' : 'pointer-events-none border-transparent text-muted-foreground',
+              )}
               aria-label={hasChildren ? 'Ordner auf- oder zuklappen' : 'Keine Unterordner'}
             >
-              <ChevronRight className={`h-4 w-4 transition ${isExpanded ? 'rotate-90' : ''} ${hasChildren ? '' : 'opacity-30'}`} />
-            </button>
+              <ChevronRight
+                className={cn(
+                  'h-4 w-4 transition',
+                  hasChildren ? '' : 'opacity-30',
+                  isExpanded ? 'rotate-90' : '',
+                )}
+              />
+            </CollapsibleTrigger>
             <button
               type="button"
               data-testid={`automation-directory-option-${directory.path === '.' ? 'root' : directory.path.replace(/[^a-z0-9]+/gi, '-')}`}
@@ -187,8 +230,12 @@ export function WorkspaceDirectoryPickerDialog({
             </button>
           </div>
 
-          {hasChildren && isExpanded ? renderDirectoryNodes(directory.children || [], depth + 1) : null}
-        </div>
+          {hasChildren && (isExpanded || search.trim().length > 0) ? (
+            <CollapsibleContent forceMount>
+              {renderDirectoryNodes(directory.children || [], depth + 1)}
+            </CollapsibleContent>
+          ) : null}
+        </Collapsible>
       );
     });
   }
@@ -199,7 +246,7 @@ export function WorkspaceDirectoryPickerDialog({
         <DialogHeader>
           <DialogTitle>Ordner im Workspace wählen</DialogTitle>
           <DialogDescription>
-            Wähle einen bestehenden Basisordner im Workspace-Inspector. Du kannst den Pfad danach bei Bedarf noch verfeinern.
+            Wähle einen bestehenden Basisordner im Workspace-Inspector. Der Tree startet standardmäßig eingeklappt.
           </DialogDescription>
         </DialogHeader>
 

@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T13:22:00+01:00",
+  "lastUpdatedAt": "2026-03-15T13:43:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -890,8 +890,20 @@
       "description": "Expanded the target output path section with a larger textarea, clearer default/effective path presentation, stable folder-path output markers, and a hierarchical workspace folder inspector picker."
     },
     {
-      "id": "qmd-001",
+      "id": "automation-012",
       "order": 81,
+      "phase": "P13 Automationen",
+      "title": "Refine workspace folder picker popup with shadcn collapsibles and collapsed default tree",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "automation-011"
+      ],
+      "description": "Reworked the workspace folder picker popup to use shadcn collapsibles for the tree rows, kept the inspector layout, and changed the default state so directories start collapsed unless needed for the current selection or active search."
+    },
+    {
+      "id": "qmd-001",
+      "order": 82,
       "phase": "P14 Search Infrastructure",
       "title": "Implement qmd background indexing for workspace search",
       "status": "completed",
@@ -901,7 +913,7 @@
     },
     {
       "id": "skills-ui-001",
-      "order": 82,
+      "order": 83,
       "phase": "P15 UI Hotfix",
       "title": "Fix /skills docs modal viewport layout and scrolling on desktop and mobile",
       "status": "completed",
