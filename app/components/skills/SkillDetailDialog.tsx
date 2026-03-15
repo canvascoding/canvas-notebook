@@ -126,7 +126,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
               ) : error ? (
                 <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">{error}</div>
               ) : (
-                <div className="prose prose-base max-w-none break-words dark:prose-invert [&_code]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre">
+                <div className="prose prose-lg max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-3xl prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-4 prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-3 prose-p:leading-relaxed prose-p:mb-4 prose-li:mb-2 prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:p-4 prose-pre:my-4 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-sm">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm, remarkFrontmatter]}
                     components={{
@@ -137,7 +137,13 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
                           <SyntaxHighlighter
                             language={match[1]}
                             PreTag="div"
-                            customStyle={{ maxWidth: '100%', overflowX: 'auto' }}
+                            customStyle={{
+                              maxWidth: '100%',
+                              overflowX: 'auto',
+                              background: 'transparent',
+                              padding: 0,
+                              margin: 0
+                            }}
                           >
                             {String(children).replace(/\n$/, '')}
                           </SyntaxHighlighter>

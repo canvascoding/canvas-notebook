@@ -1,7 +1,11 @@
 'use client';
 
+import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { X } from 'lucide-react';
 import Link from 'next/link';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import remarkGfm from 'remark-gfm';
 
 import {
   Dialog,
@@ -18,6 +22,11 @@ interface HelpDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+type MarkdownCodeProps = ComponentPropsWithoutRef<'code'> & {
+  children?: ReactNode;
+  inline?: boolean;
+};
 
 export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
   if (!tutorial) return null;
@@ -57,7 +66,7 @@ export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8">
             {/* Video */}
             {tutorial.videoUrl && (
-              <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted">
+              <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted shadow-sm">
                 <iframe
                   src={tutorial.videoUrl}
                   title={`${tutorial.title} Video`}
@@ -69,35 +78,42 @@ export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
             )}
 
             {/* Content */}
-            <div className="prose prose-base max-w-none dark:prose-invert">
-              <div className="whitespace-pre-wrap text-foreground">
-                {tutorial.content.split('\n').map((line, index) => {
-                  if (line.startsWith('## ')) {
-                    return <h2 key={index} className="text-xl font-bold mt-6 mb-3">{line.replace('## ', '')}</h2>;
-                  }
-                  if (line.startsWith('### ')) {
-                    return <h3 key={index} className="text-lg font-semibold mt-4 mb-2">{line.replace('### ', '')}</h3>;
-                  }
-                  if (line.startsWith('- ')) {
-                    return <li key={index} className="ml-4 mb-1">{line.replace('- ', '')}</li>;
-                  }
-                  if (line.startsWith('1. ') || line.startsWith('2. ') || line.startsWith('3. ') || line.startsWith('4. ')) {
-                    return <li key={index} className="ml-4 mb-1">{line.substring(3)}</li>;
-                  }
-                  if (line.startsWith('```')) {
-                    return null;
-                  }
-                  if (line.trim() === '') {
-                    return <div key={index} className="h-2" />;
-                  }
-                  return <p key={index} className="mb-2">{line}</p>;
-                })}
-              </div>
+            <div className="prose prose-lg max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-3xl prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-4 prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-3 prose-p:leading-relaxed prose-p:mb-4 prose-li:mb-2 prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:p-4 prose-pre:my-4 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-sm">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code({ className, children, inline, ...props }: MarkdownCodeProps) {
+                    const match = /language-(\w+)/.exec(className || '');
+
+                    return !inline && match ? (
+                      <SyntaxHighlighter
+                        language={match[1]}
+                        PreTag="div"
+                        customStyle={{ 
+                          maxWidth: '100%', 
+                          overflowX: 'auto',
+                          background: 'transparent',
+                          padding: 0,
+                          margin: 0
+                        }}
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
+                    ) : (
+                      <code className={`break-words ${className || ''}`.trim()} {...props}>
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              >
+                {tutorial.content}
+              </ReactMarkdown>
             </div>
 
             {/* Links */}
             {tutorial.links.length > 0 && (
-              <div className="border-t pt-6">
+              <div className="border-t pt-6 mt-4">
                 <p className="text-sm font-medium text-muted-foreground mb-3">
                   Weitere Aktionen
                 </p>
