@@ -35,7 +35,7 @@ test.describe('Automationen UI', () => {
   });
 
   test('creates an automation, queues a run, and shows run history/logs', async ({ page }) => {
-    const uniqueName = `PW Automation ${Date.now()}`;
+    const uniqueName = `PW Automation ${Date.now()} mit einem deutlich laengeren Namen fuer die Uebersichts-Karte`;
     const targetDir = `automationen/playwright-target-${Date.now()}`;
 
     await page.goto('/');
@@ -60,6 +60,9 @@ test.describe('Automationen UI', () => {
 
     await expect(page.getByTestId('automation-job-list')).toContainText(uniqueName, { timeout: 15000 });
     await expect(page.getByTestId('automation-run-now')).toBeEnabled();
+    await expect
+      .poll(async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
+      .toBe(true);
 
     await page.getByTestId('automation-run-now').click();
     await expect(page.getByText('Lauf eingeplant.')).toBeVisible({ timeout: 15000 });
@@ -81,8 +84,8 @@ test.describe('Automationen UI', () => {
       .toMatch(/running|success|failed|retry_scheduled/);
 
     await expect(page.getByText('Logs', { exact: true })).toBeVisible();
-    await expect(page.getByText(targetDir)).toBeVisible();
-    await expect(page.getByText(/automationen\/.*\/runs\//)).toBeVisible();
+    await expect(page.getByTestId('automation-result-folder')).toHaveText(targetDir);
+    await expect(page.getByTestId('automation-artifact-folder')).toBeVisible();
 
     const targetDirectoryExists = await page.evaluate(async (path) => {
       const response = await fetch(`/api/files/tree?path=${encodeURIComponent(path)}&depth=2&noCache=1`, {

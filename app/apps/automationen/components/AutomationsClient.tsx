@@ -392,13 +392,13 @@ export function AutomationsClient() {
         </CardHeader>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_380px]">
-        <Card className="min-h-[620px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,380px)]">
+        <Card className="min-h-[620px] min-w-0 overflow-hidden">
           <CardHeader className="border-b">
             <CardTitle className="text-base">Übersicht</CardTitle>
             <CardDescription>Alle aktiven und pausierten Automationen.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-1 flex-col gap-3">
+          <CardContent className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden">
             <div className="flex gap-2">
               <Button
                 variant="secondary"
@@ -420,7 +420,7 @@ export function AutomationsClient() {
               </Button>
             </div>
 
-            <div className="space-y-2" data-testid="automation-job-list">
+            <div className="min-w-0 space-y-2 overflow-x-hidden" data-testid="automation-job-list">
               {isLoadingJobs && jobs.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -435,7 +435,7 @@ export function AutomationsClient() {
                   <button
                     key={job.id}
                     type="button"
-                    className={`w-full rounded-lg border p-3 text-left transition ${
+                    className={`w-full min-w-0 overflow-hidden rounded-lg border p-3 text-left transition ${
                       selectedJobId === job.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
                     }`}
                     onClick={() => {
@@ -444,22 +444,22 @@ export function AutomationsClient() {
                     }}
                     data-testid={`automation-job-${job.id}`}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium">{job.name}</p>
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{job.prompt}</p>
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words font-medium">{job.name}</p>
+                        <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{job.prompt}</p>
                       </div>
                       <span
-                        className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                        className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
                           job.status === 'active' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
                         }`}
                       >
                         {job.status === 'active' ? 'aktiv' : 'pausiert'}
                       </span>
                     </div>
-                    <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                      <p>{describeFriendlySchedule(job.schedule)}</p>
-                      <p>Nächster Lauf: {formatDateTime(job.nextRunAt)}</p>
+                    <div className="mt-3 min-w-0 space-y-1 text-xs text-muted-foreground">
+                      <p className="break-words">{describeFriendlySchedule(job.schedule)}</p>
+                      <p className="break-words">Nächster Lauf: {formatDateTime(job.nextRunAt)}</p>
                       <p>Letzter Status: {job.lastRunStatus || 'noch keiner'}</p>
                     </div>
                   </button>
@@ -469,12 +469,12 @@ export function AutomationsClient() {
           </CardContent>
         </Card>
 
-        <Card className="min-h-[620px]">
+        <Card className="min-h-[620px] min-w-0 overflow-hidden">
           <CardHeader className="border-b">
             <CardTitle className="text-base">{draft.id ? 'Automation bearbeiten' : 'Neue Automation'}</CardTitle>
             <CardDescription>Nicht technisch formulieren. Der Agent führt den Auftrag später im Workspace aus.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="min-w-0 space-y-4 overflow-hidden">
             <div className="grid gap-4 md:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">Name</span>
@@ -552,38 +552,52 @@ export function AutomationsClient() {
               />
             </label>
 
-            <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
+            <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
                   <p className="text-sm font-medium">Wo sollen die Ergebnisse gespeichert werden?</p>
                   <p className="text-xs text-muted-foreground">
                     Optional. Leer gelassen nutzt die Automation automatisch einen Zielordner pro Job.
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsDirectoryPickerOpen(true)}
-                  data-testid="automation-target-output-picker"
-                >
-                  Im Workspace wählen
-                </Button>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsDirectoryPickerOpen(true)}
+                    data-testid="automation-target-output-picker"
+                  >
+                    Im Workspace wählen
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDraft((current) => ({ ...current, targetOutputPath: '' }))}
+                  >
+                    Standard
+                  </Button>
+                </div>
               </div>
 
-              <input
+              <textarea
                 data-testid="automation-target-output-path"
-                className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
+                className="min-h-[112px] w-full rounded-md border border-input bg-background px-3 py-3 font-mono text-sm"
                 value={draft.targetOutputPath}
                 onChange={(event) => setDraft((current) => ({ ...current, targetOutputPath: event.target.value }))}
                 placeholder={draftDefaultTargetOutputPath}
               />
-              <p className="text-xs text-muted-foreground">
-                Vorschlag: <span className="font-mono">{draftDefaultTargetOutputPath}</span>
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Effektiver Zielordner: <span className="font-mono">{draftEffectiveTargetOutputPath}</span>
-              </p>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-md border border-dashed border-border bg-background/70 p-3">
+                  <p className="text-xs font-medium text-foreground">Vorschlag</p>
+                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{draftDefaultTargetOutputPath}</p>
+                </div>
+                <div className="rounded-md border border-dashed border-border bg-background/70 p-3">
+                  <p className="text-xs font-medium text-foreground">Effektiver Zielordner</p>
+                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{draftEffectiveTargetOutputPath}</p>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
@@ -728,12 +742,12 @@ export function AutomationsClient() {
           </CardContent>
         </Card>
 
-        <Card className="min-h-[620px]">
+        <Card className="min-h-[620px] min-w-0 overflow-hidden">
           <CardHeader className="border-b">
             <CardTitle className="text-base">Laufhistorie</CardTitle>
             <CardDescription>Status, Ergebnisse und Logs der ausgewählten Automation.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="min-w-0 space-y-4 overflow-hidden">
             <div className="space-y-2" data-testid="automation-run-list">
               {isRefreshingRuns && runs.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
@@ -797,7 +811,7 @@ export function AutomationsClient() {
 
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
               <p className="font-medium">Ergebnisordner</p>
-              <p className="break-all font-mono text-xs text-muted-foreground">
+              <p className="break-all font-mono text-xs text-muted-foreground" data-testid="automation-result-folder">
                 {selectedRun?.effectiveTargetOutputPath || selectedJob?.effectiveTargetOutputPath || 'Noch keiner vorhanden.'}
               </p>
               {selectedRun?.targetOutputPath ? (
@@ -813,7 +827,9 @@ export function AutomationsClient() {
 
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
               <p className="font-medium">Run-Artefakte</p>
-              <p className="break-all font-mono text-xs text-muted-foreground">{selectedRun?.outputDir || 'Noch keiner vorhanden.'}</p>
+              <p className="break-all font-mono text-xs text-muted-foreground" data-testid="automation-artifact-folder">
+                {selectedRun?.outputDir || 'Noch keiner vorhanden.'}
+              </p>
               {selectedRun?.resultPath ? (
                 <a
                   href={toMediaUrl(selectedRun.resultPath)}
@@ -835,6 +851,7 @@ export function AutomationsClient() {
       <WorkspaceDirectoryPickerDialog
         open={isDirectoryPickerOpen}
         onOpenChange={setIsDirectoryPickerOpen}
+        selectedPath={draft.targetOutputPath}
         onSelect={(path) => setDraft((current) => ({ ...current, targetOutputPath: path }))}
       />
     </div>
