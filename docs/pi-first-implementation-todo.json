@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T12:40:00+01:00",
+  "lastUpdatedAt": "2026-03-15T13:22:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -866,8 +866,32 @@
       "description": "Added default/effective output path assertions, extended the Automationen Playwright flow for the output path picker and workspace target directory, and documented that automation scheduling stays inside the app while /data/workspace remains the persistent mount for outputs."
     },
     {
-      "id": "qmd-001",
+      "id": "automation-010",
       "order": 79,
+      "phase": "P13 Automationen",
+      "title": "Fix Automationen overview card overflow and width stability",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "automation-009"
+      ],
+      "description": "Added min-width and overflow guards to the Automationen grid and cards, plus wrapping and truncation-safe job list content so long automation names and prompts no longer push the page wider on load."
+    },
+    {
+      "id": "automation-011",
+      "order": 80,
+      "phase": "P13 Automationen",
+      "title": "Improve target output path UX with larger field and folder inspector picker",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "automation-010"
+      ],
+      "description": "Expanded the target output path section with a larger textarea, clearer default/effective path presentation, stable folder-path output markers, and a hierarchical workspace folder inspector picker."
+    },
+    {
+      "id": "qmd-001",
+      "order": 81,
       "phase": "P14 Search Infrastructure",
       "title": "Implement qmd background indexing for workspace search",
       "status": "completed",
@@ -877,7 +901,7 @@
     },
     {
       "id": "skills-ui-001",
-      "order": 80,
+      "order": 82,
       "phase": "P15 UI Hotfix",
       "title": "Fix /skills docs modal viewport layout and scrolling on desktop and mobile",
       "status": "completed",
