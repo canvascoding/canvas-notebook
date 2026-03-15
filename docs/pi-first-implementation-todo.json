@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T14:49:00+01:00",
+  "lastUpdatedAt": "2026-03-15T15:00:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -938,8 +938,20 @@
       "description": "Applied a direct max-height to the automation overview scroll viewport and added a UI assertion so the active/paused job list stays bounded even when the surrounding card layout grows."
     },
     {
-      "id": "qmd-001",
+      "id": "automation-016",
       "order": 85,
+      "phase": "P13 Automationen",
+      "title": "Make the automation log panel collapsible",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "automation-015"
+      ],
+      "description": "Wrapped the log viewer in a shadcn collapsible with an explicit toggle so the right-hand history column can be compressed without losing direct access to the raw log file."
+    },
+    {
+      "id": "qmd-001",
+      "order": 86,
       "phase": "P14 Search Infrastructure",
       "title": "Implement qmd background indexing for workspace search",
       "status": "completed",
@@ -949,7 +961,7 @@
     },
     {
       "id": "skills-ui-001",
-      "order": 86,
+      "order": 87,
       "phase": "P15 UI Hotfix",
       "title": "Fix /skills docs modal viewport layout and scrolling on desktop and mobile",
       "status": "completed",

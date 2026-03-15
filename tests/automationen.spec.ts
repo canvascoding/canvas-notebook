@@ -101,6 +101,10 @@ test.describe('Automationen UI', () => {
     await expect(page.getByTestId('automation-result-folder')).toHaveText(targetDir);
     await expect(page.getByTestId('automation-artifact-folder')).toBeVisible();
     await expect(page.getByTestId('automation-log-scroll')).toBeVisible();
+    await page.getByTestId('automation-log-toggle').click();
+    await expect(page.getByTestId('automation-log-scroll')).toBeHidden();
+    await page.getByTestId('automation-log-toggle').click();
+    await expect(page.getByTestId('automation-log-scroll')).toBeVisible();
 
     const targetDirectoryExists = await page.evaluate(async (path) => {
       const response = await fetch(`/api/files/tree?path=${encodeURIComponent(path)}&depth=2&noCache=1`, {
