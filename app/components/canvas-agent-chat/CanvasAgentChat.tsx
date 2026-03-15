@@ -18,7 +18,9 @@ import {
   Sparkles,
   Wrench,
   File as FileIcon,
+  Lightbulb,
 } from 'lucide-react';
+import Link from 'next/link';
 
 interface Attachment {
   name: string;
@@ -101,6 +103,7 @@ interface CanvasAgentChatProps {
   onClose?: () => void;
   initialPrompt?: string | null;
   initialPromptStorageKey?: string;
+  showSkillsLink?: boolean;
 }
 
 const DEFAULT_MODEL_ID = 'pi';
@@ -304,7 +307,7 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
   );
 }
 
-export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptStorageKey }: CanvasAgentChatProps) {
+export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptStorageKey, showSkillsLink = false }: CanvasAgentChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -968,6 +971,34 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     }
   }, [initialPrompt, initialPromptStorageKey, queueMessage]);
 
+  // Auto-load last session on mount (if no initial prompt)
+  useEffect(() => {
+    // Skip if there's an initial prompt to process
+    if (initialPrompt?.trim()) return;
+    
+    // Skip if there's a stored initial prompt
+    if (initialPromptStorageKey && typeof window !== 'undefined') {
+      const storedData = window.sessionStorage.getItem(initialPromptStorageKey);
+      if (storedData) return;
+    }
+
+    const autoLoadLastSession = async () => {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        if (data.success && data.sessions && data.sessions.length > 0) {
+          // Load the most recent session (first in list, sorted by createdAt DESC)
+          const lastSession = data.sessions[0];
+          await loadSession(lastSession);
+        }
+      } catch (err) {
+        console.error('Failed to auto-load last session', err);
+      }
+    };
+
+    void autoLoadLastSession();
+  }, []);
+
   const processMessage = useCallback(async ({ id, text, attachments: currentAttachments }: QueuedMessage) => {
     setIsProcessing(true);
     setMessages((prev) => prev.map((message) => (message.id === id ? { ...message, status: 'sending' } : message)));
@@ -1150,6 +1181,16 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             <Plus size={18} />
             <span className="hidden text-xs font-bold sm:inline">New</span>
           </button>
+          {showSkillsLink && (
+            <Link
+              href="/skills"
+              className="group flex items-center gap-1.5 border border-border bg-muted/50 p-1.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+              title="View Skills"
+            >
+              <Lightbulb size={18} />
+              <span className="hidden text-xs font-bold sm:inline">Skills</span>
+            </Link>
+          )}
           {onClose && (
             <button onClick={onClose} className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Close Chat">
               <X size={18} />
