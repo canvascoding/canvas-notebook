@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T13:43:00+01:00",
+  "lastUpdatedAt": "2026-03-15T14:11:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -902,8 +902,20 @@
       "description": "Reworked the workspace folder picker popup to use shadcn collapsibles for the tree rows, kept the inspector layout, and changed the default state so directories start collapsed unless needed for the current selection or active search."
     },
     {
-      "id": "qmd-001",
+      "id": "automation-013",
       "order": 82,
+      "phase": "P13 Automationen",
+      "title": "Open automation artifact files inside Notebook app and constrain log section height",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "automation-012"
+      ],
+      "description": "Updated automation log/result links to open inside the Notebook app via /notebook?path=..., wired DashboardShell to auto-load a requested file path into the editor, and wrapped the log output in a fixed-height scroll area so long logs no longer make the page overly tall."
+    },
+    {
+      "id": "qmd-001",
+      "order": 83,
       "phase": "P14 Search Infrastructure",
       "title": "Implement qmd background indexing for workspace search",
       "status": "completed",
@@ -913,7 +925,7 @@
     },
     {
       "id": "skills-ui-001",
-      "order": 83,
+      "order": 84,
       "phase": "P15 UI Hotfix",
       "title": "Fix /skills docs modal viewport layout and scrolling on desktop and mobile",
       "status": "completed",

@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect, type CSSProperties } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, PanelLeft, MessageSquare, X, Terminal as TerminalIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -13,6 +14,7 @@ import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { AppLayout } from '@/app/components/layout/AppLayout';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { useFileStore } from '@/app/store/file-store';
 
 interface DashboardShellProps {
   username: string;
@@ -34,6 +36,7 @@ function clampSidebarWidth(width: number) {
 }
 
 export function DashboardShell({ username }: DashboardShellProps) {
+  const searchParams = useSearchParams();
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -47,6 +50,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
     startX: number;
     startWidth: number;
   } | null>(null);
+  const openedPathRef = useRef<string | null>(null);
 
   useEffect(() => {
     const storedWidth = Number(window.localStorage.getItem('canvas.leftSidebarWidth'));
@@ -58,6 +62,21 @@ export function DashboardShell({ username }: DashboardShellProps) {
   useEffect(() => {
     window.localStorage.setItem('canvas.leftSidebarWidth', String(sidebarWidth));
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    const targetPath = searchParams.get('path');
+    if (!targetPath || openedPathRef.current === targetPath) {
+      return;
+    }
+
+    openedPathRef.current = targetPath;
+    const { loadFile, setCurrentDirectory } = useFileStore.getState();
+    const trimmed = targetPath.replace(/\/+$/, '');
+    const lastSlash = trimmed.lastIndexOf('/');
+    const parentDir = lastSlash > 0 ? trimmed.slice(0, lastSlash) : '.';
+    setCurrentDirectory(parentDir || '.');
+    void loadFile(targetPath, true);
+  }, [searchParams]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;

@@ -2,14 +2,15 @@
 
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { Clock3, Loader2, Play, Plus, RefreshCw, Save, Trash2, WandSparkles } from 'lucide-react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 
 import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
-import { toMediaUrl } from '@/app/lib/utils/media-url';
 import type { AutomationJobRecord, AutomationRunRecord, AutomationPreferredSkill, AutomationWeekday } from '@/app/lib/automations/types';
 import { describeFriendlySchedule } from '@/app/lib/automations/schedule';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automationen/components/WorkspaceDirectoryPickerDialog';
 
 type ScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
@@ -122,6 +123,10 @@ function formatDateTime(value: string | null): string {
   } catch {
     return value;
   }
+}
+
+function toNotebookUrl(filePath: string) {
+  return `/notebook?path=${encodeURIComponent(filePath)}`;
 }
 
 function mapJobToDraft(job: AutomationJobRecord): JobDraft {
@@ -791,22 +796,23 @@ export function AutomationsClient() {
                   <p className="text-xs text-muted-foreground">Rohes Event-Log der ausgewählten Ausführung.</p>
                 </div>
                 {selectedRun?.logPath ? (
-                  <a
-                    href={toMediaUrl(selectedRun.logPath)}
-                    target="_blank"
-                    rel="noreferrer"
+                  <Link
+                    href={toNotebookUrl(selectedRun.logPath)}
+                    data-testid="automation-log-open"
                     className="text-xs font-medium text-primary underline-offset-4 hover:underline"
                   >
                     Log-Datei öffnen
-                  </a>
+                  </Link>
                 ) : null}
               </div>
-              <pre
-                className="max-h-[260px] overflow-auto rounded-md border border-border bg-background p-3 text-xs text-foreground"
-                data-testid="automation-log-content"
-              >
-                {logContent || 'Noch kein Log vorhanden.'}
-              </pre>
+              <ScrollArea className="h-[260px] rounded-md border border-border bg-background" data-testid="automation-log-scroll">
+                <pre
+                  className="min-h-full p-3 text-xs text-foreground"
+                  data-testid="automation-log-content"
+                >
+                  {logContent || 'Noch kein Log vorhanden.'}
+                </pre>
+              </ScrollArea>
             </div>
 
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
@@ -831,14 +837,13 @@ export function AutomationsClient() {
                 {selectedRun?.outputDir || 'Noch keiner vorhanden.'}
               </p>
               {selectedRun?.resultPath ? (
-                <a
-                  href={toMediaUrl(selectedRun.resultPath)}
-                  target="_blank"
-                  rel="noreferrer"
+                <Link
+                  href={toNotebookUrl(selectedRun.resultPath)}
+                  data-testid="automation-result-open"
                   className="text-sm font-medium text-primary underline-offset-4 hover:underline"
                 >
                   Ergebnisdatei öffnen
-                </a>
+                </Link>
               ) : null}
               {selectedRun?.piSessionId ? (
                 <p className="text-xs text-muted-foreground">PI Session: {selectedRun.piSessionId}</p>
