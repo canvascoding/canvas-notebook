@@ -398,12 +398,12 @@ export function AutomationsClient() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,380px)]">
-        <Card className="min-h-[620px] min-w-0 overflow-hidden">
+        <Card className="min-h-[620px] min-w-0 overflow-hidden xl:h-[calc(100vh-220px)] xl:max-h-[calc(100vh-220px)]">
           <CardHeader className="border-b">
             <CardTitle className="text-base">Übersicht</CardTitle>
             <CardDescription>Alle aktiven und pausierten Automationen.</CardDescription>
           </CardHeader>
-          <CardContent className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+          <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
             <div className="flex gap-2">
               <Button
                 variant="secondary"
@@ -425,51 +425,57 @@ export function AutomationsClient() {
               </Button>
             </div>
 
-            <div className="min-w-0 space-y-2 overflow-x-hidden" data-testid="automation-job-list">
-              {isLoadingJobs && jobs.length === 0 ? (
-                <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Lade Automationen...
-                </div>
-              ) : jobs.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
-                  Noch keine Automation angelegt.
-                </div>
-              ) : (
-                jobs.map((job) => (
-                  <button
-                    key={job.id}
-                    type="button"
-                    className={`w-full min-w-0 overflow-hidden rounded-lg border p-3 text-left transition ${
-                      selectedJobId === job.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
-                    }`}
-                    onClick={() => {
-                      setSelectedJobId(job.id);
-                      setDraft(mapJobToDraft(job));
-                    }}
-                    data-testid={`automation-job-${job.id}`}
-                  >
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="break-words font-medium">{job.name}</p>
-                        <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{job.prompt}</p>
+            <div
+              className="flex-1 overflow-y-auto pr-2"
+              data-testid="automation-job-list-scroll"
+              style={{ minHeight: '18rem', maxHeight: '65vh' }}
+            >
+              <div className="min-w-0 space-y-2 overflow-x-hidden pr-1" data-testid="automation-job-list">
+                {isLoadingJobs && jobs.length === 0 ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Lade Automationen...
+                  </div>
+                ) : jobs.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
+                    Noch keine Automation angelegt.
+                  </div>
+                ) : (
+                  jobs.map((job) => (
+                    <button
+                      key={job.id}
+                      type="button"
+                      className={`w-full min-w-0 overflow-hidden rounded-lg border p-3 text-left transition ${
+                        selectedJobId === job.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'
+                      }`}
+                      onClick={() => {
+                        setSelectedJobId(job.id);
+                        setDraft(mapJobToDraft(job));
+                      }}
+                      data-testid={`automation-job-${job.id}`}
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words font-medium">{job.name}</p>
+                          <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{job.prompt}</p>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                            job.status === 'active' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
+                          }`}
+                        >
+                          {job.status === 'active' ? 'aktiv' : 'pausiert'}
+                        </span>
                       </div>
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
-                          job.status === 'active' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        {job.status === 'active' ? 'aktiv' : 'pausiert'}
-                      </span>
-                    </div>
-                    <div className="mt-3 min-w-0 space-y-1 text-xs text-muted-foreground">
-                      <p className="break-words">{describeFriendlySchedule(job.schedule)}</p>
-                      <p className="break-words">Nächster Lauf: {formatDateTime(job.nextRunAt)}</p>
-                      <p>Letzter Status: {job.lastRunStatus || 'noch keiner'}</p>
-                    </div>
-                  </button>
-                ))
-              )}
+                      <div className="mt-3 min-w-0 space-y-1 text-xs text-muted-foreground">
+                        <p className="break-words">{describeFriendlySchedule(job.schedule)}</p>
+                        <p className="break-words">Nächster Lauf: {formatDateTime(job.nextRunAt)}</p>
+                        <p>Letzter Status: {job.lastRunStatus || 'noch keiner'}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
