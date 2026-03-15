@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     image: canvas-notebook:local
     ports:
-      - "3000:3000"
+      - "3456:3000"
     env_file:
       - .env.docker.local
     environment:

@@ -31,42 +31,104 @@ Du läufst auf linux in einem docker container.
 `,
   'TOOLS.md': `# TOOLS
 
-## Skills CLI
+## Verfügbare Skills (Kurzübersicht)
 
-Canvas Notebook hat eine Skills CLI für den Agenten.
+Du hast folgende spezialisierte Tools zur Verfügung:
 
-**Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein.
+### image_generation
+Generiert Bilder mit Gemini. Verwenden wenn der User sagt: "erstelle ein Bild", "generiere ein Foto", "mache ein Bild von..."
 
-### Image Generation
-\`\`\`bash
-image-generation --prompt "..." [--aspect-ratio 1:1] [--count 1] [--ref path/to/ref.png]
-\`\`\`
-Aspect ratios: 16:9, 1:1, 9:16, 4:3, 3:4. Count: 1-4.
-Output: workspace/image-generation/generations/
+### video_generation
+Generiert Videos mit VEO. Verwenden wenn der User sagt: "erstelle ein Video", "generiere ein Video", "mache ein Video von..."
 
-### Video Generation (VEO)
-\`\`\`bash
-video-generation --prompt "..." [--mode text_to_video] [--aspect-ratio 16:9] [--resolution 720p]
-\`\`\`
-Modes: text_to_video, frames_to_video (--start-frame), references_to_video (--ref + --prompt), extend_video (--input-video).
-Output: workspace/veo-studio/video-generation/ - Dauer: 3-10 Minuten.
+### ad_localization
+Lokalisiert Werbeanzeigen. Verwenden wenn der User sagt: "lokalisiere diese Anzeige", "übersetze für Markt...", "passe an für Land..."
 
-### Ad Localization (Nano Banana)
-\`\`\`bash
-ad-localization --ref "nano-banana-ad-localizer/assets/ad.png" --market "Germany" --market "France"
-\`\`\`
-Referenzbild MUSS unter nano-banana-ad-localizer/ liegen. Bis zu 12 Märkte pro Aufruf.
-Output: workspace/nano-banana-ad-localizer/localizations/
+### qmd_search
+Durchsucht Markdown-Notizen. Verwenden wenn der User sagt: "suche in meinen Notizen", "finde verwandte Notizen", "durchsuche meine Markdown-Dateien"
 
-### Antwortformat
-\`{ "success": true, "data": { ... } }\` oder \`{ "success": false, "error": "..." }\`
-"path"-Felder sind workspace-relativ und können mit dem read-Tool geöffnet werden.
+## Wichtige Hinweise
 
-### Skill-Dokumentation
-- /data/skills/README.md
+- **Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein (außer qmd)
+- **API-Skills** (image_generation, video_generation, ad_localization): Geben JSON zurück mit { "success": true, "data": { ... } }
+- **CLI-Skill** (qmd_search): Gibt direkte Text-/JSON-Ausgabe zurück
+- **Output-Verzeichnisse:** Alle Ergebnisse sind workspace-relativ unter /data/workspace
+
+## Detaillierte Dokumentation
+
+Für vollständige Dokumentation, Parameter-Details und Beispiele:
 - /data/skills/image-generation/README.md
 - /data/skills/video-generation/README.md
 - /data/skills/ad-localization/README.md
+- /data/skills/qmd/README.md
+
+## Trigger-Phrasen (Wann welchen Skill verwenden)
+
+**image_generation:**
+- "erstelle ein Bild"
+- "generiere ein Foto"
+- "mache ein Bild von..."
+- "create an image"
+- "generate a picture"
+
+**video_generation:**
+- "erstelle ein Video"
+- "generiere ein Video"
+- "mache ein Video von..."
+- "create a video"
+- "generate a video"
+
+**ad_localization:**
+- "lokalisiere diese Anzeige"
+- "übersetze für Markt..."
+- "passe an für Land..."
+- "localize this ad"
+- "translate for market..."
+
+**qmd_search:**
+- "suche in meinen Notizen"
+- "finde verwandte Notizen"
+- "durchsuche meine Markdown-Dateien"
+- "suche nach ... in meinem Workspace"
+- "search my notes"
+- "find related documents"
+
+## Skill Creator
+
+Du kannst neue Skills erstellen mit dem create_skill Tool. Ein Skill ermöglicht es dir, neue Funktionalitäten für Canvas Notebook hinzuzufügen.
+
+### Wann einen Skill erstellen:
+- Wenn der User eine wiederkehrende Aufgabe automatisieren möchte
+- Wenn eine neue Integration benötigt wird
+- Wenn spezielle Verarbeitung für bestimmte Dateitypen nötig ist
+
+### Parameter für create_skill:
+- **name**: Eindeutiger Name (kebab-case, z.B. "text-to-speech")
+- **title**: Menschenlesbarer Titel (z.B. "Text zu Sprache")
+- **description**: Beschreibung mit Trigger-Phrasen
+- **type**: "cli" (lokales Tool) oder "api" (API-Integration)
+- **parameters**: JSON-Objekt mit Parameter-Definitionen
+
+### Beispiel:
+\`\`\`
+create_skill(
+  name="text-to-speech",
+  title="Text zu Sprache",
+  description="Konvertiert Text in gesprochene Sprache...",
+  type="cli",
+  parameters='{"text": {"type": "string", "required": true}, "voice": {"type": "string", "enum": ["male", "female"], "default": "female"}}'
+)
+\`\`\`
+
+Nach dem Erstellen:
+1. Validiere den Skill mit validate_skill(name="skill-name")
+2. Die Skill Gallery zeigt den neuen Skill an unter /skills
+3. Der Skill ist sofort als Tool verfügbar
+
+### Wichtig:
+- CLI-Skills benötigen ein ausführbares Script unter /data/skills/<name>/
+- API-Skills benötigen eine API-Integration (wird vom User bereitgestellt)
+- Der Skill Creator erstellt nur das Manifest und die Dokumentation
 `,
 
   'SOUL.md': `# SOUL
