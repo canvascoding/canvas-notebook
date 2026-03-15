@@ -2,8 +2,8 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T12:24:00+01:00",
-  "status": "in_progress",
+  "lastUpdatedAt": "2026-03-15T12:40:00+01:00",
+  "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
     "primaryLibraries": [
@@ -858,11 +858,12 @@
       "order": 78,
       "phase": "P13 Automationen",
       "title": "Cover target output path behavior with tests and deployment documentation",
-      "status": "pending",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "automation-008"
-      ]
+      ],
+      "description": "Added default/effective output path assertions, extended the Automationen Playwright flow for the output path picker and workspace target directory, and documented that automation scheduling stays inside the app while /data/workspace remains the persistent mount for outputs."
     },
     {
       "id": "qmd-001",

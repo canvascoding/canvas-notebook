@@ -2,6 +2,7 @@
 
 ## Custom Server
 This app uses a custom Node server for WebSocket terminals (systemd-managed in production).
+Automationen werden vom App-Prozess ueber einen internen Scheduler ausgefuehrt; es wird kein separates Linux-`cron` oder `crontab` im Container erwartet.
 
 ```bash
 npm install
@@ -50,3 +51,5 @@ Ensure these are set. Local dev uses `.env.local`, Docker/Compose should use `.e
 - `SQLITE_PATH` (recommended: `./data/sqlite.db`)
 - `ALLOW_SIGNUP=false` (set `true` only for initial onboarding)
 - `MAX_TERMINALS_PER_USER` and `TERMINAL_IDLE_TIMEOUT`
+
+`WORKSPACE_DIR` should point to persistent storage. Automation output folders and run artefacts are written workspace-relativ darunter, in Docker typischerweise unter `/data/workspace`.
