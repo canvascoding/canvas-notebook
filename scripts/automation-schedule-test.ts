@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 
+import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '../app/lib/automations/paths';
+import { buildAutomationPrompt } from '../app/lib/automations/prompt';
 import { computeNextRunAt } from '../app/lib/automations/schedule';
 import { type FriendlySchedule } from '../app/lib/automations/types';
 
@@ -61,5 +63,38 @@ const onceRun = assertDate(
   'One-time schedule should produce a next run before the target date.',
 );
 assert.equal(onceRun.toISOString(), '2026-03-20T14:45:00.000Z');
+
+assert.equal(
+  getDefaultAutomationTargetOutputPath('Täglicher Markt-Check'),
+  'automationen/t-glicher-markt-check/output',
+);
+
+assert.equal(
+  getEffectiveAutomationTargetOutputPath({
+    name: 'Täglicher Markt-Check',
+    targetOutputPath: 'reports/daily',
+  }),
+  'reports/daily',
+);
+
+assert.equal(
+  getEffectiveAutomationTargetOutputPath({
+    name: 'Täglicher Markt-Check',
+    targetOutputPath: null,
+  }),
+  'automationen/t-glicher-markt-check/output',
+);
+
+const prompt = buildAutomationPrompt({
+  name: 'Daily Briefing',
+  preferredSkill: 'auto',
+  workspaceContextPaths: ['README.md'],
+  prompt: 'Fasse die relevanten Dateien zusammen.',
+  effectiveTargetOutputPath: 'reports/daily',
+  runArtifactDir: 'automationen/daily-briefing/runs/test-run',
+});
+
+assert.match(prompt, /Write final deliverables to: reports\/daily/);
+assert.match(prompt, /Store logs and run metadata in the automation run folder automatically/);
 
 console.log('automation schedule tests passed');

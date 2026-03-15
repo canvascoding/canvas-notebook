@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS automation_jobs (
   prompt TEXT NOT NULL,
   preferred_skill TEXT NOT NULL,
   workspace_context_paths_json TEXT NOT NULL,
+  target_output_path TEXT,
   schedule_kind TEXT NOT NULL,
   schedule_config_json TEXT NOT NULL,
   time_zone TEXT NOT NULL,
@@ -136,6 +137,8 @@ CREATE TABLE IF NOT EXISTS automation_runs (
   finished_at INTEGER,
   attempt_number INTEGER NOT NULL,
   output_dir TEXT,
+  target_output_path TEXT,
+  effective_target_output_path TEXT,
   log_path TEXT,
   result_path TEXT,
   error_message TEXT,
@@ -177,6 +180,39 @@ if (tableNames.has('pi_sessions')) {
   if (!piSessionColumns.has('summary_through_timestamp')) {
     try {
       sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_through_timestamp INTEGER');
+    } catch (e) {
+      // Column might already exist, ignore
+    }
+  }
+}
+
+if (tableNames.has('automation_jobs')) {
+  const automationJobColumns = new Set(
+    (sqlite.prepare('PRAGMA table_info(automation_jobs)').all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  if (!automationJobColumns.has('target_output_path')) {
+    try {
+      sqlite.exec('ALTER TABLE automation_jobs ADD COLUMN target_output_path TEXT');
+    } catch (e) {
+      // Column might already exist, ignore
+    }
+  }
+}
+
+if (tableNames.has('automation_runs')) {
+  const automationRunColumns = new Set(
+    (sqlite.prepare('PRAGMA table_info(automation_runs)').all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  if (!automationRunColumns.has('target_output_path')) {
+    try {
+      sqlite.exec('ALTER TABLE automation_runs ADD COLUMN target_output_path TEXT');
+    } catch (e) {
+      // Column might already exist, ignore
+    }
+  }
+  if (!automationRunColumns.has('effective_target_output_path')) {
+    try {
+      sqlite.exec('ALTER TABLE automation_runs ADD COLUMN effective_target_output_path TEXT');
     } catch (e) {
       // Column might already exist, ignore
     }

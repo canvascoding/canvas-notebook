@@ -43,6 +43,8 @@ export type AutomationJobRecord = {
   prompt: string;
   preferredSkill: AutomationPreferredSkill;
   workspaceContextPaths: string[];
+  targetOutputPath: string | null;
+  effectiveTargetOutputPath: string;
   schedule: FriendlySchedule;
   timeZone: string;
   nextRunAt: string | null;
@@ -63,6 +65,8 @@ export type AutomationRunRecord = {
   finishedAt: string | null;
   attemptNumber: number;
   outputDir: string | null;
+  targetOutputPath: string | null;
+  effectiveTargetOutputPath: string | null;
   logPath: string | null;
   resultPath: string | null;
   errorMessage: string | null;
@@ -75,6 +79,7 @@ export type CreateAutomationJobInput = {
   prompt: string;
   preferredSkill?: AutomationPreferredSkill;
   workspaceContextPaths?: string[];
+  targetOutputPath?: string | null;
   schedule: FriendlySchedule;
   status?: AutomationJobStatus;
 };
