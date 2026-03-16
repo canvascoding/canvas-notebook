@@ -132,7 +132,6 @@ export async function getSkillNames(): Promise<string[]> {
 export async function createSkillDirectory(
   name: string,
   description: string,
-  title: string,
   content?: string
 ): Promise<{ success: boolean; error?: string; path?: string }> {
   try {
@@ -140,15 +139,15 @@ export async function createSkillDirectory(
     if (await skillExists(name)) {
       return { success: false, error: `Skill "${name}" already exists` };
     }
-    
+
     // Create skill directory
     const skillsDir = getSkillsDir();
     const skillPath = path.join(skillsDir, name);
     await fs.mkdir(skillPath, { recursive: true });
-    
+
     // Write SKILL.md
     const skillMdPath = path.join(skillPath, 'SKILL.md');
-    const skillContent = createDefaultSkillMd(name, description, title, content);
+    const skillContent = createDefaultSkillMd(name, description, content);
     await fs.writeFile(skillMdPath, skillContent, 'utf-8');
     
     console.log(`[SkillLoader] Created skill: ${skillPath}`);

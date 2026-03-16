@@ -93,15 +93,11 @@ export function parseFrontmatter(content: string): {
 }
 
 /**
- * Extract title from markdown body (first # heading)
- * Falls back to skill name if no heading found
+ * Extract title from skill name (YAML frontmatter)
+ * Converts kebab-case name to title case for display
  */
-export function extractTitle(body: string, skillName: string): string {
-  const titleMatch = body.match(/^#\s+(.+)$/m);
-  if (titleMatch) {
-    return titleMatch[1].trim();
-  }
-  // Fallback: convert kebab-case name to title case
+export function extractTitle(skillName: string): string {
+  // Convert kebab-case name to title case
   return skillName
     .split('-')
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -149,7 +145,7 @@ export async function parseSkillFile(skillPath: string): Promise<AnthropicSkill 
     }
 
     const skillName = frontmatter!.name;
-    const title = extractTitle(body, skillName);
+    const title = extractTitle(skillName);
 
     return {
       name: skillName,
@@ -173,9 +169,9 @@ export async function parseSkillFile(skillPath: string): Promise<AnthropicSkill 
 export function createDefaultSkillMd(
   name: string,
   description: string,
-  title: string,
   content: string = ''
 ): string {
+  const title = extractTitle(name);
   return `---
 name: ${name}
 description: "${description}"
@@ -330,7 +326,7 @@ export async function createSkillDirectory(
     
     // Write SKILL.md
     const skillMdPath = path.join(skillPath, 'SKILL.md');
-    const skillContent = createDefaultSkillMd(name, description, title, content);
+    const skillContent = createDefaultSkillMd(name, description, content);
     await fs.writeFile(skillMdPath, skillContent, 'utf-8');
     
     console.log(`[SkillLoader] Created skill: ${skillPath}`);
