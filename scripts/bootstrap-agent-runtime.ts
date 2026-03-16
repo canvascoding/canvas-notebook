@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { statSync } from 'node:fs';
 import path from 'node:path';
 
 // Database imports are optional - they may not be available in Docker container
@@ -9,23 +10,43 @@ let aiMessages: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let aiSessions: any;
 
-try {
-  const dbModule = await import('../app/lib/db');
-  const schemaModule = await import('../app/lib/db/schema');
-  db = dbModule.db;
-  aiMessages = schemaModule.aiMessages;
-  aiSessions = schemaModule.aiSessions;
-} catch {
-  // Database not available in Docker container - legacy cleanup will be skipped
-  console.log('[bootstrap-agent-runtime] Database module not available, skipping legacy session cleanup.');
+// Inline runtime-data-paths functions (container-safe, no external deps)
+const CONTAINER_DATA_ROOT = '/data';
+
+function directoryExists(targetPath: string): boolean {
+  try {
+    return statSync(targetPath).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
-import {
-  resolveAgentStorageDir,
-  resolveDefaultAgentsEnvPath,
-  resolveDefaultIntegrationsEnvPath,
-  resolveSecretsDir,
-} from '../app/lib/runtime-data-paths';
+function resolveCanvasDataRoot(cwd = process.cwd()): string {
+  const configured = process.env.CANVAS_DATA_ROOT?.trim();
+  if (configured) {
+    return path.resolve(configured);
+  }
+  if (directoryExists(CONTAINER_DATA_ROOT)) {
+    return CONTAINER_DATA_ROOT;
+  }
+  return path.resolve(cwd, 'data');
+}
+
+function resolveAgentStorageDir(cwd = process.cwd()): string {
+  return path.join(resolveCanvasDataRoot(cwd), 'canvas-agent');
+}
+
+function resolveSecretsDir(cwd = process.cwd()): string {
+  return path.join(resolveCanvasDataRoot(cwd), 'secrets');
+}
+
+function resolveDefaultIntegrationsEnvPath(cwd = process.cwd()): string {
+  return path.join(resolveSecretsDir(cwd), 'Canvas-Integrations.env');
+}
+
+function resolveDefaultAgentsEnvPath(cwd = process.cwd()): string {
+  return path.join(resolveSecretsDir(cwd), 'Canvas-Agents.env');
+}
 
 const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 const SECRETS_DIR = resolveSecretsDir();
@@ -361,6 +382,18 @@ async function runLegacySessionCleanupIfNeeded(): Promise<void> {
 }
 
 async function main() {
+  // Load database modules dynamically (CJS compatible)
+  try {
+    const dbModule = await import('../app/lib/db');
+    const schemaModule = await import('../app/lib/db/schema');
+    db = dbModule.db;
+    aiMessages = schemaModule.aiMessages;
+    aiSessions = schemaModule.aiSessions;
+  } catch {
+    // Database not available in Docker container - legacy cleanup will be skipped
+    console.log('[bootstrap-agent-runtime] Database module not available, skipping legacy session cleanup.');
+  }
+
   // First migrate any legacy files from old locations
   await migrateLegacyFiles();
   
