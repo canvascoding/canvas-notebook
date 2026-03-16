@@ -35,12 +35,11 @@ export async function GET(
         // Connect to terminal service
         const socket = new net.Socket();
         let buffer = '';
-        let authenticated = false;
 
-        const sendEvent = (data: any) => {
+        const sendEvent = (data: Record<string, unknown>) => {
           try {
             controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
-          } catch (e) {
+          } catch {
             // Stream closed
           }
         };
@@ -74,7 +73,6 @@ export async function GET(
                     controller.close();
                     return;
                   }
-                  authenticated = true;
 
                   // Attach to session
                   const attachMsg = JSON.stringify({
@@ -89,7 +87,7 @@ export async function GET(
                 // Handle attach response
                 if (message.id === 'attach') {
                   if (message.error) {
-                    sendEvent({ type: 'error', error: message.error.message });
+                    sendEvent({ type: 'error', error: String(message.error.message) });
                     controller.close();
                     return;
                   }
@@ -103,7 +101,7 @@ export async function GET(
                 } else if (message.type === 'exit') {
                   sendEvent({ type: 'exit', exitCode: message.exitCode });
                 }
-              } catch (e) {
+              } catch {
                 // Invalid JSON, ignore
               }
             }
@@ -140,10 +138,11 @@ export async function GET(
         'Connection': 'keep-alive',
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[Terminal API] Stream error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal error';
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal error' }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

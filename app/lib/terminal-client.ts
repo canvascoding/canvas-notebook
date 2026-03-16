@@ -17,18 +17,18 @@ const USE_UNIX_SOCKET = fs.existsSync(SOCKET_PATH);
 interface TerminalMessage {
   id: string;
   method: string;
-  params: any;
+  params: Record<string, unknown>;
 }
 
 interface TerminalResponse {
   id: string;
-  result?: any;
+  result?: Record<string, unknown> | string | number | boolean | null;
   error?: { code: number; message: string };
 }
 
 class TerminalClient {
   private socket: net.Socket | null = null;
-  private messageQueue: Map<string, { resolve: Function; reject: Function }> = new Map();
+  private messageQueue: Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void }> = new Map();
   private buffer = '';
   private authenticated = false;
   private messageId = 0;
@@ -69,7 +69,7 @@ class TerminalClient {
   }
 
   private async authenticate(): Promise<void> {
-    const response = await this.sendMessage('auth', { token: AUTH_TOKEN });
+    const response = await this.sendMessage('auth', { token: AUTH_TOKEN }) as { error?: { message: string } };
     if (response.error) {
       throw new Error(response.error.message);
     }
@@ -96,14 +96,14 @@ class TerminalClient {
               pending.resolve(message.result);
             }
           }
-        } catch (e) {
+        } catch {
           console.error('[Terminal Client] Invalid JSON:', line);
         }
       }
     }
   }
 
-  private sendMessage(method: string, params: any): Promise<any> {
+  private sendMessage(method: string, params: Record<string, unknown>): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.socket || this.socket.destroyed) {
         reject(new Error('Not connected'));
@@ -112,9 +112,9 @@ class TerminalClient {
 
       const id = `${Date.now()}-${this.messageId++}`;
       const message: TerminalMessage = { id, method, params };
-      
+
       this.messageQueue.set(id, { resolve, reject });
-      
+
       this.socket.write(JSON.stringify(message) + '\n', (err) => {
         if (err) {
           this.messageQueue.delete(id);
@@ -132,27 +132,27 @@ class TerminalClient {
     });
   }
 
-  async createSession(sessionId: string, ownerId: string, cwd?: string): Promise<any> {
+  async createSession(sessionId: string, ownerId: string, cwd?: string): Promise<unknown> {
     await this.connect();
     return this.sendMessage('create', { sessionId, ownerId, cwd });
   }
 
-  async attachSession(sessionId: string): Promise<any> {
+  async attachSession(sessionId: string): Promise<unknown> {
     await this.connect();
     return this.sendMessage('attach', { sessionId });
   }
 
-  async sendInput(sessionId: string, data: string): Promise<any> {
+  async sendInput(sessionId: string, data: string): Promise<unknown> {
     await this.connect();
     return this.sendMessage('input', { sessionId, data });
   }
 
-  async resize(sessionId: string, cols: number, rows: number): Promise<any> {
+  async resize(sessionId: string, cols: number, rows: number): Promise<unknown> {
     await this.connect();
     return this.sendMessage('resize', { sessionId, cols, rows });
   }
 
-  async terminate(sessionId: string): Promise<any> {
+  async terminate(sessionId: string): Promise<unknown> {
     await this.connect();
     return this.sendMessage('terminate', { sessionId });
   }

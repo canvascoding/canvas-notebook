@@ -257,9 +257,10 @@ export function XTerminal({ sessionId }: XTerminalProps) {
           }
         }, 15000);
 
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('[Terminal] Connection error:', err);
-        term.write(`\r\n\x1b[31m[Connection failed: ${err.message}]\x1b[0m\r\n`);
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        term.write(`\r\n\x1b[31m[Connection failed: ${errorMessage}]\x1b[0m\r\n`);
         
         // Retry with backoff
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);

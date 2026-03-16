@@ -34,10 +34,11 @@ export async function DELETE(
     await client.terminate(sessionId);
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[Terminal API] Delete error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal error';
     return NextResponse.json(
-      { error: error.message || 'Internal error' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

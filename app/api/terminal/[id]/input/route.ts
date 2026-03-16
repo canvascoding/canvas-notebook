@@ -36,10 +36,11 @@ export async function POST(
     await client.sendInput(sessionId, data);
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[Terminal API] Input error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal error';
     return NextResponse.json(
-      { error: error.message || 'Internal error' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

@@ -16,20 +16,20 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
   
   // Check if this is an OAuth provider
   const isOAuth = isOAuthProvider(providerId as OAuthProviderId);
-  
+
   // If provider supports both, check config for preferred method
   if (supportsBoth) {
     try {
       const piConfig = await readPiRuntimeConfig();
       const providerConfig = piConfig.providers[providerId];
       const authMethod = providerConfig?.authMethod;
-      
+
       // If OAuth is explicitly selected, use OAuth
       if (authMethod === 'oauth' && isOAuth) {
         const result = await getProviderApiKey(providerId as OAuthProviderId);
         return result?.apiKey;
       }
-      
+
       // If API Key is selected or no method set, fall through to API key lookup below
       if (authMethod === 'api-key' || !authMethod) {
         // Fall through to API key lookup below

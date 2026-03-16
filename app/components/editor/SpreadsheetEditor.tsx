@@ -33,7 +33,6 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
     const [error, setError] = useState<string | null>(null);
     const [fileExtension, setFileExtension] = useState<string>('');
     const [sheetNames, setSheetNames] = useState<string[]>([]);
-    const [currentSheetIndex, setCurrentSheetIndex] = useState(0);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const workbookRef = useRef<XLSX.WorkBook | null>(null);
     const formulasRef = useRef<Map<string, string>>(new Map());
@@ -204,12 +203,15 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
 
       loadSpreadsheet();
 
+      // Store ref value in a variable for the cleanup function
+      const containerElement = containerRef.current;
+
       return () => {
         // Cleanup
         if (jspreadsheetInstanceRef.current) {
           // jspreadsheet doesn't have a destroy method, but we can clear the container
-          if (containerRef.current) {
-            containerRef.current.innerHTML = '';
+          if (containerElement) {
+            containerElement.innerHTML = '';
           }
           jspreadsheetInstanceRef.current = null;
         }

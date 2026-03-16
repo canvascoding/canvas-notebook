@@ -37,10 +37,11 @@ export async function POST(request: NextRequest) {
     const result = await client.createSession(sessionId, ownerId, finalCwd);
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[Terminal API] Create error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal error';
     return NextResponse.json(
-      { error: error.message || 'Internal error' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

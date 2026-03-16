@@ -12,10 +12,12 @@ import { spawn } from 'node-pty';
 import { randomBytes } from 'crypto';
 
 // Types
+import type { IPty } from 'node-pty';
+
 interface TerminalSession {
   id: string;
   ownerId: string;
-  pty: any; // node-pty IPty
+  pty: IPty;
   clients: Set<net.Socket>;
   outputBuffer: string;
   idleTimer: NodeJS.Timeout | null;
@@ -26,12 +28,12 @@ interface TerminalSession {
 interface Message {
   id: string;
   method: string;
-  params: any;
+  params: Record<string, unknown>;
 }
 
 interface Response {
   id: string;
-  result?: any;
+  result?: Record<string, unknown> | string | number | boolean | null;
   error?: { code: number; message: string };
 }
 
@@ -51,7 +53,7 @@ const authenticatedClients = new Set<net.Socket>();
 
 // Logging
 const debug = process.env.TERMINAL_DEBUG === 'true';
-function log(...args: any[]) {
+function log(...args: unknown[]) {
   if (debug) {
     console.log('[Terminal Service]', ...args);
   }
@@ -254,7 +256,7 @@ function terminateSession(sessionId: string): void {
   
   try {
     session.pty.kill();
-  } catch (e) {
+  } catch {
     // Ignore errors
   }
   
@@ -287,7 +289,7 @@ function handleMessage(client: net.Socket, message: Message): void {
   try {
     switch (method) {
       case 'auth': {
-        const { token } = params;
+        const { token } = params as { token: string };
         if (token !== AUTH_TOKEN) {
           sendError(client, id, 401, 'Unauthorized');
           return;
@@ -303,61 +305,61 @@ function handleMessage(client: net.Socket, message: Message): void {
           sendError(client, id, 401, 'Unauthorized');
           return;
         }
-        
-        const { sessionId, ownerId, cwd } = params;
+
+        const { sessionId, ownerId, cwd } = params as { sessionId: string; ownerId: string; cwd?: string };
         const session = createSession(sessionId, ownerId, cwd || WORKSPACE_DIR);
         attachClient(sessionId, client);
-        sendResult(client, id, { 
-          success: true, 
+        sendResult(client, id, {
+          success: true,
           sessionId: session.id,
           pid: session.pty.pid,
         });
         break;
       }
-      
+
       case 'attach': {
         if (!authenticatedClients.has(client)) {
           sendError(client, id, 401, 'Unauthorized');
           return;
         }
-        
-        const { sessionId } = params;
+
+        const { sessionId } = params as { sessionId: string };
         attachClient(sessionId, client);
         sendResult(client, id, { success: true });
         break;
       }
-      
+
       case 'input': {
         if (!authenticatedClients.has(client)) {
           sendError(client, id, 401, 'Unauthorized');
           return;
         }
-        
-        const { sessionId, data } = params;
+
+        const { sessionId, data } = params as { sessionId: string; data: string };
         handleInput(sessionId, data);
         sendResult(client, id, { success: true });
         break;
       }
-      
+
       case 'resize': {
         if (!authenticatedClients.has(client)) {
           sendError(client, id, 401, 'Unauthorized');
           return;
         }
-        
-        const { sessionId, cols, rows } = params;
+
+        const { sessionId, cols, rows } = params as { sessionId: string; cols: number; rows: number };
         handleResize(sessionId, cols, rows);
         sendResult(client, id, { success: true });
         break;
       }
-      
+
       case 'terminate': {
         if (!authenticatedClients.has(client)) {
           sendError(client, id, 401, 'Unauthorized');
           return;
         }
-        
-        const { sessionId } = params;
+
+        const { sessionId } = params as { sessionId: string };
         terminateSession(sessionId);
         sendResult(client, id, { success: true });
         break;
@@ -372,13 +374,14 @@ function handleMessage(client: net.Socket, message: Message): void {
         sendError(client, id, 404, `Unknown method: ${method}`);
       }
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     log('Error handling message:', error);
-    sendError(client, id, 500, error.message || 'Internal error');
+    const errorMessage = error instanceof Error ? error.message : 'Internal error';
+    sendError(client, id, 500, errorMessage);
   }
 }
 
-function sendResult(client: net.Socket, id: string, result: any): void {
+function sendResult(client: net.Socket, id: string, result: Record<string, unknown> | string | number | boolean | null): void {
   if (client.destroyed) return;
   const response: Response = { id, result };
   client.write(JSON.stringify(response) + '\n');
@@ -413,7 +416,7 @@ function startServer(): void {
           try {
             const message = JSON.parse(line);
             handleMessage(socket, message);
-          } catch (e) {
+          } catch {
             log('Invalid JSON:', line);
           }
         }

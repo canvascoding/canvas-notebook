@@ -74,7 +74,7 @@ export interface DocxEditorWrapperRef {
 }
 
 export const DocxEditorWrapper = forwardRef<DocxEditorWrapperRef, DocxEditorWrapperProps>(
-  function DocxEditorWrapper({ path: _path, documentBuffer, onChange, mode = 'editing' }, ref) {
+  function DocxEditorWrapper({ documentBuffer, onChange, mode = 'editing' }, ref) {
     const editorRef = useRef<DocxEditorRef>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error] = useState<string | null>(null);
