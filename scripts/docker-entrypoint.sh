@@ -213,8 +213,8 @@ if [ "$qmd_auto_install" = "true" ]; then
 
       while true; do
         # Calculate minutes until 01:00
-        current_hour=$(date +%H)
-        current_min=$(date +%M)
+        current_hour=$(date +%-H)
+        current_min=$(date +%-M)
         minutes_until_1am=$(( (24 - current_hour + 1) % 24 * 60 - current_min ))
         if [ $minutes_until_1am -le 0 ]; then
           minutes_until_1am=$((minutes_until_1am + 1440))
