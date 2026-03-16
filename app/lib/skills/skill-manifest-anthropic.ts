@@ -191,8 +191,8 @@ ${content || 'Add your skill instructions here...'}
  * Get skill directory path
  */
 export function getSkillsDir(): string {
-  const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/data/workspace';
-  return WORKSPACE_DIR.replace(/\/workspace\/?$/, '') + '/skills';
+  const DATA = process.env.DATA || '/data';
+  return path.join(DATA, 'skills');
 }
 
 /**

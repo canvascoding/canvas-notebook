@@ -3,17 +3,6 @@
 import { useCallback } from 'react';
 import {
   ChevronRight,
-  File,
-  Folder,
-  FolderOpen,
-  FileCode,
-  FileText,
-  Image as ImageIcon,
-  FileVideo,
-  FileAudio,
-  FileSpreadsheet,
-  FileDigit,
-  Database,
   Square,
   CheckSquare,
 } from 'lucide-react';
@@ -26,7 +15,7 @@ import {
 import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
 import { FileContextMenu } from './FileContextMenu';
 import { cn } from '@/lib/utils';
-import { getAppOutputFolderKind } from '@/app/lib/filesystem/app-output-folders';
+import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -85,83 +74,12 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
   };
 
   const getFileIcon = () => {
-    if (isDirectory) {
-      const outputKind = getAppOutputFolderKind(node.path);
-      if (outputKind) {
-        const badgeIcon =
-          outputKind === 'veo-video-generation' ? (
-            <FileVideo className="h-2.5 w-2.5 text-chart-4" />
-          ) : outputKind === 'image-generations' ? (
-            <ImageIcon className="h-2.5 w-2.5 text-chart-5" />
-          ) : (
-            <FileText className="h-2.5 w-2.5 text-chart-3" />
-          );
-
-        return (
-          <span className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
-            {isExpanded ? (
-              <FolderOpen className="h-4 w-4 text-primary" />
-            ) : (
-              <Folder className="h-4 w-4 text-primary" />
-            )}
-            <span className="absolute -bottom-1 -right-1 rounded-full bg-background p-[1px]">
-              {badgeIcon}
-            </span>
-          </span>
-        );
-      }
-      return isExpanded ? (
-        <FolderOpen className="h-4 w-4 text-primary" />
-      ) : (
-        <Folder className="h-4 w-4 text-primary" />
-      );
-    }
-
-    const ext = node.name.split('.').pop()?.toLowerCase() || '';
-
-    // Code & Scripts
-    if (
-      ['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'scss', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'php', 'sh', 'bash', 'zsh', 'yml', 'yaml', 'toml'].includes(ext)
-    ) {
-      return <FileCode className="h-4 w-4 text-chart-2" />;
-    }
-
-    // Documents
-    if (['md', 'mdx', 'markdown', 'txt', 'log'].includes(ext)) {
-      return <FileText className="h-4 w-4 text-muted-foreground" />;
-    }
-    if (ext === 'pdf') {
-      return <FileText className="h-4 w-4 text-destructive" />;
-    }
-    if (['doc', 'docx'].includes(ext)) {
-      return <FileText className="h-4 w-4 text-primary" />;
-    }
-
-    // Data & Config
-    if (['json', 'env', 'gitignore'].includes(ext)) {
-      return <FileDigit className="h-4 w-4 text-chart-3" />;
-    }
-    if (['sql', 'db', 'sqlite'].includes(ext)) {
-      return <Database className="h-4 w-4 text-chart-4" />;
-    }
-
-    // Spreadsheet
-    if (['xls', 'xlsx', 'csv'].includes(ext)) {
-      return <FileSpreadsheet className="h-4 w-4 text-chart-2" />;
-    }
-
-    // Media
-    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext)) {
-      return <ImageIcon className="h-4 w-4 text-chart-5" />;
-    }
-    if (['mp4', 'webm', 'ogv', 'mov'].includes(ext)) {
-      return <FileVideo className="h-4 w-4 text-chart-4" />;
-    }
-    if (['wav', 'mp3', 'm4a', 'aac', 'ogg', 'opus', 'flac'].includes(ext)) {
-      return <FileAudio className="h-4 w-4 text-chart-1" />;
-    }
-
-    return <File className="h-4 w-4 text-muted-foreground" />;
+    return getFileIconComponent({
+      name: node.name,
+      path: node.path,
+      type: isDirectory ? 'directory' : 'file',
+      isExpanded,
+    });
   };
 
   const formatSize = (bytes?: number) => {

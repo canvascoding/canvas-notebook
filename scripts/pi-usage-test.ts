@@ -136,7 +136,7 @@ async function main() {
         },
       },
       stopReason: 'stop',
-      timestamp: new Date('2026-03-10T10:15:00.000Z'),
+      timestamp: new Date('2026-03-10T10:15:00.000Z').getTime(),
     } satisfies AgentMessage;
 
     const zeroCostAssistant = {
@@ -160,7 +160,7 @@ async function main() {
         },
       },
       stopReason: 'stop',
-      timestamp: new Date('2026-03-11T08:00:00.000Z'),
+      timestamp: new Date('2026-03-11T08:00:00.000Z').getTime(),
     } satisfies AgentMessage;
 
     const otherUserAssistant = {
@@ -184,7 +184,7 @@ async function main() {
         },
       },
       stopReason: 'error',
-      timestamp: new Date('2026-03-12T09:30:00.000Z'),
+      timestamp: new Date('2026-03-12T09:30:00.000Z').getTime(),
       errorMessage: 'Mock failure',
     } satisfies AgentMessage;
 
@@ -209,7 +209,7 @@ async function main() {
         },
       },
       stopReason: 'stop',
-      timestamp: new Date('2026-03-10T10:20:00.000Z'),
+      timestamp: new Date('2026-03-10T10:20:00.000Z').getTime(),
     } satisfies AgentMessage;
 
     const extractionRows = extractPiUsageEventValues({
@@ -220,7 +220,7 @@ async function main() {
         {
           role: 'user',
           content: 'Question',
-          timestamp: new Date('2026-03-10T10:10:00.000Z'),
+          timestamp: new Date('2026-03-10T10:10:00.000Z').getTime(),
         } satisfies AgentMessage,
         alphaAssistant,
         noUsageAssistant,

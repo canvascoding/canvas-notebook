@@ -2,7 +2,8 @@
 
 import React, { FormEvent, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, File as FileIcon } from 'lucide-react';
+import { MessageSquare, Send, Paperclip, X, Image as ImageIcon } from 'lucide-react';
+import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { Button } from '@/components/ui/button';
@@ -272,11 +273,11 @@ export function HomeChatPrompt() {
                       index === selectedFileIndex ? 'bg-accent' : ''
                     }`}
                   >
-                    {file.isImage ? (
-                      <ImageIcon className="h-4 w-4 text-blue-500" />
-                    ) : (
-                      <FileIcon className="h-4 w-4 text-muted-foreground" />
-                    )}
+                    {getFileIconComponent({
+                      name: file.name,
+                      path: file.path,
+                      type: file.type,
+                    })}
                     <span className="truncate">{file.name}</span>
                     {file.type === 'directory' && (
                       <span className="text-xs text-muted-foreground ml-auto">(dir)</span>

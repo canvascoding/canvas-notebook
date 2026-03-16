@@ -4,9 +4,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
 
-// Dynamically determine skills directory from WORKSPACE_DIR
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/data/workspace';
-const SKILLS_DIR = WORKSPACE_DIR.replace(/\/workspace\/?$/, '') + '/skills';
+// Skills directory is relative to DATA
+const DATA = process.env.DATA || '/data';
+const SKILLS_DIR = path.join(DATA, 'skills');
 
 export async function GET(
   request: Request,

@@ -17,9 +17,9 @@ import {
   Pencil,
   Sparkles,
   Wrench,
-  File as FileIcon,
   Lightbulb,
 } from 'lucide-react';
+import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import Link from 'next/link';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 
@@ -1371,11 +1371,11 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                       index === selectedFileIndex ? 'bg-accent' : ''
                     }`}
                   >
-                    {file.isImage ? (
-                      <ImageIcon className="h-4 w-4 text-blue-500" />
-                    ) : (
-                      <FileIcon className="h-4 w-4 text-gray-500" />
-                    )}
+                    {getFileIconComponent({
+                      name: file.name,
+                      path: file.path,
+                      type: file.type,
+                    })}
                     <span className="flex-1 truncate">{file.path}</span>
                     {index === selectedFileIndex && (
                       <span className="text-xs text-muted-foreground">↵</span>

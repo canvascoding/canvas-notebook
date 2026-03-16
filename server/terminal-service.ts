@@ -45,7 +45,8 @@ const SOCKET_PATH = process.env.CANVAS_TERMINAL_SOCKET || '/tmp/canvas-terminal.
 const TCP_PORT = parseInt(process.env.CANVAS_TERMINAL_PORT || '3457', 10);
 const AUTH_TOKEN = process.env.CANVAS_TERMINAL_TOKEN || generateToken();
 const USE_UNIX_SOCKET = process.env.CANVAS_TERMINAL_USE_UNIX_SOCKET !== 'false';
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR || path.resolve(process.cwd(), 'data', 'workspace');
+const DATA = process.env.DATA || path.resolve(process.cwd(), 'data');
+const WORKSPACE_DIR = path.join(DATA, 'workspace');
 
 // State
 const sessions = new Map<string, TerminalSession>();
