@@ -1536,7 +1536,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
   const contextLabel = runtimeStatus
-    ? `${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
+    ? `${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
     : 'Noch keine Session';
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, sessionId);
   const runtimeBannerClass = getRuntimeBannerClass(runtimeStatus);
@@ -1669,9 +1669,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         {/* Compact Status Bar */}
         {!showHistory && (
           <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               {/* Left: Status with animated dot */}
-              <div className="flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 {/* Animated Status Dot */}
                 <div className="relative flex items-center justify-center">
                   <span 
@@ -1726,13 +1726,15 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               </div>
               
               {/* Right: Action Buttons */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span
-                  data-testid="chat-context-percent-badge"
-                  className="inline-flex items-center border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                >
-                  {runtimeStatus ? `${runtimeStatus.contextUsagePercent}%` : '—'}
-                </span>
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                {!isMobile ? (
+                  <span
+                    data-testid="chat-context-meter"
+                    className="inline-flex items-center border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  >
+                    {contextLabel}
+                  </span>
+                ) : null}
                 {!isMobile && (
                   <>
                     <button
@@ -1785,11 +1787,6 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                 />
               </div>
             </div>
-            {!isMobile ? (
-              <div className="mt-1 text-[11px] text-muted-foreground">
-                Context-Budget: {contextLabel}
-              </div>
-            ) : null}
             
             {/* Mobile Details Panel */}
             {isMobile && showMobileDetails && (
