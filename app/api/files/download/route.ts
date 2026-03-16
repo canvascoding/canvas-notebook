@@ -10,6 +10,20 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024; // 1GB max for ZIP downloads
 const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB max for single file
 
+function sanitizeFilenameForHeader(filename: string): string {
+  const sanitized = filename
+    .replace(/[\r\n"]/g, '')
+    .replace(/[\\/]/g, '_')
+    .trim();
+  return sanitized || 'download';
+}
+
+function buildContentDisposition(filename: string): string {
+  const safeName = sanitizeFilenameForHeader(filename);
+  const encoded = encodeURIComponent(safeName);
+  return `attachment; filename="${safeName}"; filename*=UTF-8''${encoded}`;
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -69,7 +83,7 @@ export async function GET(request: NextRequest) {
       return new NextResponse(stream, {
         headers: {
           'Content-Type': 'application/zip',
-          'Content-Disposition': `attachment; filename="${filename}.zip"`,
+          'Content-Disposition': buildContentDisposition(`${filename}.zip`),
         },
       });
     } else {
@@ -88,7 +102,7 @@ export async function GET(request: NextRequest) {
       return new NextResponse(webStream, {
         headers: {
           'Content-Type': 'application/octet-stream',
-          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Content-Disposition': buildContentDisposition(filename),
           'Content-Length': stats.size.toString(),
         },
       });

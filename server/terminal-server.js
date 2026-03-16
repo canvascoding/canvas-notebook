@@ -101,7 +101,7 @@ function attachTerminalServer(server) {
     if (event === 'upgrade') {
       const [req, socket, head] = args;
       try {
-        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const url = new URL(req.url, 'http://localhost');
         if (url.pathname.startsWith('/api/terminal/')) {
           handleTerminalUpgrade(req, socket, head, url);
           return true;

@@ -51,6 +51,22 @@ export async function GET(
       const parts = range.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const isInvalidRange =
+        Number.isNaN(start) ||
+        Number.isNaN(end) ||
+        start < 0 ||
+        end < 0 ||
+        start > end ||
+        start >= fileSize ||
+        end >= fileSize;
+      if (isInvalidRange) {
+        return new NextResponse(null, {
+          status: 416,
+          headers: {
+            'Content-Range': `bytes */${fileSize}`,
+          },
+        });
+      }
       const chunksize = end - start + 1;
       
       const { stream } = await createReadStream(filePath, { start, end });
