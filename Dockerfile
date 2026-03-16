@@ -51,7 +51,8 @@ ENV NODE_ENV=production \
     NPM_CONFIG_PREFIX=/home/${APP_USER}/.npm-global \
     PATH=/home/${APP_USER}/.npm-global/bin:${PATH} \
     CANVAS_TERMINAL_SOCKET=/tmp/canvas-terminal.sock \
-    CANVAS_TERMINAL_USE_UNIX_SOCKET=true
+    CANVAS_TERMINAL_USE_UNIX_SOCKET=true \
+    XDG_CACHE_HOME=/data/cache
 
 # Copy only standalone output (much smaller than full .next)
 COPY --from=builder /app/.next/standalone ./
@@ -70,7 +71,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY ./scripts/start-services.sh ./scripts/start-services.sh
 
 # Ensure scripts are executable
-RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills /tmp
+RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills /data/cache /tmp
 RUN chmod +x ./scripts/docker-entrypoint.sh ./scripts/start-services.sh
 RUN printf '%s\n' \
   'NPM_GLOBAL_BIN="/home/node/.npm-global/bin"' \
