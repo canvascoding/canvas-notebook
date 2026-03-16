@@ -39,22 +39,23 @@ qmd runs as a background service with automatic indexing:
 
 **Rule of thumb**: If you're looking FOR something, use qmd. If you're listing WHAT'S IN a specific folder, use ls.`;
 
+export const FILE_SYSTEM_GUIDANCE = `
+## File System Structure
+
+See AGENTS.md for the complete directory structure diagram with Mermaid visualization.
+
+**Key Rules:**
+- User sees ONLY \`/data/workspace/\` in the Web UI
+- Use \`/data/temp/skills/{skill-name}/\` for temporary processing files
+- ALWAYS copy final results to \`/data/workspace/\`
+- Clean up temp files after completion
+
+**Note:** You can update AGENTS.md to document the current workspace structure as you learn about user-specific folders.`;
+
 export const TEMP_DIRECTORY_GUIDANCE = `
 ## Temporary Files Directory
 
-When using skills that generate files (docx, xlsx, pdf, etc.), follow this workflow:
-
-1. **Working Directory**: Use \`/data/temp/skills/{skill-name}/\` for temporary files during processing
-   - Example: \`/data/temp/skills/docx/\` for DOCX skill temporary files
-   - Example: \`/data/temp/skills/xlsx/\` for XLSX skill temporary files
-
-2. **Final Output**: ALWAYS copy completed files to the workspace:
-   - Target: \`/data/workspace/\` or appropriate subdirectories
-   - Examples: \`/data/workspace/documents/\`, \`/data/workspace/reports/\`
-
-3. **Cleanup**: Remove temporary files after successful completion to save space
-
-**Important**: The user can ONLY see files in the workspace. Files in temp directories are invisible to users.`;
+See AGENTS.md for detailed file system structure and workflow.`;
 
 export const MEMORY_MANAGEMENT_GUIDANCE = `
 ## Memory Management (MEMORY.md)
@@ -135,6 +136,9 @@ export function composeManagedAgentSystemPrompt(
   // Add file search guidance
   const fileSearchBlock = `\n\n${FILE_SEARCH_GUIDANCE}`;
 
+  // Add file system guidance (compact)
+  const fileSystemBlock = `\n\n${FILE_SYSTEM_GUIDANCE}`;
+
   // Add temp directory guidance
   const tempBlock = `\n\n${TEMP_DIRECTORY_GUIDANCE}`;
 
@@ -142,7 +146,7 @@ export function composeManagedAgentSystemPrompt(
   const memoryBlock = `\n\n${MEMORY_MANAGEMENT_GUIDANCE}`;
 
   return {
-    systemPrompt: [BASE_AGENT_SYSTEM_PROMPT, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileSearchBlock + tempBlock + memoryBlock,
+    systemPrompt: [BASE_AGENT_SYSTEM_PROMPT, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileSearchBlock + fileSystemBlock + tempBlock + memoryBlock,
     diagnostics: {
       loadedFiles: [...MANAGED_PROMPT_FILE_NAMES],
       includedFiles: includedSections.map((section) => section.fileName),
