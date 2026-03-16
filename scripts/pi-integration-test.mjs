@@ -227,6 +227,47 @@ async function testSessionPersistence(cookie, sessionId) {
   return messages;
 }
 
+async function testRuntimeStatusAndCompact(cookie, sessionId) {
+  console.log('[PI Test] Testing /api/stream/status and /api/stream/control compact...');
+
+  const statusResult = await request(`/api/stream/status?sessionId=${encodeURIComponent(sessionId)}`, {
+    headers: { cookie },
+  });
+
+  if (!statusResult.response.ok || !statusResult.body?.success) {
+    throw new Error(`Runtime status failed: ${statusResult.response.status}`);
+  }
+
+  const status = statusResult.body.status;
+  if (
+    typeof status?.contextWindow !== 'number' ||
+    typeof status?.estimatedHistoryTokens !== 'number' ||
+    typeof status?.availableHistoryTokens !== 'number' ||
+    typeof status?.contextUsagePercent !== 'number'
+  ) {
+    throw new Error('Runtime status payload missing context metrics');
+  }
+
+  const compactResult = await request('/api/stream/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({
+      sessionId,
+      action: 'compact',
+    }),
+  });
+
+  if (!compactResult.response.ok || !compactResult.body?.success) {
+    throw new Error(`Runtime compact failed: ${compactResult.response.status}`);
+  }
+
+  if (typeof compactResult.body?.status?.contextUsagePercent !== 'number') {
+    throw new Error('Compact response missing updated runtime status');
+  }
+
+  console.log('[PI Test] Runtime status and compact check passed.');
+}
+
 async function testUsageAnalytics(cookie, sessionId, persistedMessages) {
   console.log('[PI Test] Testing usage analytics endpoints...');
 
@@ -286,6 +327,7 @@ async function run() {
     const sessionId = await testSessions(cookie);
     await testStream(cookie, sessionId);
     const persistedMessages = await testSessionPersistence(cookie, sessionId);
+    await testRuntimeStatusAndCompact(cookie, sessionId);
     await testUsageAnalytics(cookie, sessionId, persistedMessages);
     console.log('[PI Test] All integration tests passed! 🚀');
   } catch (error) {

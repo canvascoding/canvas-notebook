@@ -20,10 +20,16 @@ const EMPTY_USAGE = {
 
 async function login(page: Page) {
   await page.goto('/login');
+  await page.waitForTimeout(750);
   await page.fill('input[type="email"]', TEST_EMAIL);
   await page.fill('input[type="password"]', TEST_PASSWORD);
   await page.click('button[type="submit"]');
-  await expect(page).toHaveURL('/');
+  await expect(page).toHaveURL('/', { timeout: 15000 });
+}
+
+async function startFreshChat(page: Page) {
+  await page.getByRole('button', { name: /new chat/i }).click();
+  await expect(page.getByTestId('chat-session-id')).toContainText('new chat');
 }
 
 test.describe('PI Chat E2E', () => {
@@ -40,6 +46,7 @@ test.describe('PI Chat E2E', () => {
 
   test('should bootstrap a session, show the session id, and derive a history title', async ({ page }) => {
     await page.goto('/chat');
+    await startFreshChat(page);
 
     const prompt = `Session title smoke ${Date.now()} should become the visible history title after the first streamed reply finishes.`;
     const input = page.getByTestId('chat-input');
@@ -82,6 +89,7 @@ test.describe('PI Chat E2E', () => {
 
   test('should keep structured PI context for a second turn', async ({ page }) => {
     await page.goto('/chat');
+    await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
     const assistantMessages = page.getByTestId('chat-message-assistant');
@@ -167,6 +175,7 @@ test.describe('PI Chat E2E', () => {
     });
 
     await page.goto('/chat');
+    await startFreshChat(page);
     const input = page.getByTestId('chat-input');
     await input.fill('Render markdown and tools.');
     await input.press('Enter');
@@ -264,6 +273,7 @@ test.describe('PI Chat E2E', () => {
     });
 
     await page.goto('/chat');
+    await startFreshChat(page);
     const input = page.getByTestId('chat-input');
     await input.fill('Render usage footer.');
     await input.press('Enter');
@@ -275,6 +285,189 @@ test.describe('PI Chat E2E', () => {
     await expect(usageFooter).toBeVisible();
     await expect(usageFooter).toContainText('579 tok · $0.0123');
     await expect(usageFooter).toContainText('123 in / 456 out');
+  });
+
+  test('should show runtime status, queue state, and context budget in the chat UI', async ({ page }) => {
+    const sessionId = 'sess-runtime-status';
+    let currentStatus = {
+      sessionId,
+      phase: 'running_tool',
+      activeTool: { toolCallId: 'tool-1', name: 'read_file' },
+      pendingToolCalls: 1,
+      followUpQueue: [{ id: 'follow-1', text: 'Summarize afterwards', attachmentCount: 0 }],
+      steeringQueue: [{ id: 'steer-1', text: 'Stop and inspect README', attachmentCount: 0 }],
+      canAbort: true,
+      contextWindow: 128000,
+      estimatedHistoryTokens: 14600,
+      availableHistoryTokens: 23500,
+      contextUsagePercent: 62,
+      includedSummary: true,
+      omittedMessageCount: 8,
+      summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
+    };
+
+    await page.route('**/api/agents/config', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            piConfig: {
+              activeProvider: 'openai',
+              providers: {
+                openai: { model: 'gpt-4o' },
+              },
+            },
+            discovery: {
+              openai: {
+                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/sessions', async (route) => {
+      const request = route.request();
+      if (request.method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            sessions: [
+              {
+                id: 1,
+                sessionId,
+                title: 'Busy runtime session',
+                model: 'gpt-4o',
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          session: {
+            id: 1,
+            sessionId,
+            title: 'Busy runtime session',
+            model: 'gpt-4o',
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      });
+    });
+
+    await page.route(`**/api/sessions/messages?sessionId=${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          messages: [
+            {
+              id: 'm1',
+              role: 'user',
+              content: 'Check the project status.',
+              timestamp: Date.now() - 1000,
+            },
+            {
+              id: 'm2',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Working on it.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now() - 500,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.route(`**/api/stream/status?sessionId=${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          status: currentStatus,
+        }),
+      });
+    });
+
+    await page.route('**/api/stream', async (route) => {
+      const body = `${JSON.stringify({ type: 'runtime_status', status: currentStatus })}\n`;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body,
+      });
+    });
+
+    await page.route('**/api/stream/control', async (route) => {
+      const requestBody = route.request().postDataJSON() as { action: string; message?: { content?: string | Array<{ type: string; text?: string }> } };
+      if (requestBody.action === 'steer') {
+        currentStatus = {
+          ...currentStatus,
+          steeringQueue: [
+            ...currentStatus.steeringQueue,
+            { id: 'steer-2', text: 'Take over immediately', attachmentCount: 0 },
+          ],
+        };
+      }
+
+      if (requestBody.action === 'replace') {
+        currentStatus = {
+          ...currentStatus,
+          phase: 'aborting',
+          activeTool: null,
+          followUpQueue: [],
+          steeringQueue: [],
+        };
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          status: currentStatus,
+        }),
+      });
+    });
+
+    await page.goto('/chat');
+
+    await expect(page.getByTestId('chat-runtime-status')).toContainText('Tool läuft: read_file');
+    await expect(page.getByTestId('chat-runtime-status')).toContainText('2 in Queue');
+    await expect(page.getByTestId('chat-runtime-status')).toContainText('Summary aktiv');
+    await expect(page.getByTestId('chat-context-meter')).toContainText('~62%');
+    await expect(page.getByTestId('chat-context-meter')).toContainText('128k');
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards');
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('Stop and inspect README');
+
+    await page.getByTestId('chat-input').fill('Take over immediately');
+    await page.getByTestId('chat-steer').click();
+
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('3 queued');
+    await expect(page.getByTestId('chat-message-user').last()).toContainText('Take over immediately');
+
+    await page.getByTestId('chat-input').fill('Ship this first');
+    await page.getByTestId('chat-send-now').click();
+
+    await expect(page.getByTestId('chat-runtime-status')).toContainText('Wird gestoppt');
   });
 
   test('should render the usage analytics page and apply provider filters', async ({ page }) => {

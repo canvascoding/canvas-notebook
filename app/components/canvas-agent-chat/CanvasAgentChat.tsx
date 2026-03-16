@@ -33,14 +33,14 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'toolResult';
   content: string;
-  thinking?: string; // Extracted thinking/reasoning content
   type?: 'tool_use' | 'tool_result' | 'system';
-  status?: 'pending' | 'sending' | 'sent' | 'error';
+  status?: 'pending' | 'sending' | 'queued_follow_up' | 'queued_steering' | 'aborting' | 'sent' | 'error';
   attachments?: Attachment[];
   piMessage?: AgentMessage;
   toolName?: string;
   toolCallId?: string;
   toolArgs?: string;
+  queueKind?: 'follow_up' | 'steer';
 }
 
 interface AISession {
@@ -68,8 +68,12 @@ interface ChatEvent {
   result?: {
     content?: unknown[];
   };
+  partialResult?: {
+    content?: unknown[];
+  };
   error?: string;
   messages?: AgentMessage[];
+  status?: RuntimeStatus;
 }
 
 type PersistedChatMessage = AgentMessage & {
@@ -78,10 +82,27 @@ type PersistedChatMessage = AgentMessage & {
 type UserPiMessage = Extract<AgentMessage, { role: 'user' }>;
 type UserPiContent = UserPiMessage['content'];
 
-type QueuedMessage = {
+type RuntimeQueueItem = {
   id: string;
   text: string;
-  attachments: Attachment[];
+  attachmentCount: number;
+};
+
+type RuntimeStatus = {
+  sessionId: string;
+  phase: 'idle' | 'streaming' | 'running_tool' | 'aborting';
+  activeTool: { toolCallId: string; name: string } | null;
+  pendingToolCalls: number;
+  followUpQueue: RuntimeQueueItem[];
+  steeringQueue: RuntimeQueueItem[];
+  canAbort: boolean;
+  contextWindow: number;
+  estimatedHistoryTokens: number;
+  availableHistoryTokens: number;
+  contextUsagePercent: number;
+  includedSummary: boolean;
+  omittedMessageCount: number;
+  summaryUpdatedAt: string | null;
 };
 
 type DiscoveryModel = {
@@ -98,8 +119,6 @@ type AgentConfig = {
   discovery: Record<string, { models: DiscoveryModel[] }>;
 };
 
-type UpdateFunction = (content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => void;
-
 interface CanvasAgentChatProps {
   onClose?: () => void;
   initialPrompt?: string | null;
@@ -108,31 +127,12 @@ interface CanvasAgentChatProps {
 }
 
 const DEFAULT_MODEL_ID = 'pi';
-const EMPTY_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    total: 0,
-  },
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
 function isTextPart(value: unknown): value is { type: 'text'; text: string } {
   return isRecord(value) && value.type === 'text' && typeof value.text === 'string';
-}
-
-function isThinkingPart(value: unknown): value is { type: 'thinking'; thinking: string } {
-  return isRecord(value) && value.type === 'thinking' && typeof value.thinking === 'string';
 }
 
 function isImagePart(value: unknown): value is { type: 'image'; data: string; mimeType: string } {
@@ -172,7 +172,6 @@ function extractPiMessageText(piMessage?: AgentMessage | null): string {
   const textContent = piMessage.content
     .map((part) => {
       if (isTextPart(part)) return part.text;
-      if (isThinkingPart(part)) return part.thinking;
       return '';
     })
     .filter(Boolean)
@@ -187,48 +186,6 @@ function extractPiMessageText(piMessage?: AgentMessage | null): string {
   }
 
   return '';
-}
-
-function toPiMessage(message: ChatMessage, fallbackModel: string) {
-  if (message.role === 'system') {
-    return null;
-  }
-
-  if (message.piMessage) {
-    return message.piMessage;
-  }
-
-  if (message.role === 'user') {
-    return {
-      role: 'user',
-      content: buildPromptContent(message.content, message.attachments || []),
-      timestamp: Date.now(),
-    };
-  }
-
-  if (message.role === 'assistant') {
-    return {
-      role: 'assistant',
-      content: message.content ? [{ type: 'text', text: message.content }] : [],
-      api: 'legacy',
-      provider: 'legacy',
-      model: fallbackModel,
-      usage: EMPTY_USAGE,
-      stopReason: message.status === 'error' ? 'error' : 'stop',
-      errorMessage: message.status === 'error' ? message.content : undefined,
-      timestamp: Date.now(),
-    };
-  }
-
-  if (message.role === 'toolResult') {
-    return {
-      role: 'toolResult',
-      content: message.content ? [{ type: 'text', text: message.content }] : [],
-      timestamp: Date.now(),
-    } as AgentMessage;
-  }
-
-  return null;
 }
 
 function extractToolResultText(content: unknown[] | undefined): string {
@@ -299,6 +256,35 @@ function formatToolArgs(args: unknown): string {
   }
 }
 
+function buildQueuedMessageKey(text: string, attachmentCount: number): string {
+  return `${text.trim()}::${attachmentCount}`;
+}
+
+function formatContextTokens(value: number): string {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
+  }
+
+  return `${value}`;
+}
+
+function getRuntimePhaseLabel(status: RuntimeStatus | null): string {
+  if (!status) {
+    return 'Bereit';
+  }
+
+  switch (status.phase) {
+    case 'running_tool':
+      return status.activeTool ? `Tool läuft: ${status.activeTool.name}` : 'Tool läuft';
+    case 'streaming':
+      return 'Agent arbeitet';
+    case 'aborting':
+      return 'Wird gestoppt';
+    default:
+      return 'Bereit';
+  }
+}
+
 function MarkdownMessage({ content, variant }: { content: string; variant: 'user' | 'assistant' | 'tool' }) {
   const sharedClasses =
     'break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
@@ -320,31 +306,41 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<AISession[]>([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
 
-
-  // @-mention file picker state
   const [showFilePicker, setShowFilePicker] = useState(false);
   const [filePickerQuery, setFilePickerQuery] = useState('');
   const [filePickerFiles, setFilePickerFiles] = useState<Array<{ name: string; path: string; type: 'file' | 'directory'; isImage: boolean }>>([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const filePickerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPosition, setCursorPosition] = useState(0);
 
+  const filePickerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialPromptConsumedRef = useRef(false);
   const toolMessageIdsRef = useRef<Record<string, string>>({});
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const streamSessionRef = useRef<string | null>(null);
+  const currentAssistantIdRef = useRef<string | null>(null);
+  const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    runtimeStatusRef.current = runtimeStatus;
+  }, [runtimeStatus]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
@@ -353,16 +349,14 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    const atBottom = scrollHeight - scrollTop - clientHeight < 100;
-    setIsAtBottom(atBottom);
+    setIsAtBottom(scrollHeight - scrollTop - clientHeight < 100);
   }, []);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
-    if (scrollContainer) {
-      scrollContainer.addEventListener('scroll', handleScroll);
-      return () => scrollContainer.removeEventListener('scroll', handleScroll);
-    }
+    if (!scrollContainer) return;
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => scrollContainer.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
   useEffect(() => {
@@ -372,6 +366,72 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       scrollToBottom(lastMessage.role === 'user' ? 'smooth' : 'auto');
     }
   }, [messages, isAtBottom]);
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sessions');
+      const data = await res.json();
+      if (data.success) {
+        setHistory(data.sessions || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch history', err);
+    }
+  }, []);
+
+  const resetStreamConnection = useCallback(() => {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    streamSessionRef.current = null;
+    currentAssistantIdRef.current = null;
+  }, []);
+
+  const reconcileQueuedMessages = useCallback((status: RuntimeStatus) => {
+    setMessages((prev) => {
+      const followQueueCounts = new Map<string, number>();
+      const steeringQueueCounts = new Map<string, number>();
+
+      for (const entry of status.followUpQueue) {
+        const key = buildQueuedMessageKey(entry.text, entry.attachmentCount);
+        followQueueCounts.set(key, (followQueueCounts.get(key) || 0) + 1);
+      }
+
+      for (const entry of status.steeringQueue) {
+        const key = buildQueuedMessageKey(entry.text, entry.attachmentCount);
+        steeringQueueCounts.set(key, (steeringQueueCounts.get(key) || 0) + 1);
+      }
+
+      return prev.map((message) => {
+        if (message.role !== 'user') {
+          return message;
+        }
+
+        const key = buildQueuedMessageKey(message.content, message.attachments?.length || 0);
+        const followCount = followQueueCounts.get(key) || 0;
+        if (followCount > 0) {
+          followQueueCounts.set(key, followCount - 1);
+          return { ...message, status: 'queued_follow_up', queueKind: 'follow_up' };
+        }
+
+        const steerCount = steeringQueueCounts.get(key) || 0;
+        if (steerCount > 0) {
+          steeringQueueCounts.set(key, steerCount - 1);
+          return { ...message, status: 'queued_steering', queueKind: 'steer' };
+        }
+
+        if (message.status === 'queued_follow_up' || message.status === 'queued_steering' || message.status === 'pending' || message.status === 'aborting') {
+          return { ...message, status: 'sent', queueKind: undefined };
+        }
+
+        return message;
+      });
+    });
+  }, []);
+
+  const setRuntimeStatusWithReconciliation = useCallback((status: RuntimeStatus) => {
+    setRuntimeStatus(status);
+    reconcileQueuedMessages(status);
+  }, [reconcileQueuedMessages]);
 
   const updateAssistantMessage = useCallback((id: string, content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => {
     setMessages((prev) =>
@@ -389,12 +449,12 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         if (message.id !== id) return message;
 
         const nextContent = extractPiMessageText(piMessage);
-        const isAssistantError = piMessage.role === 'assistant' && piMessage.stopReason === 'error';
+        const isAssistantError = piMessage.role === 'assistant' && (piMessage.stopReason === 'error' || piMessage.stopReason === 'aborted');
 
         return {
           ...message,
           content: nextContent || message.content,
-          status: isAssistantError ? 'error' : message.status,
+          status: isAssistantError ? 'error' : 'sent',
           type: isAssistantError ? 'system' : message.type,
           piMessage,
         };
@@ -402,8 +462,21 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     );
   }, []);
 
+  const appendSystemMessage = useCallback((content: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-system`,
+        role: 'system',
+        content,
+        status: 'error',
+        type: 'system',
+      },
+    ]);
+  }, []);
+
   const upsertToolMessage = useCallback((params: {
-    assistantMessageId?: string;
+    assistantMessageId?: string | null;
     content?: string;
     status?: ChatMessage['status'];
     toolCallId?: string;
@@ -455,115 +528,395 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         type: type || prev[index].type,
       };
 
-      if (assistantIndex !== -1 && index > assistantIndex) {
-        const nextMessages = [...prev];
-        nextMessages.splice(index, 1);
-        const nextAssistantIndex = nextMessages.findIndex((message) => message.id === assistantMessageId);
-        nextMessages.splice(nextAssistantIndex, 0, mergedMessage);
-        return nextMessages;
-      }
-
       const nextMessages = [...prev];
       nextMessages[index] = mergedMessage;
       return nextMessages;
     });
   }, []);
 
-  const handleEvent = useCallback((event: ChatEvent, msgId: string, updateFn: UpdateFunction) => {
-    if (event.message?.role === 'assistant') {
-      syncPiMessage(msgId, event.message);
-    }
-
-    switch (event.type) {
-      case 'message_update':
-        if (event.assistantMessageEvent?.type === 'text_delta' || event.assistantMessageEvent?.type === 'thinking_delta') {
-          updateFn(event.assistantMessageEvent.delta || '', undefined, 'sending');
-        }
-        break;
-      case 'tool_execution_start':
-        upsertToolMessage({
-          assistantMessageId: msgId,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName || 'Tool',
-          toolArgs: formatToolArgs(event.args),
-          status: 'sending',
-          type: 'tool_use',
-        });
-        break;
-      case 'tool_execution_end': {
-        const text = extractToolResultText(event.result?.content);
-        upsertToolMessage({
-          assistantMessageId: msgId,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName || 'Tool',
-          content: text,
-          status: 'sent',
-          type: 'tool_result',
-          piMessage: {
-            role: 'toolResult',
-            content: text ? [{ type: 'text', text }] : [],
-            timestamp: Date.now(),
-          } as AgentMessage,
-        });
-        break;
-      }
-      case 'error':
-        updateFn(`[Error] ${event.error || 'Unknown error'}`, 'system', 'error');
-        break;
-      default:
-        break;
-    }
-  }, [syncPiMessage, upsertToolMessage]);
-
-  const fetchHistory = useCallback(async () => {
+  const refreshRuntimeStatus = useCallback(async (targetSessionId: string) => {
     try {
-      const res = await fetch('/api/sessions');
-      const data = await res.json();
-      if (data.success) {
-        setHistory(data.sessions || []);
+      const response = await fetch(`/api/stream/status?sessionId=${encodeURIComponent(targetSessionId)}`);
+      if (!response.ok) {
+        return;
       }
-    } catch (err) {
-      console.error('Failed to fetch history', err);
+
+      const payload = await response.json();
+      if (payload.success && payload.status) {
+        setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
+      }
+    } catch (error) {
+      console.error('Failed to load runtime status', error);
     }
+  }, [setRuntimeStatusWithReconciliation]);
+
+  const ensureSession = useCallback(async () => {
+    if (sessionIdRef.current) {
+      return sessionIdRef.current;
+    }
+
+    const createSessionResponse = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'New session' }),
+    });
+
+    const createSessionPayload = await createSessionResponse.json().catch(() => null);
+    if (!createSessionResponse.ok || !createSessionPayload?.success || !createSessionPayload?.session?.sessionId) {
+      throw new Error(createSessionPayload?.error || `Failed to create session (HTTP ${createSessionResponse.status})`);
+    }
+
+    const nextSessionId = createSessionPayload.session.sessionId as string;
+    setSessionId(nextSessionId);
+    sessionIdRef.current = nextSessionId;
+    return nextSessionId;
   }, []);
 
+  const createAssistantBubble = useCallback((message?: AgentMessage) => {
+    const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    currentAssistantIdRef.current = assistantId;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: assistantId,
+        role: 'assistant',
+        content: extractPiMessageText(message),
+        status: 'sending',
+        piMessage: message,
+      },
+    ]);
+    return assistantId;
+  }, []);
+
+  const handleStreamEvent = useCallback((event: ChatEvent) => {
+    if (event.type === 'runtime_status' && event.status) {
+      setRuntimeStatusWithReconciliation(event.status);
+      return;
+    }
+
+    if (event.type === 'message_start' && event.message?.role === 'assistant') {
+      createAssistantBubble(event.message);
+      return;
+    }
+
+    if (event.type === 'message_update') {
+      const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
+      if (event.message?.role === 'assistant') {
+        syncPiMessage(assistantId, event.message);
+      }
+
+      if (event.assistantMessageEvent?.type === 'text_delta') {
+        updateAssistantMessage(assistantId, event.assistantMessageEvent.delta || '', undefined, 'sending');
+      }
+      return;
+    }
+
+    if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
+      syncPiMessage(assistantId, event.message);
+      currentAssistantIdRef.current = null;
+      return;
+    }
+
+    if (event.type === 'tool_execution_start') {
+      upsertToolMessage({
+        assistantMessageId: currentAssistantIdRef.current,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName || 'Tool',
+        toolArgs: formatToolArgs(event.args),
+        status: 'sending',
+        type: 'tool_use',
+      });
+      return;
+    }
+
+    if (event.type === 'tool_execution_update') {
+      upsertToolMessage({
+        assistantMessageId: currentAssistantIdRef.current,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName || 'Tool',
+        content: extractToolResultText(event.partialResult?.content),
+        status: 'sending',
+        type: 'tool_use',
+      });
+      return;
+    }
+
+    if (event.type === 'tool_execution_end') {
+      const text = extractToolResultText(event.result?.content);
+      upsertToolMessage({
+        assistantMessageId: currentAssistantIdRef.current,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName || 'Tool',
+        content: text,
+        status: 'sent',
+        type: 'tool_result',
+        piMessage: {
+          role: 'toolResult',
+          content: text ? [{ type: 'text', text }] : [],
+          timestamp: Date.now(),
+        } as AgentMessage,
+      });
+      return;
+    }
+
+    if (event.type === 'error') {
+      appendSystemMessage(`Error: ${event.error || 'Unknown error'}`);
+    }
+  }, [appendSystemMessage, createAssistantBubble, setRuntimeStatusWithReconciliation, syncPiMessage, updateAssistantMessage, upsertToolMessage]);
+
+  const openRuntimeStream = useCallback(async (
+    targetSessionId: string,
+    promptMessage?: Extract<AgentMessage, { role: 'user' }>,
+  ) => {
+    if (streamAbortRef.current && streamSessionRef.current === targetSessionId && !promptMessage) {
+      return;
+    }
+
+    if (streamAbortRef.current && streamSessionRef.current !== targetSessionId) {
+      resetStreamConnection();
+    }
+
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    streamSessionRef.current = targetSessionId;
+    currentAssistantIdRef.current = null;
+
+    try {
+      const response = await fetch('/api/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: targetSessionId,
+          ...(promptMessage ? { message: promptMessage, messages: [promptMessage] } : {}),
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let lineBuffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            handleStreamEvent(JSON.parse(line) as ChatEvent);
+          } catch {
+            // Ignore malformed stream lines.
+          }
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        console.error('Chat stream error:', error);
+        appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+        streamSessionRef.current = null;
+        currentAssistantIdRef.current = null;
+      }
+      void fetchHistory();
+      if (sessionIdRef.current === targetSessionId) {
+        void refreshRuntimeStatus(targetSessionId);
+      }
+    }
+  }, [appendSystemMessage, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection]);
+
+  const postControl = useCallback(async (
+    targetSessionId: string,
+    action: 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact',
+    message?: Extract<AgentMessage, { role: 'user' }>,
+  ) => {
+    const response = await fetch('/api/stream/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: targetSessionId,
+        action,
+        ...(message ? { message } : {}),
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.error || `Control request failed (${response.status})`);
+    }
+
+    if (payload.status) {
+      setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
+    }
+  }, [setRuntimeStatusWithReconciliation]);
+
+  const appendOptimisticUserMessage = useCallback((
+    text: string,
+    messageAttachments: Attachment[],
+    status: ChatMessage['status'],
+    queueKind?: ChatMessage['queueKind'],
+    piMessage?: Extract<AgentMessage, { role: 'user' }>,
+  ) => {
+    const id = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id,
+        role: 'user',
+        content: text,
+        status,
+        attachments: messageAttachments,
+        piMessage,
+        queueKind,
+      },
+    ]);
+    return id;
+  }, []);
+
+  const handleControlAction = useCallback(async (
+    action: 'send' | 'steer' | 'replace',
+    override?: { text: string; attachments: Attachment[] },
+  ) => {
+    const rawText = override?.text ?? input.trim();
+    const baseAttachments = override?.attachments ?? attachments;
+
+    if (!rawText && baseAttachments.length === 0) {
+      return;
+    }
+
+    const autoAttachments = override ? [] : await scanForImageReferences(rawText);
+    const messageAttachments = [...baseAttachments, ...autoAttachments];
+    const userMessage: Extract<AgentMessage, { role: 'user' }> = {
+      role: 'user',
+      content: buildPromptContent(rawText, messageAttachments),
+      timestamp: Date.now(),
+    };
+
+    setInput('');
+    setAttachments([]);
+
+    const targetSessionId = await ensureSession();
+    const currentPhase = runtimeStatusRef.current?.phase || 'idle';
+
+    if (currentPhase === 'idle') {
+      appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
+      await openRuntimeStream(targetSessionId, userMessage);
+      return;
+    }
+
+    if (!streamAbortRef.current || streamSessionRef.current !== targetSessionId) {
+      void openRuntimeStream(targetSessionId);
+    }
+
+    if (action === 'send') {
+      appendOptimisticUserMessage(rawText, messageAttachments, 'queued_follow_up', 'follow_up', userMessage);
+      await postControl(targetSessionId, 'follow_up', userMessage);
+      return;
+    }
+
+    if (action === 'steer') {
+      appendOptimisticUserMessage(rawText, messageAttachments, 'queued_steering', 'steer', userMessage);
+      await postControl(targetSessionId, 'steer', userMessage);
+      return;
+    }
+
+    appendOptimisticUserMessage(rawText, messageAttachments, 'sending', undefined, userMessage);
+    setMessages((prev) =>
+      prev.map((message) => (message.role === 'user' && message.status === 'sending' ? { ...message, status: 'aborting' } : message)),
+    );
+    await postControl(targetSessionId, 'replace', userMessage);
+  }, [appendOptimisticUserMessage, attachments, ensureSession, input, openRuntimeStream, postControl]);
+
+  const handleSend = useCallback(async () => {
+    try {
+      await handleControlAction('send');
+    } catch (error) {
+      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [appendSystemMessage, handleControlAction]);
+
+  const handleSteer = useCallback(async () => {
+    try {
+      await handleControlAction('steer');
+    } catch (error) {
+      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [appendSystemMessage, handleControlAction]);
+
+  const handleNowSend = useCallback(async () => {
+    try {
+      await handleControlAction('replace');
+    } catch (error) {
+      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [appendSystemMessage, handleControlAction]);
+
+  const handleStop = useCallback(async () => {
+    if (!sessionIdRef.current) return;
+    try {
+      await postControl(sessionIdRef.current, 'abort');
+    } catch (error) {
+      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [appendSystemMessage, postControl]);
+
+  const handleCompact = useCallback(async () => {
+    if (!sessionIdRef.current) return;
+    try {
+      await postControl(sessionIdRef.current, 'compact');
+    } catch (error) {
+      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [appendSystemMessage, postControl]);
+
   const startNewChat = useCallback(() => {
+    resetStreamConnection();
+    setRuntimeStatus(null);
     setSessionId(null);
+    sessionIdRef.current = null;
     setMessages([]);
     setShowHistory(false);
-    // Use model from agentConfig if available, otherwise fall back to default
     if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
       const provider = agentConfig.piConfig.activeProvider;
-      const model = agentConfig.piConfig.providers[provider]?.model;
-      setActiveModel(model || DEFAULT_MODEL_ID);
+      setActiveModel(agentConfig.piConfig.providers[provider]?.model || DEFAULT_MODEL_ID);
     } else {
       setActiveModel(DEFAULT_MODEL_ID);
     }
     toolMessageIdsRef.current = {};
-  }, [agentConfig]);
+  }, [agentConfig, resetStreamConnection]);
 
   const loadSession = useCallback(async (session: AISession) => {
+    resetStreamConnection();
     setSessionId(session.sessionId);
-    // Use session's model if available, otherwise fall back to current config model
-    if (session.model) {
-      setActiveModel(session.model);
-    } else if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
-      const provider = agentConfig.piConfig.activeProvider;
-      const model = agentConfig.piConfig.providers[provider]?.model;
-      setActiveModel(model || DEFAULT_MODEL_ID);
-    } else {
-      setActiveModel(DEFAULT_MODEL_ID);
-    }
+    sessionIdRef.current = session.sessionId;
+    setActiveModel(session.model || DEFAULT_MODEL_ID);
     setMessages([{ id: 'system', role: 'system', content: 'Loading...' }]);
     setShowHistory(false);
     toolMessageIdsRef.current = {};
 
     try {
-      const res = await fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}`);
-      const data = await res.json();
-      if (data.success && data.messages) {
+      const [messagesResponse, statusResponse] = await Promise.all([
+        fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}`),
+        fetch(`/api/stream/status?sessionId=${encodeURIComponent(session.sessionId)}`),
+      ]);
+
+      const messagesPayload = await messagesResponse.json();
+      const statusPayload = await statusResponse.json().catch(() => null);
+
+      if (messagesPayload.success && messagesPayload.messages) {
         setMessages(
-          data.messages.map((rawMessage: PersistedChatMessage) => {
+          messagesPayload.messages.map((rawMessage: PersistedChatMessage) => {
             const isToolResult = rawMessage.role === 'toolResult';
             const content = isToolResult
               ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
@@ -581,56 +934,51 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           }),
         );
       }
+
+      if (statusPayload?.success && statusPayload.status) {
+        setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
+        if ((statusPayload.status as RuntimeStatus).phase !== 'idle') {
+          void openRuntimeStream(session.sessionId);
+        }
+      } else {
+        setRuntimeStatus(null);
+      }
     } catch (err) {
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: 'Failed to load message history.' }]);
     }
-  }, [agentConfig]);
+  }, [openRuntimeStream, resetStreamConnection, setRuntimeStatusWithReconciliation]);
 
   const deleteSession = useCallback(async (id: string) => {
     if (!confirm('Are you sure you want to delete this session?')) return;
 
     try {
-      const res = await fetch(`/api/sessions?sessionId=${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
+      const res = await fetch(`/api/sessions?sessionId=${encodeURIComponent(id)}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         setHistory((prev) => prev.filter((session) => session.sessionId !== id));
-        if (sessionId === id) {
+        if (sessionIdRef.current === id) {
           startNewChat();
         }
       }
     } catch (err) {
       console.error('Failed to delete session', err);
     }
-  }, [sessionId, startNewChat]);
+  }, [startNewChat]);
 
   const renameSession = useCallback(async (session: AISession) => {
     const nextTitle = prompt('Rename session', session.title || '');
-    if (!nextTitle || !nextTitle.trim()) {
-      return;
-    }
+    if (!nextTitle || !nextTitle.trim()) return;
 
     try {
       const res = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: session.sessionId,
-          title: nextTitle.trim(),
-        }),
+        body: JSON.stringify({ sessionId: session.sessionId, title: nextTitle.trim() }),
       });
-
       const data = await res.json();
       if (data.success) {
-        setHistory((prev) =>
-          prev.map((item) =>
-            item.sessionId === session.sessionId
-              ? { ...item, title: nextTitle.trim() }
-              : item,
-          ),
-        );
+        setHistory((prev) => prev.map((item) => (item.sessionId === session.sessionId ? { ...item, title: nextTitle.trim() } : item)));
       }
     } catch (err) {
       console.error('Failed to rename session', err);
@@ -661,7 +1009,6 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
     if (!items) return;
-
     for (let i = 0; i < items.length; i += 1) {
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile();
@@ -674,7 +1021,6 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     }
   }, [handleFileUpload]);
 
-  // Fetch files for @-mention picker
   const fetchFiles = useCallback(async (query: string = '') => {
     setIsLoadingFiles(true);
     try {
@@ -691,135 +1037,87 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     }
   }, []);
 
-  // Handle @-mention in textarea
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const cursorPos = e.target.selectionStart;
     setInput(value);
     setCursorPosition(cursorPos);
 
-    // Check if we should show file picker
     const lastAtIndex = value.lastIndexOf('@', cursorPos);
     if (lastAtIndex !== -1 && cursorPos > lastAtIndex) {
       const textAfterAt = value.slice(lastAtIndex + 1, cursorPos);
-      
-      // Don't show picker if:
-      // 1. There's a space in the query (user is typing after file selection)
-      // 2. There's a closing quote followed by space (file was already selected with quotes)
-      // 3. There's another @ symbol (user started a new mention)
       const hasSpace = textAfterAt.includes(' ');
       const hasCompletedQuote = textAfterAt.includes('"') && textAfterAt.indexOf('"') < textAfterAt.length - 1;
       const hasAnotherAt = textAfterAt.includes('@');
-      
+
       if (!hasSpace && !hasCompletedQuote && !hasAnotherAt) {
-        const query = textAfterAt;
-        setFilePickerQuery(query);
+        setFilePickerQuery(textAfterAt);
         setShowFilePicker(true);
-        // Fetch files with query
-        void fetchFiles(query);
+        void fetchFiles(textAfterAt);
         return;
       }
     }
-    
+
     setShowFilePicker(false);
   }, [fetchFiles]);
 
-  // Handle file selection from picker
   const handleFileSelect = useCallback((file: { name: string; path: string }) => {
     const lastAtIndex = input.lastIndexOf('@', cursorPosition);
-    if (lastAtIndex !== -1) {
-      const before = input.slice(0, lastAtIndex);
-      const after = input.slice(cursorPosition);
-      // Wrap path in quotes for clarity, with space after
-      const newValue = `${before}"${file.path}" ${after}`;
-      setInput(newValue);
-      setShowFilePicker(false);
-      setFilePickerQuery('');
-      
-      // Focus back to textarea after selection
-      setTimeout(() => {
-        textareaRef.current?.focus();
-        const newCursorPos = before.length + file.path.length + 3; // +2 for quotes, +1 for space
-        textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
-      }, 0);
-    }
-  }, [input, cursorPosition]);
+    if (lastAtIndex === -1) return;
+    const before = input.slice(0, lastAtIndex);
+    const after = input.slice(cursorPosition);
+    const newValue = `${before}"${file.path}" ${after}`;
+    setInput(newValue);
+    setShowFilePicker(false);
+    setFilePickerQuery('');
 
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      const newCursorPos = before.length + file.path.length + 3;
+      textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  }, [cursorPosition, input]);
 
-
-  // Scan text for image references and auto-attach them
-  // Supports both quoted paths: "path/to/image.jpg" and unquoted paths: path/to/image.jpg
   const scanForImageReferences = useCallback(async (text: string): Promise<Attachment[]> => {
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
-    const escapedExtensions = imageExtensions.map(ext => ext.replace(/\./g, '\\.'));
-    
-    // Pattern 1: Quoted paths: "path/to/file.jpg"
+    const escapedExtensions = imageExtensions.map((ext) => ext.replace(/\./g, '\\.'));
     const quotedPattern = `"([^"]*(?:${escapedExtensions.join('|')}))"`;
-    // Pattern 2: Unquoted paths (word boundaries)
     const unquotedPattern = `\\b([\\w\\-./]+(?:${escapedExtensions.join('|')}))\\b`;
-    
     const foundAttachments: Attachment[] = [];
     const processedPaths = new Set<string>();
-    
-    // Try quoted pattern first
+
+    const collectAttachment = async (path: string) => {
+      if (processedPaths.has(path) || attachments.some((attachment) => attachment.path === path)) {
+        return;
+      }
+
+      processedPaths.add(path);
+      try {
+        const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+        if (!res.ok) return;
+        const contentType = res.headers.get('content-type') || 'application/octet-stream';
+        if (!contentType.startsWith('image/')) return;
+        foundAttachments.push({
+          name: path.split('/').pop() || path,
+          path,
+          type: contentType,
+        });
+      } catch {
+        // ignore
+      }
+    };
+
     const quotedRegex = new RegExp(quotedPattern, 'gi');
     let match;
     while ((match = quotedRegex.exec(text)) !== null) {
-      const path = match[1];
-      if (processedPaths.has(path)) continue;
-      processedPaths.add(path);
-      
-      // Skip if already attached
-      if (attachments.some(att => att.path === path)) continue;
-      
-      // Check if file exists
-      try {
-        const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
-        if (res.ok) {
-          const contentType = res.headers.get('content-type') || 'application/octet-stream';
-          const isImage = contentType.startsWith('image/');
-          if (isImage) {
-            foundAttachments.push({
-              name: path.split('/').pop() || path,
-              path: path,
-              type: contentType,
-            });
-          }
-        }
-      } catch {
-        // File doesn't exist or can't be read, skip
-      }
+      await collectAttachment(match[1]);
     }
-    
-    // Try unquoted pattern
+
     const unquotedRegex = new RegExp(unquotedPattern, 'gi');
     while ((match = unquotedRegex.exec(text)) !== null) {
-      const path = match[1];
-      if (processedPaths.has(path)) continue;
-      processedPaths.add(path);
-      
-      // Skip if already attached
-      if (attachments.some(att => att.path === path)) continue;
-      
-      // Check if file exists
-      try {
-        const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
-        if (res.ok) {
-          const contentType = res.headers.get('content-type') || 'application/octet-stream';
-          const isImage = contentType.startsWith('image/');
-          if (isImage) {
-            foundAttachments.push({
-              name: path.split('/').pop() || path,
-              path: path,
-              type: contentType,
-            });
-          }
-        }
-      } catch {
-        // File doesn't exist or can't be read, skip
-      }
+      await collectAttachment(match[1]);
     }
-    
+
     return foundAttachments;
   }, [attachments]);
 
@@ -827,58 +1125,12 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
-  const queueMessage = useCallback((text: string, messageAttachments: Attachment[]) => {
-    const messageId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const piMessage: UserPiMessage = {
-      role: 'user',
-      content: buildPromptContent(text, messageAttachments),
-      timestamp: Date.now(),
-    };
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: messageId,
-        role: 'user',
-        content: text,
-        status: 'pending',
-        attachments: messageAttachments,
-        piMessage,
-      },
-    ]);
-
-    setQueue((prev) => [...prev, { id: messageId, text, attachments: messageAttachments }]);
-  }, []);
-
-  const handleSend = useCallback(async () => {
-    if (!input.trim() && attachments.length === 0) return;
-    const text = input.trim();
-    
-    // Auto-scan for image references in the text
-    const autoAttachments = await scanForImageReferences(text);
-    const allAttachments = [...attachments, ...autoAttachments];
-    
-    // Update attachments state with found images
-    if (autoAttachments.length > 0) {
-      setAttachments((prev) => [...prev, ...autoAttachments]);
-    }
-    
-    const currentAttachments = [...allAttachments];
-    setInput('');
-    setAttachments([]);
-    queueMessage(text, currentAttachments);
-  }, [input, attachments, queueMessage, scanForImageReferences]);
-
-  // Handle keyboard navigation in file picker and textarea
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Handle file picker navigation when it's open
     if (showFilePicker && filePickerFiles.length > 0) {
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
-          setSelectedFileIndex((prev) => 
-            prev < filePickerFiles.length - 1 ? prev + 1 : prev
-          );
+          setSelectedFileIndex((prev) => (prev < filePickerFiles.length - 1 ? prev + 1 : prev));
           return;
         case 'ArrowUp':
           e.preventDefault();
@@ -897,14 +1149,12 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       }
     }
 
-    // Handle Enter key to send message (only when picker is not open)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
-  }, [showFilePicker, filePickerFiles, selectedFileIndex, handleFileSelect, handleSend]);
+  }, [filePickerFiles, handleFileSelect, handleSend, selectedFileIndex, showFilePicker]);
 
-  // Fetch agent config to check vision support
   useEffect(() => {
     const fetchConfig = async () => {
       try {
@@ -917,10 +1167,10 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         console.error('Failed to fetch agent config', err);
       }
     };
-    fetchConfig();
+
+    void fetchConfig();
   }, []);
 
-  // Update activeModel when agentConfig is loaded
   useEffect(() => {
     if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
       const provider = agentConfig.piConfig.activeProvider;
@@ -930,65 +1180,58 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       }
     }
   }, [agentConfig]);
+
   const currentModelSupportsVision = useCallback(() => {
     if (!agentConfig) return false;
     const activeProvider = agentConfig.piConfig.activeProvider;
-    const activeModel = agentConfig.piConfig.providers[activeProvider]?.model;
-    if (!activeModel) return false;
-    
-    const models = agentConfig.discovery[activeProvider]?.models || [];
-    const model = models.find(m => m.id === activeModel);
-    return model?.supportsVision || false;
+    const modelId = agentConfig.piConfig.providers[activeProvider]?.model;
+    if (!modelId) return false;
+    return agentConfig.discovery[activeProvider]?.models.find((model) => model.id === modelId)?.supportsVision || false;
   }, [agentConfig]);
 
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
-    
-    // Handle direct initialPrompt prop
+
+    const queueInitialPrompt = async (promptText: string, promptAttachments: Attachment[]) => {
+      initialPromptConsumedRef.current = true;
+      try {
+        await handleControlAction('send', { text: promptText, attachments: promptAttachments });
+      } catch (error) {
+        appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+
     const candidatePrompt = (initialPrompt || '').trim();
     if (candidatePrompt) {
-      initialPromptConsumedRef.current = true;
-      queueMessage(candidatePrompt, []);
+      void queueInitialPrompt(candidatePrompt, []);
       return;
     }
-    
-    if (!initialPromptStorageKey || typeof window === 'undefined') return;
-    
-    const storedData = window.sessionStorage.getItem(initialPromptStorageKey);
-    if (storedData) {
-      try {
-        // Try to parse as JSON (new format with attachments)
-        const parsed = JSON.parse(storedData);
-        if (parsed && (parsed.prompt || parsed.attachments)) {
-          initialPromptConsumedRef.current = true;
-          window.sessionStorage.removeItem(initialPromptStorageKey);
-          const promptText = parsed.prompt || '';
-          const attachments = parsed.attachments || [];
-          queueMessage(promptText, attachments);
-          return;
-        }
-      } catch {
-        // Fall back to old string format
-      }
-      
-      // Legacy: stored as plain string
-      if (storedData.trim()) {
-        initialPromptConsumedRef.current = true;
-        window.sessionStorage.removeItem(initialPromptStorageKey);
-        queueMessage(storedData.trim(), []);
-      }
-    }
-  }, [initialPrompt, initialPromptStorageKey, queueMessage]);
 
-  // Auto-load last session on mount (if no initial prompt)
+    if (!initialPromptStorageKey || typeof window === 'undefined') return;
+    const storedData = window.sessionStorage.getItem(initialPromptStorageKey);
+    if (!storedData) return;
+
+    try {
+      const parsed = JSON.parse(storedData);
+      if (parsed && (parsed.prompt || parsed.attachments)) {
+        window.sessionStorage.removeItem(initialPromptStorageKey);
+        void queueInitialPrompt(parsed.prompt || '', parsed.attachments || []);
+        return;
+      }
+    } catch {
+      // fallback below
+    }
+
+    if (storedData.trim()) {
+      window.sessionStorage.removeItem(initialPromptStorageKey);
+      void queueInitialPrompt(storedData.trim(), []);
+    }
+  }, [appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey]);
+
   useEffect(() => {
-    // Skip if there's an initial prompt to process
     if (initialPrompt?.trim()) return;
-    
-    // Skip if there's a stored initial prompt
-    if (initialPromptStorageKey && typeof window !== 'undefined') {
-      const storedData = window.sessionStorage.getItem(initialPromptStorageKey);
-      if (storedData) return;
+    if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
+      return;
     }
 
     const autoLoadLastSession = async () => {
@@ -996,9 +1239,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         const res = await fetch('/api/sessions');
         const data = await res.json();
         if (data.success && data.sessions && data.sessions.length > 0) {
-          // Load the most recent session (first in list, sorted by createdAt DESC)
-          const lastSession = data.sessions[0];
-          await loadSession(lastSession);
+          await loadSession(data.sessions[0]);
         }
       } catch (err) {
         console.error('Failed to auto-load last session', err);
@@ -1006,207 +1247,127 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     };
 
     void autoLoadLastSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const processMessage = useCallback(async ({ id, text, attachments: currentAttachments }: QueuedMessage) => {
-    setIsProcessing(true);
-    setMessages((prev) => prev.map((message) => (message.id === id ? { ...message, status: 'sending' } : message)));
-
-    try {
-      let effectiveSessionId = sessionId;
-      if (!effectiveSessionId) {
-        const createSessionResponse = await fetch('/api/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: 'New session' }),
-        });
-
-        const createSessionPayload = await createSessionResponse.json().catch(() => null);
-        if (!createSessionResponse.ok || !createSessionPayload?.success || !createSessionPayload?.session?.sessionId) {
-          const createErrorMessage =
-            createSessionPayload?.error || `Failed to create session (HTTP ${createSessionResponse.status})`;
-          throw new Error(createErrorMessage);
-        }
-
-        effectiveSessionId = createSessionPayload.session.sessionId;
-        setSessionId(effectiveSessionId);
-      }
-
-      const currentUserMessage = messages.find((message) => message.id === id);
-      const piMessages: AgentMessage[] = messages
-        .filter((message) => message.id !== id && message.role !== 'system')
-        .map((message) => toPiMessage(message, activeModel))
-        .filter((message): message is AgentMessage => message !== null);
-
-      piMessages.push(
-        currentUserMessage?.piMessage || {
-          role: 'user',
-          content: buildPromptContent(text, currentAttachments),
-          timestamp: Date.now(),
-        },
-      );
-
-      const response = await fetch('/api/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: piMessages, sessionId: effectiveSessionId }),
-      });
-
-      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      const assistantMsgId = `${Date.now()}-assistant`;
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: assistantMsgId,
-          role: 'assistant',
-          content: '',
-          status: 'sending',
-        },
-      ]);
-
-      let fullContent = '';
-      let lineBuffer = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        lineBuffer += decoder.decode(value, { stream: true });
-        const lines = lineBuffer.split('\n');
-        lineBuffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line) as ChatEvent;
-            handleEvent(event, assistantMsgId, (content, type, status) => {
-              fullContent += fullContent ? content : normalizeMessageStart(content);
-              updateAssistantMessage(assistantMsgId, fullContent, type, status);
-            });
-          } catch {
-            // Ignore malformed stream lines.
-          }
-        }
-      }
-
-      setMessages((prev) =>
-        prev.map((message) => {
-          if (message.id === id) {
-            return { ...message, status: 'sent' };
-          }
-
-          if (message.id === assistantMsgId) {
-            return message.status === 'error' ? message : { ...message, status: 'sent' };
-          }
-
-          if (message.role === 'toolResult' && message.status === 'sending') {
-            return { ...message, status: 'sent' };
-          }
-
-          return message;
-        }),
-      );
-      void fetchHistory();
-    } catch (error) {
-      console.error('Chat error:', error);
-      setMessages((prev) => prev.map((message) => (message.id === id ? { ...message, status: 'error' } : message)));
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'system',
-          content: `Error: ${error instanceof Error ? error.message : String(error)}`,
-          status: 'error',
-          type: 'system',
-        },
-      ]);
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [messages, sessionId, handleEvent, updateAssistantMessage, fetchHistory, activeModel]);
+  }, [initialPrompt, initialPromptStorageKey, loadSession]);
 
   useEffect(() => {
-    if (!isProcessing && queue.length > 0) {
-      const next = queue[0];
-      setQueue((prev) => prev.slice(1));
-      processMessage(next);
-    }
-  }, [isProcessing, queue, processMessage]);
+    if (!sessionId) return;
+    void refreshRuntimeStatus(sessionId);
+    const interval = setInterval(() => {
+      void refreshRuntimeStatus(sessionId);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [refreshRuntimeStatus, sessionId]);
+
+  useEffect(() => () => {
+    resetStreamConnection();
+  }, [resetStreamConnection]);
+
+  const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
+  const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
+  const contextLabel = runtimeStatus
+    ? `~${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
+    : 'Noch keine Session';
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
-      <div className="z-10 flex items-center justify-between border-b border-border bg-background/95 p-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {showHistory ? (
-            <button onClick={() => setShowHistory(false)} className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent" title="Back to chat">
-              <ChevronLeft />
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                setShowHistory(true);
-                void fetchHistory();
-              }}
-              className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
-              title="Open history"
-            >
-              <History size={20} />
-            </button>
-          )}
-          <div className="min-w-0">
+      <div className="z-10 border-b border-border bg-background/95">
+        <div className="flex items-center justify-between p-2">
+          <div className="flex min-w-0 items-center gap-2">
             {showHistory ? (
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">History</span>
+              <button onClick={() => setShowHistory(false)} className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent" title="Back to chat">
+                <ChevronLeft />
+              </button>
             ) : (
-              <div className="flex min-w-0 items-center gap-2">
-                <div
-                  data-testid="chat-session-id"
-                  title={sessionId || 'New chat'}
-                  className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground"
-                >
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
-                  <span className="min-w-0 truncate font-mono">{formatSessionId(sessionId)}</span>
+              <button
+                onClick={() => {
+                  setShowHistory(true);
+                  void fetchHistory();
+                }}
+                className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
+                title="Open history"
+              >
+                <History size={20} />
+              </button>
+            )}
+            <div className="min-w-0">
+              {showHistory ? (
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">History</span>
+              ) : (
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <div data-testid="chat-session-id" title={sessionId || 'New chat'} className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground">
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
+                    <span className="min-w-0 truncate font-mono">{formatSessionId(sessionId)}</span>
+                  </div>
+                  <div title={`Model: ${activeModel}`} className="inline-flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-1 text-xs text-foreground">
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Model</span>
+                    <span className="font-mono text-[10px]">{activeModel}</span>
+                  </div>
                 </div>
-                <div
-                  title={`Model: ${activeModel}`}
-                  className="inline-flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-1 text-xs text-foreground"
-                >
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Model</span>
-                  <span className="font-mono text-[10px]">{activeModel}</span>
-                </div>
-              </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={startNewChat} className="group flex items-center gap-1.5 border border-primary/30 bg-primary/15 p-1.5 text-primary transition-all hover:bg-primary/25" title="New Chat">
+              <Plus size={18} />
+              <span className="hidden text-xs font-bold sm:inline">New</span>
+            </button>
+            {showSkillsLink && (
+              <Link href="/skills" className="group flex items-center gap-1.5 border border-border bg-muted/50 p-1.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground" title="View Skills">
+                <Lightbulb size={18} />
+                <span className="hidden text-xs font-bold sm:inline">Skills</span>
+              </Link>
+            )}
+            {onClose && (
+              <button onClick={onClose} className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Close Chat">
+                <X size={18} />
+              </button>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={startNewChat}
-            className="group flex items-center gap-1.5 border border-primary/30 bg-primary/15 p-1.5 text-primary transition-all hover:bg-primary/25"
-            title="New Chat"
-          >
-            <Plus size={18} />
-            <span className="hidden text-xs font-bold sm:inline">New</span>
-          </button>
-          {showSkillsLink && (
-            <Link
-              href="/skills"
-              className="group flex items-center gap-1.5 border border-border bg-muted/50 p-1.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-              title="View Skills"
-            >
-              <Lightbulb size={18} />
-              <span className="hidden text-xs font-bold sm:inline">Skills</span>
-            </Link>
-          )}
-          {onClose && (
-            <button onClick={onClose} className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Close Chat">
-              <X size={18} />
-            </button>
-          )}
-        </div>
+
+        {!showHistory && (
+          <div className="grid gap-2 border-t border-border/70 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className="space-y-1">
+              <div data-testid="chat-runtime-status" className="flex flex-wrap items-center gap-2 text-xs">
+                <span className={`inline-flex items-center gap-2 border px-2 py-1 font-medium ${
+                  runtimeStatus?.phase === 'running_tool'
+                    ? 'border-amber-500/40 bg-amber-500/10 text-foreground'
+                    : runtimeStatus?.phase === 'streaming'
+                      ? 'border-primary/30 bg-primary/10 text-foreground'
+                      : runtimeStatus?.phase === 'aborting'
+                        ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                        : 'border-border bg-muted/60 text-muted-foreground'
+                }`}>
+                  <span className={`h-1.5 w-1.5 ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''} bg-current`} />
+                  {getRuntimePhaseLabel(runtimeStatus)}
+                </span>
+                {runtimeStatus && totalQueuedMessages > 0 ? <span>{totalQueuedMessages} in Queue</span> : null}
+                {runtimeStatus?.includedSummary ? <span className="text-muted-foreground">Summary aktiv</span> : null}
+              </div>
+              <div data-testid="chat-context-meter" className="text-[11px] text-muted-foreground">
+                Context-Budget: {contextLabel}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                data-testid="chat-stop"
+                onClick={() => void handleStop()}
+                disabled={!runtimeStatus?.canAbort}
+                className="border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Stop
+              </button>
+              <button
+                data-testid="chat-compact"
+                onClick={() => void handleCompact()}
+                disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Compact now
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="relative flex-1">
@@ -1237,16 +1398,17 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           </div>
         )}
 
-        <div ref={scrollContainerRef} className="absolute inset-0 space-y-4 overflow-y-auto p-4 pb-24 scroll-smooth">
+        <div ref={scrollContainerRef} className="absolute inset-0 space-y-4 overflow-y-auto p-4 pb-40 scroll-smooth">
           {messages.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center space-y-4 text-muted-foreground opacity-40">
               <Sparkles size={48} />
               <div className="text-center">
                 <p className="mb-1 text-sm font-bold uppercase tracking-widest">Start a conversation</p>
-                <p className="px-8 text-[11px] italic">Markdown replies, tool output, and session history will appear here.</p>
+                <p className="px-8 text-[11px] italic">Markdown replies, tool output, queue state, and context budget appear here.</p>
               </div>
             </div>
           )}
+
           {messages.map((message) => {
             const isUser = message.role === 'user';
             const isAssistant = message.role === 'assistant';
@@ -1262,7 +1424,17 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                   : 'border-destructive/40 bg-destructive/10 text-destructive';
 
             const title = isUser ? 'You' : isTool ? (message.toolName || 'Tool') : isAssistant ? 'Assistant' : 'System';
-            const bodyContent = message.content || (message.status === 'sending' ? (isTool ? 'Running tool...' : 'Thinking...') : '');
+            const bodyContent =
+              message.content ||
+              (message.status === 'queued_follow_up'
+                ? 'Queued after current run.'
+                : message.status === 'queued_steering'
+                  ? 'Queued as steering message.'
+                  : message.status === 'aborting'
+                    ? 'Will send after current chain stops.'
+                    : message.status === 'sending'
+                      ? (isTool ? 'Running tool...' : 'Agent arbeitet...')
+                      : '');
 
             return (
               <div key={message.id} data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -1270,7 +1442,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                   <div className="mb-2 flex items-center gap-2">
                     {isTool ? <Wrench className="h-3.5 w-3.5 opacity-70" /> : null}
                     <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
-                    {message.status === 'sending' && <span className="h-1.5 w-1.5 animate-pulse bg-current opacity-70" />}
+                    {(message.status === 'sending' || message.status === 'aborting') && <span className="h-1.5 w-1.5 animate-pulse bg-current opacity-70" />}
+                    {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Queue</span> : null}
+                    {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Steer</span> : null}
                   </div>
 
                   {isTool && message.toolArgs ? (
@@ -1312,19 +1486,19 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         </div>
 
         {!isAtBottom && messages.length > 0 && (
-          <button onClick={() => scrollToBottom()} className="absolute bottom-28 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90" title="Scroll to bottom">
+          <button onClick={() => scrollToBottom()} className="absolute bottom-40 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90" title="Scroll to bottom">
             <ArrowDown size={20} />
           </button>
         )}
       </div>
 
       <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 p-3">
-        {/* Vision warning */}
         {attachments.length > 0 && !currentModelSupportsVision() && (
           <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-600">
             <strong>Achtung:</strong> Das aktuelle Modell unterstützt keine Bilder. Die angehängten Bilder werden ignoriert.
           </div>
         )}
+
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
             {attachments.map((attachment, index) => (
@@ -1337,6 +1511,42 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             ))}
           </div>
         )}
+
+        {runtimeStatus && totalQueuedMessages > 0 && (
+          <div data-testid="chat-queue-panel" className="mb-2 border border-border bg-muted/50 p-2 text-xs">
+            <div className="mb-1 flex items-center gap-2 font-medium text-foreground">
+              <span>{totalQueuedMessages} queued</span>
+              {runtimeStatus.activeTool ? <span className="text-muted-foreground">Aktiv: {runtimeStatus.activeTool.name}</span> : null}
+            </div>
+            <div className="flex flex-wrap gap-2 text-muted-foreground">
+              {queuePreview.map((entry) => (
+                <span key={entry.id} className="border border-border/70 bg-background/60 px-2 py-1">
+                  {entry.text || 'Bildnachricht'}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mb-2 flex flex-wrap gap-2">
+          <button
+            data-testid="chat-steer"
+            onClick={() => void handleSteer()}
+            disabled={!input.trim() && attachments.length === 0 || runtimeStatus?.phase === 'idle'}
+            className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Steuern
+          </button>
+          <button
+            data-testid="chat-send-now"
+            onClick={() => void handleNowSend()}
+            disabled={!input.trim() && attachments.length === 0 || runtimeStatus?.phase === 'idle'}
+            className="border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Jetzt senden
+          </button>
+        </div>
+
         <div className="flex items-end gap-2">
           <button onClick={() => fileInputRef.current?.click()} className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent" title="Attach image">
             <Paperclip className="h-5 w-5" />
@@ -1353,59 +1563,47 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               placeholder="Ask about your project... (Type @ to reference files)"
               className="min-h-[44px] max-h-32 w-full resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
-            
-            {/* File Picker Dropdown */}
+
             {showFilePicker && (
-              <div
-                ref={filePickerRef}
-                className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto border border-border bg-background shadow-lg z-50"
-              >
-                <div className="p-2 text-xs text-muted-foreground border-b border-border">
+              <div ref={filePickerRef} className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-full overflow-y-auto border border-border bg-background shadow-lg">
+                <div className="border-b border-border p-2 text-xs text-muted-foreground">
                   {isLoadingFiles ? 'Loading files...' : `${filePickerFiles.length} files found`}
                 </div>
                 {filePickerFiles.map((file, index) => (
                   <button
                     key={file.path}
                     onClick={() => handleFileSelect(file)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${
-                      index === selectedFileIndex ? 'bg-accent' : ''
-                    }`}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${index === selectedFileIndex ? 'bg-accent' : ''}`}
                   >
-                    {getFileIconComponent({
-                      name: file.name,
-                      path: file.path,
-                      type: file.type,
-                    })}
+                    {getFileIconComponent({ name: file.name, path: file.path, type: file.type })}
                     <span className="flex-1 truncate">{file.path}</span>
-                    {index === selectedFileIndex && (
-                      <span className="text-xs text-muted-foreground">↵</span>
-                    )}
+                    {index === selectedFileIndex ? <span className="text-xs text-muted-foreground">↵</span> : null}
                   </button>
                 ))}
                 {filePickerFiles.length === 0 && !isLoadingFiles && (
-                  <div className="p-3 text-sm text-muted-foreground text-center">
-                    {filePickerQuery ? (
-                      <>No files found matching &ldquo;{filePickerQuery}&rdquo;</>
-                    ) : (
-                      <>No files in workspace</>
-                    )}
+                  <div className="p-3 text-center text-sm text-muted-foreground">
+                    {filePickerQuery ? <>No files found matching &ldquo;{filePickerQuery}&rdquo;</> : <>No files in workspace</>}
                   </div>
                 )}
               </div>
             )}
           </div>
-          <button data-testid="chat-send" onClick={handleSend} className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30" disabled={!input.trim() && attachments.length === 0}>
+          <button
+            data-testid="chat-send"
+            onClick={() => void handleSend()}
+            className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
+            disabled={!input.trim() && attachments.length === 0}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
               <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         </div>
-        {queue.length > 0 && (
-          <div className="mt-2 flex items-center gap-2 px-1 text-[10px] text-muted-foreground">
-            <span className="h-1 w-1 animate-ping bg-primary" />
-            {queue.length} in queue
-          </div>
-        )}
+        <div className="mt-2 text-[10px] text-muted-foreground">
+          {runtimeStatus?.phase !== 'idle'
+            ? 'Send queues a follow-up. Use Steuern to interrupt after the active tool step, or Jetzt senden to stop the current chain first.'
+            : 'Approximate context metrics are based on the current PI history budget.'}
+        </div>
       </div>
     </div>
   );

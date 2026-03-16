@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T17:11:36+01:00",
+  "lastUpdatedAt": "2026-03-16T18:21:26+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1494,6 +1494,155 @@
         "pi-usage-005"
       ],
       "description": "Run npm run build plus targeted usage tests, update todo statuses, and commit the completed usage tracking work."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 132,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Create API Route POST /api/workflow-automation/create for job creation",
+      "status": "in_progress",
+      "priority": "must",
+      "dependsOn": [],
+      "description": "Create API endpoint to create automation jobs with name, prompt, schedule parameters. Uses existing automation store."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 133,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Create API Route GET /api/workflow-automation/jobs for listing jobs",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "workflow-skill-001"
+      ],
+      "description": "Create API endpoint to list all automation jobs with filtering options."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 134,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Create API Route PATCH /api/workflow-automation/jobs/[id] for updating jobs",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "workflow-skill-002"
+      ],
+      "description": "Create API endpoint to update job parameters (pause/resume/edit)."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 135,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Create API Route DELETE /api/workflow-automation/jobs/[id] for deleting jobs",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "workflow-skill-003"
+      ],
+      "description": "Create API endpoint to delete automation jobs."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 136,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Create API Route POST /api/workflow-automation/jobs/[id]/trigger for manual execution",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "workflow-skill-004"
+      ],
+      "description": "Create API endpoint to manually trigger automation job execution."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 137,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Create Skill Manifest skills/workflow-automation/manifest.json",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "workflow-skill-005"
+      ],
+      "description": "Create skill manifest defining the workflow-automation tool with parameters for create, list, update, delete, trigger operations."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 138,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Extend Skills CLI /data/skills/skill with workflow-automation command",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "workflow-skill-006"
+      ],
+      "description": "Add workflow-automation subcommand to the skills CLI script with support for create, list, update, delete, trigger operations."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 139,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Extend Tool Registry with automation job tools",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "workflow-skill-007"
+      ],
+      "description": "Add create_automation_job, list_automation_jobs, update_automation_job, delete_automation_job, trigger_automation_job tools to piTools registry."
+    },
+    {
+      ,
+      "status": "completed",
+      "order": 140,
+      "phase": "P22 Workflow Automation Skill",
+      "title": "Run build and test workflow automation skill",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "workflow-skill-008"
+      ],
+      "description": "Run npm run build to verify no TypeScript errors, then test the workflow automation skill in the UI."
+    },
+    {
+      "id": "pi-chat-runtime-001",
+      "order": 141,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Introduce session-bound PI live runtime with stream status and control endpoints",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [],
+      "description": "Add in-memory PI runtime management per user/session plus /api/stream, /api/stream/status, and /api/stream/control support for live status, abort, steering, follow-up queueing, replace, and compact actions."
+    },
+    {
+      "id": "pi-chat-runtime-002",
+      "order": 142,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Update Canvas chat UI to render PI work state, queue controls, and context meter",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-chat-runtime-001"
+      ],
+      "description": "Show live PI runtime state in the chat, replace the local pseudo-queue with server-driven queue controls, expose stop/steer/send-now/compact actions, and display approximate context-budget usage for the active session."
+    },
+    {
+      "id": "pi-chat-runtime-003",
+      "order": 143,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Add regression coverage for PI runtime status, compact, and chat queue UX",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-chat-runtime-002"
+      ],
+      "description": "Extend PI integration coverage for runtime status and compact control, and add Playwright regression coverage for visible agent work state, queue rendering, and context budget UI."
     }
   ]
 }
