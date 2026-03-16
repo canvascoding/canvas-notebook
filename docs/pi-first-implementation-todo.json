@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T21:10:00+01:00",
+  "lastUpdatedAt": "2026-03-16T21:21:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1706,6 +1706,18 @@
         "pi-chat-runtime-008"
       ],
       "description": "Measure the chat composer width, switch to a shorter placeholder copy when the panel gets narrow, and render the placeholder in a smaller size so the hint no longer looks clipped in compact chat layouts."
+    },
+    {
+      "id": "pi-chat-runtime-010",
+      "order": 150,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Extract the chat ready or working indicator into its own dedicated badge component",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-009"
+      ],
+      "description": "Move the chat runtime activity indicator out of the inline banner code into a dedicated chat-only component with explicit two-state logic so the label and green or blinking red dot no longer depend on the generic runtime badge helpers."
     }
   ]
 }

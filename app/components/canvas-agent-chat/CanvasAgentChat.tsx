@@ -32,6 +32,8 @@ import Link from 'next/link';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
+import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
+import type { RuntimeStatus, RuntimeQueueItem } from '@/app/components/canvas-agent-chat/runtime-status';
 
 interface Attachment {
   name: string;
@@ -103,32 +105,6 @@ type PersistedChatMessage = AgentMessage & {
 };
 type UserPiMessage = Extract<AgentMessage, { role: 'user' }>;
 type UserPiContent = UserPiMessage['content'];
-
-type RuntimeQueueItem = {
-  id: string;
-  text: string;
-  attachmentCount: number;
-};
-
-type RuntimeStatus = {
-  sessionId: string;
-  phase: 'idle' | 'streaming' | 'running_tool' | 'aborting';
-  activeTool: { toolCallId: string; name: string } | null;
-  pendingToolCalls: number;
-  followUpQueue: RuntimeQueueItem[];
-  steeringQueue: RuntimeQueueItem[];
-  canAbort: boolean;
-  contextWindow: number;
-  estimatedHistoryTokens: number;
-  availableHistoryTokens: number;
-  contextUsagePercent: number;
-  includedSummary: boolean;
-  omittedMessageCount: number;
-  summaryUpdatedAt: string | null;
-  lastCompactionAt: string | null;
-  lastCompactionKind: 'manual' | 'automatic' | null;
-  lastCompactionOmittedCount: number;
-};
 
 type DiscoveryModel = {
   id: string;
@@ -330,49 +306,6 @@ function truncatePreview(value: string, maxLength = 88): string {
   }
 
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
-}
-
-function getRuntimePhaseLabel(status: RuntimeStatus | null): string {
-  if (!status) {
-    return 'Bereit';
-  }
-
-  switch (status.phase) {
-    case 'running_tool':
-      return 'Tool läuft...';
-    case 'streaming':
-      return 'Agent arbeitet...';
-    case 'aborting':
-      return 'Wird gestoppt...';
-    default:
-      return 'Bereit';
-  }
-}
-
-function getRuntimePulseClass(status: RuntimeStatus | null): string {
-  switch (status?.phase) {
-    case 'running_tool':
-      return 'bg-amber-400';
-    case 'streaming':
-      return 'bg-cyan-400';
-    case 'aborting':
-      return 'bg-rose-500';
-    default:
-      return 'bg-emerald-400';
-  }
-}
-
-function getRuntimeBannerClass(status: RuntimeStatus | null): string {
-  switch (status?.phase) {
-    case 'running_tool':
-      return 'border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-background to-background text-foreground shadow-[0_8px_30px_rgba(245,158,11,0.12)]';
-    case 'streaming':
-      return 'border-cyan-500/40 bg-gradient-to-r from-cyan-500/15 via-background to-background text-foreground shadow-[0_8px_30px_rgba(34,211,238,0.14)]';
-    case 'aborting':
-      return 'border-rose-500/40 bg-gradient-to-r from-rose-500/15 via-background to-background text-foreground shadow-[0_8px_30px_rgba(244,63,94,0.12)]';
-    default:
-      return 'border-border bg-gradient-to-r from-muted/70 via-background to-background text-foreground';
-  }
 }
 
 function getToolStatusLabel(message: ChatMessage): string {
@@ -1542,25 +1475,10 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     ? `${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
     : 'Noch keine Session';
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, sessionId);
-  const runtimeBannerClass = getRuntimeBannerClass(runtimeStatus);
-  const runtimePulseClass = getRuntimePulseClass(runtimeStatus);
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const scrollContentPadding = composerHeight + 24;
   const scrollButtonOffset = composerHeight + 16;
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
-  const isAgentBusy = runtimeStatus?.phase !== 'idle';
-  const busyBadgeClass = isAgentBusy
-    ? 'border-rose-500/40 bg-rose-500/12 text-rose-700 dark:text-rose-300'
-    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
-  const busyBadgeDotClass = isAgentBusy ? 'bg-rose-500' : 'bg-emerald-500';
-  const busyBadgeLabel =
-    runtimeStatus?.phase === 'running_tool'
-      ? 'Tool aktiv'
-      : runtimeStatus?.phase === 'streaming'
-        ? 'Agent aktiv'
-        : runtimeStatus?.phase === 'aborting'
-          ? 'Stoppt'
-          : 'Bereit';
 
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
@@ -1677,13 +1595,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <span
-                  data-testid="chat-runtime-busy-badge"
-                  className={`inline-flex items-center gap-1.5 border px-2.5 py-0.5 pr-3 text-[10px] font-medium ${busyBadgeClass}`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${busyBadgeDotClass} ${isAgentBusy ? 'animate-pulse' : ''}`} />
-                  {busyBadgeLabel}
-                </span>
+                <ChatRuntimeActivityBadge status={runtimeStatus} />
                 
                 {/* Queue Badge */}
                 {runtimeStatus && totalQueuedMessages > 0 && (
