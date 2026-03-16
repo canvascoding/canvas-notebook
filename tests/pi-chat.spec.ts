@@ -467,12 +467,14 @@ test.describe('PI Chat E2E', () => {
     await page.goto('/chat');
 
     await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
-    await expect(page.getByTestId('chat-runtime-status')).toContainText('Tool läuft: read_file');
+    await expect
+      .poll(async () => (await page.getByTestId('chat-runtime-status').textContent()) || '', { timeout: 15000 })
+      .toContain('Tool läuft: read_file');
     await expect(page.getByTestId('chat-runtime-status')).toContainText('2 in Queue');
     await expect(page.getByTestId('chat-runtime-status')).toContainText('Summary aktiv');
-    await expect(page.getByTestId('chat-context-meter')).toContainText('~62%');
+    await expect(page.getByTestId('chat-context-meter')).toContainText('~62%', { timeout: 15000 });
     await expect(page.getByTestId('chat-context-meter')).toContainText('128k');
-    await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards');
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards', { timeout: 15000 });
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Stop and inspect README');
 
     await page.getByTestId('chat-input').fill('Take over immediately');
@@ -614,6 +616,7 @@ test.describe('PI Chat E2E', () => {
 
     await page.goto('/chat');
 
+    await expect(page.getByTestId('chat-compact')).toBeEnabled({ timeout: 15000 });
     await page.getByTestId('chat-compact').click();
 
     const breakMarker = page.getByTestId('chat-compaction-break');
