@@ -31,7 +31,7 @@ WORKDIR /app
 ARG APP_USER=node
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 unzip zip git make python3 python3-venv \
+  && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 unzip zip git make python3 python3-pip python3-venv \
   && rm -rf /var/lib/apt/lists/* \
   && python3 --version
 

@@ -74,16 +74,25 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           setIsLoading(true);
           setError(null);
           
+          console.log('[SpreadsheetEditor] Loading file:', path);
+          
           // Fetch file content
           const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`, {
             credentials: 'include'
           });
           
+          console.log('[SpreadsheetEditor] Response status:', response.status, response.statusText);
+          console.log('[SpreadsheetEditor] Content-Type:', response.headers.get('content-type'));
+          
           if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[SpreadsheetEditor] API Error response:', errorText);
             throw new Error(`Failed to load file: ${response.status} ${response.statusText}`);
           }
 
           const arrayBuffer = await response.arrayBuffer();
+          
+          console.log('[SpreadsheetEditor] ArrayBuffer size:', arrayBuffer.byteLength);
           
           // Validate that we got actual data
           if (arrayBuffer.byteLength === 0) {
@@ -92,10 +101,19 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
 
           // Check for ZIP magic bytes (PK) for XLSX files
           if (extension !== 'csv') {
-            const bytes = new Uint8Array(arrayBuffer.slice(0, 2));
-            if (bytes[0] !== 0x50 || bytes[1] !== 0x4B) {
-              // Not a valid ZIP/XLSX file - might be corrupted or wrong format
-              console.warn('[SpreadsheetEditor] File does not start with ZIP magic bytes, attempting to parse anyway...');
+            const bytes = new Uint8Array(arrayBuffer.slice(0, 10));
+            console.log('[SpreadsheetEditor] File magic bytes:', Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            
+            // XLSX files start with PK (0x50 0x4B)
+            // XLS files start with D0 CF 11 E0 A1 B1 1A E1
+            const isZip = bytes[0] === 0x50 && bytes[1] === 0x4B;
+            const isXls = bytes[0] === 0xD0 && bytes[1] === 0xCF;
+            
+            if (!isZip && !isXls) {
+              console.warn('[SpreadsheetEditor] File does not appear to be a valid XLSX or XLS file. First bytes:', 
+                Array.from(bytes.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            } else {
+              console.log('[SpreadsheetEditor] Valid file format detected:', isZip ? 'XLSX (ZIP)' : 'XLS (CFB)');
             }
           }
 

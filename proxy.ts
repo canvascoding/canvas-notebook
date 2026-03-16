@@ -19,11 +19,13 @@ function setCommonHeaders(response: NextResponse) {
   const cspHeader = [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: blob:",
     "media-src 'self' data: blob:",
-    "font-src 'self' data:",
+    "font-src 'self' data: https://fonts.gstatic.com",
     "connect-src 'self' ws: wss:",
+    "worker-src 'self' blob:",
     "frame-ancestors 'self'",
   ].join('; ');
   response.headers.set('Content-Security-Policy', cspHeader);

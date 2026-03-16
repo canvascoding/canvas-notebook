@@ -7,8 +7,6 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { piSessions, piUsageEvents } from '../db/schema';
 
-export type UsageSummaryGroupBy = 'day' | 'provider' | 'model' | 'user' | 'session';
-
 type PersistPiUsageEventsParams = {
   sessionId: string;
   userId: string;
