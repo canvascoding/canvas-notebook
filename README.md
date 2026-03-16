@@ -56,15 +56,15 @@ Erstelle eine `.env` Datei für die Produktion:
 ```bash
 # Wichtige Produktions-Settings
 NODE_ENV=production
-WORKSPACE_DIR=/absoluter/pfad/zum/workspace
-SQLITE_PATH=/absoluter/pfad/zur/sqlite.db
+# Basis-Pfad für alle App-Daten (workspace, sqlite.db, skills, etc.)
+DATA=/data
 BETTER_AUTH_SECRET=dein_langer_random_secret
 BETTER_AUTH_BASE_URL=https://deine-domain.com
 BASE_URL=https://deine-domain.com
 ALLOW_SIGNUP=false
 
 # Datenbank
-# SQLite wird unter SQLITE_PATH erstellt (Verzeichnis muss beschreibbar sein)
+# SQLite wird unter ${DATA}/sqlite.db erstellt (Verzeichnis muss beschreibbar sein)
 ```
 
 ### 4. Nginx Konfiguration
@@ -100,9 +100,8 @@ pm2 start server.js --name "canvas-notebook"
 Für lokale Entwicklung eine `.env.local` Datei im Wurzelverzeichnis anlegen:
 
 ```bash
-# Workspace
-WORKSPACE_DIR=./data/workspace
-SQLITE_PATH=./data/sqlite.db
+# Basis-Pfad für alle App-Daten (workspace, sqlite.db, skills, etc.)
+DATA=./data
 
 # Auth
 BETTER_AUTH_SECRET=your_32_byte_secret
@@ -163,8 +162,7 @@ docker run --rm -p 3000:3000 \
   --env-file .env.docker.local \
   -e HOSTNAME=0.0.0.0 \
   -e BETTER_AUTH_SECRET=change-me-long-random-secret \
-  -e WORKSPACE_DIR=/data/workspace \
-  -e SQLITE_PATH=/data/sqlite.db \
+  -e DATA=/data \
   -e ALLOW_SIGNUP=false \
   -v "$(pwd)/data:/data" \
   canvas-notebook:local
@@ -178,8 +176,7 @@ docker run --rm -p 3000:3000 \
   --env-file .env.docker.local \
   -e HOSTNAME=0.0.0.0 \
   -e BETTER_AUTH_SECRET=change-me-long-random-secret \
-  -e WORKSPACE_DIR=/data/workspace \
-  -e SQLITE_PATH=/data/sqlite.db \
+  -e DATA=/data \
   -e ALLOW_SIGNUP=false \
   --mount source=canvas_notebook_data,target=/data \
   canvas-notebook:local
@@ -239,8 +236,7 @@ docker run --rm -p 3000:3000 \
   --env-file .env.local \
   -e HOSTNAME=0.0.0.0 \
   -e BETTER_AUTH_SECRET=change-me-long-random-secret \
-  -e WORKSPACE_DIR=/data/workspace \
-  -e SQLITE_PATH=/data/sqlite.db \
+  -e DATA=/data \
   -e ALLOW_SIGNUP=true \
   -v "$(pwd)/data:/data" \
   canvas-notebook:local
@@ -253,8 +249,7 @@ docker run --rm -p 3000:3000 \
   --env-file .env.local \
   -e HOSTNAME=0.0.0.0 \
   -e BETTER_AUTH_SECRET=change-me-long-random-secret \
-  -e WORKSPACE_DIR=/data/workspace \
-  -e SQLITE_PATH=/data/sqlite.db \
+  -e DATA=/data \
   -e ALLOW_SIGNUP=false \
   -e BOOTSTRAP_ADMIN_EMAIL=admin@example.com \
   -e BOOTSTRAP_ADMIN_PASSWORD=change-me \

@@ -66,7 +66,7 @@ better-auth with SQLite adapter. Session cookies cached for 5 minutes. Signup ca
 WebSocket-based PTY sessions. Max 3 terminals per user, 30-min idle timeout. Sessions are in-memory only (lost on server restart).
 
 ### Workspace & Files
-Workspace root is configurable via `WORKSPACE_DIR` env (defaults to `./data/workspace`). File CRUD via `app/api/files/`. The workspace path is sandboxed — file API rejects paths that escape it.
+Base data path is configurable via `DATA` env (defaults to `./data`). Workspace files are stored under `${DATA}/workspace`. File CRUD via `app/api/files/`. The workspace path is sandboxed — file API rejects paths that escape it.
 
 ### PI Agent Config (`app/lib/pi/config.ts`)
 Config is file-based (PI v2 format), provider-driven. Supports openrouter, anthropic, google, ollama. The agent system prompt is composed from managed files in `app/lib/agents/` (synced by `scripts/sync-agent-todos.mjs`).
@@ -76,8 +76,7 @@ Config is file-based (PI v2 format), provider-driven. Supports openrouter, anthr
 ```
 BETTER_AUTH_SECRET          # Required: 32-byte base64 session key
 BETTER_AUTH_BASE_URL        # Required: auth redirect base URL
-WORKSPACE_DIR               # Workspace root (default: ./data/workspace)
-DATABASE_PATH               # SQLite path (default: ./data/sqlite.db)
+DATA                        # Base data path (default: ./data). Workspace, SQLite, and skills stored under this path.
 ALLOW_SIGNUP                # Set to "false" to disable registration
 BOOTSTRAP_ADMIN_EMAIL       # Admin email for initial setup
 BOOTSTRAP_ADMIN_PASSWORD    # Admin password for initial setup

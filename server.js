@@ -46,8 +46,9 @@ async function getAuthSession(req) {
   }
 }
 
-const MEDIA_ROOT = process.env.WORKSPACE_DIR || path.resolve(process.cwd(), 'data', 'workspace');
-const SQLITE_PATH = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : null;
+const DATA = process.env.DATA || path.resolve(process.cwd(), 'data');
+const MEDIA_ROOT = path.join(DATA, 'workspace');
+const SQLITE_PATH = path.join(DATA, 'sqlite.db');
 const MEDIA_TYPES = {
   pdf: 'application/pdf',
   png: 'image/png',
@@ -164,13 +165,11 @@ function ensureRuntimeDirectories() {
     throw error;
   }
 
-  if (SQLITE_PATH) {
-    try {
-      fs.mkdirSync(path.dirname(SQLITE_PATH), { recursive: true });
-    } catch (error) {
-      console.error(`[Startup] Failed to create SQLite directory for ${SQLITE_PATH}:`, error);
-      throw error;
-    }
+  try {
+    fs.mkdirSync(path.dirname(SQLITE_PATH), { recursive: true });
+  } catch (error) {
+    console.error(`[Startup] Failed to create SQLite directory for ${SQLITE_PATH}:`, error);
+    throw error;
   }
 }
 

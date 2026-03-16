@@ -58,7 +58,7 @@
 
 ## Security & Configuration Tips
 - Production uses `systemd` (`canvas-notebook.service`).
-- Workspace path is configured via `WORKSPACE_DIR` (default: `./workspace`).
+- Base data path is configured via `DATA` (default: `./data`). Workspace, SQLite, and skills are stored under this path.
 - Keep secrets in `.env.local` / `.env.systemd` and out of git.
 
 ## Agent Storage Locations

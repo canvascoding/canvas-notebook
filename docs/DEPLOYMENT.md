@@ -47,9 +47,8 @@ Ensure these are set. Local dev uses `.env.local`, Docker/Compose should use `.e
 
 - `BETTER_AUTH_SECRET` (>= 32 chars)
 - `BETTER_AUTH_BASE_URL` (or fallback `BASE_URL`)
-- `WORKSPACE_DIR` (recommended: `./data/workspace`)
-- `SQLITE_PATH` (recommended: `./data/sqlite.db`)
+- `DATA` (recommended: `./data` - base path for workspace, sqlite.db, skills, etc.)
 - `ALLOW_SIGNUP=false` (set `true` only for initial onboarding)
 - `MAX_TERMINALS_PER_USER` and `TERMINAL_IDLE_TIMEOUT`
 
-`WORKSPACE_DIR` should point to persistent storage. Automation output folders and run artefacts are written workspace-relativ darunter, in Docker typischerweise unter `/data/workspace`.
+`DATA` should point to persistent storage. Workspace files, SQLite database, and skills are stored under this path (e.g., `/data/workspace`, `/data/sqlite.db`, `/data/skills`).

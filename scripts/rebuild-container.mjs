@@ -166,8 +166,7 @@ async function main() {
     -e CANVAS_RUNTIME_ENV=docker \\
     -e PORT=3000 \\
     -e HOSTNAME=0.0.0.0 \\
-    -e WORKSPACE_DIR=/data/workspace \\
-    -e SQLITE_PATH=/data/sqlite.db \\
+    -e DATA=/data \
     -e ALLOW_SIGNUP=false \\
     --restart unless-stopped \\
     ${IMAGE_NAME}`;

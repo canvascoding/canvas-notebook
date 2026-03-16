@@ -70,5 +70,4 @@ These rules are **non-negotiable** for all work on the new agent logic:
 ### Security & Configuration
 - **Secrets:** Keep secrets in `.env.local` or environment variables; never commit them.
 - **Production:** Uses `systemd` (`canvas-notebook.service`).
-- **Workspace:** Path configured via `WORKSPACE_DIR` (default: `./workspace`).
-- **DB Path:** Configured via `SQLITE_PATH`.
+- **Data Path:** Base path configured via `DATA` (default: `./data`). Workspace, SQLite, and skills are stored under this path.

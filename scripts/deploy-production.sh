@@ -133,7 +133,7 @@ if [ ! -f "${PROJECT_DIR}/.env.local" ]; then
     echo "Bitte erstelle .env.local mit:"
     echo "  - BETTER_AUTH_SECRET"
     echo "  - BETTER_AUTH_BASE_URL (oder BASE_URL)"
-    echo "  - WORKSPACE_DIR"
+    echo "  - DATA"
     exit 1
 fi
 
@@ -144,9 +144,9 @@ if ! grep -Eq '^[[:space:]]*BETTER_AUTH_SECRET=' "${PROJECT_DIR}/.env.local" || 
     exit 1
 fi
 
-if ! grep -Eq '^[[:space:]]*WORKSPACE_DIR=' "${PROJECT_DIR}/.env.local" || \
-   grep -Eq '^[[:space:]]*WORKSPACE_DIR=[[:space:]]*$' "${PROJECT_DIR}/.env.local"; then
-    echo -e "${RED}❌ WORKSPACE_DIR fehlt oder ist leer!${NC}"
+if ! grep -Eq '^[[:space:]]*DATA=' "${PROJECT_DIR}/.env.local" || \
+   grep -Eq '^[[:space:]]*DATA=[[:space:]]*$' "${PROJECT_DIR}/.env.local"; then
+    echo -e "${RED}❌ DATA fehlt oder ist leer!${NC}"
     exit 1
 fi
 

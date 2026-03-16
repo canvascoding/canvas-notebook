@@ -10,8 +10,7 @@ services:
       - .env.docker.local
     environment:
       HOSTNAME: 0.0.0.0
-      WORKSPACE_DIR: /data/workspace
-      SQLITE_PATH: /data/sqlite.db
+      DATA: /data
       ALLOW_SIGNUP: "false"
       AI_CLI_AUTO_INSTALL: "true"
       OLLAMA_CLI_AUTO_INSTALL: "true"

@@ -4,11 +4,8 @@ import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
 import * as schema from './schema';
 
-const legacySqlitePath = path.resolve(process.cwd(), 'sqlite.db');
-const defaultSqlitePath = existsSync(legacySqlitePath)
-  ? legacySqlitePath
-  : path.resolve(process.cwd(), 'data', 'sqlite.db');
-const sqlitePath = path.resolve(process.env.SQLITE_PATH || defaultSqlitePath);
+const DATA = process.env.DATA || path.resolve(process.cwd(), 'data');
+const sqlitePath = path.join(DATA, 'sqlite.db');
 
 mkdirSync(path.dirname(sqlitePath), { recursive: true });
 
