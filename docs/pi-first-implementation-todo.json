@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T21:56:00+01:00",
+  "lastUpdatedAt": "2026-03-16T22:03:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1766,6 +1766,18 @@
         "pi-chat-runtime-013"
       ],
       "description": "Show an explicit quicklink for the most recent session directly in the empty chat start state so users can jump back into the latest conversation without opening the session history first."
+    },
+    {
+      "id": "pi-chat-runtime-015",
+      "order": 155,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Remove the idle dot from the chat status badge and normalize horizontal padding",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-014"
+      ],
+      "description": "Render the chat runtime badge without a leading dot in the idle state and use symmetrical horizontal padding so the ready badge no longer looks visually offset."
     }
   ]
 }
