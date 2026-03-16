@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { BarChart3, ChevronRight, Clapperboard, FileText, Globe, HelpCircle, ImageIcon, MessageSquare, NotebookPen, Sparkles, Terminal, Workflow, Wrench } from 'lucide-react';
+import { BarChart3, ChevronRight, Clapperboard, Globe, HelpCircle, ImageIcon, NotebookPen, Terminal, Workflow, Wrench } from 'lucide-react';
 
 import { HomeChatPrompt } from '@/app/components/home/HomeChatPrompt';
 import { Button } from '@/components/ui/button';
@@ -21,13 +21,6 @@ const suiteApps: SuiteApp[] = [
     status: 'ready',
     href: '/notebook',
     icon: NotebookPen,
-  },
-  {
-    title: 'Canvas Chat',
-    description: 'Vollbild-Chat mit Session-Historie und Main-Agent-Workflow.',
-    status: 'ready',
-    href: '/chat',
-    icon: MessageSquare,
   },
   {
     title: 'Usage Analytics',
@@ -85,18 +78,6 @@ const suiteApps: SuiteApp[] = [
     href: '/help',
     icon: HelpCircle,
   },
-  {
-    title: 'Content Studio',
-    description: 'Copywriting und Summaries für produktive Workflows.',
-    status: 'planned',
-    icon: FileText,
-  },
-  {
-    title: 'Creative Remix',
-    description: 'Assets aus dem Workspace direkt kombinieren und remixen.',
-    status: 'planned',
-    icon: Sparkles,
-  },
 ];
 
 interface IntegrationsSectionProps {
@@ -137,9 +118,9 @@ function IntegrationCard({ app, isAuthenticated }: { app: SuiteApp; isAuthentica
   const isReady = app.status === 'ready';
   const canOpen = isReady && isAuthenticated && app.href;
 
-  return (
-    <Card className="border border-border bg-card p-6 shadow-sm">
-      <div className="flex flex-col gap-6">
+  const cardContent = (
+    <Card className="border border-border bg-card p-6 shadow-sm transition-colors hover:bg-accent/50 cursor-pointer h-full">
+      <div className="flex flex-col gap-6 h-full">
         <div className="flex items-start justify-between gap-3">
           <div className="flex size-10 items-center justify-center border border-border bg-muted text-foreground">
             <Icon className="h-5 w-5" />
@@ -155,25 +136,21 @@ function IntegrationCard({ app, isAuthenticated }: { app: SuiteApp; isAuthentica
           </span>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 flex-1">
           <h3 className="text-base font-semibold">{app.title}</h3>
           <p className="text-sm text-muted-foreground">{app.description}</p>
         </div>
 
         <div className="border-t border-dashed border-border pt-4">
           {canOpen ? (
-            <Button asChild variant="secondary" size="sm" className="gap-1 pr-2 shadow-none">
-              <Link href={app.href!}>
-                App öffnen
-                <ChevronRight className="size-3.5 opacity-60" />
-              </Link>
+            <Button variant="secondary" size="sm" className="gap-1 pr-2 shadow-none pointer-events-none">
+              App öffnen
+              <ChevronRight className="size-3.5 opacity-60" />
             </Button>
           ) : isReady ? (
-            <Button asChild variant="outline" size="sm" className="gap-1 pr-2">
-              <Link href="/login">
-                Login erforderlich
-                <ChevronRight className="size-3.5 opacity-60" />
-              </Link>
+            <Button variant="outline" size="sm" className="gap-1 pr-2 pointer-events-none">
+              Login erforderlich
+              <ChevronRight className="size-3.5 opacity-60" />
             </Button>
           ) : (
             <Button variant="outline" size="sm" disabled>
@@ -184,4 +161,14 @@ function IntegrationCard({ app, isAuthenticated }: { app: SuiteApp; isAuthentica
       </div>
     </Card>
   );
+
+  if (canOpen) {
+    return (
+      <Link href={app.href!} className="block h-full">
+        {cardContent}
+      </Link>
+    );
+  }
+
+  return cardContent;
 }

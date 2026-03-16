@@ -12,6 +12,8 @@ import {
   History,
   Plus,
   ChevronLeft,
+  ChevronDown,
+  ChevronRight,
   ArrowDown,
   Trash2,
   Pencil,
@@ -33,7 +35,7 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'toolResult';
   content: string;
-  type?: 'tool_use' | 'tool_result' | 'system';
+  type?: 'tool_use' | 'tool_result' | 'system' | 'compact_break';
   status?: 'pending' | 'sending' | 'queued_follow_up' | 'queued_steering' | 'aborting' | 'sent' | 'error';
   attachments?: Attachment[];
   piMessage?: AgentMessage;
@@ -41,6 +43,14 @@ interface ChatMessage {
   toolCallId?: string;
   toolArgs?: string;
   queueKind?: 'follow_up' | 'steer';
+  isCollapsed?: boolean;
+  autoCollapsedAtEnd?: boolean;
+  previewText?: string;
+  compactMeta?: {
+    kind: 'manual' | 'automatic';
+    timestamp: string;
+    omittedMessageCount: number;
+  };
 }
 
 interface AISession {
@@ -74,6 +84,10 @@ interface ChatEvent {
   error?: string;
   messages?: AgentMessage[];
   status?: RuntimeStatus;
+  timestamp?: string;
+  kind?: 'manual' | 'automatic';
+  omittedMessageCount?: number;
+  includedSummary?: boolean;
 }
 
 type PersistedChatMessage = AgentMessage & {
@@ -103,6 +117,9 @@ type RuntimeStatus = {
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
+  lastCompactionAt: string | null;
+  lastCompactionKind: 'manual' | 'automatic' | null;
+  lastCompactionOmittedCount: number;
 };
 
 type DiscoveryModel = {
@@ -268,6 +285,19 @@ function formatContextTokens(value: number): string {
   return `${value}`;
 }
 
+function truncatePreview(value: string, maxLength = 88): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return 'Noch keine Ausgabe';
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 function getRuntimePhaseLabel(status: RuntimeStatus | null): string {
   if (!status) {
     return 'Bereit';
@@ -283,6 +313,59 @@ function getRuntimePhaseLabel(status: RuntimeStatus | null): string {
     default:
       return 'Bereit';
   }
+}
+
+function getRuntimePulseClass(status: RuntimeStatus | null): string {
+  switch (status?.phase) {
+    case 'running_tool':
+      return 'bg-amber-400';
+    case 'streaming':
+      return 'bg-cyan-400';
+    case 'aborting':
+      return 'bg-rose-500';
+    default:
+      return 'bg-emerald-400';
+  }
+}
+
+function getRuntimeBannerClass(status: RuntimeStatus | null): string {
+  switch (status?.phase) {
+    case 'running_tool':
+      return 'border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-background to-background text-foreground shadow-[0_8px_30px_rgba(245,158,11,0.12)]';
+    case 'streaming':
+      return 'border-cyan-500/40 bg-gradient-to-r from-cyan-500/15 via-background to-background text-foreground shadow-[0_8px_30px_rgba(34,211,238,0.14)]';
+    case 'aborting':
+      return 'border-rose-500/40 bg-gradient-to-r from-rose-500/15 via-background to-background text-foreground shadow-[0_8px_30px_rgba(244,63,94,0.12)]';
+    default:
+      return 'border-border bg-gradient-to-r from-muted/70 via-background to-background text-foreground';
+  }
+}
+
+function getToolStatusLabel(message: ChatMessage): string {
+  switch (message.status) {
+    case 'sending':
+      return 'Laeuft';
+    case 'aborting':
+      return 'Wird gestoppt';
+    case 'error':
+      return 'Fehler';
+    default:
+      return 'Fertig';
+  }
+}
+
+function getCompactBreakLabel(message: ChatMessage): string {
+  const meta = message.compactMeta;
+  if (!meta) {
+    return message.content;
+  }
+
+  const baseLabel = meta.kind === 'manual' ? 'Canvas context compaction' : 'Kontext automatisch verdichtet';
+  if (meta.omittedMessageCount > 0) {
+    return `${baseLabel} · ${meta.omittedMessageCount} aeltere Nachrichten komprimiert`;
+  }
+
+  return baseLabel;
 }
 
 function MarkdownMessage({ content, variant }: { content: string; variant: 'user' | 'assistant' | 'tool' }) {
@@ -333,6 +416,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const currentAssistantIdRef = useRef<string | null>(null);
   const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const lastCompactionMarkerRef = useRef<string | null>(null);
 
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
@@ -475,6 +559,39 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     ]);
   }, []);
 
+  const appendCompactionBreak = useCallback((kind: 'manual' | 'automatic', timestamp: string, omittedMessageCount: number) => {
+    if (lastCompactionMarkerRef.current === timestamp) {
+      return;
+    }
+
+    lastCompactionMarkerRef.current = timestamp;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `compact-${timestamp}`,
+        role: 'system',
+        content: kind === 'manual' ? 'Canvas context compaction' : 'Kontext automatisch verdichtet',
+        type: 'compact_break',
+        status: 'sent',
+        compactMeta: {
+          kind,
+          timestamp,
+          omittedMessageCount,
+        },
+      },
+    ]);
+  }, []);
+
+  const toggleToolMessage = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((message) => (
+        message.id === messageId && message.role === 'toolResult'
+          ? { ...message, isCollapsed: !message.isCollapsed, autoCollapsedAtEnd: false }
+          : message
+      )),
+    );
+  }, []);
+
   const upsertToolMessage = useCallback((params: {
     assistantMessageId?: string | null;
     content?: string;
@@ -506,6 +623,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         toolArgs,
         piMessage,
         type: type || 'tool_result',
+        isCollapsed: status === 'sent',
+        autoCollapsedAtEnd: status === 'sent',
+        previewText: truncatePreview(content || ''),
       };
 
       if (index === -1) {
@@ -526,6 +646,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         toolName: toolName ?? prev[index].toolName,
         piMessage: piMessage ?? prev[index].piMessage,
         type: type || prev[index].type,
+        isCollapsed: status === 'sent' ? true : (status === 'sending' ? false : prev[index].isCollapsed),
+        autoCollapsedAtEnd: status === 'sent' ? true : prev[index].autoCollapsedAtEnd,
+        previewText: truncatePreview(content ?? prev[index].content),
       };
 
       const nextMessages = [...prev];
@@ -591,6 +714,11 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const handleStreamEvent = useCallback((event: ChatEvent) => {
     if (event.type === 'runtime_status' && event.status) {
       setRuntimeStatusWithReconciliation(event.status);
+      return;
+    }
+
+    if (event.type === 'context_compacted' && event.timestamp && event.kind) {
+      appendCompactionBreak(event.kind, event.timestamp, event.omittedMessageCount || 0);
       return;
     }
 
@@ -663,7 +791,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     if (event.type === 'error') {
       appendSystemMessage(`Error: ${event.error || 'Unknown error'}`);
     }
-  }, [appendSystemMessage, createAssistantBubble, setRuntimeStatusWithReconciliation, syncPiMessage, updateAssistantMessage, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, setRuntimeStatusWithReconciliation, syncPiMessage, updateAssistantMessage, upsertToolMessage]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
@@ -758,7 +886,10 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
     if (payload.status) {
       setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
+      return payload.status as RuntimeStatus;
     }
+
+    return null;
   }, [setRuntimeStatusWithReconciliation]);
 
   const appendOptimisticUserMessage = useCallback((
@@ -874,17 +1005,21 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const handleCompact = useCallback(async () => {
     if (!sessionIdRef.current) return;
     try {
-      await postControl(sessionIdRef.current, 'compact');
+      const status = await postControl(sessionIdRef.current, 'compact');
+      if (status?.lastCompactionAt && status.lastCompactionKind) {
+        appendCompactionBreak(status.lastCompactionKind, status.lastCompactionAt, status.lastCompactionOmittedCount || 0);
+      }
     } catch (error) {
       appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [appendSystemMessage, postControl]);
+  }, [appendCompactionBreak, appendSystemMessage, postControl]);
 
   const startNewChat = useCallback(() => {
     resetStreamConnection();
     setRuntimeStatus(null);
     setSessionId(null);
     sessionIdRef.current = null;
+    lastCompactionMarkerRef.current = null;
     setMessages([]);
     setShowHistory(false);
     if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
@@ -900,6 +1035,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     resetStreamConnection();
     setSessionId(session.sessionId);
     sessionIdRef.current = session.sessionId;
+    lastCompactionMarkerRef.current = null;
     setActiveModel(session.model || DEFAULT_MODEL_ID);
     setMessages([{ id: 'system', role: 'system', content: 'Loading...' }]);
     setShowHistory(false);
@@ -930,6 +1066,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               type: isToolResult ? 'tool_result' : undefined,
               attachments: extractImageAttachments(rawMessage.content),
               piMessage: rawMessage,
+              isCollapsed: isToolResult,
+              autoCollapsedAtEnd: isToolResult,
+              previewText: isToolResult ? truncatePreview(content) : undefined,
             };
           }),
         );
@@ -937,6 +1076,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
       if (statusPayload?.success && statusPayload.status) {
         setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
+        lastCompactionMarkerRef.current = (statusPayload.status as RuntimeStatus).lastCompactionAt || null;
         if ((statusPayload.status as RuntimeStatus).phase !== 'idle') {
           void openRuntimeStream(session.sessionId);
         }
@@ -1267,6 +1407,8 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const contextLabel = runtimeStatus
     ? `~${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
     : 'Noch keine Session';
+  const runtimeBannerClass = getRuntimeBannerClass(runtimeStatus);
+  const runtimePulseClass = getRuntimePulseClass(runtimeStatus);
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
@@ -1326,45 +1468,74 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         </div>
 
         {!showHistory && (
-          <div className="grid gap-2 border-t border-border/70 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <div className="space-y-1">
-              <div data-testid="chat-runtime-status" className="flex flex-wrap items-center gap-2 text-xs">
-                <span className={`inline-flex items-center gap-2 border px-2 py-1 font-medium ${
-                  runtimeStatus?.phase === 'running_tool'
-                    ? 'border-amber-500/40 bg-amber-500/10 text-foreground'
-                    : runtimeStatus?.phase === 'streaming'
-                      ? 'border-primary/30 bg-primary/10 text-foreground'
-                      : runtimeStatus?.phase === 'aborting'
-                        ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                        : 'border-border bg-muted/60 text-muted-foreground'
-                }`}>
-                  <span className={`h-1.5 w-1.5 ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''} bg-current`} />
-                  {getRuntimePhaseLabel(runtimeStatus)}
-                </span>
-                {runtimeStatus && totalQueuedMessages > 0 ? <span>{totalQueuedMessages} in Queue</span> : null}
-                {runtimeStatus?.includedSummary ? <span className="text-muted-foreground">Summary aktiv</span> : null}
+          <div className="border-t border-border/70 px-3 py-3">
+            <div
+              data-testid="chat-runtime-banner"
+              className={`sticky top-0 z-10 rounded-xl border p-3 backdrop-blur ${runtimeBannerClass}`}
+            >
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0 space-y-2">
+                  <div data-testid="chat-runtime-status" className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-3 text-sm font-semibold tracking-tight">
+                      <span className={`h-2.5 w-2.5 rounded-full ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''} ${runtimePulseClass}`} />
+                      <span>{getRuntimePhaseLabel(runtimeStatus)}</span>
+                    </span>
+                    {runtimeStatus && totalQueuedMessages > 0 ? (
+                      <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                        {totalQueuedMessages} in Queue
+                      </span>
+                    ) : null}
+                    {runtimeStatus?.includedSummary ? (
+                      <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                        Summary aktiv
+                      </span>
+                    ) : null}
+                    {runtimeStatus?.activeTool ? (
+                      <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                        Aktiv: {runtimeStatus.activeTool.name}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div>
+                      <div data-testid="chat-context-meter" className="text-[11px] text-muted-foreground">
+                        Context-Budget: {contextLabel}
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/5">
+                        <div
+                          data-testid="chat-context-progress"
+                          className={`h-full rounded-full transition-all ${
+                            runtimeStatus?.phase === 'aborting'
+                              ? 'bg-rose-400'
+                              : runtimeStatus?.phase === 'running_tool'
+                                ? 'bg-amber-400'
+                                : 'bg-cyan-400'
+                          }`}
+                          style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        data-testid="chat-stop"
+                        onClick={() => void handleStop()}
+                        disabled={!runtimeStatus?.canAbort}
+                        className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Stop
+                      </button>
+                      <button
+                        data-testid="chat-compact"
+                        onClick={() => void handleCompact()}
+                        disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                        className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Canvas compact
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div data-testid="chat-context-meter" className="text-[11px] text-muted-foreground">
-                Context-Budget: {contextLabel}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                data-testid="chat-stop"
-                onClick={() => void handleStop()}
-                disabled={!runtimeStatus?.canAbort}
-                className="border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Stop
-              </button>
-              <button
-                data-testid="chat-compact"
-                onClick={() => void handleCompact()}
-                disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Compact now
-              </button>
             </div>
           </div>
         )}
@@ -1414,6 +1585,19 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             const isAssistant = message.role === 'assistant';
             const isTool = message.role === 'toolResult';
             const usage = getAssistantUsage(message.piMessage);
+            const isCompactBreak = message.type === 'compact_break';
+
+            if (isCompactBreak) {
+              return (
+                <div key={message.id} data-testid="chat-compaction-break" className="flex items-center gap-3 py-1">
+                  <div className="h-px flex-1 bg-border/80" />
+                  <div className="border border-border/70 bg-background/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    {getCompactBreakLabel(message)}
+                  </div>
+                  <div className="h-px flex-1 bg-border/80" />
+                </div>
+              );
+            }
 
             const bubbleClass = isUser
               ? 'border-primary bg-primary text-primary-foreground shadow-sm'
@@ -1435,31 +1619,70 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                     : message.status === 'sending'
                       ? (isTool ? 'Running tool...' : 'Agent arbeitet...')
                       : '');
+            const toolBodyVisible = isTool ? !message.isCollapsed : true;
+            const toolStatusLabel = isTool ? getToolStatusLabel(message) : null;
 
             return (
               <div key={message.id} data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[95%] border p-3 sm:max-w-[90%] ${bubbleClass}`}>
-                  <div className="mb-2 flex items-center gap-2">
-                    {isTool ? <Wrench className="h-3.5 w-3.5 opacity-70" /> : null}
-                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
-                    {(message.status === 'sending' || message.status === 'aborting') && <span className="h-1.5 w-1.5 animate-pulse bg-current opacity-70" />}
-                    {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Queue</span> : null}
-                    {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Steer</span> : null}
-                  </div>
+                  {isTool ? (
+                    <div>
+                      <button
+                        type="button"
+                        data-testid="chat-tool-toggle"
+                        onClick={() => toggleToolMessage(message.id)}
+                        className="flex w-full items-start gap-3 text-left"
+                      >
+                        <span className="mt-0.5 text-amber-600/90">
+                          <Wrench className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
+                            <span className="border border-amber-500/30 bg-background/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                              {toolStatusLabel}
+                            </span>
+                            {message.autoCollapsedAtEnd ? (
+                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Auto</span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 text-sm font-medium text-foreground">{message.toolName || 'Tool'}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{message.previewText || 'Noch keine Ausgabe'}</div>
+                        </div>
+                        <span className="mt-0.5 text-muted-foreground">
+                          {toolBodyVisible ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </span>
+                      </button>
 
-                  {isTool && message.toolArgs ? (
-                    <div className="mb-3 rounded-md border border-amber-500/30 bg-background/60 p-2">
-                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Input</div>
-                      <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">{message.toolArgs}</pre>
+                      {toolBodyVisible ? (
+                        <div data-testid="chat-tool-body" className="mt-3 space-y-3">
+                          {message.toolArgs ? (
+                            <div className="rounded-md border border-amber-500/30 bg-background/60 p-2">
+                              <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Input</div>
+                              <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">{message.toolArgs}</pre>
+                            </div>
+                          ) : null}
+                          <MarkdownMessage content={bodyContent} variant="tool" />
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-
-                  {isUser ? (
-                    <MarkdownMessage content={bodyContent} variant="user" />
-                  ) : isAssistant || isTool ? (
-                    <MarkdownMessage content={bodyContent} variant={isTool ? 'tool' : 'assistant'} />
                   ) : (
-                    <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
+                    <>
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
+                        {(message.status === 'sending' || message.status === 'aborting') && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />}
+                        {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Queue</span> : null}
+                        {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Steer</span> : null}
+                      </div>
+
+                      {isUser ? (
+                        <MarkdownMessage content={bodyContent} variant="user" />
+                      ) : isAssistant ? (
+                        <MarkdownMessage content={bodyContent} variant="assistant" />
+                      ) : (
+                        <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
+                      )}
+                    </>
                   )}
 
                   {message.attachments && message.attachments.length > 0 && (

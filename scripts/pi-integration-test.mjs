@@ -243,7 +243,10 @@ async function testRuntimeStatusAndCompact(cookie, sessionId) {
     typeof status?.contextWindow !== 'number' ||
     typeof status?.estimatedHistoryTokens !== 'number' ||
     typeof status?.availableHistoryTokens !== 'number' ||
-    typeof status?.contextUsagePercent !== 'number'
+    typeof status?.contextUsagePercent !== 'number' ||
+    !('lastCompactionAt' in status) ||
+    !('lastCompactionKind' in status) ||
+    !('lastCompactionOmittedCount' in status)
   ) {
     throw new Error('Runtime status payload missing context metrics');
   }
@@ -261,8 +264,13 @@ async function testRuntimeStatusAndCompact(cookie, sessionId) {
     throw new Error(`Runtime compact failed: ${compactResult.response.status}`);
   }
 
-  if (typeof compactResult.body?.status?.contextUsagePercent !== 'number') {
-    throw new Error('Compact response missing updated runtime status');
+  if (
+    typeof compactResult.body?.status?.contextUsagePercent !== 'number' ||
+    typeof compactResult.body?.status?.lastCompactionAt !== 'string' ||
+    compactResult.body?.status?.lastCompactionKind !== 'manual' ||
+    typeof compactResult.body?.status?.lastCompactionOmittedCount !== 'number'
+  ) {
+    throw new Error('Compact response missing updated runtime compaction status');
   }
 
   console.log('[PI Test] Runtime status and compact check passed.');

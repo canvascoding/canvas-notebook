@@ -1,0 +1,68 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - link "Suite" [ref=e6] [cursor=pointer]:
+            - /url: /
+            - img [ref=e7]
+            - text: Suite
+          - img "Canvas Notebook logo" [ref=e9]
+          - heading "CANVAS CHAT" [level=1] [ref=e10]
+        - generic [ref=e11]:
+          - button "Switch theme" [ref=e12]:
+            - img [ref=e13]
+            - text: Theme
+          - link "Usage" [ref=e15] [cursor=pointer]:
+            - /url: /usage
+          - generic [ref=e16]: UserAdministrator
+          - button "Logout" [ref=e17]:
+            - img [ref=e18]
+            - text: Logout
+    - main [ref=e21]:
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]:
+            - generic [ref=e25]:
+              - button "Open history" [ref=e26]:
+                - img [ref=e27]
+              - generic [ref=e32]:
+                - generic "New chat" [ref=e33]: Sessionnew chat
+                - 'generic "Model: pi" [ref=e34]': Modelpi
+            - generic [ref=e35]:
+              - button "New" [ref=e36]:
+                - img [ref=e37]
+                - text: New
+              - link "Skills" [ref=e38] [cursor=pointer]:
+                - /url: /skills
+                - img [ref=e39]
+                - text: Skills
+          - generic [ref=e44]:
+            - generic [ref=e46]: Bereit
+            - generic [ref=e47]:
+              - generic [ref=e49]: "Context-Budget: Noch keine Session"
+              - generic [ref=e50]:
+                - button "Stop" [disabled] [ref=e51]
+                - button "Canvas compact" [disabled] [ref=e52]
+        - generic [ref=e55]:
+          - img [ref=e56]
+          - generic [ref=e59]:
+            - paragraph [ref=e60]: Start a conversation
+            - paragraph [ref=e61]: Markdown replies, tool output, queue state, and context budget appear here.
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - button "Steuern" [disabled] [ref=e64]
+            - button "Jetzt senden" [disabled] [ref=e65]
+          - generic [ref=e66]:
+            - button "Attach image" [ref=e67]:
+              - img [ref=e68]
+            - button "Choose File" [ref=e70]
+            - textbox "Ask about your project... (Type @ to reference files)" [ref=e72]
+            - button [disabled] [ref=e73]:
+              - img
+          - generic [ref=e75]: Send queues a follow-up. Use Steuern to interrupt after the active tool step, or Jetzt senden to stop the current chain first.
+  - region "Notifications alt+T"
+```

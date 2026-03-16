@@ -47,6 +47,9 @@ export type PiRuntimeStatus = {
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
+  lastCompactionAt: string | null;
+  lastCompactionKind: 'manual' | 'automatic' | null;
+  lastCompactionOmittedCount: number;
 };
 
 export type RuntimeStatusEvent = {
@@ -54,12 +57,20 @@ export type RuntimeStatusEvent = {
   status: PiRuntimeStatus;
 };
 
+export type ContextCompactedEvent = {
+  type: 'context_compacted';
+  timestamp: string;
+  kind: 'manual' | 'automatic';
+  omittedMessageCount: number;
+  includedSummary: boolean;
+};
+
 export type RuntimeErrorEvent = {
   type: 'error';
   error: string;
 };
 
-export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | RuntimeErrorEvent;
+export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | ContextCompactedEvent | RuntimeErrorEvent;
 
 type RuntimeSubscriber = (event: PiRuntimeStreamEvent) => void;
 
@@ -163,6 +174,9 @@ class LivePiRuntime {
   private lastComposition: PiHistoryComposition | null = null;
   private lastPersistedLength: number;
   private lastAccessAt = Date.now();
+  private lastCompactionAt: Date | null;
+  private lastCompactionKind: 'manual' | 'automatic' | null;
+  private lastCompactionOmittedCount: number;
 
   constructor(init: RuntimeInit, agent: Agent) {
     this.sessionId = init.sessionId;
@@ -174,6 +188,9 @@ class LivePiRuntime {
     this.summary = init.summary;
     this.lastPersistedLength = init.initialMessages.length;
     this.agent = agent;
+    this.lastCompactionAt = init.summary.summaryUpdatedAt;
+    this.lastCompactionKind = init.summary.summaryUpdatedAt ? 'automatic' : null;
+    this.lastCompactionOmittedCount = 0;
   }
 
   touch() {
@@ -228,6 +245,9 @@ class LivePiRuntime {
       includedSummary: composition.includedSummary,
       omittedMessageCount: composition.omittedMessages.length,
       summaryUpdatedAt: this.summary.summaryUpdatedAt ? this.summary.summaryUpdatedAt.toISOString() : null,
+      lastCompactionAt: this.lastCompactionAt ? this.lastCompactionAt.toISOString() : null,
+      lastCompactionKind: this.lastCompactionKind,
+      lastCompactionOmittedCount: this.lastCompactionOmittedCount,
     };
   }
 
@@ -305,6 +325,7 @@ class LivePiRuntime {
 
     this.summary = result.summary;
     this.lastComposition = result.composition;
+    this.recordCompaction('manual', result.composition);
     await savePiSession(
       this.sessionId,
       this.userId,
@@ -368,8 +389,20 @@ class LivePiRuntime {
       signal,
     });
 
+    const previousSummaryThroughTimestamp = this.summary.summaryThroughTimestamp ?? null;
+    const previousSummaryUpdatedAt = this.summary.summaryUpdatedAt?.getTime() ?? null;
     this.summary = result.summary;
     this.lastComposition = result.composition;
+    const nextSummaryThroughTimestamp = result.summary.summaryThroughTimestamp ?? null;
+    const nextSummaryUpdatedAt = result.summary.summaryUpdatedAt?.getTime() ?? null;
+
+    if (
+      (nextSummaryThroughTimestamp !== previousSummaryThroughTimestamp || nextSummaryUpdatedAt !== previousSummaryUpdatedAt) &&
+      (result.composition.includedSummary || result.composition.omittedMessages.length > 0)
+    ) {
+      this.recordCompaction('automatic', result.composition);
+    }
+
     this.publishStatus();
     return result.composition.llmMessages;
   }
@@ -441,6 +474,19 @@ class LivePiRuntime {
     this.publish({
       type: 'runtime_status',
       status: this.getStatus(),
+    });
+  }
+
+  private recordCompaction(kind: 'manual' | 'automatic', composition: PiHistoryComposition) {
+    this.lastCompactionAt = new Date();
+    this.lastCompactionKind = kind;
+    this.lastCompactionOmittedCount = composition.omittedMessages.length;
+    this.publish({
+      type: 'context_compacted',
+      timestamp: this.lastCompactionAt.toISOString(),
+      kind,
+      omittedMessageCount: composition.omittedMessages.length,
+      includedSummary: composition.includedSummary,
     });
   }
 
@@ -630,5 +676,8 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     includedSummary: composition.includedSummary,
     omittedMessageCount: composition.omittedMessages.length,
     summaryUpdatedAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,
+    lastCompactionAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,
+    lastCompactionKind: summary.summaryUpdatedAt ? 'automatic' : null,
+    lastCompactionOmittedCount: summary.summaryUpdatedAt ? composition.omittedMessages.length : 0,
   };
 }

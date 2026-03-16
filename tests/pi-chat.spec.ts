@@ -19,11 +19,18 @@ const EMPTY_USAGE = {
 };
 
 async function login(page: Page) {
-  await page.goto('/login');
-  await page.waitForTimeout(750);
-  await page.fill('input[type="email"]', TEST_EMAIL);
-  await page.fill('input[type="password"]', TEST_PASSWORD);
-  await page.click('button[type="submit"]');
+  const response = await page.request.post('/api/auth/sign-in/email', {
+    headers: {
+      Origin: process.env.BASE_URL || 'http://localhost:3000',
+    },
+    data: {
+      email: TEST_EMAIL,
+      password: TEST_PASSWORD,
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+  await page.goto('/');
   await expect(page).toHaveURL('/', { timeout: 15000 });
 }
 
@@ -188,8 +195,14 @@ test.describe('PI Chat E2E', () => {
     const toolMessage = page.getByTestId('chat-message-toolResult').first();
     await expect(toolMessage).toContainText('ls');
     await expect(toolMessage).toContainText('alpha.md');
-    await expect(toolMessage).toContainText('beta.ts');
     await expect(toolMessage).not.toContainText('Assistant');
+    await expect(toolMessage.getByTestId('chat-tool-body')).toHaveCount(0);
+
+    await toolMessage.getByTestId('chat-tool-toggle').click();
+    await expect(toolMessage.getByTestId('chat-tool-body')).toBeVisible();
+    await expect(toolMessage.getByTestId('chat-tool-body')).toContainText('alpha.md');
+    await expect(toolMessage.getByTestId('chat-tool-body')).toContainText('beta.ts');
+    await expect(toolMessage.getByText('Input')).toBeVisible();
 
     const messageOrder = await page.locator('[data-testid^="chat-message-"]').evaluateAll((nodes) =>
       nodes.map((node) => node.getAttribute('data-testid')),
@@ -304,6 +317,9 @@ test.describe('PI Chat E2E', () => {
       includedSummary: true,
       omittedMessageCount: 8,
       summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
+      lastCompactionAt: '2026-03-16T16:00:00.000Z',
+      lastCompactionKind: 'automatic',
+      lastCompactionOmittedCount: 8,
     };
 
     await page.route('**/api/agents/config', async (route) => {
@@ -450,6 +466,7 @@ test.describe('PI Chat E2E', () => {
 
     await page.goto('/chat');
 
+    await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
     await expect(page.getByTestId('chat-runtime-status')).toContainText('Tool läuft: read_file');
     await expect(page.getByTestId('chat-runtime-status')).toContainText('2 in Queue');
     await expect(page.getByTestId('chat-runtime-status')).toContainText('Summary aktiv');
@@ -468,6 +485,141 @@ test.describe('PI Chat E2E', () => {
     await page.getByTestId('chat-send-now').click();
 
     await expect(page.getByTestId('chat-runtime-status')).toContainText('Wird gestoppt');
+  });
+
+  test('should render a compaction break after manual canvas compact', async ({ page }) => {
+    const sessionId = 'sess-compact-break';
+    let currentStatus = {
+      sessionId,
+      phase: 'idle',
+      activeTool: null,
+      pendingToolCalls: 0,
+      followUpQueue: [],
+      steeringQueue: [],
+      canAbort: false,
+      contextWindow: 128000,
+      estimatedHistoryTokens: 8600,
+      availableHistoryTokens: 23500,
+      contextUsagePercent: 37,
+      includedSummary: true,
+      omittedMessageCount: 6,
+      summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
+      lastCompactionAt: null,
+      lastCompactionKind: null,
+      lastCompactionOmittedCount: 0,
+    };
+
+    await page.route('**/api/agents/config', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            piConfig: {
+              activeProvider: 'openai',
+              providers: {
+                openai: { model: 'gpt-4o' },
+              },
+            },
+            discovery: {
+              openai: {
+                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/sessions', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          sessions: [
+            {
+              id: 1,
+              sessionId,
+              title: 'Compact session',
+              model: 'gpt-4o',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.route(`**/api/sessions/messages?sessionId=${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          messages: [
+            {
+              id: 'm1',
+              role: 'user',
+              content: 'Compress the old context.',
+              timestamp: Date.now() - 1000,
+            },
+            {
+              id: 'm2',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Ready when you are.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now() - 500,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.route(`**/api/stream/status?sessionId=${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          status: currentStatus,
+        }),
+      });
+    });
+
+    await page.route('**/api/stream/control', async (route) => {
+      const body = route.request().postDataJSON() as { action: string };
+      if (body.action === 'compact') {
+        currentStatus = {
+          ...currentStatus,
+          lastCompactionAt: '2026-03-16T17:20:00.000Z',
+          lastCompactionKind: 'manual',
+          lastCompactionOmittedCount: 6,
+        };
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          status: currentStatus,
+        }),
+      });
+    });
+
+    await page.goto('/chat');
+
+    await page.getByTestId('chat-compact').click();
+
+    const breakMarker = page.getByTestId('chat-compaction-break');
+    await expect(breakMarker).toBeVisible();
+    await expect(breakMarker).toContainText('Canvas context compaction');
+    await expect(breakMarker).toContainText('6');
   });
 
   test('should render the usage analytics page and apply provider filters', async ({ page }) => {

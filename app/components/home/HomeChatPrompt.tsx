@@ -1,6 +1,7 @@
 'use client';
 
 import React, { FormEvent, useState, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { MessageSquare, Send, Paperclip, X, Image as ImageIcon } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
@@ -221,7 +222,9 @@ export function HomeChatPrompt() {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageSquare className="h-4 w-4" />
-          Canvas Chat starten
+          <Link href="/chat" className="hover:underline">
+            Canvas Chat starten
+          </Link>
         </CardTitle>
       </CardHeader>
       <CardContent>
