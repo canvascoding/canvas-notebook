@@ -474,6 +474,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [composerHeight, setComposerHeight] = useState(220);
+  const [composerWidth, setComposerWidth] = useState(0);
 
   const filePickerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1134,7 +1135,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     setShowMobileDetails(false);
     setShowMobileActionPanel(false);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
-    setMessages([{ id: 'system', role: 'system', content: 'Loading...' }]);
+    setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
     setShowHistory(false);
     toolMessageIdsRef.current = {};
 
@@ -1515,7 +1516,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     if (!composer) return;
 
     const updateComposerHeight = () => {
-      setComposerHeight(composer.getBoundingClientRect().height);
+      const { height, width } = composer.getBoundingClientRect();
+      setComposerHeight(height);
+      setComposerWidth(width);
     };
 
     updateComposerHeight();
@@ -1544,6 +1547,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const scrollContentPadding = composerHeight + 24;
   const scrollButtonOffset = composerHeight + 16;
+  const isCompactComposer = composerWidth > 0 && composerWidth < 520;
   const isAgentBusy = runtimeStatus?.phase !== 'idle';
   const busyBadgeClass = isAgentBusy
     ? 'border-rose-500/40 bg-rose-500/12 text-rose-700 dark:text-rose-300'
@@ -1567,6 +1571,11 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
   const showMobilePrimaryStop = isMobile && Boolean(runtimeStatus?.canAbort);
   const showMobilePrimaryCompact = isMobile && !runtimeStatus?.canAbort && Boolean(sessionId) && runtimeStatus?.phase === 'idle';
+  const composerPlaceholder = isMobile
+    ? 'Frag nach Kampagnen oder Dateien...'
+    : isCompactComposer
+      ? 'Frag nach Projekt oder Dateien. @ referenziert.'
+      : 'Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien.';
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
@@ -1887,6 +1896,8 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             const isUser = message.role === 'user';
             const isAssistant = message.role === 'assistant';
             const isTool = message.role === 'toolResult';
+            const isSystem = message.role === 'system';
+            const isSystemError = isSystem && message.status === 'error';
             const usage = getAssistantUsage(message.piMessage);
             const isCompactBreak = message.type === 'compact_break';
 
@@ -1908,7 +1919,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                 ? 'border-border bg-muted text-foreground'
                 : isTool
                   ? 'border-amber-500/40 bg-amber-500/10 text-foreground'
-                  : 'border-destructive/40 bg-destructive/10 text-destructive';
+                  : isSystemError
+                    ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                    : 'border-border bg-background/80 text-muted-foreground';
 
             const title = isUser ? 'You' : isTool ? (message.toolName || 'Tool') : isAssistant ? 'Assistant' : 'System';
             const bodyContent =
@@ -2148,8 +2161,8 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={isMobile ? 'Frag nach Kampagnen, Dokumenten oder Dateiorganisation...' : 'Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien.'}
-              className={`w-full resize-none border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring ${
+              placeholder={composerPlaceholder}
+              className={`w-full resize-none border border-border bg-background text-sm placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:placeholder:text-sm ${
                 isMobile ? 'min-h-[40px] max-h-28 p-2.5' : 'min-h-[44px] max-h-32 p-2.5'
               }`}
             />
