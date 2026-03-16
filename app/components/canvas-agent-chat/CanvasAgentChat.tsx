@@ -1618,10 +1618,10 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                   <div
                     data-testid="chat-model-badge"
                     title={`Model: ${activeModel}`}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/50 px-2.5 py-0.5 text-[11px] text-foreground"
+                    className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/50 px-2.5 py-0.5 text-[11px] text-foreground"
                   >
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Model</span>
-                    <span className="font-mono text-[9px]">{activeModel}</span>
+                    <span className="max-w-[140px] truncate font-mono text-[9px]">{activeModel}</span>
                   </div>
                 </div>
               )}
@@ -1778,10 +1778,10 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                   <div
                     data-testid="chat-model-badge"
                     title={`Model: ${activeModel}`}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] text-foreground"
+                    className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] text-foreground"
                   >
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Model</span>
-                    <span className="font-mono text-[9px]">{activeModel}</span>
+                    <span className="max-w-[120px] truncate font-mono text-[9px]">{activeModel}</span>
                   </div>
                   {runtimeStatus?.includedSummary && (
                     <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
