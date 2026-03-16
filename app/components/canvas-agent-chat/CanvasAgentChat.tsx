@@ -490,6 +490,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const sessionIdRef = useRef<string | null>(null);
   const lastCompactionMarkerRef = useRef<string | null>(null);
   const userStartedNewChatRef = useRef(false);
+  const previousMessageCountRef = useRef(0);
 
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
@@ -519,9 +520,13 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   useEffect(() => {
     if (messages.length === 0) return;
     const lastMessage = messages[messages.length - 1];
-    if (isAtBottom || lastMessage.role === 'user') {
+    const messageCountIncreased = messages.length > previousMessageCountRef.current;
+
+    if (isAtBottom || (messageCountIncreased && lastMessage.role === 'user')) {
       scrollToBottom(lastMessage.role === 'user' ? 'smooth' : 'auto');
     }
+
+    previousMessageCountRef.current = messages.length;
   }, [messages, isAtBottom]);
 
   const fetchHistory = useCallback(async () => {
@@ -1531,7 +1536,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
   const contextLabel = runtimeStatus
-    ? `~${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
+    ? `${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
     : 'Noch keine Session';
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, sessionId);
   const runtimeBannerClass = getRuntimeBannerClass(runtimeStatus);
@@ -1554,7 +1559,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         ? 'Agent aktiv'
         : runtimeStatus?.phase === 'aborting'
           ? 'Stoppt'
-          : 'Bereit';
+          : null;
 
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
@@ -1686,13 +1691,15 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                 >
                   {getRuntimePhaseLabel(runtimeStatus)}
                 </span>
-                <span
-                  data-testid="chat-runtime-busy-badge"
-                  className={`inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px] font-medium ${busyBadgeClass}`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${runtimePulseClass} ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''}`} />
-                  {busyBadgeLabel}
-                </span>
+                {busyBadgeLabel ? (
+                  <span
+                    data-testid="chat-runtime-busy-badge"
+                    className={`inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px] font-medium ${busyBadgeClass}`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${runtimePulseClass} ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''}`} />
+                    {busyBadgeLabel}
+                  </span>
+                ) : null}
                 
                 {/* Queue Badge */}
                 {runtimeStatus && totalQueuedMessages > 0 && (
