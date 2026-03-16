@@ -25,7 +25,7 @@ const MIME_EXTENSION: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-const ALLOWED_MODELS = new Set(['gemini-3.1-flash-image-preview', 'gemini-2.5-flash-image-preview']);
+const ALLOWED_MODELS = new Set(['gemini-3.1-flash-image-preview', 'gemini-2.5-flash-image']);
 const ALLOWED_ASPECT_RATIOS = new Set(['16:9', '1:1', '9:16', '4:3', '3:4']);
 const MAX_TARGET_MARKETS = 12;
 const MAX_MARKET_LENGTH = 80;

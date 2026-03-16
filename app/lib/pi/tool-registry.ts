@@ -224,7 +224,7 @@ export const piTools: AgentTool[] = [
       prompt: Type.String({ description: 'Text description of the image to generate' }),
       aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9, 1:1, 9:16, 4:3, 3:4. Default: 1:1' })),
       count: Type.Optional(Type.Number({ description: 'Number of images to generate (1-4). Default: 1' })),
-      model: Type.Optional(Type.String({ description: 'Model: gemini-3.1-flash-image-preview (default) or gemini-2.5-flash-image-preview' })),
+      model: Type.Optional(Type.String({ description: 'Model: gemini-3.1-flash-image-preview (best quality, supports 14 reference images) or gemini-2.5-flash-image (faster, lower cost, supports 3 reference images)' })),
     }),
     execute: async (toolCallId, params) => {
       const { prompt, aspect_ratio, count, model } = params as { 

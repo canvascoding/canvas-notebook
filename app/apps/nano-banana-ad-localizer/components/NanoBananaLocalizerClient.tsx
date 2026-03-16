@@ -61,9 +61,26 @@ const TARGET_MARKET_OPTIONS = [
   'Australia',
 ];
 
-const MODEL_OPTIONS = [
-  { label: 'Gemini 3.1 Flash Image Preview', value: 'gemini-3.1-flash-image-preview' },
-  { label: 'Gemini 2.5 Flash Image Preview', value: 'gemini-2.5-flash-image-preview' },
+interface ModelOption {
+  label: string;
+  value: string;
+  description: string;
+  shortLabel: string;
+}
+
+const MODEL_OPTIONS: ModelOption[] = [
+  {
+    label: '🎨 Best Quality & Features',
+    value: 'gemini-3.1-flash-image-preview',
+    shortLabel: 'Gemini 3.1 Flash Image',
+    description: 'Latest model with highest quality and more capabilities. Supports up to 14 reference images and advanced features like grounding. Best for professional results.',
+  },
+  {
+    label: '⚡ Fast & Affordable',
+    value: 'gemini-2.5-flash-image',
+    shortLabel: 'Gemini 2.5 Flash Image',
+    description: 'Fast generation at lower cost. Supports up to 3 reference images. Perfect for quick drafts, simple images, and when speed matters.',
+  },
 ];
 
 const ASPECT_RATIOS = ['16:9', '1:1', '9:16', '4:3', '3:4'] as const;
@@ -188,20 +205,31 @@ export function NanoBananaLocalizerClient() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Model</span>
-              <select
-                className="h-9 border border-input bg-background px-2 text-sm"
-                value={model}
-                onChange={(event) => setModel(event.target.value)}
-              >
-                {MODEL_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex flex-col gap-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs text-muted-foreground">Model</span>
+                <select
+                  className="h-9 border border-input bg-background px-2 text-sm"
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                >
+                  {MODEL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {(() => {
+                const selectedModel = MODEL_OPTIONS.find((m) => m.value === model);
+                return selectedModel ? (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    <span className="font-medium text-foreground">{selectedModel.shortLabel}:</span>{' '}
+                    {selectedModel.description}
+                  </p>
+                ) : null;
+              })()}
+            </div>
 
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">Aspect Ratio</span>
@@ -356,7 +384,7 @@ export function NanoBananaLocalizerClient() {
           {outputItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">Noch keine lokalisierten Ads im Output-Ordner gefunden.</p>
           ) : (
-            <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {outputItems.map((item) => (
                 <a key={item.path} href={item.mediaUrl} target="_blank" rel="noreferrer" className="border border-border bg-background p-2">
                   <img src={item.previewUrl} alt={item.path} className="aspect-video w-full bg-muted object-cover" />
