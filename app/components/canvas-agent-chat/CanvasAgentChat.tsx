@@ -1544,14 +1544,11 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const scrollContentPadding = composerHeight + 24;
   const scrollButtonOffset = composerHeight + 16;
-  const busyBadgeClass =
-    runtimeStatus?.phase === 'running_tool'
-      ? 'border-amber-500/40 bg-amber-500/12 text-amber-700 dark:text-amber-300'
-      : runtimeStatus?.phase === 'streaming'
-        ? 'border-cyan-500/40 bg-cyan-500/12 text-cyan-700 dark:text-cyan-300'
-        : runtimeStatus?.phase === 'aborting'
-          ? 'border-rose-500/40 bg-rose-500/12 text-rose-700 dark:text-rose-300'
-          : 'border-border/60 bg-muted/40 text-muted-foreground';
+  const isAgentBusy = runtimeStatus?.phase !== 'idle';
+  const busyBadgeClass = isAgentBusy
+    ? 'border-rose-500/40 bg-rose-500/12 text-rose-700 dark:text-rose-300'
+    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+  const busyBadgeDotClass = isAgentBusy ? 'bg-rose-500' : 'bg-emerald-500';
   const busyBadgeLabel =
     runtimeStatus?.phase === 'running_tool'
       ? 'Tool aktiv'
@@ -1670,25 +1667,12 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         {!showHistory && (
           <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              {/* Left: Status with animated dot */}
               <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                {/* Animated Status Dot */}
-                <div className="relative flex items-center justify-center">
-                  <span 
-                    className={`h-2 w-2 rounded-full ${runtimePulseClass} ${
-                      runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''
-                    }`} 
-                  />
-                  {runtimeStatus?.phase !== 'idle' && (
-                    <span className={`absolute h-4 w-4 rounded-full ${runtimePulseClass} opacity-30 animate-ping`} />
-                  )}
-                </div>
-
                 <span
                   data-testid="chat-runtime-busy-badge"
-                  className={`inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px] font-medium ${busyBadgeClass}`}
+                  className={`inline-flex items-center gap-1.5 border px-2.5 py-0.5 pr-3 text-[10px] font-medium ${busyBadgeClass}`}
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full ${runtimePulseClass} ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''}`} />
+                  <span className={`h-1.5 w-1.5 rounded-full ${busyBadgeDotClass} ${isAgentBusy ? 'animate-pulse' : ''}`} />
                   {busyBadgeLabel}
                 </span>
                 
