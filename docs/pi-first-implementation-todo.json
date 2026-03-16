@@ -1328,6 +1328,78 @@
         "jspreadsheet-011"
       ],
       "description": "Update README with new features, document supported formulas, update Changelog"
+    },
+    {
+      "id": "pptx-001",
+      "order": 118,
+      "phase": "P19 PPTX Viewer Integration",
+      "title": "Install pptx-preview package",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "jspreadsheet-012"
+      ],
+      "description": "npm install pptx-preview for frontend PPTX viewing"
+    },
+    {
+      "id": "pptx-002",
+      "order": 119,
+      "phase": "P19 PPTX Viewer Integration",
+      "title": "Create PptxViewer.tsx component",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "pptx-001"
+      ],
+      "description": "Create PptxViewer component with slide navigation, dynamic import for code-splitting"
+    },
+    {
+      "id": "pptx-003",
+      "order": 120,
+      "phase": "P19 PPTX Viewer Integration",
+      "title": "Update FileEditor.tsx for PPTX support",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "pptx-002"
+      ],
+      "description": "Add 'pptx' to OFFICE_EXTENSIONS, add PPTX case handling in FileEditor"
+    },
+    {
+      "id": "pptx-004",
+      "order": 121,
+      "phase": "P19 PPTX Viewer Integration",
+      "title": "Update OfficeEditor.tsx for PPTX",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "pptx-003"
+      ],
+      "description": "Add PPTX branch with PptxViewer component in OfficeEditor"
+    },
+    {
+      "id": "pptx-005",
+      "order": 122,
+      "phase": "P19 PPTX Viewer Integration",
+      "title": "Test PPTX viewer",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "pptx-004"
+      ],
+      "description": "Test with sample PPTX file, verify slide navigation, charts rendering, text readability"
+    },
+    {
+      "id": "pptx-006",
+      "order": 123,
+      "phase": "P19 PPTX Viewer Integration",
+      "title": "Update todo list and commit",
+      "status": "pending",
+      "priority": "should",
+      "dependsOn": [
+        "pptx-005"
+      ],
+      "description": "Mark all PPTX tasks as completed, commit changes"
     }
   ]
 }

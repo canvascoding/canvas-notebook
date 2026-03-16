@@ -15,6 +15,12 @@ const SpreadsheetEditorComponent = dynamic(
   { ssr: false }
 );
 
+// Dynamic import for PptxViewer
+const PptxViewerComponent = dynamic(
+  () => import('./PptxViewer').then((mod) => mod.PptxViewer),
+  { ssr: false }
+);
+
 interface OfficeEditorProps {
   path: string;
   extension: string;
@@ -164,6 +170,17 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
             ref={spreadsheetEditorRef}
             path={path}
             onChange={onChange}
+          />
+        </div>
+      );
+    }
+
+    // Handle PPTX viewer (read-only)
+    if (extension === 'pptx') {
+      return (
+        <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
+          <PptxViewerComponent
+            path={path}
           />
         </div>
       );

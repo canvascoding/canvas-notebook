@@ -1,3 +1,5 @@
+import { AGENT_STORAGE_DIR } from '../runtime-data-paths';
+
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
 export type ManagedPromptFileName = (typeof MANAGED_PROMPT_FILE_NAMES)[number];
@@ -110,8 +112,11 @@ export function composeManagedAgentSystemPrompt(
   // Add temp directory guidance
   const tempBlock = `\n\n${TEMP_DIRECTORY_GUIDANCE}`;
 
+  // Add memory management guidance
+  const memoryBlock = `\n\n${MEMORY_MANAGEMENT_GUIDANCE}`;
+
   return {
-    systemPrompt: [BASE_AGENT_SYSTEM_PROMPT, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileSearchBlock + tempBlock,
+    systemPrompt: [BASE_AGENT_SYSTEM_PROMPT, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileSearchBlock + tempBlock + memoryBlock,
     diagnostics: {
       loadedFiles: [...MANAGED_PROMPT_FILE_NAMES],
       includedFiles: includedSections.map((section) => section.fileName),
