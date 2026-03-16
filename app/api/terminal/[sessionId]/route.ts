@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { terminateSession } from '@/server/terminal-manager';
 import { auth } from '@/app/lib/auth';
+import { getTerminalClient } from '@/app/lib/terminal-client';
 
 export async function DELETE(
   request: NextRequest,
@@ -16,7 +16,12 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: 'Session id is required' }, { status: 400 });
   }
 
-  const ownerId = String(session.user.id || session.user.email || 'anonymous');
-  const result = terminateSession(sessionId, ownerId);
-  return NextResponse.json({ success: true, closed: result.closed });
+  try {
+    const client = getTerminalClient();
+    await client.terminate(sessionId);
+    return NextResponse.json({ success: true, closed: true });
+  } catch (error: any) {
+    console.error('[Terminal API] Delete error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
 }

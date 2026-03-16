@@ -1184,6 +1184,150 @@
         "docx-006"
       ],
       "description": "Remove @univerjs/docs and @univerjs/docs-ui from OfficeEditor, delete old DocxViewer.tsx"
+    },
+    {
+      "id": "jspreadsheet-001",
+      "order": 106,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Install Jspreadsheet CE Packages",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "docx-007"
+      ],
+      "description": "npm install jspreadsheet-ce jsuites @jspreadsheet/react, import styles"
+    },
+    {
+      "id": "jspreadsheet-002",
+      "order": 107,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Create SpreadsheetEditor.tsx component",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "jspreadsheet-001"
+      ],
+      "description": "Wrapper for Jspreadsheet with React, support XLSX and CSV, ref forwarding for save()"
+    },
+    {
+      "id": "jspreadsheet-003",
+      "order": 108,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Implement XLSX/CSV Loading",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "jspreadsheet-002"
+      ],
+      "description": "Use SheetJS to parse XLSX/CSV files, convert to Jspreadsheet JSON format, support multiple worksheets"
+    },
+    {
+      "id": "jspreadsheet-004",
+      "order": 109,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Implement Save Functionality",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "jspreadsheet-003"
+      ],
+      "description": "onChange callback, convert back to XLSX/CSV, Update Changes button, save to draft then file"
+    },
+    {
+      "id": "jspreadsheet-005",
+      "order": 110,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Update OfficeEditor.tsx for spreadsheets",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "jspreadsheet-004"
+      ],
+      "description": "Remove @univerjs for XLSX/CSV, use SpreadsheetEditor for .xlsx, .csv, .xls"
+    },
+    {
+      "id": "jspreadsheet-006",
+      "order": 111,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Update FileEditor.tsx file type detection",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "jspreadsheet-005"
+      ],
+      "description": "Update file type detection: XLSX, XLS, CSV → SpreadsheetEditor, remove old @univerjs logic"
+    },
+    {
+      "id": "jspreadsheet-007",
+      "order": 112,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Implement Formula Support",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "jspreadsheet-006"
+      ],
+      "description": "Enable Jspreadsheet formula engine, support SUM, AVERAGE, COUNT, MAX, MIN, real-time calculation"
+    },
+    {
+      "id": "jspreadsheet-008",
+      "order": 113,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Implement Formatting Features",
+      "status": "pending",
+      "priority": "should",
+      "dependsOn": [
+        "jspreadsheet-007"
+      ],
+      "description": "Cell styling (colors, fonts), text alignment, number formats (currency, percent, date), column widths and row heights"
+    },
+    {
+      "id": "jspreadsheet-009",
+      "order": 114,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Implement CSV Support",
+      "status": "pending",
+      "priority": "should",
+      "dependsOn": [
+        "jspreadsheet-008"
+      ],
+      "description": "CSV import via SheetJS, CSV export with correct delimiters, UTF-8 encoding handling"
+    },
+    {
+      "id": "jspreadsheet-010",
+      "order": 115,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Remove @univerjs packages (cleanup)",
+      "status": "pending",
+      "priority": "should",
+      "dependsOn": [
+        "jspreadsheet-009"
+      ],
+      "description": "Remove all @univerjs/* packages from package.json, remove CSS imports, reduce bundle size by ~2MB"
+    },
+    {
+      "id": "jspreadsheet-011",
+      "order": 116,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Test the integration",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "jspreadsheet-010"
+      ],
+      "description": "Open XLSX with formulas, edit cells and save, open CSV, test formatting and formulas, verify save/load"
+    },
+    {
+      "id": "jspreadsheet-012",
+      "order": 117,
+      "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
+      "title": "Update documentation",
+      "status": "pending",
+      "priority": "should",
+      "dependsOn": [
+        "jspreadsheet-011"
+      ],
+      "description": "Update README with new features, document supported formulas, update Changelog"
     }
   ]
 }

@@ -30,18 +30,11 @@ FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 ARG APP_USER=node
 
-# Install s6-overlay for process supervision
-ADD https://github.com/just-containers/s6-overlay/releases/download/v3.1.6.2/s6-overlay-noarch.tar.xz /tmp
-ADD https://github.com/just-containers/s6-overlay/releases/download/v3.1.6.2/s6-overlay-x86_64.tar.xz /tmp
-RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && \
-    tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz && \
-    rm /tmp/s6-overlay-*.tar.xz
-
 RUN apt-get update \
   && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 unzip \
   && rm -rf /var/lib/apt/lists/*
-RUN echo "${APP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${APP_USER} \
-  && chmod 0440 /etc/sudoers.d/${APP_USER}
+RUN echo "${APP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${APP_USER} && \
+    chmod 0440 /etc/sudoers.d/${APP_USER}
 RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \
@@ -54,11 +47,7 @@ ENV NODE_ENV=production \
     NPM_CONFIG_PREFIX=/home/${APP_USER}/.npm-global \
     PATH=/home/${APP_USER}/.npm-global/bin:${PATH} \
     CANVAS_TERMINAL_SOCKET=/tmp/canvas-terminal.sock \
-    CANVAS_TERMINAL_USE_UNIX_SOCKET=true \
-    S6_KEEP_ENV=1
-
-# Copy s6 service definitions
-COPY ./s6-services /etc/s6-overlay/s6-rc.d
+    CANVAS_TERMINAL_USE_UNIX_SOCKET=true
 
 # Copy only standalone output (much smaller than full .next)
 COPY --from=builder /app/.next/standalone ./
@@ -67,14 +56,18 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/skills ./skills
 
-# Copy terminal service
-COPY --from=builder /app/server ./server
+# Copy terminal service (compiled JS)
+COPY --from=builder /app/server/terminal-service.js ./server/terminal-service.js
 
 # Copy production node_modules for external packages (better-auth, etc.)
 COPY --from=builder /app/node_modules ./node_modules
 
+# Copy start-services script directly from host (not from builder)
+COPY ./scripts/start-services.sh ./scripts/start-services.sh
+
+# Ensure scripts are executable
 RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills /tmp
-RUN chmod +x ./scripts/docker-entrypoint.sh
+RUN chmod +x ./scripts/docker-entrypoint.sh ./scripts/start-services.sh
 RUN printf '%s\n' \
   'NPM_GLOBAL_BIN="/home/node/.npm-global/bin"' \
   'case ":$PATH:" in' \
@@ -96,5 +89,5 @@ USER ${APP_USER}
 
 EXPOSE 3000
 VOLUME ["/data"]
-ENTRYPOINT ["/init"]
-CMD []
+ENTRYPOINT ["./scripts/docker-entrypoint.sh"]
+CMD ["./scripts/start-services.sh"]

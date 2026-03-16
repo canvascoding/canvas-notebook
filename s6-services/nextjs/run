@@ -1,7 +1,0 @@
-#!/command/with-contenv sh
-
-# Wait for terminal service to be ready
-sleep 2
-
-cd /app
-exec node server.js
