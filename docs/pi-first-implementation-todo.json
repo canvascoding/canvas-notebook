@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T16:48:15+01:00",
+  "lastUpdatedAt": "2026-03-16T16:56:20+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1452,7 +1452,7 @@
       "order": 128,
       "phase": "P21 PI Usage Tracking",
       "title": "Expose usage analytics summary and event APIs with role-aware filters",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "pi-usage-002"
@@ -1464,7 +1464,7 @@
       "order": 129,
       "phase": "P21 PI Usage Tracking",
       "title": "Add chat usage footer and dedicated /usage analytics UI",
-      "status": "pending",
+      "status": "in_progress",
       "priority": "must",
       "dependsOn": [
         "pi-usage-003"
