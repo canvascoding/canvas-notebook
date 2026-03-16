@@ -21,6 +21,7 @@ import {
   Lightbulb,
 } from 'lucide-react';
 import Link from 'next/link';
+import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 
 interface Attachment {
   name: string;
@@ -260,6 +261,14 @@ function extractImageAttachments(content: AgentMessage['content']): Attachment[]
   }, []);
 
   return attachments.length > 0 ? attachments : undefined;
+}
+
+function getAssistantUsage(message?: AgentMessage | null) {
+  if (!message || message.role !== 'assistant' || !hasRenderableUsage(message.usage)) {
+    return null;
+  }
+
+  return message.usage;
 }
 
 function formatSessionId(value: string | null): string {
@@ -1242,6 +1251,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             const isUser = message.role === 'user';
             const isAssistant = message.role === 'assistant';
             const isTool = message.role === 'toolResult';
+            const usage = getAssistantUsage(message.piMessage);
 
             const bubbleClass = isUser
               ? 'border-primary bg-primary text-primary-foreground shadow-sm'
@@ -1287,6 +1297,13 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                       ))}
                     </div>
                   )}
+
+                  {usage ? (
+                    <div data-testid="chat-usage-footer" className="mt-3 border-t border-border/70 pt-2 text-[11px] text-muted-foreground">
+                      <div className="font-medium text-foreground/80">{formatUsageCompact(usage)}</div>
+                      <div>{formatUsageBreakdown(usage)}</div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );

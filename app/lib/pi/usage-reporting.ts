@@ -2,77 +2,19 @@ import { and, asc, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm';
 
 import { db } from '../db';
 import { piUsageEvents, user } from '../db/schema';
-import type { UsageSummaryGroupBy } from './usage-events';
+import type {
+  SerializedUsageFilters,
+  UsageEventsResponse,
+  UsageFilters,
+  UsageSummaryGroupBy,
+  UsageSummaryResponse,
+  UsageTotals,
+} from './usage-types';
 
 const DEFAULT_WINDOW_DAYS = 30;
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 const DEFAULT_SUMMARY_LIMIT = 100;
-
-export type UsageFilters = {
-  from: Date;
-  to: Date;
-  provider?: string;
-  model?: string;
-  sessionId?: string;
-  sessionQuery?: string;
-  stopReason?: string;
-  groupBy: UsageSummaryGroupBy;
-  userId?: string;
-};
-
-export type UsageTotals = {
-  totalCost: number;
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheTokens: number;
-  sessionCount: number;
-  eventCount: number;
-};
-
-export type UsageSummaryRow = {
-  groupKey: string;
-  label: string;
-  totalCost: number;
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheTokens: number;
-  sessionCount: number;
-  eventCount: number;
-};
-
-export type UsageSummaryResponse = {
-  filters: ReturnType<typeof serializeUsageFilters>;
-  totals: UsageTotals;
-  rows: UsageSummaryRow[];
-};
-
-export type UsageEventRow = {
-  id: number;
-  userId: string;
-  userLabel: string;
-  sessionId: string;
-  sessionTitleSnapshot: string | null;
-  provider: string;
-  model: string;
-  stopReason: string;
-  assistantTimestamp: string;
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheTokens: number;
-  totalCost: number;
-};
-
-export type UsageEventsResponse = {
-  filters: ReturnType<typeof serializeUsageFilters>;
-  page: number;
-  pageSize: number;
-  totalRows: number;
-  rows: UsageEventRow[];
-};
 
 type UsageAccess = {
   effectiveUserId?: string;
@@ -165,7 +107,7 @@ function buildSessionQueryPattern(value: string): string {
   return `%${value.replace(/[%_]/g, '\\$&')}%`;
 }
 
-function serializeUsageFilters(filters: UsageFilters, access: UsageAccess) {
+function serializeUsageFilters(filters: UsageFilters, access: UsageAccess): SerializedUsageFilters {
   return {
     from: filters.from.toISOString(),
     to: filters.to.toISOString(),

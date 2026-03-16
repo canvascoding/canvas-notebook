@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { ChevronRight, Clapperboard, FileText, Globe, HelpCircle, ImageIcon, MessageSquare, NotebookPen, Sparkles, Terminal, Workflow, Wrench } from 'lucide-react';
+import { BarChart3, ChevronRight, Clapperboard, FileText, Globe, HelpCircle, ImageIcon, MessageSquare, NotebookPen, Sparkles, Terminal, Workflow, Wrench } from 'lucide-react';
 
 import { HomeChatPrompt } from '@/app/components/home/HomeChatPrompt';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,13 @@ const suiteApps: SuiteApp[] = [
     status: 'ready',
     href: '/chat',
     icon: MessageSquare,
+  },
+  {
+    title: 'Usage Analytics',
+    description: 'Token- und Kostenverbrauch nach Zeitraum, Modell, Session und Nutzer auswerten.',
+    status: 'ready',
+    href: '/usage',
+    icon: BarChart3,
   },
   {
     title: 'Terminal',
