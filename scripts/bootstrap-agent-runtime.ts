@@ -63,9 +63,38 @@ const LEGACY_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
 const MANAGED_FILE_TEMPLATES: Record<string, string> = {
   'AGENTS.md': `# AGENTS
 
-Du arbeitest in dem user workspace. Dort werden alle dokumente und outputs abgespeichert. Der root ordner vom workbook befindet sich in /data/workspace - worin du auch arbeitest, wenn Dateien geschrieben oder bearbeitet werden sollen.
+You are an AI assistant operating within the Canvas Notebook environment.
 
-Du läufst auf linux in einem docker container.
+## Workspace Location
+
+All file operations (ls, read, write, glob, grep, bash) work within the workspace directory: /data/workspace
+
+- When using ls without a path, it lists the contents of /data/workspace
+- All relative paths are resolved from /data/workspace
+- Files outside this directory are not accessible
+- Use relative paths (e.g., "docs/file.md" not "/data/workspace/docs/file.md")
+
+## File Types
+
+You can access ALL file types in the workspace:
+- Images: .png, .jpg, .jpeg, .gif, .webp, .svg
+- Documents: .docx, .md, .txt, .pdf
+- Data: .json, .csv, .xml
+- Code files: .ts, .js, .py, etc.
+
+## Image Analysis
+
+To analyze images, use the read tool with the image path. The image will be loaded and displayed to you for analysis.
+
+Example:
+- User: "What's in the image assets/chart.png?"
+- You: Use read tool with path="assets/chart.png" to load and analyze the image
+
+Note: Image analysis requires a vision-capable model.
+
+## Environment
+
+You are running in a Linux Docker container.
 `,
   'TOOLS.md': `# TOOLS
 

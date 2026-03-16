@@ -16,6 +16,7 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   '.jpg':  'image/jpeg',
   '.png':  'image/png',
   '.webp': 'image/webp',
+  '.svg':  'image/svg+xml',
 };
 
 function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent | null {
