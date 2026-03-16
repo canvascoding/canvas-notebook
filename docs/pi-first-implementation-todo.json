@@ -1190,7 +1190,7 @@
       "order": 106,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Install Jspreadsheet CE Packages",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "docx-007"
@@ -1202,7 +1202,7 @@
       "order": 107,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Create SpreadsheetEditor.tsx component",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "jspreadsheet-001"
@@ -1214,7 +1214,7 @@
       "order": 108,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Implement XLSX/CSV Loading",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "jspreadsheet-002"
@@ -1226,7 +1226,7 @@
       "order": 109,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Implement Save Functionality",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "jspreadsheet-003"
@@ -1238,7 +1238,7 @@
       "order": 110,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Update OfficeEditor.tsx for spreadsheets",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "jspreadsheet-004"
@@ -1250,7 +1250,7 @@
       "order": 111,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Update FileEditor.tsx file type detection",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "jspreadsheet-005"
@@ -1262,7 +1262,7 @@
       "order": 112,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Implement Formula Support",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "jspreadsheet-006"
@@ -1274,7 +1274,7 @@
       "order": 113,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Implement Formatting Features",
-      "status": "pending",
+      "status": "completed",
       "priority": "should",
       "dependsOn": [
         "jspreadsheet-007"
@@ -1286,7 +1286,7 @@
       "order": 114,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Implement CSV Support",
-      "status": "pending",
+      "status": "completed",
       "priority": "should",
       "dependsOn": [
         "jspreadsheet-008"
@@ -1298,7 +1298,7 @@
       "order": 115,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Remove @univerjs packages (cleanup)",
-      "status": "pending",
+      "status": "completed",
       "priority": "should",
       "dependsOn": [
         "jspreadsheet-009"
@@ -1310,7 +1310,7 @@
       "order": 116,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Test the integration",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "jspreadsheet-010"

@@ -23,7 +23,7 @@ const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.Offi
 });
 
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
-const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'csv']);
+const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'csv', 'xls']);
 const IMAGE_EXTENSIONS = new Set([
   'png',
   'jpg',
