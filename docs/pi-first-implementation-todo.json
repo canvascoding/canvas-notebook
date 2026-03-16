@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T21:41:00+01:00",
+  "lastUpdatedAt": "2026-03-16T21:48:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1742,6 +1742,18 @@
         "pi-chat-runtime-011"
       ],
       "description": "Replace the remaining English follow-up queue guidance below the composer with German copy so the busy-state helper text matches the rest of the chat UI."
+    },
+    {
+      "id": "pi-chat-runtime-013",
+      "order": 153,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Move the composer helper copy behind a compact info toggle",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-012"
+      ],
+      "description": "Replace the permanently visible helper copy below the chat composer with a small info button that toggles the hint in a compact panel only when needed."
     }
   ]
 }

@@ -20,6 +20,7 @@ import {
   Sparkles,
   Wrench,
   Lightbulb,
+  CircleHelp,
   Megaphone,
   WandSparkles,
   Clapperboard,
@@ -416,6 +417,7 @@ export default function CanvasAgentChat({
   const [cursorPosition, setCursorPosition] = useState(0);
   const [composerHeight, setComposerHeight] = useState(220);
   const [composerWidth, setComposerWidth] = useState(0);
+  const [showComposerHint, setShowComposerHint] = useState(false);
 
   const filePickerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1506,6 +1508,12 @@ export default function CanvasAgentChat({
     : isCompactComposer
       ? 'Frag nach Projekt oder Dateien. @ referenziert.'
       : 'Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien.';
+  const composerHint =
+    runtimeStatus?.phase !== 'idle'
+      ? isMobile
+        ? 'Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenü.'
+        : 'Senden reiht die Nachricht als Folgeaktion ein. Nutze Steuern, um nach dem aktuellen Tool-Schritt zu unterbrechen, oder Jetzt senden, um die laufende Kette zuerst zu stoppen.'
+      : 'Tippe @ für Dateien oder wähle unten eine schnelle Aktion.';
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
@@ -2139,15 +2147,23 @@ export default function CanvasAgentChat({
             </svg>
           </button>
         </div>
-        {runtimeStatus?.phase !== 'idle' || isMobile ? (
-          <div className="mt-2 text-[10px] text-muted-foreground">
-            {runtimeStatus?.phase !== 'idle'
-              ? isMobile
-                ? 'Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenü.'
-                : 'Senden reiht die Nachricht als Folgeaktion ein. Nutze Steuern, um nach dem aktuellen Tool-Schritt zu unterbrechen, oder Jetzt senden, um die laufende Kette zuerst zu stoppen.'
-              : 'Tippe @ für Dateien oder wähle unten eine schnelle Aktion.'}
-          </div>
-        ) : null}
+        <div className="mt-2 flex flex-col items-start gap-1">
+          <button
+            type="button"
+            data-testid="chat-composer-hint-toggle"
+            aria-expanded={showComposerHint}
+            onClick={() => setShowComposerHint((current) => !current)}
+            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <CircleHelp className="h-3.5 w-3.5" />
+            Hinweis
+          </button>
+          {showComposerHint ? (
+            <div className="max-w-[38rem] border border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+              {composerHint}
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
