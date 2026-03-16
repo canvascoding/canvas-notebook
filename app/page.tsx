@@ -70,9 +70,6 @@ export default async function Home() {
 
           <div className="flex items-center gap-2 md:gap-3">
             <ThemeToggle />
-            <Button asChild size="sm" variant="outline" className="px-3">
-              <Link href="/settings">Settings</Link>
-            </Button>
             <div className="hidden md:flex flex-col items-end">
               <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">User</span>
               <span className="text-xs">{username}</span>
@@ -88,45 +85,67 @@ export default async function Home() {
             <SuiteAppSelector isAuthenticated />
           </div>
 
-          <Card className="h-fit border border-border bg-card">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Agent Setup</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              <div className="space-y-2">
-                <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Provider Status</p>
-                <p className={setupCardState.providerReady ? 'text-primary' : 'text-destructive'}>
-                  {setupCardState.providerReady ? 'Ready' : 'Not ready'} ({setupCardState.providerLabel})
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Model: {setupCardState.model}
-                </p>
-                {setupCardState.providerIssues.length > 0 && (
-                  <p className="text-xs text-muted-foreground">{setupCardState.providerIssues[0]}</p>
-                )}
-              </div>
+          <div className="space-y-4">
+            <Card className="h-fit border border-border bg-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Agent Setup</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div className="space-y-2">
+                  <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Provider Status</p>
+                  <p className={setupCardState.providerReady ? 'text-primary' : 'text-destructive'}>
+                    {setupCardState.providerReady ? 'Ready' : 'Not ready'} ({setupCardState.providerLabel})
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Model: {setupCardState.model}
+                  </p>
+                  {setupCardState.providerIssues.length > 0 && (
+                    <p className="text-xs text-muted-foreground">{setupCardState.providerIssues[0]}</p>
+                  )}
+                </div>
 
-              <div className="space-y-2 border-t border-border pt-3">
-                <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Doctor Status</p>
-                <p>
-                  {setupCardState.doctorStatus === 'ready'
-                    ? 'Ready'
-                    : setupCardState.doctorStatus === 'needs-attention'
-                      ? 'Needs attention'
-                      : 'Unknown'}
-                </p>
-              </div>
+                <div className="space-y-2 border-t border-border pt-3">
+                  <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Doctor Status</p>
+                  <p>
+                    {setupCardState.doctorStatus === 'ready'
+                      ? 'Ready'
+                      : setupCardState.doctorStatus === 'needs-attention'
+                        ? 'Needs attention'
+                        : 'Unknown'}
+                  </p>
+                </div>
 
-              <div className="flex flex-col gap-2 border-t border-border pt-3">
-                <Button asChild variant="outline" size="sm">
-                  <Link href="/settings?tab=agent-settings">Agent Settings</Link>
-                </Button>
-                <Button asChild variant="secondary" size="sm">
-                  <Link href="/settings?tab=agent-settings&panel=doctor">Open Doctor</Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="flex flex-col gap-2 border-t border-border pt-3">
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/settings?tab=agent-settings">Agent Settings</Link>
+                  </Button>
+                  <Button asChild variant="secondary" size="sm">
+                    <Link href="/settings?tab=agent-settings&panel=doctor">Open Doctor</Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="h-fit border border-border bg-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Hilfe & Tutorials</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div className="space-y-2">
+                  <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Dokumentation</p>
+                  <p className="text-muted-foreground">
+                    Tutorials, Anleitungen und Hilfe zur Einrichtung der Canvas Software Suite.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-2 border-t border-border pt-3">
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/help">Hilfe öffnen</Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </main>
     </div>
