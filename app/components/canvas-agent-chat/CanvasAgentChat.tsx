@@ -404,6 +404,7 @@ export default function CanvasAgentChat({
   const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [showMobileActionPanel, setShowMobileActionPanel] = useState(false);
   const [history, setHistory] = useState<AISession[]>([]);
+  const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
@@ -480,6 +481,7 @@ export default function CanvasAgentChat({
       if (data.success) {
         const sessions = data.sessions || [];
         setHistory(sessions);
+        setLatestSession(sessions[0] || null);
 
         if (sessionIdRef.current) {
           const currentSession = sessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
@@ -1414,6 +1416,13 @@ export default function CanvasAgentChat({
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;
+    if (requestedSessionId) return;
+    if (userStartedNewChatRef.current) return;
+    void fetchHistory();
+  }, [fetchHistory, initialPrompt, requestedSessionId]);
+
+  useEffect(() => {
+    if (initialPrompt?.trim()) return;
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
       return;
     }
@@ -1808,6 +1817,18 @@ export default function CanvasAgentChat({
                     <Sparkles className="h-4 w-4 text-primary" />
                     Produktive Startpunkte
                   </span>
+                  {latestSession ? (
+                    <div className="flex justify-center">
+                      <Link
+                        href={`/chat?session=${encodeURIComponent(latestSession.sessionId)}`}
+                        className="inline-flex max-w-full items-center gap-2 border border-border bg-background/80 px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
+                      >
+                        <History className="h-3.5 w-3.5 text-primary" />
+                        <span className="font-medium">Letzte Session öffnen</span>
+                        <span className="max-w-[14rem] truncate text-muted-foreground">{latestSession.title || latestSession.sessionId}</span>
+                      </Link>
+                    </div>
+                  ) : null}
                   <div className="space-y-1">
                     <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">Was soll Canvas Chat für dich vorbereiten?</h2>
                     <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
