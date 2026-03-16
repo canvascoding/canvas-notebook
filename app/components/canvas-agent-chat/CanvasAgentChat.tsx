@@ -1721,7 +1721,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                 {!isMobile ? (
                   <span
                     data-testid="chat-context-meter"
-                    className="inline-flex items-center border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    className="inline-flex items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                   >
                     {contextLabel}
                   </span>
