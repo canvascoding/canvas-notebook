@@ -11,6 +11,7 @@ import { savePiSession, loadPiSessionWithSummary } from '@/app/lib/pi/session-st
 import { composePiHistoryForLlm, type PiSessionSummaryState } from '@/app/lib/pi/history-budget';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { runPiStreamWithOverflowRetry } from '@/app/lib/pi/stream-runner';
+import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
@@ -239,6 +240,11 @@ export async function POST(request: NextRequest) {
               fullHistory,
               updatedSummary,
             );
+            await persistPiUsageEvents({
+              sessionId,
+              userId: session.user.id,
+              messages: newTurnMessages,
+            });
           }
         } catch (error: unknown) {
           if ((error instanceof Error && error.name === 'AbortError') || abortController.signal.aborted) {
@@ -256,6 +262,11 @@ export async function POST(request: NextRequest) {
                 fullHistory,
                 updatedSummary,
               );
+              await persistPiUsageEvents({
+                sessionId,
+                userId: session.user.id,
+                messages: newTurnMessages,
+              });
             }
             return;
           }
