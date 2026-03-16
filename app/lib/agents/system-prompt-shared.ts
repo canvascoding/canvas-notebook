@@ -1,6 +1,8 @@
-import { AGENT_STORAGE_DIR } from '../runtime-data-paths';
+import { resolveAgentStorageDir } from '../runtime-data-paths';
 
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+
+const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 
 export type ManagedPromptFileName = (typeof MANAGED_PROMPT_FILE_NAMES)[number];
 export type ManagedPromptFiles = Record<ManagedPromptFileName, string>;
@@ -53,6 +55,30 @@ When using skills that generate files (docx, xlsx, pdf, etc.), follow this workf
 3. **Cleanup**: Remove temporary files after successful completion to save space
 
 **Important**: The user can ONLY see files in the workspace. Files in temp directories are invisible to users.`;
+
+export const MEMORY_MANAGEMENT_GUIDANCE = `
+## Memory Management (MEMORY.md)
+
+**Location**: ${AGENT_STORAGE_DIR}/MEMORY.md
+
+You MUST actively maintain this file throughout the conversation:
+
+### Keep it COMPACT
+- Only persist truly important user information
+- Avoid storing temporary or session-specific details
+- Focus on: preferences, recurring patterns, important long-term context
+
+### UPDATE regularly
+- Add new insights about the user as they emerge
+- Consolidate related information to avoid duplication
+- Use concise bullet points
+
+### REMOVE irrelevant content
+- Delete outdated information you no longer consider important
+- Remove temporary context that has become obsolete
+- Prune entries that don't provide lasting value
+
+**WARNING**: Failure to maintain this file will result in an ever-growing system prompt, degrading performance. Be ruthless about keeping only what matters.`;
 
 const MANAGED_FILES_INTRO =
   'The following agent-managed files define your runtime behavior, memory, tone, and tool guidance.';

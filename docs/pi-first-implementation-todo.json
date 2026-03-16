@@ -1394,7 +1394,7 @@
       "order": 123,
       "phase": "P19 PPTX Viewer Integration",
       "title": "Update todo list and commit",
-      "status": "pending",
+      "status": "completed",
       "priority": "should",
       "dependsOn": [
         "pptx-005"
