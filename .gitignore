@@ -75,3 +75,5 @@ docs/template
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+/data

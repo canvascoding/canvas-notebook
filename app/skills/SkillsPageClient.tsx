@@ -236,19 +236,35 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
             </Button>
           </div>
 
-          {/* Integrations Hint */}
-          <Card className="border-dashed border-muted-foreground/30 bg-muted/30">
-            <CardContent className="py-4 px-4">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <p className="text-sm text-muted-foreground">
-                  <span className="font-medium">Hinweis:</span> Wenn Skills Env-Variablen benötigen, müssen diese im Integrations-Tab gespeichert werden.
-                </p>
-                <Button asChild variant="outline" size="sm">
-                  <Link href="/settings?tab=integrations">Integrations öffnen</Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Info Boxes: Integrations & Skill Creation */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Integrations Hint */}
+            <Card className="border-dashed border-muted-foreground/30 bg-muted/30">
+              <CardContent className="py-4 px-4">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <p className="text-sm text-muted-foreground">
+                    <span className="font-medium">Hinweis:</span> Wenn Skills Env-Variablen benötigen, müssen diese im Integrations-Tab gespeichert werden.
+                  </p>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/settings?tab=integrations">Integrations öffnen</Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Skill Creation Info */}
+            <Card className="border-dashed border-blue-500/30 bg-blue-50/30 dark:bg-blue-950/20">
+              <CardContent className="py-4 px-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <p className="text-sm text-foreground">
+                      <span className="font-medium">Neuen Skill erstellen:</span> Sag dem Agenten, dass du einen neuen Skill erstellen möchtest. Du kannst dann gemeinsam ausarbeiten, was der Skill genau machen soll. Verwende dafür den <span className="font-semibold text-blue-600 dark:text-blue-400">Creator Skill</span>.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* Skills Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

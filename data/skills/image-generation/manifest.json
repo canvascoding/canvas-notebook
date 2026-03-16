@@ -30,7 +30,7 @@
       },
       "model": {
         "type": "string",
-        "enum": ["gemini-3.1-flash-image-preview", "gemini-2.5-flash-image"],
+        "enum": ["gemini-3.1-flash-image-preview", "gemini-2.5-flash-image-preview"],
         "default": "gemini-3.1-flash-image-preview",
         "description": "Zu verwendendes Gemini-Modell"
       }

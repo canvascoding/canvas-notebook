@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { BarChart3, ChevronRight, Clapperboard, Globe, HelpCircle, ImageIcon, NotebookPen, Terminal, Workflow, Wrench } from 'lucide-react';
+import { BarChart3, ChevronRight, Clapperboard, Globe, ImageIcon, NotebookPen, Terminal, Workflow, Wrench } from 'lucide-react';
 
 import { HomeChatPrompt } from '@/app/components/home/HomeChatPrompt';
 import { Button } from '@/components/ui/button';
@@ -28,13 +28,6 @@ const suiteApps: SuiteApp[] = [
     status: 'ready',
     href: '/usage',
     icon: BarChart3,
-  },
-  {
-    title: 'Terminal',
-    description: 'Fullscreen Terminal mit denselben Quick Actions wie im Notebook.',
-    status: 'ready',
-    href: '/terminal',
-    icon: Terminal,
   },
   {
     title: 'Image Generation',
@@ -72,11 +65,11 @@ const suiteApps: SuiteApp[] = [
     icon: Wrench,
   },
   {
-    title: 'Hilfe & Tutorials',
-    description: 'Tutorials, Anleitungen und Hilfe zur Einrichtung.',
+    title: 'Terminal',
+    description: 'Workspace Terminal für echte Nerds. Keine GUI, nur pure Kommandozeilen-Magie.',
     status: 'ready',
-    href: '/help',
-    icon: HelpCircle,
+    href: '/terminal',
+    icon: Terminal,
   },
 ];
 
