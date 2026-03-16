@@ -1,9 +1,11 @@
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { auth } from '@/app/lib/auth';
+import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { NanoBananaLocalizerClient } from '@/app/apps/nano-banana-ad-localizer/components/NanoBananaLocalizerClient';
@@ -18,6 +20,7 @@ export default async function NanoBananaLocalizerPage() {
   }
 
   const username = session.user.name || session.user.email;
+  const geminiApiKey = await getGeminiApiKeyFromIntegrations();
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
@@ -43,6 +46,29 @@ export default async function NanoBananaLocalizerPage() {
         </div>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto">
+        {!geminiApiKey && (
+          <div className="p-4 md:p-6">
+            <Card className="border-destructive/50 bg-destructive/10">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="h-5 w-5" />
+                  API Key erforderlich
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <CardDescription className="text-base text-destructive/80">
+                  Diese App benötigt einen GEMINI_API_KEY. Bitte konfiguriere diesen im Integrations-Tab.
+                </CardDescription>
+                <Button asChild variant="default">
+                  <Link href="/settings?tab=integrations">
+                    Zu Integrations
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+        
         <NanoBananaLocalizerClient />
       </main>
     </div>
