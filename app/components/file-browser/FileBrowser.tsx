@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { useRef, useState, useCallback, type ChangeEvent, type DragEvent } from 'react';
 import { ChevronsDownUp, FilePlus, FolderPlus, RefreshCw, Search, Upload, CheckSquare, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -15,12 +15,27 @@ import { cn } from '@/lib/utils';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
+import { useFileWatcher, type FileEvent } from '@/app/hooks/useFileWatcher';
 
 export function FileBrowser() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
+  
+  // Stable callback for file watcher - memoized with useCallback
+  const handleFileEvent = useCallback((event: FileEvent) => {
+    console.log('[FileBrowser] File change event:', event);
+  }, []);
+  
+  // File watcher für automatische Updates
+  const { isConnected } = useFileWatcher({
+    enabled: true,
+    debounceMs: 1000,
+    maxDebounceMs: 5000,
+    onEvent: handleFileEvent,
+  });
+  
   const {
     isLoadingTree,
     loadFileTree,
@@ -313,6 +328,19 @@ export function FileBrowser() {
                 </TooltipTrigger>
                 <TooltipContent>Refresh</TooltipContent>
               </Tooltip>
+              <div className="ml-auto flex items-center">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className={cn(
+                      'flex h-2 w-2 rounded-full transition-colors',
+                      isConnected ? 'bg-green-500' : 'bg-amber-500'
+                    )} />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isConnected ? 'Auto-refresh: Connected' : 'Auto-refresh: Disconnected'}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
