@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T19:46:10+01:00",
+  "lastUpdatedAt": "2026-03-16T21:05:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1670,6 +1670,18 @@
         "pi-chat-runtime-005"
       ],
       "description": "Track manual and automatic compaction timestamps in runtime status, emit context_compacted events, and render visible compaction break markers in the chat UI."
+    },
+    {
+      "id": "pi-chat-runtime-007",
+      "order": 147,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Compress the mobile chat chrome and add productive starter prompts",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-chat-runtime-006"
+      ],
+      "description": "Move session and model metadata out of the permanent mobile header into a collapsible runtime details panel, compact the mobile composer and quick actions, and add shared business-focused starter prompts for fresh chats and the home launch card."
     }
   ]
 }

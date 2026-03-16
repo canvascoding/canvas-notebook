@@ -3,10 +3,11 @@
 import React, { FormEvent, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { MessageSquare, Send, Paperclip, X, Image as ImageIcon } from 'lucide-react';
+import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -21,6 +22,42 @@ interface FilePickerFile {
   path: string;
   type: 'file' | 'directory';
   isImage: boolean;
+}
+
+const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ className?: string }>> = {
+  campaign: Megaphone,
+  creative: WandSparkles,
+  video: Clapperboard,
+  strategy: BriefcaseBusiness,
+  document: FileText,
+  organize: FolderTree,
+};
+
+function HomeStarterPromptButton({
+  prompt,
+  onSelect,
+}: {
+  prompt: StarterPromptDefinition;
+  onSelect: (value: string) => void;
+}) {
+  const Icon = STARTER_PROMPT_ICONS[prompt.icon];
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(prompt.prompt)}
+      className="group flex min-w-[220px] flex-col items-start gap-2 border border-border bg-background/80 p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+    >
+      <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        <Icon className="h-4 w-4 text-primary" />
+        Vorlage
+      </span>
+      <div className="space-y-1">
+        <div className="text-sm font-semibold tracking-tight text-foreground">{prompt.title}</div>
+        <p className="text-xs leading-relaxed text-muted-foreground">{prompt.description}</p>
+      </div>
+    </button>
+  );
 }
 
 export function HomeChatPrompt() {
@@ -217,18 +254,34 @@ export function HomeChatPrompt() {
     router.push('/chat');
   };
 
+  const applyStarterPrompt = useCallback((value: string) => {
+    setPrompt(value);
+    textareaRef.current?.focus();
+  }, []);
+
   return (
     <Card className="border border-border bg-card">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageSquare className="h-4 w-4" />
-          <Link href="/chat" className="hover:underline">
-            Canvas Chat starten
-          </Link>
+          <Button asChild variant="default" size="sm">
+            <Link href="/chat">
+              Canvas Chat starten
+            </Link>
+          </Button>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <form className="space-y-3" onSubmit={handleSubmit}>
+          <div className="space-y-2">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Produktive Prompt-Vorlagen</p>
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+              {BUSINESS_STARTER_PROMPTS.map((starterPrompt) => (
+                <HomeStarterPromptButton key={starterPrompt.id} prompt={starterPrompt} onSelect={applyStarterPrompt} />
+              ))}
+            </div>
+          </div>
+
           {/* Attachment Preview */}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
@@ -254,7 +307,7 @@ export function HomeChatPrompt() {
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder="Prompt eingeben und direkt in Canvas Chat weiterschreiben... (Enter zum Senden, Shift+Enter für neue Zeile, @ für Dateireferenz)"
+              placeholder="Starte mit einem Business-Use-Case oder passe eine Vorlage an. Enter sendet, @ referenziert Dateien."
               className="min-h-24 w-full resize-y border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
             

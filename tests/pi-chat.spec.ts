@@ -489,6 +489,197 @@ test.describe('PI Chat E2E', () => {
     await expect(page.getByTestId('chat-runtime-status')).toContainText('Wird gestoppt');
   });
 
+  test('should show productive starter prompts and prefill the mobile composer without overflow', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.route('**/api/agents/config', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            piConfig: {
+              activeProvider: 'openai',
+              providers: {
+                openai: { model: 'gpt-4o' },
+              },
+            },
+            discovery: {
+              openai: {
+                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/sessions', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          sessions: [],
+        }),
+      });
+    });
+
+    await page.goto('/chat');
+
+    await expect(page.getByTestId('chat-starter-prompts')).toBeVisible();
+    await expect
+      .poll(async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
+      .toBeTruthy();
+
+    await page.getByTestId('chat-starter-prompt-sm-campaign').click();
+    await expect(page.getByTestId('chat-input')).toHaveValue(/visuelle Social-Media-Kampagne/);
+    await expect(page.getByTestId('chat-mobile-action-toggle')).toBeVisible();
+    await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
+    await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);
+  });
+
+  test('should keep session and model hidden from the mobile header until details are expanded', async ({ page }) => {
+    const sessionId = 'sess-mobile-details';
+
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.route('**/api/agents/config', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            piConfig: {
+              activeProvider: 'openai',
+              providers: {
+                openai: { model: 'gpt-4o' },
+              },
+            },
+            discovery: {
+              openai: {
+                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/sessions', async (route) => {
+      const request = route.request();
+      if (request.method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            sessions: [
+              {
+                id: 1,
+                sessionId,
+                title: 'Mobile runtime session',
+                model: 'gpt-4o',
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+        }),
+      });
+    });
+
+    await page.route(`**/api/sessions/messages?sessionId=${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          messages: [
+            {
+              id: 'm1',
+              role: 'user',
+              content: 'Check mobile status visibility.',
+              timestamp: Date.now() - 1000,
+            },
+            {
+              id: 'm2',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Everything is running.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now() - 500,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.route(`**/api/stream/status?sessionId=${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          status: {
+            sessionId,
+            phase: 'running_tool',
+            activeTool: { toolCallId: 'tool-1', name: 'read_file' },
+            pendingToolCalls: 1,
+            followUpQueue: [{ id: 'follow-1', text: 'Summarize afterwards', attachmentCount: 0 }],
+            steeringQueue: [],
+            canAbort: true,
+            contextWindow: 128000,
+            estimatedHistoryTokens: 14600,
+            availableHistoryTokens: 23500,
+            contextUsagePercent: 62,
+            includedSummary: true,
+            omittedMessageCount: 8,
+            summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
+            lastCompactionAt: '2026-03-16T16:00:00.000Z',
+            lastCompactionKind: 'automatic',
+            lastCompactionOmittedCount: 8,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/stream', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '',
+      });
+    });
+
+    await page.goto('/chat');
+
+    await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
+    await expect(page.getByTestId('chat-mobile-details-toggle')).toBeVisible();
+    await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
+    await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);
+
+    await page.getByTestId('chat-mobile-details-toggle').click();
+
+    await expect(page.getByTestId('chat-mobile-details-panel')).toBeVisible();
+    await expect(page.getByTestId('chat-session-id')).toContainText('Mobile runtime session');
+    await expect(page.getByTestId('chat-model-badge')).toContainText('gpt-4o');
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards');
+  });
+
   test('should render a compaction break after manual canvas compact', async ({ page }) => {
     const sessionId = 'sess-compact-break';
     let currentStatus = {

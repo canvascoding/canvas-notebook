@@ -20,10 +20,18 @@ import {
   Sparkles,
   Wrench,
   Lightbulb,
+  Megaphone,
+  WandSparkles,
+  Clapperboard,
+  BriefcaseBusiness,
+  FileText,
+  FolderTree,
 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import Link from 'next/link';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 
 interface Attachment {
   name: string;
@@ -142,6 +150,15 @@ interface CanvasAgentChatProps {
   initialPromptStorageKey?: string;
   showSkillsLink?: boolean;
 }
+
+const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ className?: string }>> = {
+  campaign: Megaphone,
+  creative: WandSparkles,
+  video: Clapperboard,
+  strategy: BriefcaseBusiness,
+  document: FileText,
+  organize: FolderTree,
+};
 
 const DEFAULT_MODEL_ID = 'pi';
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -402,13 +419,48 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
   );
 }
 
+function StarterPromptButton({
+  prompt,
+  onSelect,
+  compact = false,
+}: {
+  prompt: StarterPromptDefinition;
+  onSelect: (value: string) => void;
+  compact?: boolean;
+}) {
+  const Icon = STARTER_PROMPT_ICONS[prompt.icon];
+
+  return (
+    <button
+      type="button"
+      data-testid={`chat-starter-prompt-${prompt.id}`}
+      onClick={() => onSelect(prompt.prompt)}
+      className={`group flex min-w-0 flex-col items-start gap-3 border border-border bg-background/90 text-left text-foreground transition-colors hover:border-primary/40 hover:bg-accent ${
+        compact ? 'min-w-[240px] p-3' : 'min-w-[250px] p-4'
+      }`}
+    >
+      <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        <Icon className="h-4 w-4 text-primary" />
+        Beispiel
+      </span>
+      <div className="space-y-1">
+        <div className={`${compact ? 'text-sm' : 'text-base'} font-semibold tracking-tight`}>{prompt.title}</div>
+        <p className={`${compact ? 'text-xs' : 'text-sm'} leading-relaxed text-muted-foreground`}>{prompt.description}</p>
+      </div>
+    </button>
+  );
+}
+
 export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptStorageKey, showSkillsLink = false }: CanvasAgentChatProps) {
+  const isMobile = useIsMobile();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showMobileDetails, setShowMobileDetails] = useState(false);
+  const [showMobileActionPanel, setShowMobileActionPanel] = useState(false);
   const [history, setHistory] = useState<AISession[]>([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
@@ -1046,10 +1098,14 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     setRuntimeStatus(null);
     setSessionId(null);
     setSessionTitle(null);
+    setInput('');
+    setAttachments([]);
     sessionIdRef.current = null;
     lastCompactionMarkerRef.current = null;
     setMessages([]);
     setShowHistory(false);
+    setShowMobileDetails(false);
+    setShowMobileActionPanel(false);
     if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
       const provider = agentConfig.piConfig.activeProvider;
       setActiveModel(agentConfig.piConfig.providers[provider]?.model || DEFAULT_MODEL_ID);
@@ -1065,6 +1121,8 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     setSessionTitle(session.title || null);
     sessionIdRef.current = session.sessionId;
     lastCompactionMarkerRef.current = null;
+    setShowMobileDetails(false);
+    setShowMobileActionPanel(false);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
     setMessages([{ id: 'system', role: 'system', content: 'Loading...' }]);
     setShowHistory(false);
@@ -1434,6 +1492,13 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     resetStreamConnection();
   }, [resetStreamConnection]);
 
+  useEffect(() => {
+    if (!isMobile) {
+      setShowMobileDetails(false);
+      setShowMobileActionPanel(false);
+    }
+  }, [isMobile]);
+
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
   const contextLabel = runtimeStatus
@@ -1442,6 +1507,17 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, sessionId);
   const runtimeBannerClass = getRuntimeBannerClass(runtimeStatus);
   const runtimePulseClass = getRuntimePulseClass(runtimeStatus);
+  const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
+
+  const applyStarterPrompt = useCallback((value: string) => {
+    setInput(value);
+    setShowHistory(false);
+    setShowMobileActionPanel(false);
+    textareaRef.current?.focus();
+  }, []);
+
+  const showMobilePrimaryStop = isMobile && Boolean(runtimeStatus?.canAbort);
+  const showMobilePrimaryCompact = isMobile && !runtimeStatus?.canAbort && Boolean(sessionId) && runtimeStatus?.phase === 'idle';
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
@@ -1449,16 +1525,24 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         <div className="flex items-center justify-between p-2">
           <div className="flex min-w-0 items-center gap-2">
             {showHistory ? (
-              <button onClick={() => setShowHistory(false)} className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent" title="Back to chat">
+              <button
+                type="button"
+                aria-label="Back to chat"
+                onClick={() => setShowHistory(false)}
+                className="border border-transparent p-1.5 transition-colors hover:border-border hover:bg-accent"
+                title="Back to chat"
+              >
                 <ChevronLeft />
               </button>
             ) : (
               <button
+                type="button"
+                aria-label="Open history"
                 onClick={() => {
                   setShowHistory(true);
                   void fetchHistory();
                 }}
-                className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
+                className="border border-transparent p-1.5 transition-colors hover:border-border hover:bg-accent"
                 title="Open history"
               >
                 <History size={20} />
@@ -1467,13 +1551,23 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             <div className="min-w-0">
               {showHistory ? (
                 <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">History</span>
+              ) : isMobile ? (
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Canvas chat</span>
               ) : (
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <div data-testid="chat-session-id" title={sessionId || 'New chat'} className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground">
+                  <div
+                    data-testid="chat-session-id"
+                    title={sessionId || 'New chat'}
+                    className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground"
+                  >
                     <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
                     <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                   </div>
-                  <div title={`Model: ${activeModel}`} className="inline-flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-1 text-xs text-foreground">
+                  <div
+                    data-testid="chat-model-badge"
+                    title={`Model: ${activeModel}`}
+                    className="inline-flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-1 text-xs text-foreground"
+                  >
                     <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Model</span>
                     <span className="font-mono text-[10px]">{activeModel}</span>
                   </div>
@@ -1482,18 +1576,35 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <button onClick={startNewChat} className="group flex items-center gap-1.5 border border-primary/30 bg-primary/15 p-1.5 text-primary transition-all hover:bg-primary/25" title="New Chat">
+            <button
+              type="button"
+              aria-label="New chat"
+              onClick={startNewChat}
+              className="group flex items-center gap-1.5 border border-primary/30 bg-primary/15 p-1.5 text-primary transition-all hover:bg-primary/25"
+              title="New chat"
+            >
               <Plus size={18} />
               <span className="hidden text-xs font-bold sm:inline">New</span>
             </button>
             {showSkillsLink && (
-              <Link href="/skills" className="group flex items-center gap-1.5 border border-border bg-muted/50 p-1.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground" title="View Skills">
+              <Link
+                href="/skills"
+                aria-label="View skills"
+                className="group flex items-center gap-1.5 border border-border bg-muted/50 p-1.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                title="View skills"
+              >
                 <Lightbulb size={18} />
                 <span className="hidden text-xs font-bold sm:inline">Skills</span>
               </Link>
             )}
             {onClose && (
-              <button onClick={onClose} className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Close Chat">
+              <button
+                type="button"
+                aria-label="Close chat"
+                onClick={onClose}
+                className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent"
+                title="Close chat"
+              >
                 <X size={18} />
               </button>
             )}
@@ -1506,29 +1617,156 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               data-testid="chat-runtime-banner"
               className={`sticky top-0 z-10 rounded-xl border p-3 backdrop-blur ${runtimeBannerClass}`}
             >
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0 space-y-2">
-                  <div data-testid="chat-runtime-status" className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-3 text-sm font-semibold tracking-tight">
-                      <span className={`h-2.5 w-2.5 rounded-full ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''} ${runtimePulseClass}`} />
-                      <span>{getRuntimePhaseLabel(runtimeStatus)}</span>
-                    </span>
-                    {runtimeStatus && totalQueuedMessages > 0 ? (
-                      <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                        {totalQueuedMessages} in Queue
+              <div className="flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div data-testid="chat-runtime-status" className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex min-w-0 items-center gap-3 text-sm font-semibold tracking-tight">
+                        <span className={`h-2.5 w-2.5 rounded-full ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''} ${runtimePulseClass}`} />
+                        <span className="truncate">{getRuntimePhaseLabel(runtimeStatus)}</span>
                       </span>
-                    ) : null}
-                    {runtimeStatus?.includedSummary ? (
-                      <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                        Summary aktiv
-                      </span>
-                    ) : null}
-                    {runtimeStatus?.activeTool ? (
-                      <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                        Aktiv: {runtimeStatus.activeTool.name}
-                      </span>
+                      {runtimeStatus && totalQueuedMessages > 0 ? (
+                        <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                          {totalQueuedMessages} in Queue
+                        </span>
+                      ) : null}
+                      {!isMobile && runtimeStatus?.includedSummary ? (
+                        <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                          Summary aktiv
+                        </span>
+                      ) : null}
+                      {!isMobile && runtimeStatus?.activeTool ? (
+                        <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                          Aktiv: {runtimeStatus.activeTool.name}
+                        </span>
+                      ) : null}
+                    </div>
+                    {isMobile ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          data-testid="chat-mobile-details-toggle"
+                          onClick={() => setShowMobileDetails((current) => !current)}
+                          className="inline-flex items-center gap-2 border border-border/70 bg-background/70 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                        >
+                          Details
+                          {showMobileDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </button>
+                        {showMobilePrimaryStop ? (
+                          <button
+                            type="button"
+                            data-testid="chat-stop"
+                            onClick={() => void handleStop()}
+                            disabled={!runtimeStatus?.canAbort}
+                            className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Stop
+                          </button>
+                        ) : null}
+                        {showMobilePrimaryCompact ? (
+                          <button
+                            type="button"
+                            data-testid="chat-compact"
+                            onClick={() => void handleCompact()}
+                            disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                            className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Compact
+                          </button>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
+                  {!isMobile ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        data-testid="chat-stop"
+                        onClick={() => void handleStop()}
+                        disabled={!runtimeStatus?.canAbort}
+                        className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Stop
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="chat-compact"
+                        onClick={() => void handleCompact()}
+                        disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                        className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Canvas compact
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {isMobile ? (
+                  showMobileDetails ? (
+                    <div data-testid="chat-mobile-details-panel" className="space-y-3 border-t border-border/70 pt-3">
+                      <div className="flex flex-wrap gap-2">
+                        <div
+                          data-testid="chat-session-id"
+                          title={sessionId || 'New chat'}
+                          className="inline-flex min-w-0 items-center gap-2 border border-border bg-background/70 px-2.5 py-1 text-xs font-semibold text-foreground"
+                        >
+                          <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
+                          <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
+                        </div>
+                        <div
+                          data-testid="chat-model-badge"
+                          title={`Model: ${activeModel}`}
+                          className="inline-flex items-center gap-1.5 border border-border bg-background/70 px-2 py-1 text-xs text-foreground"
+                        >
+                          <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Model</span>
+                          <span className="font-mono text-[10px]">{activeModel}</span>
+                        </div>
+                        {runtimeStatus?.includedSummary ? (
+                          <span className="inline-flex items-center border border-border bg-background/70 px-2 py-1 text-[11px] text-muted-foreground">
+                            Summary aktiv
+                          </span>
+                        ) : null}
+                        {runtimeStatus?.activeTool ? (
+                          <span className="inline-flex items-center border border-border bg-background/70 px-2 py-1 text-[11px] text-muted-foreground">
+                            Aktiv: {runtimeStatus.activeTool.name}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div>
+                        <div data-testid="chat-context-meter" className="text-[11px] text-muted-foreground">
+                          Context-Budget: {contextLabel}
+                        </div>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/5">
+                          <div
+                            data-testid="chat-context-progress"
+                            className={`h-full rounded-full transition-all ${
+                              runtimeStatus?.phase === 'aborting'
+                                ? 'bg-rose-400'
+                                : runtimeStatus?.phase === 'running_tool'
+                                  ? 'bg-amber-400'
+                                  : 'bg-cyan-400'
+                            }`}
+                            style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
+                          />
+                        </div>
+                      </div>
+                      {totalQueuedMessages > 0 ? (
+                        <div data-testid="chat-queue-panel" className="border border-border bg-background/60 p-2 text-xs">
+                          <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
+                            <span>{totalQueuedMessages} queued</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-muted-foreground">
+                            {queuePreview.map((entry) => (
+                              <span key={entry.id} className="border border-border/70 bg-background/60 px-2 py-1">
+                                {entry.text || 'Bildnachricht'}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null
+                ) : (
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <div>
                       <div data-testid="chat-context-meter" className="text-[11px] text-muted-foreground">
@@ -1548,26 +1786,8 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                         />
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        data-testid="chat-stop"
-                        onClick={() => void handleStop()}
-                        disabled={!runtimeStatus?.canAbort}
-                        className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Stop
-                      </button>
-                      <button
-                        data-testid="chat-compact"
-                        onClick={() => void handleCompact()}
-                        disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                        className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Canvas compact
-                      </button>
-                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -1583,7 +1803,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">No recent sessions</div>}
             {history.map((session) => (
               <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
-                <button onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left">
+                <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left">
                   <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">{session.title || session.sessionId}</div>
                   <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                     <span>{new Date(session.createdAt).toLocaleString()}</span>
@@ -1591,10 +1811,20 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                     <span>{session.model}</span>
                   </div>
                 </button>
-                <button onClick={() => void renameSession(session)} className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent" title="Rename Session">
+                <button
+                  type="button"
+                  onClick={() => void renameSession(session)}
+                  className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
+                  title="Rename session"
+                >
                   <Pencil size={15} />
                 </button>
-                <button onClick={() => void deleteSession(session.sessionId)} className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive" title="Delete Session">
+                <button
+                  type="button"
+                  onClick={() => void deleteSession(session.sessionId)}
+                  className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                  title="Delete session"
+                >
                   <Trash2 size={15} />
                 </button>
               </div>
@@ -1602,13 +1832,27 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           </div>
         )}
 
-        <div ref={scrollContainerRef} className="absolute inset-0 space-y-4 overflow-y-auto p-4 pb-40 scroll-smooth">
+        <div ref={scrollContainerRef} className="absolute inset-0 space-y-4 overflow-y-auto p-4 pb-52 scroll-smooth md:pb-44">
           {messages.length === 0 && (
-            <div className="flex h-full flex-col items-center justify-center space-y-4 text-muted-foreground opacity-40">
-              <Sparkles size={48} />
-              <div className="text-center">
-                <p className="mb-1 text-sm font-bold uppercase tracking-widest">Start a conversation</p>
-                <p className="px-8 text-[11px] italic">Markdown replies, tool output, queue state, and context budget appear here.</p>
+            <div className="flex min-h-full flex-col justify-center">
+              <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-5 text-center">
+                <div className="space-y-2">
+                  <span className="inline-flex items-center gap-2 border border-border bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    Produktive Startpunkte
+                  </span>
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">Was soll Canvas Chat fuer dich vorbereiten?</h2>
+                    <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                      Starte mit einer Vorlage fuer Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.
+                    </p>
+                  </div>
+                </div>
+                <div data-testid="chat-starter-prompts" className="flex w-full gap-3 overflow-x-auto pb-1 no-scrollbar md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3">
+                  {BUSINESS_STARTER_PROMPTS.map((prompt) => (
+                    <StarterPromptButton key={prompt.id} prompt={prompt} onSelect={applyStarterPrompt} compact={isMobile} />
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -1657,7 +1901,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
             return (
               <div key={message.id} data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[95%] border p-3 sm:max-w-[90%] ${bubbleClass}`}>
+                <div className={`max-w-[96%] border p-3 sm:max-w-[90%] ${bubbleClass}`}>
                   {isTool ? (
                     <div>
                       <button
@@ -1675,9 +1919,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                             <span className="border border-amber-500/30 bg-background/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
                               {toolStatusLabel}
                             </span>
-                            {message.autoCollapsedAtEnd ? (
-                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Auto</span>
-                            ) : null}
+                            {message.autoCollapsedAtEnd ? <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Auto</span> : null}
                           </div>
                           <div className="mt-1 text-sm font-medium text-foreground">{message.toolName || 'Tool'}</div>
                           <div className="mt-1 text-xs text-muted-foreground">{message.previewText || 'Noch keine Ausgabe'}</div>
@@ -1742,25 +1984,37 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         </div>
 
         {!isAtBottom && messages.length > 0 && (
-          <button onClick={() => scrollToBottom()} className="absolute bottom-40 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90" title="Scroll to bottom">
+          <button
+            type="button"
+            onClick={() => scrollToBottom()}
+            className="absolute bottom-52 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90 md:bottom-40"
+            title="Scroll to bottom"
+          >
             <ArrowDown size={20} />
           </button>
         )}
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 p-3">
+      <div
+        className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 px-3 pt-3"
+        style={{ paddingBottom: isMobile ? 'calc(env(safe-area-inset-bottom) + 0.75rem)' : '0.75rem' }}
+      >
         {attachments.length > 0 && !currentModelSupportsVision() && (
           <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-600">
-            <strong>Achtung:</strong> Das aktuelle Modell unterstützt keine Bilder. Die angehängten Bilder werden ignoriert.
+            <strong>Achtung:</strong> Das aktuelle Modell unterstuetzt keine Bilder. Die angehaengten Bilder werden ignoriert.
           </div>
         )}
 
         {attachments.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
+          <div
+            className={`mb-2 gap-2 border border-border bg-muted/60 p-2 ${
+              isMobile ? 'flex overflow-x-auto no-scrollbar' : 'flex flex-wrap'
+            }`}
+          >
             {attachments.map((attachment, index) => (
-              <div key={index} className="flex items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
+              <div key={index} className="flex shrink-0 items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
                 <ImageIcon className="h-3.5 w-3.5" /> {attachment.name}
-                <button onClick={() => removeAttachment(index)} className="hover:text-destructive">
+                <button type="button" onClick={() => removeAttachment(index)} className="hover:text-destructive">
                   <X className="h-3 w-3" />
                 </button>
               </div>
@@ -1768,7 +2022,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           </div>
         )}
 
-        {runtimeStatus && totalQueuedMessages > 0 && (
+        {!isMobile && runtimeStatus && totalQueuedMessages > 0 && (
           <div data-testid="chat-queue-panel" className="mb-2 border border-border bg-muted/50 p-2 text-xs">
             <div className="mb-1 flex items-center gap-2 font-medium text-foreground">
               <span>{totalQueuedMessages} queued</span>
@@ -1784,27 +2038,77 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           </div>
         )}
 
-        <div className="mb-2 flex flex-wrap gap-2">
-          <button
-            data-testid="chat-steer"
-            onClick={() => void handleSteer()}
-            disabled={!input.trim() && attachments.length === 0 || runtimeStatus?.phase === 'idle'}
-            className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Steuern
-          </button>
-          <button
-            data-testid="chat-send-now"
-            onClick={() => void handleNowSend()}
-            disabled={!input.trim() && attachments.length === 0 || runtimeStatus?.phase === 'idle'}
-            className="border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Jetzt senden
-          </button>
-        </div>
+        {isMobile ? (
+          <>
+            {showMobileActionPanel ? (
+              <div data-testid="chat-mobile-action-panel" className="mb-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  data-testid="chat-steer"
+                  onClick={() => void handleSteer()}
+                  disabled={!hasComposerContent || runtimeStatus?.phase === 'idle'}
+                  className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Steuern
+                </button>
+                <button
+                  type="button"
+                  data-testid="chat-send-now"
+                  onClick={() => void handleNowSend()}
+                  disabled={!hasComposerContent || runtimeStatus?.phase === 'idle'}
+                  className="border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Jetzt senden
+                </button>
+                <button
+                  type="button"
+                  data-testid="chat-compact-mobile"
+                  onClick={() => void handleCompact()}
+                  disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                  className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Canvas compact
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMobileActionPanel(false)}
+                  className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+                >
+                  Schliessen
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div className="mb-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid="chat-steer"
+              onClick={() => void handleSteer()}
+              disabled={!hasComposerContent || runtimeStatus?.phase === 'idle'}
+              className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Steuern
+            </button>
+            <button
+              type="button"
+              data-testid="chat-send-now"
+              onClick={() => void handleNowSend()}
+              disabled={!hasComposerContent || runtimeStatus?.phase === 'idle'}
+              className="border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Jetzt senden
+            </button>
+          </div>
+        )}
 
         <div className="flex items-end gap-2">
-          <button onClick={() => fileInputRef.current?.click()} className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent" title="Attach image">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
+            title="Attach image"
+          >
             <Paperclip className="h-5 w-5" />
           </button>
           <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*" />
@@ -1816,8 +2120,10 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder="Ask about your project... (Type @ to reference files)"
-              className="min-h-[44px] max-h-32 w-full resize-none border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder={isMobile ? 'Frag nach Kampagnen, Dokumenten oder Dateiorganisation...' : 'Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien.'}
+              className={`w-full resize-none border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring ${
+                isMobile ? 'min-h-[40px] max-h-28 p-2.5' : 'min-h-[44px] max-h-32 p-2.5'
+              }`}
             />
 
             {showFilePicker && (
@@ -1828,6 +2134,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                 {filePickerFiles.map((file, index) => (
                   <button
                     key={file.path}
+                    type="button"
                     onClick={() => handleFileSelect(file)}
                     className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${index === selectedFileIndex ? 'bg-accent' : ''}`}
                   >
@@ -1844,11 +2151,23 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               </div>
             )}
           </div>
+          {isMobile ? (
+            <button
+              type="button"
+              data-testid="chat-mobile-action-toggle"
+              onClick={() => setShowMobileActionPanel((current) => !current)}
+              className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
+              title="Quick actions"
+            >
+              {showMobileActionPanel ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+            </button>
+          ) : null}
           <button
+            type="button"
             data-testid="chat-send"
             onClick={() => void handleSend()}
             className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
-            disabled={!input.trim() && attachments.length === 0}
+            disabled={!hasComposerContent}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
               <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
@@ -1857,8 +2176,12 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         </div>
         <div className="mt-2 text-[10px] text-muted-foreground">
           {runtimeStatus?.phase !== 'idle'
-            ? 'Send queues a follow-up. Use Steuern to interrupt after the active tool step, or Jetzt senden to stop the current chain first.'
-            : 'Approximate context metrics are based on the current PI history budget.'}
+            ? isMobile
+              ? 'Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenue.'
+              : 'Send queues a follow-up. Use Steuern to interrupt after the active tool step, or Jetzt senden to stop the current chain first.'
+            : isMobile
+              ? 'Tippe @ fuer Dateien oder waehle unten eine schnelle Aktion.'
+              : 'Approximate context metrics are based on the current PI history budget.'}
         </div>
       </div>
     </div>
