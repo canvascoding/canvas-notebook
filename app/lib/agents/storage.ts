@@ -20,6 +20,10 @@ const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
   'SOUL.md': `# SOUL\n\n- Tone and interaction style for the main agent in Canvas Notebook.\n`,
   'TOOLS.md': `# TOOLS
 
+## System Environment
+
+- **Python**: Use \`python3\` (installed) - NOT \`python\`
+
 ## Skills CLI
 
 Canvas Notebook hat eine Skills CLI für den Agenten.
