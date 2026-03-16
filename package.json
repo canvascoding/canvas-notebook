@@ -55,6 +55,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@sentry/nextjs": "^10.43.0",
     "@sinclair/typebox": "0.34.41",
     "@testing-library/react": "^16.3.2",
     "@types/archiver": "^7.0.0",
