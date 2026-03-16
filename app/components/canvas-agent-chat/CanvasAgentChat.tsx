@@ -473,11 +473,13 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(220);
 
   const filePickerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialPromptConsumedRef = useRef(false);
   const toolMessageIdsRef = useRef<Record<string, string>>({});
@@ -1503,6 +1505,29 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     }
   }, [isMobile]);
 
+  useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+
+    const updateComposerHeight = () => {
+      setComposerHeight(composer.getBoundingClientRect().height);
+    };
+
+    updateComposerHeight();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateComposerHeight();
+    });
+
+    resizeObserver.observe(composer);
+    window.addEventListener('resize', updateComposerHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateComposerHeight);
+    };
+  }, [attachments.length, isMobile, runtimeStatus?.phase, showMobileActionPanel]);
+
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
   const contextLabel = runtimeStatus
@@ -1512,6 +1537,24 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const runtimeBannerClass = getRuntimeBannerClass(runtimeStatus);
   const runtimePulseClass = getRuntimePulseClass(runtimeStatus);
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
+  const scrollContentPadding = composerHeight + 24;
+  const scrollButtonOffset = composerHeight + 16;
+  const busyBadgeClass =
+    runtimeStatus?.phase === 'running_tool'
+      ? 'border-amber-500/40 bg-amber-500/12 text-amber-700 dark:text-amber-300'
+      : runtimeStatus?.phase === 'streaming'
+        ? 'border-cyan-500/40 bg-cyan-500/12 text-cyan-700 dark:text-cyan-300'
+        : runtimeStatus?.phase === 'aborting'
+          ? 'border-rose-500/40 bg-rose-500/12 text-rose-700 dark:text-rose-300'
+          : 'border-border/60 bg-muted/40 text-muted-foreground';
+  const busyBadgeLabel =
+    runtimeStatus?.phase === 'running_tool'
+      ? 'Tool aktiv'
+      : runtimeStatus?.phase === 'streaming'
+        ? 'Agent aktiv'
+        : runtimeStatus?.phase === 'aborting'
+          ? 'Stoppt'
+          : 'Bereit';
 
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
@@ -1620,7 +1663,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
         {/* Compact Status Bar */}
         {!showHistory && (
-          <div className="border-t border-border/50 px-3 py-1.5">
+          <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
             <div className="flex items-center justify-between gap-3">
               {/* Left: Status with animated dot */}
               <div className="flex min-w-0 items-center gap-2">
@@ -1642,6 +1685,13 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                   className="text-xs font-medium text-foreground truncate"
                 >
                   {getRuntimePhaseLabel(runtimeStatus)}
+                </span>
+                <span
+                  data-testid="chat-runtime-busy-badge"
+                  className={`inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px] font-medium ${busyBadgeClass}`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${runtimePulseClass} ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''}`} />
+                  {busyBadgeLabel}
                 </span>
                 
                 {/* Queue Badge */}
@@ -1670,6 +1720,12 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               
               {/* Right: Action Buttons */}
               <div className="flex items-center gap-1.5 shrink-0">
+                <span
+                  data-testid="chat-context-percent-badge"
+                  className="inline-flex items-center border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                >
+                  {runtimeStatus ? `${runtimeStatus.contextUsagePercent}%` : '—'}
+                </span>
                 {!isMobile && (
                   <>
                     <button
@@ -1721,10 +1777,12 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                   style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
                 />
               </div>
-              <span data-testid="chat-context-meter" className="text-[9px] text-muted-foreground shrink-0">
-                {runtimeStatus ? `${runtimeStatus.contextUsagePercent}%` : '—'}
-              </span>
             </div>
+            {!isMobile ? (
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                Context-Budget: {contextLabel}
+              </div>
+            ) : null}
             
             {/* Mobile Details Panel */}
             {isMobile && showMobileDetails && (
@@ -1817,7 +1875,11 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           </div>
         )}
 
-        <div ref={scrollContainerRef} className="absolute inset-0 space-y-4 overflow-y-auto p-4 pb-72 scroll-smooth md:pb-44">
+        <div
+          ref={scrollContainerRef}
+          className="absolute inset-0 space-y-4 overflow-y-auto p-4 scroll-smooth"
+          style={{ paddingBottom: `${scrollContentPadding}px` }}
+        >
           {messages.length === 0 && (
             <div className="flex min-h-full flex-col justify-start py-4 md:justify-center md:py-0">
               <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-5 text-center">
@@ -1972,7 +2034,8 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           <button
             type="button"
             onClick={() => scrollToBottom()}
-            className="absolute bottom-52 right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90 md:bottom-40"
+            className="absolute right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
+            style={{ bottom: `${scrollButtonOffset}px` }}
             title="Scroll to bottom"
           >
             <ArrowDown size={20} />
@@ -1981,6 +2044,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       </div>
 
       <div
+        ref={composerRef}
         className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 px-3 pt-3"
         style={{ paddingBottom: isMobile ? 'calc(env(safe-area-inset-bottom) + 0.75rem)' : '0.75rem' }}
       >
