@@ -339,11 +339,11 @@ function getRuntimePhaseLabel(status: RuntimeStatus | null): string {
 
   switch (status.phase) {
     case 'running_tool':
-      return status.activeTool ? `Tool läuft: ${status.activeTool.name}` : 'Tool läuft';
+      return 'Tool läuft...';
     case 'streaming':
-      return 'Agent arbeitet';
+      return 'Agent arbeitet...';
     case 'aborting':
-      return 'Wird gestoppt';
+      return 'Wird gestoppt...';
     default:
       return 'Bereit';
   }
@@ -487,6 +487,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const lastCompactionMarkerRef = useRef<string | null>(null);
+  const userStartedNewChatRef = useRef(false);
 
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
@@ -1102,6 +1103,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     setAttachments([]);
     sessionIdRef.current = null;
     lastCompactionMarkerRef.current = null;
+    userStartedNewChatRef.current = true;
     setMessages([]);
     setShowHistory(false);
     setShowMobileDetails(false);
@@ -1121,6 +1123,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     setSessionTitle(session.title || null);
     sessionIdRef.current = session.sessionId;
     lastCompactionMarkerRef.current = null;
+    userStartedNewChatRef.current = false;
     setShowMobileDetails(false);
     setShowMobileActionPanel(false);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
@@ -1463,6 +1466,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
       return;
     }
+    if (userStartedNewChatRef.current) return;
 
     const autoLoadLastSession = async () => {
       try {
@@ -1522,17 +1526,18 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
       <div className="z-10 border-b border-border bg-background/95">
-        <div className="flex items-center justify-between p-2">
+        {/* Compact Header Row */}
+        <div className="flex items-center justify-between px-3 py-1.5">
           <div className="flex min-w-0 items-center gap-2">
             {showHistory ? (
               <button
                 type="button"
                 aria-label="Back to chat"
                 onClick={() => setShowHistory(false)}
-                className="border border-transparent p-1.5 transition-colors hover:border-border hover:bg-accent"
+                className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
                 title="Back to chat"
               >
-                <ChevronLeft />
+                <ChevronLeft size={18} />
               </button>
             ) : (
               <button
@@ -1542,10 +1547,10 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                   setShowHistory(true);
                   void fetchHistory();
                 }}
-                className="border border-transparent p-1.5 transition-colors hover:border-border hover:bg-accent"
+                className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
                 title="Open history"
               >
-                <History size={20} />
+                <History size={18} />
               </button>
             )}
             <div className="min-w-0">
@@ -1554,22 +1559,24 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               ) : isMobile ? (
                 <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Canvas chat</span>
               ) : (
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {/* Session Badge */}
                   <div
                     data-testid="chat-session-id"
                     title={sessionId || 'New chat'}
-                    className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground"
+                    className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground"
                   >
-                    <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
-                    <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Session</span>
+                    <span className="min-w-0 truncate max-w-[120px]">{sessionDisplayLabel}</span>
                   </div>
+                  {/* Model Badge */}
                   <div
                     data-testid="chat-model-badge"
                     title={`Model: ${activeModel}`}
-                    className="inline-flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-1 text-xs text-foreground"
+                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/50 px-1.5 py-0.5 text-[11px] text-foreground"
                   >
-                    <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Model</span>
-                    <span className="font-mono text-[10px]">{activeModel}</span>
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Model</span>
+                    <span className="font-mono text-[9px]">{activeModel}</span>
                   </div>
                 </div>
               )}
@@ -1580,21 +1587,21 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
               type="button"
               aria-label="New chat"
               onClick={startNewChat}
-              className="group flex items-center gap-1.5 border border-primary/30 bg-primary/15 p-1.5 text-primary transition-all hover:bg-primary/25"
+              className="group flex items-center gap-1 border border-primary/30 bg-primary/15 px-2 py-1 text-primary transition-all hover:bg-primary/25"
               title="New chat"
             >
-              <Plus size={18} />
-              <span className="hidden text-xs font-bold sm:inline">New</span>
+              <Plus size={16} />
+              <span className="hidden text-[11px] font-bold sm:inline">New</span>
             </button>
             {showSkillsLink && (
               <Link
                 href="/skills"
                 aria-label="View skills"
-                className="group flex items-center gap-1.5 border border-border bg-muted/50 p-1.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                className="group flex items-center gap-1 border border-border bg-muted/50 px-2 py-1 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                 title="View skills"
               >
-                <Lightbulb size={18} />
-                <span className="hidden text-xs font-bold sm:inline">Skills</span>
+                <Lightbulb size={16} />
+                <span className="hidden text-[11px] font-bold sm:inline">Skills</span>
               </Link>
             )}
             {onClose && (
@@ -1602,7 +1609,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                 type="button"
                 aria-label="Close chat"
                 onClick={onClose}
-                className="border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent"
+                className="border border-transparent p-1 text-muted-foreground transition-all hover:border-border hover:bg-accent"
                 title="Close chat"
               >
                 <X size={18} />
@@ -1611,185 +1618,163 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           </div>
         </div>
 
+        {/* Compact Status Bar */}
         {!showHistory && (
-          <div className="border-t border-border/70 px-3 py-3">
-            <div
-              data-testid="chat-runtime-banner"
-              className={`sticky top-0 z-10 rounded-xl border p-3 backdrop-blur ${runtimeBannerClass}`}
-            >
-              <div className="flex flex-col gap-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div data-testid="chat-runtime-status" className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex min-w-0 items-center gap-3 text-sm font-semibold tracking-tight">
-                        <span className={`h-2.5 w-2.5 rounded-full ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''} ${runtimePulseClass}`} />
-                        <span className="truncate">{getRuntimePhaseLabel(runtimeStatus)}</span>
-                      </span>
-                      {runtimeStatus && totalQueuedMessages > 0 ? (
-                        <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                          {totalQueuedMessages} in Queue
-                        </span>
-                      ) : null}
-                      {!isMobile && runtimeStatus?.includedSummary ? (
-                        <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                          Summary aktiv
-                        </span>
-                      ) : null}
-                      {!isMobile && runtimeStatus?.activeTool ? (
-                        <span className="border border-border/70 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                          Aktiv: {runtimeStatus.activeTool.name}
-                        </span>
-                      ) : null}
-                    </div>
-                    {isMobile ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          data-testid="chat-mobile-details-toggle"
-                          onClick={() => setShowMobileDetails((current) => !current)}
-                          className="inline-flex items-center gap-2 border border-border/70 bg-background/70 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-                        >
-                          Details
-                          {showMobileDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </button>
-                        {showMobilePrimaryStop ? (
-                          <button
-                            type="button"
-                            data-testid="chat-stop"
-                            onClick={() => void handleStop()}
-                            disabled={!runtimeStatus?.canAbort}
-                            className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Stop
-                          </button>
-                        ) : null}
-                        {showMobilePrimaryCompact ? (
-                          <button
-                            type="button"
-                            data-testid="chat-compact"
-                            onClick={() => void handleCompact()}
-                            disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                            className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Compact
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                  {!isMobile ? (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        data-testid="chat-stop"
-                        onClick={() => void handleStop()}
-                        disabled={!runtimeStatus?.canAbort}
-                        className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Stop
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="chat-compact"
-                        onClick={() => void handleCompact()}
-                        disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                        className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Canvas compact
-                      </button>
-                    </div>
-                  ) : null}
+          <div className="border-t border-border/50 px-3 py-1.5">
+            <div className="flex items-center justify-between gap-3">
+              {/* Left: Status with animated dot */}
+              <div className="flex min-w-0 items-center gap-2">
+                {/* Animated Status Dot */}
+                <div className="relative flex items-center justify-center">
+                  <span 
+                    className={`h-2 w-2 rounded-full ${runtimePulseClass} ${
+                      runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''
+                    }`} 
+                  />
+                  {runtimeStatus?.phase !== 'idle' && (
+                    <span className={`absolute h-4 w-4 rounded-full ${runtimePulseClass} opacity-30 animate-ping`} />
+                  )}
                 </div>
-
-                {isMobile ? (
-                  showMobileDetails ? (
-                    <div data-testid="chat-mobile-details-panel" className="space-y-3 border-t border-border/70 pt-3">
-                      <div className="flex flex-wrap gap-2">
-                        <div
-                          data-testid="chat-session-id"
-                          title={sessionId || 'New chat'}
-                          className="inline-flex min-w-0 items-center gap-2 border border-border bg-background/70 px-2.5 py-1 text-xs font-semibold text-foreground"
-                        >
-                          <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
-                          <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
-                        </div>
-                        <div
-                          data-testid="chat-model-badge"
-                          title={`Model: ${activeModel}`}
-                          className="inline-flex items-center gap-1.5 border border-border bg-background/70 px-2 py-1 text-xs text-foreground"
-                        >
-                          <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Model</span>
-                          <span className="font-mono text-[10px]">{activeModel}</span>
-                        </div>
-                        {runtimeStatus?.includedSummary ? (
-                          <span className="inline-flex items-center border border-border bg-background/70 px-2 py-1 text-[11px] text-muted-foreground">
-                            Summary aktiv
-                          </span>
-                        ) : null}
-                        {runtimeStatus?.activeTool ? (
-                          <span className="inline-flex items-center border border-border bg-background/70 px-2 py-1 text-[11px] text-muted-foreground">
-                            Aktiv: {runtimeStatus.activeTool.name}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div>
-                        <div data-testid="chat-context-meter" className="text-[11px] text-muted-foreground">
-                          Context-Budget: {contextLabel}
-                        </div>
-                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/5">
-                          <div
-                            data-testid="chat-context-progress"
-                            className={`h-full rounded-full transition-all ${
-                              runtimeStatus?.phase === 'aborting'
-                                ? 'bg-rose-400'
-                                : runtimeStatus?.phase === 'running_tool'
-                                  ? 'bg-amber-400'
-                                  : 'bg-cyan-400'
-                            }`}
-                            style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
-                          />
-                        </div>
-                      </div>
-                      {totalQueuedMessages > 0 ? (
-                        <div data-testid="chat-queue-panel" className="border border-border bg-background/60 p-2 text-xs">
-                          <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
-                            <span>{totalQueuedMessages} queued</span>
-                          </div>
-                          <div className="flex flex-wrap gap-2 text-muted-foreground">
-                            {queuePreview.map((entry) => (
-                              <span key={entry.id} className="border border-border/70 bg-background/60 px-2 py-1">
-                                {entry.text || 'Bildnachricht'}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null
-                ) : (
-                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                    <div>
-                      <div data-testid="chat-context-meter" className="text-[11px] text-muted-foreground">
-                        Context-Budget: {contextLabel}
-                      </div>
-                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/5">
-                        <div
-                          data-testid="chat-context-progress"
-                          className={`h-full rounded-full transition-all ${
-                            runtimeStatus?.phase === 'aborting'
-                              ? 'bg-rose-400'
-                              : runtimeStatus?.phase === 'running_tool'
-                                ? 'bg-amber-400'
-                                : 'bg-cyan-400'
-                          }`}
-                          style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
-                        />
-                      </div>
+                
+                {/* Status Text */}
+                <span 
+                  data-testid="chat-runtime-status" 
+                  className="text-xs font-medium text-foreground truncate"
+                >
+                  {getRuntimePhaseLabel(runtimeStatus)}
+                </span>
+                
+                {/* Queue Badge */}
+                {runtimeStatus && totalQueuedMessages > 0 && (
+                  <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    {totalQueuedMessages} queued
+                  </span>
+                )}
+                
+                {/* Summary Badge */}
+                {!isMobile && runtimeStatus?.includedSummary && (
+                  <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    Summary
+                  </span>
+                )}
+                
+                {/* Active Tool Badge */}
+                {!isMobile && runtimeStatus?.activeTool && (
+                  <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
+                    <Wrench size={10} />
+                    {runtimeStatus.activeTool.name}
+                  </span>
+                )}
+              </div>
+              
+              {/* Right: Action Buttons */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {!isMobile && (
+                  <>
+                    <button
+                      type="button"
+                      data-testid="chat-stop"
+                      onClick={() => void handleStop()}
+                      disabled={!runtimeStatus?.canAbort}
+                      className="border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Stop
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="chat-compact"
+                      onClick={() => void handleCompact()}
+                      disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                      className="border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Compact
+                    </button>
+                  </>
+                )}
+                {isMobile && (
+                  <button
+                    type="button"
+                    data-testid="chat-mobile-details-toggle"
+                    onClick={() => setShowMobileDetails((current) => !current)}
+                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
+                  >
+                    Details
+                    {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            {/* Context Progress Bar - Slim */}
+            <div className="mt-1.5 flex items-center gap-2">
+              <div className="flex-1 h-1 overflow-hidden rounded-full bg-black/5">
+                <div
+                  data-testid="chat-context-progress"
+                  className={`h-full rounded-full transition-all ${
+                    runtimeStatus?.phase === 'aborting'
+                      ? 'bg-rose-400'
+                      : runtimeStatus?.phase === 'running_tool'
+                        ? 'bg-amber-400'
+                        : 'bg-cyan-400'
+                  }`}
+                  style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
+                />
+              </div>
+              <span data-testid="chat-context-meter" className="text-[9px] text-muted-foreground shrink-0">
+                {runtimeStatus ? `${runtimeStatus.contextUsagePercent}%` : '—'}
+              </span>
+            </div>
+            
+            {/* Mobile Details Panel */}
+            {isMobile && showMobileDetails && (
+              <div data-testid="chat-mobile-details-panel" className="mt-2 space-y-2 border-t border-border/50 pt-2">
+                <div className="flex flex-wrap gap-1.5">
+                  <div
+                    data-testid="chat-session-id"
+                    title={sessionId || 'New chat'}
+                    className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
+                  >
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Session</span>
+                    <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
+                  </div>
+                  <div
+                    data-testid="chat-model-badge"
+                    title={`Model: ${activeModel}`}
+                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
+                  >
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Model</span>
+                    <span className="font-mono text-[9px]">{activeModel}</span>
+                  </div>
+                  {runtimeStatus?.includedSummary && (
+                    <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      Summary
+                    </span>
+                  )}
+                  {runtimeStatus?.activeTool && (
+                    <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
+                      <Wrench size={9} />
+                      {runtimeStatus.activeTool.name}
+                    </span>
+                  )}
+                </div>
+                <div data-testid="chat-context-meter" className="text-[10px] text-muted-foreground">
+                  {contextLabel}
+                </div>
+                {totalQueuedMessages > 0 && (
+                  <div data-testid="chat-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
+                    <div className="mb-1 font-medium text-foreground">{totalQueuedMessages} queued</div>
+                    <div className="flex flex-wrap gap-1 text-muted-foreground">
+                      {queuePreview.map((entry) => (
+                        <span key={entry.id} className="border border-border/60 bg-muted/40 px-1.5 py-0.5">
+                          {entry.text || 'Bildnachricht'}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 )}
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
