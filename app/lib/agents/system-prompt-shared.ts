@@ -6,6 +6,35 @@ export type ManagedPromptFiles = Record<ManagedPromptFileName, string>;
 export const BASE_AGENT_SYSTEM_PROMPT =
   'You are an AI assistant in Canvas Notebook. You have access to the local workspace.';
 
+export const FILE_SEARCH_GUIDANCE = `
+## File Search Strategy (CRITICAL)
+
+You have access to a powerful search tool called **qmd** (Quick Markdown Search) that indexes the entire workspace. Use it correctly:
+
+### When to use qmd (ALWAYS for searching):
+- Finding files by name or content
+- Searching through documents for specific text
+- Looking for related documents or notes
+- Any query like "find...", "search...", "where is...", "suche...", "finde..."
+- Semantic/conceptual searches ("documents about X", "related to Y")
+
+### When to use ls (ONLY for directory listing):
+- ONLY when the user explicitly asks to "list contents of folder X" or "show me what's in directory Y"
+- NEVER use ls to find files - use qmd instead
+
+### qmd Usage:
+- **Default**: \`qmd search "query"\` - Fast keyword search (BM25), returns instantly
+- **Semantic**: \`qmd vsearch "concept"\` - When keyword search fails and semantic similarity is needed (slower, ~1 min)
+- **Avoid**: \`qmd query\` - Hybrid search with LLM reranking, often slower than vsearch
+
+### Indexing Context:
+qmd runs as a background service with automatic indexing:
+- **Update**: Every 30 minutes (re-indexes changed files)
+- **Embed**: Daily at 01:00 (semantic embeddings for vsearch)
+- Collection: \`workspace\` covering \`/data/workspace/**/*\`
+
+**Rule of thumb**: If you're looking FOR something, use qmd. If you're listing WHAT'S IN a specific folder, use ls.`;
+
 export const TEMP_DIRECTORY_GUIDANCE = `
 ## Temporary Files Directory
 
@@ -74,12 +103,15 @@ export function composeManagedAgentSystemPrompt(
 
   // Add skills context if provided
   const skillsBlock = skillsContext ? `\n\n${skillsContext}` : '';
-  
+
+  // Add file search guidance
+  const fileSearchBlock = `\n\n${FILE_SEARCH_GUIDANCE}`;
+
   // Add temp directory guidance
   const tempBlock = `\n\n${TEMP_DIRECTORY_GUIDANCE}`;
 
   return {
-    systemPrompt: [BASE_AGENT_SYSTEM_PROMPT, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + tempBlock,
+    systemPrompt: [BASE_AGENT_SYSTEM_PROMPT, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileSearchBlock + tempBlock,
     diagnostics: {
       loadedFiles: [...MANAGED_PROMPT_FILE_NAMES],
       includedFiles: includedSections.map((section) => section.fileName),
