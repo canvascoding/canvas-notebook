@@ -1,6 +1,6 @@
 'use client';
 
-import React, { FormEvent, useState, useRef, useCallback } from 'react';
+import React, { FormEvent, useState, useRef, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree } from 'lucide-react';
@@ -22,6 +22,12 @@ interface FilePickerFile {
   path: string;
   type: 'file' | 'directory';
   isImage: boolean;
+}
+
+interface RecentSession {
+  sessionId: string;
+  title: string;
+  createdAt: string;
 }
 
 const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ className?: string }>> = {
@@ -74,7 +80,43 @@ export function HomeChatPrompt() {
   const [filePickerFiles, setFilePickerFiles] = useState<FilePickerFile[]>([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [latestSession, setLatestSession] = useState<RecentSession | null>(null);
   const filePickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadLatestSession = async () => {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        if (!isActive) return;
+
+        if (data.success && Array.isArray(data.sessions) && data.sessions.length > 0) {
+          const latest = data.sessions[0] as RecentSession;
+          setLatestSession({
+            sessionId: latest.sessionId,
+            title: latest.title || 'Letzte Session',
+            createdAt: latest.createdAt,
+          });
+          return;
+        }
+
+        setLatestSession(null);
+      } catch (err) {
+        console.error('Failed to load latest session', err);
+        if (isActive) {
+          setLatestSession(null);
+        }
+      }
+    };
+
+    void loadLatestSession();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const handleFileUpload = useCallback(async (file: File) => {
     const formData = new FormData();
@@ -262,14 +304,31 @@ export function HomeChatPrompt() {
   return (
     <Card className="border border-border bg-card">
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageSquare className="h-4 w-4" />
-          <Button asChild variant="default" size="sm">
-            <Link href="/chat">
-              Canvas Chat starten
-            </Link>
-          </Button>
-        </CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquare className="h-4 w-4" />
+            Canvas Chat
+          </CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            {latestSession ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/chat?session=${encodeURIComponent(latestSession.sessionId)}`}>
+                  Letzte Session
+                </Link>
+              </Button>
+            ) : null}
+            <Button asChild variant="default" size="sm">
+              <Link href="/chat">
+                Neuer Chat
+              </Link>
+            </Button>
+          </div>
+        </div>
+        {latestSession ? (
+          <p className="text-xs text-muted-foreground">
+            Quicklink zur letzten Session: {latestSession.title}
+          </p>
+        ) : null}
       </CardHeader>
       <CardContent>
         <form className="space-y-3" onSubmit={handleSubmit}>

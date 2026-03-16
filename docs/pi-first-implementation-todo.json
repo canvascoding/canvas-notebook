@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T21:21:00+01:00",
+  "lastUpdatedAt": "2026-03-16T21:34:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1718,6 +1718,18 @@
         "pi-chat-runtime-009"
       ],
       "description": "Move the chat runtime activity indicator out of the inline banner code into a dedicated chat-only component with explicit two-state logic so the label and green or blinking red dot no longer depend on the generic runtime badge helpers."
+    },
+    {
+      "id": "pi-chat-runtime-011",
+      "order": 151,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Replace automatic last-session resume with an explicit quicklink on the chat start card",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-010"
+      ],
+      "description": "Stop auto-loading the most recent session when opening Canvas Chat and instead expose a dedicated quicklink on the home start card that opens the latest session via a session query parameter."
     }
   ]
 }

@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
@@ -384,7 +385,14 @@ function StarterPromptButton({
   );
 }
 
-export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptStorageKey, showSkillsLink = false }: CanvasAgentChatProps) {
+export default function CanvasAgentChat({
+  onClose,
+  initialPrompt,
+  initialPromptStorageKey,
+  showSkillsLink = false,
+}: CanvasAgentChatProps) {
+  const searchParams = useSearchParams();
+  const requestedSessionId = searchParams.get('session');
   const isMobile = useIsMobile();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
@@ -1408,21 +1416,25 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       return;
     }
     if (userStartedNewChatRef.current) return;
+    if (!requestedSessionId) return;
 
-    const autoLoadLastSession = async () => {
+    const loadRequestedSession = async () => {
       try {
         const res = await fetch('/api/sessions');
         const data = await res.json();
         if (data.success && data.sessions && data.sessions.length > 0) {
-          await loadSession(data.sessions[0]);
+          const targetSession = data.sessions.find((session: AISession) => session.sessionId === requestedSessionId);
+          if (targetSession) {
+            await loadSession(targetSession);
+          }
         }
       } catch (err) {
-        console.error('Failed to auto-load last session', err);
+        console.error('Failed to load requested session', err);
       }
     };
 
-    void autoLoadLastSession();
-  }, [initialPrompt, initialPromptStorageKey, loadSession]);
+    void loadRequestedSession();
+  }, [initialPrompt, initialPromptStorageKey, loadSession, requestedSessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
