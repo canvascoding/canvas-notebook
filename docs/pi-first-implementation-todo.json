@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T21:34:00+01:00",
+  "lastUpdatedAt": "2026-03-16T21:41:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1730,6 +1730,18 @@
         "pi-chat-runtime-010"
       ],
       "description": "Stop auto-loading the most recent session when opening Canvas Chat and instead expose a dedicated quicklink on the home start card that opens the latest session via a session query parameter."
+    },
+    {
+      "id": "pi-chat-runtime-012",
+      "order": 152,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Translate the active-run follow-up hint in the chat composer to German",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-011"
+      ],
+      "description": "Replace the remaining English follow-up queue guidance below the composer with German copy so the busy-state helper text matches the rest of the chat UI."
     }
   ]
 }

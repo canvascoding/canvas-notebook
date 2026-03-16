@@ -2144,7 +2144,7 @@ export default function CanvasAgentChat({
             {runtimeStatus?.phase !== 'idle'
               ? isMobile
                 ? 'Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenü.'
-                : 'Send queues a follow-up. Use Steuern to interrupt after the active tool step, or Jetzt senden to stop the current chain first.'
+                : 'Senden reiht die Nachricht als Folgeaktion ein. Nutze Steuern, um nach dem aktuellen Tool-Schritt zu unterbrechen, oder Jetzt senden, um die laufende Kette zuerst zu stoppen.'
               : 'Tippe @ für Dateien oder wähle unten eine schnelle Aktion.'}
           </div>
         ) : null}
