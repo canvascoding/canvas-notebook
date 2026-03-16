@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -86,6 +86,29 @@ export const piMessages = sqliteTable("pi_messages", {
   role: text("role").notNull(), // 'user', 'assistant', 'toolResult'
   content: text("content").notNull(), // Full JSON of Message object
   timestamp: integer("timestamp").notNull(),
+});
+
+export const piUsageEvents = sqliteTable("pi_usage_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  fingerprint: text("fingerprint").notNull().unique(),
+  userId: text("user_id").notNull().references(() => user.id),
+  sessionId: text("session_id").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  sessionTitleSnapshot: text("session_title_snapshot"),
+  assistantTimestamp: integer("assistant_timestamp").notNull(),
+  stopReason: text("stop_reason").notNull(),
+  inputTokens: integer("input_tokens").notNull(),
+  outputTokens: integer("output_tokens").notNull(),
+  cacheReadTokens: integer("cache_read_tokens").notNull(),
+  cacheWriteTokens: integer("cache_write_tokens").notNull(),
+  totalTokens: integer("total_tokens").notNull(),
+  inputCost: real("input_cost").notNull(),
+  outputCost: real("output_cost").notNull(),
+  cacheReadCost: real("cache_read_cost").notNull(),
+  cacheWriteCost: real("cache_write_cost").notNull(),
+  totalCost: real("total_cost").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
 export const automationJobs = sqliteTable("automation_jobs", {

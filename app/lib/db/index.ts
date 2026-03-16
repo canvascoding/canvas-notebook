@@ -107,6 +107,30 @@ CREATE TABLE IF NOT EXISTS pi_messages (
   FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 
+CREATE TABLE IF NOT EXISTS pi_usage_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  session_title_snapshot TEXT,
+  assistant_timestamp INTEGER NOT NULL,
+  stop_reason TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_write_tokens INTEGER NOT NULL,
+  total_tokens INTEGER NOT NULL,
+  input_cost REAL NOT NULL,
+  output_cost REAL NOT NULL,
+  cache_read_cost REAL NOT NULL,
+  cache_write_cost REAL NOT NULL,
+  total_cost REAL NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+
 CREATE TABLE IF NOT EXISTS automation_jobs (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
@@ -149,6 +173,11 @@ CREATE TABLE IF NOT EXISTS automation_runs (
 
 CREATE UNIQUE INDEX IF NOT EXISTS user_email_unique ON user (email);
 CREATE UNIQUE INDEX IF NOT EXISTS session_token_unique ON session (token);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_usage_events_fingerprint ON pi_usage_events (fingerprint);
+CREATE INDEX IF NOT EXISTS idx_pi_usage_events_user_created_at ON pi_usage_events (user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_pi_usage_events_session_created_at ON pi_usage_events (session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_pi_usage_events_provider_created_at ON pi_usage_events (provider, created_at);
+CREATE INDEX IF NOT EXISTS idx_pi_usage_events_model_created_at ON pi_usage_events (model, created_at);
 CREATE INDEX IF NOT EXISTS idx_automation_jobs_next_run_at ON automation_jobs (next_run_at);
 CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);

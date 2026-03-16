@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T09:04:00+01:00",
+  "lastUpdatedAt": "2026-03-16T16:44:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1422,6 +1422,78 @@
         "docx-fix-001"
       ],
       "description": "Added CSS overrides for table borders, cell padding, alternating row colors, and overflow handling in DocxEditor.tsx"
+    },
+    {
+      "id": "pi-usage-001",
+      "order": 126,
+      "phase": "P21 PI Usage Tracking",
+      "title": "Add PI usage tracking todos and ledger schema/bootstrap",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "docx-fix-002"
+      ],
+      "description": "Add ordered usage analytics tasks, introduce pi_usage_events schema, and extend SQLite bootstrap for new ledger storage."
+    },
+    {
+      "id": "pi-usage-002",
+      "order": 127,
+      "phase": "P21 PI Usage Tracking",
+      "title": "Persist usage ledger events from PI stream completions and aborts",
+      "status": "in_progress",
+      "priority": "must",
+      "dependsOn": [
+        "pi-usage-001"
+      ],
+      "description": "Extract assistant usage from new PI turn messages, deduplicate by fingerprint, and store per-message usage events in pi_usage_events."
+    },
+    {
+      "id": "pi-usage-003",
+      "order": 128,
+      "phase": "P21 PI Usage Tracking",
+      "title": "Expose usage analytics summary and event APIs with role-aware filters",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "pi-usage-002"
+      ],
+      "description": "Add /api/usage/summary and /api/usage/events with date/provider/model/session filters and admin-only cross-user access."
+    },
+    {
+      "id": "pi-usage-004",
+      "order": 129,
+      "phase": "P21 PI Usage Tracking",
+      "title": "Add chat usage footer and dedicated /usage analytics UI",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "pi-usage-003"
+      ],
+      "description": "Render compact per-answer token/cost footers in chat and add a filterable /usage page plus navigation entry."
+    },
+    {
+      "id": "pi-usage-005",
+      "order": 130,
+      "phase": "P21 PI Usage Tracking",
+      "title": "Cover usage tracking with unit, integration, and Playwright checks",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "pi-usage-004"
+      ],
+      "description": "Add targeted tests for usage extraction, aggregation, API authorization, chat UI display, and /usage filtering."
+    },
+    {
+      "id": "pi-usage-006",
+      "order": 131,
+      "phase": "P21 PI Usage Tracking",
+      "title": "Run build and finalize PI usage tracking changes",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "pi-usage-005"
+      ],
+      "description": "Run npm run build plus targeted usage tests, update todo statuses, and commit the completed usage tracking work."
     }
   ]
 }
