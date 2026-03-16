@@ -15,9 +15,20 @@ export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentManagedFiles = Record<AgentManagedFileName, string>;
 
 const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
-  'AGENTS.md': `# AGENTS\n\n- Main agent: canvas-main-agent\n- Scope: Canvas Notebook runtime behavior and guardrails\n`,
-  'MEMORY.md': `# MEMORY\n\n- Persistent notes and long-lived decisions for the main agent.\n`,
-  'SOUL.md': `# SOUL\n\n- Tone and interaction style for the main agent in Canvas Notebook.\n`,
+  'AGENTS.md': `# AGENTS
+
+- Main agent: canvas-main-agent
+- Scope: Canvas Notebook runtime behavior and guardrails
+`,
+  'MEMORY.md': `# MEMORY
+
+- Persistent notes and long-lived decisions for the main agent.
+`,
+  'SOUL.md': `# SOUL
+
+- Tone and interaction style for the main agent in Canvas Notebook.
+- Address the user always with "du" (informal German) instead of "Sie".
+`,
   'TOOLS.md': `# TOOLS
 
 ## System Environment

@@ -36,7 +36,7 @@ RUN apt-get update \
   && python3 --version
 
 # Install Python packages required by skills
-RUN pip3 install --no-cache-dir --break-system-packages openpyxl pypdf pdfplumber pdf2image Pillow defusedxml lxml PyYAML python-pptx python-docx
+RUN pip3 install --no-cache-dir --break-system-packages openpyxl pypdf pdfplumber pdf2image Pillow defusedxml lxml PyYAML python-pptx python-docx pandas numpy chardet beautifulsoup4 rich tabulate markitdown
 RUN echo "${APP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${APP_USER} && \
     chmod 0440 /etc/sudoers.d/${APP_USER}
 RUN npm install -g npm@${NPM_VERSION}
