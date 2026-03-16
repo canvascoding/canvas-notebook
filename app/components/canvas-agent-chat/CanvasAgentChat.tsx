@@ -1559,7 +1559,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
         ? 'Agent aktiv'
         : runtimeStatus?.phase === 'aborting'
           ? 'Stoppt'
-          : null;
+          : 'Bereit';
 
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
@@ -1671,7 +1671,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
             <div className="flex flex-wrap items-center gap-2">
               {/* Left: Status with animated dot */}
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 {/* Animated Status Dot */}
                 <div className="relative flex items-center justify-center">
                   <span 
@@ -1683,23 +1683,14 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                     <span className={`absolute h-4 w-4 rounded-full ${runtimePulseClass} opacity-30 animate-ping`} />
                   )}
                 </div>
-                
-                {/* Status Text */}
-                <span 
-                  data-testid="chat-runtime-status" 
-                  className="text-xs font-medium text-foreground truncate"
+
+                <span
+                  data-testid="chat-runtime-busy-badge"
+                  className={`inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px] font-medium ${busyBadgeClass}`}
                 >
-                  {getRuntimePhaseLabel(runtimeStatus)}
+                  <span className={`h-1.5 w-1.5 rounded-full ${runtimePulseClass} ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''}`} />
+                  {busyBadgeLabel}
                 </span>
-                {busyBadgeLabel ? (
-                  <span
-                    data-testid="chat-runtime-busy-badge"
-                    className={`inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px] font-medium ${busyBadgeClass}`}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${runtimePulseClass} ${runtimeStatus?.phase !== 'idle' ? 'animate-pulse' : ''}`} />
-                    {busyBadgeLabel}
-                  </span>
-                ) : null}
                 
                 {/* Queue Badge */}
                 {runtimeStatus && totalQueuedMessages > 0 && (
