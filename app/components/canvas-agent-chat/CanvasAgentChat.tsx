@@ -436,7 +436,7 @@ function StarterPromptButton({
       data-testid={`chat-starter-prompt-${prompt.id}`}
       onClick={() => onSelect(prompt.prompt)}
       className={`group flex min-w-0 flex-col items-start gap-3 border border-border bg-background/90 text-left text-foreground transition-colors hover:border-primary/40 hover:bg-accent ${
-        compact ? 'min-w-[240px] p-3' : 'min-w-[250px] p-4'
+        compact ? 'min-w-[280px] p-3' : 'min-w-[320px] p-4'
       }`}
     >
       <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -1832,9 +1832,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
           </div>
         )}
 
-        <div ref={scrollContainerRef} className="absolute inset-0 space-y-4 overflow-y-auto p-4 pb-52 scroll-smooth md:pb-44">
+        <div ref={scrollContainerRef} className="absolute inset-0 space-y-4 overflow-y-auto p-4 pb-72 scroll-smooth md:pb-44">
           {messages.length === 0 && (
-            <div className="flex min-h-full flex-col justify-center">
+            <div className="flex min-h-full flex-col justify-start py-4 md:justify-center md:py-0">
               <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-5 text-center">
                 <div className="space-y-2">
                   <span className="inline-flex items-center gap-2 border border-border bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
@@ -1842,13 +1842,13 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                     Produktive Startpunkte
                   </span>
                   <div className="space-y-1">
-                    <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">Was soll Canvas Chat fuer dich vorbereiten?</h2>
+                    <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">Was soll Canvas Chat für dich vorbereiten?</h2>
                     <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                      Starte mit einer Vorlage fuer Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.
+                      Starte mit einer Vorlage für Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.
                     </p>
                   </div>
                 </div>
-                <div data-testid="chat-starter-prompts" className="flex w-full gap-3 overflow-x-auto pb-1 no-scrollbar md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3">
+                <div data-testid="chat-starter-prompts" className="flex w-full gap-4 overflow-x-auto pb-3 no-scrollbar md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3">
                   {BUSINESS_STARTER_PROMPTS.map((prompt) => (
                     <StarterPromptButton key={prompt.id} prompt={prompt} onSelect={applyStarterPrompt} compact={isMobile} />
                   ))}

@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T21:05:00+01:00",
+  "lastUpdatedAt": "2026-03-16T21:24:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1681,7 +1681,7 @@
       "dependsOn": [
         "pi-chat-runtime-006"
       ],
-      "description": "Move session and model metadata out of the permanent mobile header into a collapsible runtime details panel, compact the mobile composer and quick actions, and add shared business-focused starter prompts for fresh chats and the home launch card."
+      "description": "Move session and model metadata out of the permanent mobile header into a collapsible runtime details panel, compact the mobile composer and quick actions, add shared business-focused starter prompts for fresh chats and the home launch card, then widen the prompt cards and keep the empty-state prompt rail clear of the fixed composer on mobile."
     }
   ]
 }

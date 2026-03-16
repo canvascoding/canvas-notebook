@@ -46,7 +46,7 @@ function HomeStarterPromptButton({
     <button
       type="button"
       onClick={() => onSelect(prompt.prompt)}
-      className="group flex min-w-[220px] flex-col items-start gap-2 border border-border bg-background/80 p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+      className="group flex min-w-[280px] flex-col items-start gap-2 border border-border bg-background/80 p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent md:min-w-[320px]"
     >
       <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         <Icon className="h-4 w-4 text-primary" />
@@ -275,7 +275,7 @@ export function HomeChatPrompt() {
         <form className="space-y-3" onSubmit={handleSubmit}>
           <div className="space-y-2">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Produktive Prompt-Vorlagen</p>
-            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar">
               {BUSINESS_STARTER_PROMPTS.map((starterPrompt) => (
                 <HomeStarterPromptButton key={starterPrompt.id} prompt={starterPrompt} onSelect={applyStarterPrompt} />
               ))}
