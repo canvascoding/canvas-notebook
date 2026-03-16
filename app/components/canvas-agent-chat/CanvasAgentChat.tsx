@@ -2202,15 +2202,15 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
             </svg>
           </button>
         </div>
-        <div className="mt-2 text-[10px] text-muted-foreground">
-          {runtimeStatus?.phase !== 'idle'
-            ? isMobile
-              ? 'Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenue.'
-              : 'Send queues a follow-up. Use Steuern to interrupt after the active tool step, or Jetzt senden to stop the current chain first.'
-            : isMobile
-              ? 'Tippe @ fuer Dateien oder waehle unten eine schnelle Aktion.'
-              : 'Approximate context metrics are based on the current PI history budget.'}
-        </div>
+        {runtimeStatus?.phase !== 'idle' || isMobile ? (
+          <div className="mt-2 text-[10px] text-muted-foreground">
+            {runtimeStatus?.phase !== 'idle'
+              ? isMobile
+                ? 'Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenü.'
+                : 'Send queues a follow-up. Use Steuern to interrupt after the active tool step, or Jetzt senden to stop the current chain first.'
+              : 'Tippe @ für Dateien oder wähle unten eine schnelle Aktion.'}
+          </div>
+        ) : null}
       </div>
     </div>
   );
