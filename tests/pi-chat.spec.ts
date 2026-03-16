@@ -268,7 +268,10 @@ test.describe('PI Chat E2E', () => {
     await input.fill('Render usage footer.');
     await input.press('Enter');
 
-    const usageFooter = page.getByTestId('chat-usage-footer').first();
+    const assistantMessage = page.getByTestId('chat-message-assistant').filter({ hasText: 'Usage enabled answer.' }).last();
+    await expect(assistantMessage).toBeVisible();
+
+    const usageFooter = assistantMessage.getByTestId('chat-usage-footer');
     await expect(usageFooter).toBeVisible();
     await expect(usageFooter).toContainText('579 tok · $0.0123');
     await expect(usageFooter).toContainText('123 in / 456 out');
