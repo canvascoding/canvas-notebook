@@ -5,7 +5,9 @@
 # Generate terminal auth token if not exists
 if [ -z "$CANVAS_TERMINAL_TOKEN" ]; then
   export CANVAS_TERMINAL_TOKEN=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 64 | head -n 1)
-  echo "[Startup] Generated terminal auth token: ${CANVAS_TERMINAL_TOKEN:0:8}..."
+  # POSIX-compatible substring extraction
+  TOKEN_PREVIEW=$(echo "$CANVAS_TERMINAL_TOKEN" | cut -c1-8)
+  echo "[Startup] Generated terminal auth token: ${TOKEN_PREVIEW}..."
 fi
 
 # Ensure socket directory exists and is writable
