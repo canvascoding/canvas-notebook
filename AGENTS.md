@@ -68,3 +68,25 @@ Agent-managed files are persisted in `/data` for easy access and backup:
 - **Secrets:** `/data/secrets/` (Canvas-Integrations.env, Canvas-Agents.env)
 
 These paths replace the legacy `/home/node/canvas-agent/` location. The bootstrap script automatically migrates existing files on container startup.
+
+## Environment Variables & Secrets
+
+**WICHTIG:** Alle Environment-Variablen für Skills, Integrationen und API-Keys müssen zentral verwaltet werden.
+
+### Speicherort
+- **Integrations-Env-Datei:** `/data/secrets/Canvas-Integrations.env`
+- Diese Datei wird über den Settings-Bereich unter dem Tab "Integrations" verwaltet
+
+### Regeln für Agent-Implementierungen
+1. **Keine Hardcoded Secrets:** API-Keys, Tokens oder sensible Daten dürfen niemals direkt im Code oder in Konfigurationsdateien hinterlegt werden
+2. **Zentrale Verwaltung:** Alle Env-Variablen müssen über den Integrations-Tab in `/data/secrets/Canvas-Integrations.env` gespeichert werden
+3. **Zugriff über API:** Skills und Tools müssen Env-Variablen über die bereitgestellten API-Endpunkte (`/api/integrations/env`) abrufen
+4. **Beispiele für erforderliche Keys:**
+   - `GEMINI_API_KEY` - Für Bildgenerierung, Video-Generierung und Ad-Localisierung
+   - Provider-spezifische API-Keys (OpenAI, Anthropic, etc.)
+
+### Fehlerbehandlung
+Wenn ein Skill oder Tool eine Env-Variable benötigt, die nicht gesetzt ist:
+- Zeige eine klare Fehlermeldung im UI an
+- Verlinke auf den Integrations-Tab in den Settings
+- Biete einen direkten Link: `/settings?tab=integrations`
