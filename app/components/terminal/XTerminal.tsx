@@ -68,12 +68,13 @@ function getTerminalTheme(isDark: boolean) {
 export function XTerminal({ sessionId }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keepAliveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const isIntentionallyClosed = useRef(false);
+  const isReady = useRef(false);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
 
@@ -117,9 +118,8 @@ export function XTerminal({ sessionId }: XTerminalProps) {
         if (term.hasSelection()) {
           return true; // Allow copy
         }
-        const currentSocket = socketRef.current;
-        if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
-          currentSocket.send(JSON.stringify({ type: 'input', data: '\u0003' }));
+        if (isReady.current) {
+          sendInput('\u0003');
         }
         return false;
       }
@@ -131,8 +131,21 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
     const scheduledResizeTimers: ReturnType<typeof setTimeout>[] = [];
 
-    // WebSocket connection with smart reconnect
-    const sendResize = () => {
+    // Send input via API
+    const sendInput = async (data: string) => {
+      try {
+        await fetch(`/api/terminal/${sessionId}/input`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data }),
+        });
+      } catch (err) {
+        console.error('[Terminal] Failed to send input:', err);
+      }
+    };
+
+    // Send resize via API
+    const sendResize = async () => {
       const host = containerRef.current;
       if (!host || host.clientWidth < 40 || host.clientHeight < 24) return;
 
@@ -146,14 +159,16 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       const rows = term.rows;
       if (cols < 2 || rows < 1) return;
 
-      const currentSocket = socketRef.current;
-      if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
-        currentSocket.send(
-          JSON.stringify({
-            type: 'resize',
-            data: { cols, rows },
-          })
-        );
+      if (isReady.current) {
+        try {
+          await fetch(`/api/terminal/${sessionId}/resize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cols, rows }),
+          });
+        } catch (err) {
+          console.error('[Terminal] Failed to send resize:', err);
+        }
       }
     };
 
@@ -168,77 +183,98 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       });
     };
 
-    const connectWebSocket = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/terminal/${sessionId}`;
-      const socket = new WebSocket(wsUrl);
-      socketRef.current = socket;
+    // Create session and connect SSE
+    const connectTerminal = async () => {
+      try {
+        // First, create the session
+        const createResponse = await fetch('/api/terminal/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        });
 
-      socket.addEventListener('open', () => {
-        reconnectAttempts.current = 0;
-        if (reconnectTimeout.current) {
-          clearTimeout(reconnectTimeout.current);
-          reconnectTimeout.current = null;
+        if (!createResponse.ok) {
+          const error = await createResponse.json();
+          throw new Error(error.error || 'Failed to create session');
         }
-        if (keepAliveInterval.current) {
-          clearInterval(keepAliveInterval.current);
-        }
-        keepAliveInterval.current = setInterval(() => {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: 'ping' }));
+
+        // Then connect to SSE stream
+        const eventSource = new EventSource(`/api/terminal/${sessionId}/stream`);
+        eventSourceRef.current = eventSource;
+
+        eventSource.onopen = () => {
+          reconnectAttempts.current = 0;
+          if (reconnectTimeout.current) {
+            clearTimeout(reconnectTimeout.current);
+            reconnectTimeout.current = null;
           }
-        }, 15000);
-        scheduleResizeSync([0, 80, 220]);
-      });
+        };
 
-      socket.addEventListener('close', (event) => {
-        if (isIntentionallyClosed.current) return;
+        eventSource.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            
+            if (payload.type === 'output') {
+              term.write(payload.data);
+            } else if (payload.type === 'ready') {
+              isReady.current = true;
+              scheduleResizeSync([0, 80, 220, 500]);
+            } else if (payload.type === 'exit') {
+              term.write(`\r\n\x1b[31m[Process exited with code ${payload.exitCode}]\x1b[0m\r\n`);
+              isReady.current = false;
+            } else if (payload.type === 'error') {
+              term.write(`\r\n\x1b[31m[Error: ${payload.error}]\x1b[0m\r\n`);
+            }
+          } catch {
+            // ignore malformed payloads
+          }
+        };
 
-        if (keepAliveInterval.current) {
-          clearInterval(keepAliveInterval.current);
-          keepAliveInterval.current = null;
-        }
-
-        // Server explicitly rejected (terminal limit, auth failure, etc)
-        if (event.code === 1013 || event.code === 1008 || event.code === 1003 || event.code === 1000) {
-          term.write(`\r\n\x1b[31m[Disconnected: ${event.reason || 'Unauthorized or Server closed'}]\x1b[0m\r\n`);
-          return;
-        }
-
-        // Network issue or server restart - reconnect with backoff
-        if (event.code === 1001 || event.code === 1006 || event.code === 1011) {
+        eventSource.onerror = () => {
+          if (isIntentionallyClosed.current) return;
+          
+          // Connection error - try to reconnect
+          eventSource.close();
+          isReady.current = false;
+          
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
           reconnectAttempts.current++;
 
           reconnectTimeout.current = setTimeout(() => {
             if (!isIntentionallyClosed.current) {
-              connectWebSocket();
+              connectTerminal();
             }
           }, delay);
+        };
+
+        // Keep-alive ping
+        if (keepAliveInterval.current) {
+          clearInterval(keepAliveInterval.current);
         }
-      });
-
-      socket.addEventListener('error', () => {
-        // handled via close + reconnect
-      });
-
-      socket.addEventListener('message', (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload.type === 'output') {
-            term.write(payload.data);
-          } else if (payload.type === 'ready') {
-            scheduleResizeSync([0, 80, 220, 500]);
+        keepAliveInterval.current = setInterval(() => {
+          if (eventSource.readyState === EventSource.OPEN) {
+            // SSE doesn't need explicit ping, but we can check connection
           }
-        } catch {
-          // ignore malformed payloads
-        }
-      });
+        }, 15000);
 
-      return socket;
+      } catch (err: any) {
+        console.error('[Terminal] Connection error:', err);
+        term.write(`\r\n\x1b[31m[Connection failed: ${err.message}]\x1b[0m\r\n`);
+        
+        // Retry with backoff
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
+        reconnectAttempts.current++;
+        
+        reconnectTimeout.current = setTimeout(() => {
+          if (!isIntentionallyClosed.current) {
+            connectTerminal();
+          }
+        }, delay);
+      }
     };
 
-    connectWebSocket();
+    // Start connection
+    connectTerminal();
     scheduleResizeSync([0, 100, 300, 700]);
     if (document.fonts?.ready) {
       document.fonts.ready
@@ -251,13 +287,10 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       if (!(event instanceof CustomEvent)) return;
       const detail = event.detail as { sessionId?: string; signal?: string } | undefined;
       if (!detail || detail.sessionId !== sessionId) return;
-      const currentSocket = socketRef.current;
-      if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
+      if (isReady.current) {
         const signal = detail.signal || 'INT';
         if (signal === 'INT') {
-          currentSocket.send(JSON.stringify({ type: 'input', data: '\u0003' }));
-        } else {
-          currentSocket.send(JSON.stringify({ type: 'signal', data: signal }));
+          sendInput('\u0003');
         }
       }
     };
@@ -266,9 +299,8 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       if (!(event instanceof CustomEvent)) return;
       const detail = event.detail as { sessionId?: string; command?: string } | undefined;
       if (!detail || detail.sessionId !== sessionId || !detail.command) return;
-      const currentSocket = socketRef.current;
-      if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
-        currentSocket.send(JSON.stringify({ type: 'input', data: `${detail.command}\n` }));
+      if (isReady.current) {
+        sendInput(`${detail.command}\n`);
       }
     };
 
@@ -299,11 +331,10 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       if (!(event instanceof CustomEvent)) return;
       const detail = event.detail as { sessionId?: string } | undefined;
       if (!detail || detail.sessionId !== sessionId) return;
-      const currentSocket = socketRef.current;
-      if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
+      if (isReady.current) {
         try {
           const text = await navigator.clipboard.readText();
-          currentSocket.send(JSON.stringify({ type: 'input', data: text }));
+          sendInput(text);
         } catch (err) {
           console.error('[Terminal] Failed to paste from clipboard:', err);
         }
@@ -368,9 +399,8 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
     // Handle terminal input
     term.onData((data) => {
-      const currentSocket = socketRef.current;
-      if (currentSocket && currentSocket.readyState === WebSocket.OPEN) {
-        currentSocket.send(JSON.stringify({ type: 'input', data }));
+      if (isReady.current) {
+        sendInput(data);
       }
     });
 
@@ -410,6 +440,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
     return () => {
       console.log('[Terminal] Cleanup for session', sessionId);
       isIntentionallyClosed.current = true;
+      isReady.current = false;
       if (reconnectTimeout.current) {
         clearTimeout(reconnectTimeout.current);
       }
@@ -430,8 +461,8 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       window.removeEventListener('terminal-paste', handlePaste as EventListener);
       window.removeEventListener('terminal-select-mode', handleSelectMode as EventListener);
       document.removeEventListener('visibilitychange', handleVisibility);
-      if (socketRef.current) {
-        socketRef.current.close();
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
       }
       term.dispose();
     };

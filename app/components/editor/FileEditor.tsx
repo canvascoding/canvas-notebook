@@ -22,15 +22,6 @@ const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.Offi
   ),
 });
 
-const DocxViewer = dynamic(() => import('./DocxViewer').then(mod => mod.DocxViewer), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center bg-background">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  ),
-});
-
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
 const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'csv']);
 const IMAGE_EXTENSIONS = new Set([
@@ -317,8 +308,6 @@ export function FileEditor() {
             </div>
           ) : isImage ? (
             <ImageViewer path={currentFile.path} />
-          ) : extension === 'docx' ? (
-            <DocxViewer path={currentFile.path} />
           ) : isOffice ? (
             <OfficeEditor key={currentFile.path} path={currentFile.path} extension={extension} updateDraft={updateDraft} />
           ) : isPdf ? (

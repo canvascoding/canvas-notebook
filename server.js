@@ -11,8 +11,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const next = require('next');
-const { attachTerminalServer } = require('./server/terminal-server');
-const { terminateAllSessions } = require('./server/terminal-manager');
+// Terminal service now runs as separate process via Unix Socket
+// See server/terminal-service.ts
 const { startAutomationScheduler } = require('./server/automation-scheduler');
 const { auth } = require('./app/lib/auth');
 const {
@@ -322,36 +322,14 @@ app
         return;
       }
 
-      if (url.pathname === '/api/terminal/kill' && req.method === 'POST') {
-        getAuthSession(req)
-          .then((sessionData) => {
-            if (!sessionData || !sessionData.user) {
-              res.statusCode = 401;
-              res.setHeader('Content-Type', 'application/json');
-              setNoIndexHeader(res);
-              res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
-              return;
-            }
-
-            const result = terminateAllSessions();
-            res.statusCode = 200;
-            res.setHeader('Content-Type', 'application/json');
-            setNoIndexHeader(res);
-            res.end(JSON.stringify({ success: true, closed: result.closed }));
-          })
-          .catch(() => {
-            res.statusCode = 500;
-            res.setHeader('Content-Type', 'application/json');
-            setNoIndexHeader(res);
-            res.end(JSON.stringify({ success: false, error: 'Internal server error' }));
-          });
-        return;
-      }
+      // Terminal kill endpoint is now handled by Next.js API routes
+      // See app/api/terminal/kill/route.ts
 
       handle(req, res);
     });
 
-    attachTerminalServer(server);
+    // Terminal service now runs as separate process
+    // WebSocket upgrade handling removed - using SSE via API routes instead
 
     server.listen(port, (err) => {
       if (err) throw err;

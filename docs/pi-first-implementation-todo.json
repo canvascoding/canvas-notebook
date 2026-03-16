@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-15T15:00:00+01:00",
+  "lastUpdatedAt": "2026-03-16T09:04:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1100,6 +1100,90 @@
         "skills-anthropic-010"
       ],
       "description": "Successfully ran npm run build with no TypeScript errors. All 10 Anthropic skills (algorithmic-art, brand-guidelines, canvas-design, doc-coauthoring, docx, internal-comms, pdf, pptx, skill-creator, xlsx) are now available in the Skill Gallery."
+    },
+    {
+      "id": "docx-001",
+      "order": 99,
+      "phase": "P17 DOCX Editor Integration",
+      "title": "Install @eigenpal/docx-js-editor Package",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "skills-anthropic-011"
+      ],
+      "description": "npm install @eigenpal/docx-js-editor and import styles"
+    },
+    {
+      "id": "docx-002",
+      "order": 100,
+      "phase": "P17 DOCX Editor Integration",
+      "title": "Create new DocxEditor.tsx component",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "docx-001"
+      ],
+      "description": "Wrapper for @eigenpal/docx-js-editor with dynamic import for Next.js SSR compatibility"
+    },
+    {
+      "id": "docx-003",
+      "order": 101,
+      "phase": "P17 DOCX Editor Integration",
+      "title": "Update OfficeEditor.tsx for DOCX",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "docx-002"
+      ],
+      "description": "Remove mammoth/univerjs for DOCX, keep XLSX with @univerjs, use DocxEditor for .docx files"
+    },
+    {
+      "id": "docx-004",
+      "order": 102,
+      "phase": "P17 DOCX Editor Integration",
+      "title": "Create API endpoint for DOCX file loading",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "docx-002"
+      ],
+      "description": "GET /api/files/docx?path=... returns buffer as base64"
+    },
+    {
+      "id": "docx-005",
+      "order": 103,
+      "phase": "P17 DOCX Editor Integration",
+      "title": "Implement save functionality",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "docx-003"
+      ],
+      "description": "onChange callback in DocxEditor, save to draft, Update Changes button"
+    },
+    {
+      "id": "docx-006",
+      "order": 104,
+      "phase": "P17 DOCX Editor Integration",
+      "title": "Test the integration",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "docx-005"
+      ],
+      "description": "Open DOCX, edit text, save, verify formatting"
+    },
+    {
+      "id": "docx-007",
+      "order": 105,
+      "phase": "P17 DOCX Editor Integration",
+      "title": "Remove @univerjs DOCX plugins and old DocxViewer (cleanup)",
+      "status": "completed",
+      "priority": "should",
+      "dependsOn": [
+        "docx-006"
+      ],
+      "description": "Remove @univerjs/docs and @univerjs/docs-ui from OfficeEditor, delete old DocxViewer.tsx"
     }
   ]
 }

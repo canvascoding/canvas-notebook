@@ -6,6 +6,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawn, spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
+import { randomBytes } from 'node:crypto';
 
 const DEFAULT_ENV_FILE = '.env.local';
 const FALLBACK_DEV_PORT = 3001;
@@ -93,10 +94,17 @@ async function main() {
     process.exit(1);
   }
 
+  // Generate terminal auth token
+  const terminalToken = randomBytes(32).toString('hex');
+  console.log(`[dev] Terminal service token: ${terminalToken.substring(0, 8)}...`);
+
   const childEnv = {
     ...process.env,
     CANVAS_ENV_FILE: configuredEnvFile,
     PORT: String(selectedPort),
+    CANVAS_TERMINAL_TOKEN: terminalToken,
+    CANVAS_TERMINAL_PORT: '3457',
+    CANVAS_TERMINAL_USE_UNIX_SOCKET: 'false',
   };
 
   if (!explicitPort && selectedPort !== requestedPort) {
@@ -123,6 +131,19 @@ async function main() {
     process.exit(0);
   }
 
+  // Start terminal service first
+  console.log('[dev] Starting terminal service on port 3457...');
+  const terminalService = spawn('npx', ['tsx', 'server/terminal-service.ts'], {
+    cwd: process.cwd(),
+    env: childEnv,
+    stdio: 'inherit',
+  });
+
+  // Wait for terminal service to start
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Start Next.js
+  console.log(`[dev] Starting Next.js on port ${selectedPort}...`);
   const child = spawn('tsx', ['server.js'], {
     cwd: process.cwd(),
     env: childEnv,
@@ -133,17 +154,30 @@ async function main() {
     if (!child.killed) {
       child.kill(signal);
     }
+    if (!terminalService.killed) {
+      terminalService.kill(signal);
+    }
   };
 
   process.on('SIGINT', forwardSignal);
   process.on('SIGTERM', forwardSignal);
 
   child.on('exit', (code, signal) => {
+    if (!terminalService.killed) {
+      terminalService.kill('SIGTERM');
+    }
     if (signal) {
       process.kill(process.pid, signal);
       return;
     }
     process.exit(code ?? 0);
+  });
+
+  terminalService.on('exit', (code) => {
+    console.log(`[dev] Terminal service exited with code ${code}`);
+    if (!child.killed) {
+      child.kill('SIGTERM');
+    }
   });
 }
 

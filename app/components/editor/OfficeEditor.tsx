@@ -1,17 +1,15 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import '@univerjs/design/lib/index.css';
 import '@univerjs/ui/lib/index.css';
-import '@univerjs/docs-ui/lib/index.css';
 import '@univerjs/sheets-ui/lib/index.css';
 
 import { Univer, UniverInstanceType, LocaleType } from '@univerjs/core';
 import { UniverRenderEnginePlugin } from '@univerjs/engine-render';
 import { UniverFormulaEnginePlugin } from '@univerjs/engine-formula';
 import { UniverUIPlugin } from '@univerjs/ui';
-import { UniverDocsPlugin } from '@univerjs/docs';
-import { UniverDocsUIPlugin } from '@univerjs/docs-ui';
 import { UniverSheetsPlugin } from '@univerjs/sheets';
 import { UniverSheetsUIPlugin } from '@univerjs/sheets-ui';
 import { UniverSheetsFormulaPlugin } from '@univerjs/sheets-formula';
@@ -22,16 +20,20 @@ import { UniverSheetsConditionalFormattingPlugin } from '@univerjs/sheets-condit
 import { UniverSheetsZenEditorPlugin } from '@univerjs/sheets-zen-editor';
 
 import * as XLSX from 'xlsx';
-import mammoth from 'mammoth';
 
 // Locale imports
 import enUS from '@univerjs/design/locale/en-US';
 import uiEnUS from '@univerjs/ui/locale/en-US';
-import docsUIEnUS from '@univerjs/docs-ui/locale/en-US';
 import sheetsEnUS from '@univerjs/sheets/locale/en-US';
 import sheetsUIEnUS from '@univerjs/sheets-ui/locale/en-US';
 
 import { defaultTheme } from '@univerjs/design';
+
+// Dynamic import for DocxEditor to avoid SSR issues
+const DocxEditorComponent = dynamic(
+  () => import('./DocxEditor').then((mod) => mod.DocxEditorWrapper),
+  { ssr: false }
+);
 
 interface OfficeEditorProps {
   path: string;
@@ -67,12 +69,29 @@ type UniverLike = Univer & {
 export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<Univer | null>(null);
-  const isInitialized = useRef(false); // New flag to track if Univer has been initialized
+  const docxEditorRef = useRef<{ save: () => Promise<ArrayBuffer | null> } | null>(null);
+  const isInitialized = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [docxBuffer, setDocxBuffer] = useState<ArrayBuffer | null>(null);
 
   // Helper to sync Univer data to editor draft
   const syncToDraft = () => {
+    if (extension === 'docx') {
+      // Handle DOCX save
+      if (docxEditorRef.current && updateDraft) {
+        docxEditorRef.current.save().then((buffer) => {
+          if (buffer) {
+            const base64 = btoa(
+              new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+            );
+            updateDraft('base64:' + base64);
+          }
+        });
+      }
+      return;
+    }
+
     if (!univerRef.current || !updateDraft || extension !== 'xlsx') return;
     
     try {
@@ -116,6 +135,27 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
   };
 
   useEffect(() => {
+    if (extension === 'docx') {
+      // Load DOCX file for the new editor
+      const loadDocx = async () => {
+        try {
+          const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`, {
+            credentials: 'include'
+          });
+          if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+          const arrayBuffer = await response.arrayBuffer();
+          setDocxBuffer(arrayBuffer);
+          setLoading(false);
+        } catch (err) {
+          console.error('[OfficeEditor] Error loading DOCX:', err);
+          setError(err instanceof Error ? err.message : 'Unknown error');
+          setLoading(false);
+        }
+      };
+      loadDocx();
+      return;
+    }
+
     if (!containerRef.current) return;
 
     // Use the isInitialized ref to prevent multiple initializations in StrictMode
@@ -123,14 +163,12 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
       return;
     }
 
-    isInitialized.current = true; // Mark as initialized for this component instance
+    isInitialized.current = true;
 
-    // Use a local variable to track if this effect instance is still "alive"
     let alive = true;
     let univer: Univer | null = null;
     const parent = containerRef.current;
 
-    // Create a dedicated container element
     const el = document.createElement('div');
     el.className = 'univer-instance-container';
     el.style.height = '100%';
@@ -150,14 +188,12 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
             [LocaleType.EN_US]: {
               ...enUS,
               ...uiEnUS,
-              ...docsUIEnUS,
               ...sheetsEnUS,
               ...sheetsUIEnUS,
             },
           },
         });
 
-        // Register core plugins
         univer.registerPlugin(UniverRenderEnginePlugin);
         univer.registerPlugin(UniverFormulaEnginePlugin);
         univer.registerPlugin(UniverUIPlugin, {
@@ -166,11 +202,6 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
           footer: true,
         });
 
-        // Global registration for input capture
-        univer.registerPlugin(UniverDocsPlugin);
-        univer.registerPlugin(UniverDocsUIPlugin);
-
-        // Fetch file data with credentials
         const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`, {
             credentials: 'include'
         });
@@ -221,42 +252,16 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
               }
             }
           });
-        } else if (extension === 'docx') {
-          // Better text extraction for DOCX
-          const result = await mammoth.extractRawText({ arrayBuffer });
-          const text = (result.value || '').replace(/\r\n/g, '\r').replace(/\n/g, '\r');
-          
-          // Split into paragraphs for better rendering and scrolling
-          const lines = text.split('\r');
-          const paragraphs = [];
-          let currentPos = 0;
-          
-          for (const line of lines) {
-            currentPos += line.length + 1;
-            paragraphs.push({
-              startIndex: currentPos - 1,
-            });
-          }
-
-          univer.createUnit(UniverInstanceType.UNIVER_DOC, {
-            id: 'doc-instance',
-            body: { 
-                dataStream: text + '\r',
-                paragraphs: paragraphs
-            }
-          });
         }
 
         if (alive) {
           univerRef.current = univer;
           setLoading(false);
-          // Auto-focus the editor area
           setTimeout(() => {
             if (!alive) return;
             const canvas = el.querySelector('canvas');
             if (canvas) {
                 canvas.focus();
-                // Simulating a click to ensure internal focus
                 canvas.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
                 canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
             }
@@ -284,7 +289,6 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
         } catch (e) {
           console.error('[OfficeEditor] Error disposing Univer instance:', e);
         }
-      } else {
       }
       if (parent && parent.contains(el)) {
         parent.removeChild(el);
@@ -292,9 +296,34 @@ export function OfficeEditor({ path, extension, updateDraft }: OfficeEditorProps
     };
   }, [path, extension]);
 
+  // Handle DOCX editor
+  if (extension === 'docx' && docxBuffer) {
+    return (
+      <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
+        <div className="absolute top-2 right-12 z-[70] flex gap-2">
+          <button 
+              onClick={(e) => {
+                  e.stopPropagation();
+                  syncToDraft();
+              }}
+              className="border border-border bg-primary px-3 py-1 text-xs text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+          >
+              Update Changes
+          </button>
+        </div>
+        <DocxEditorComponent
+          ref={docxEditorRef}
+          path={path}
+          documentBuffer={docxBuffer}
+          mode="editing"
+          onChange={() => {}}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
-      {/* Header for Save Button */}
       <div className="absolute top-2 right-12 z-[70] flex gap-2">
         <button 
             onClick={(e) => {
