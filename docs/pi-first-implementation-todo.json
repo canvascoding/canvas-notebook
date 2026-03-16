@@ -1400,6 +1400,28 @@
         "pptx-005"
       ],
       "description": "Mark all PPTX tasks as completed, commit changes"
+    },
+    {
+      "id": "docx-fix-001",
+      "order": 124,
+      "phase": "P20 DOCX Fixes",
+      "title": "Add Python dependencies to Dockerfile for skills",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [],
+      "description": "Added openpyxl, pypdf, pdfplumber, pdf2image, Pillow, defusedxml, lxml, PyYAML to Dockerfile runner stage"
+    },
+    {
+      "id": "docx-fix-002",
+      "order": 125,
+      "phase": "P20 DOCX Fixes",
+      "title": "Improve table rendering styles in DocxEditor",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "docx-fix-001"
+      ],
+      "description": "Added CSS overrides for table borders, cell padding, alternating row colors, and overflow handling in DocxEditor.tsx"
     }
   ]
 }
