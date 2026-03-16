@@ -7,6 +7,7 @@ import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-conf
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { VeoStudioClient } from '@/app/apps/veo-studio/components/VeoStudioClient';
 
@@ -36,6 +37,7 @@ export default async function VeoPage() {
             <span className="text-sm font-semibold">VEO Studio</span>
           </div>
           <div className="flex items-center gap-2">
+            <NotebookNavButton />
             <div className="hidden md:flex flex-col items-end">
               <span className="text-xs font-bold tracking-widest text-muted-foreground uppercase">User</span>
               <span className="text-xs">{username}</span>

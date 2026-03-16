@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { auth } from '@/app/lib/auth';
 import { Button } from '@/components/ui/button';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { IntegrationsSettingsClient } from '@/app/components/settings/IntegrationsSettingsClient';
@@ -33,6 +34,7 @@ export default async function SettingsPage() {
             <span className="text-sm font-semibold">Settings</span>
           </div>
           <div className="flex items-center gap-2">
+            <NotebookNavButton />
             <div className="hidden md:flex flex-col items-end">
               <span className="text-xs font-bold tracking-widest text-muted-foreground uppercase">User</span>
               <span className="text-xs">{username}</span>

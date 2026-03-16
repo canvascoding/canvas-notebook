@@ -5,6 +5,7 @@ import { ArrowLeft } from 'lucide-react';
 
 import { auth } from '@/app/lib/auth';
 import { LogoutButton } from '@/app/components/LogoutButton';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { AutomationsClient } from '@/app/apps/automationen/components/AutomationsClient';
@@ -34,6 +35,7 @@ export default async function AutomationenPage() {
             <span className="text-sm font-semibold">Automationen</span>
           </div>
           <div className="flex items-center gap-2">
+            <NotebookNavButton />
             <div className="hidden md:flex flex-col items-end">
               <span className="text-xs font-bold tracking-widest text-muted-foreground uppercase">User</span>
               <span className="text-xs">{username}</span>

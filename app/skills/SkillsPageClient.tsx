@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, Wrench, BookOpen, Power, CheckCircle2, XCircle } from 'lucide-react';
 
 import { LogoutButton } from '@/app/components/LogoutButton';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { Button } from '@/components/ui/button';
@@ -176,6 +177,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">SKILL GALLERY</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
+            <NotebookNavButton />
             <ThemeToggle />
             <div className="hidden lg:flex flex-col items-end shrink-0">
               <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">User</span>

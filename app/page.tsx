@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LogoutButton } from './components/LogoutButton';
 import { ThemeToggle } from './components/ThemeToggle';
+import { NotebookNavButton } from './components/NotebookNavButton';
 
 type AgentSetupCardState = {
   providerLabel: string;
@@ -69,6 +70,7 @@ export default async function Home() {
           </div>
 
           <div className="flex items-center gap-2 md:gap-3">
+            <NotebookNavButton />
             <ThemeToggle />
             <div className="hidden md:flex flex-col items-end">
               <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">User</span>

@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
 import { LogoutButton } from '@/app/components/LogoutButton';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { auth } from '@/app/lib/auth';
@@ -42,6 +43,7 @@ export default async function TerminalPage() {
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">CANVAS STUDIOS</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
+            <NotebookNavButton />
             <ThemeToggle />
             <div className="hidden lg:flex flex-col items-end shrink-0">
               <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">User</span>

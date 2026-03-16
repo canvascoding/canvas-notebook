@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { auth } from '@/app/lib/auth';
@@ -43,6 +44,7 @@ export default async function ChatPage() {
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">CANVAS CHAT</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
+            <NotebookNavButton />
             <ThemeToggle />
             <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
               <Link href="/usage">Usage</Link>

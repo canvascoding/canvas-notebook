@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
 import { LogoutButton } from '@/app/components/LogoutButton';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
 import { auth } from '@/app/lib/auth';
@@ -34,6 +35,7 @@ export default async function UsagePage() {
             <span className="text-sm font-semibold">Usage</span>
           </div>
           <div className="flex items-center gap-2">
+            <NotebookNavButton />
             <div className="hidden md:flex flex-col items-end">
               <span className="text-xs font-bold tracking-widest text-muted-foreground uppercase">User</span>
               <span className="text-xs">{username}</span>

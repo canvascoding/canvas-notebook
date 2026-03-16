@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 
 import { auth } from '@/app/lib/auth';
 import { Button } from '@/components/ui/button';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import HelpPageClient from './HelpPageClient';
@@ -44,6 +45,7 @@ export default async function HelpPage() {
           </div>
 
           <div className="flex items-center gap-1.5 md:gap-4">
+            <NotebookNavButton />
             <ThemeToggle />
             <div className="hidden lg:flex flex-col items-end shrink-0">
               <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">User</span>

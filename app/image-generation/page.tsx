@@ -3,10 +3,11 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { auth } from '@/app/lib/auth';
-import { getGeminiApiKey } from '@/app/lib/integrations/env-config';
+import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ImageGenerationClient } from '@/app/apps/image-generation/components/ImageGenerationClient';
 
@@ -20,7 +21,7 @@ export default async function ImageGenerationPage() {
   }
 
   const username = session.user.name || session.user.email;
-  const geminiApiKey = await getGeminiApiKey();
+  const geminiApiKey = await getGeminiApiKeyFromIntegrations();
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
@@ -36,6 +37,7 @@ export default async function ImageGenerationPage() {
             <span className="text-sm font-semibold">Image Generation</span>
           </div>
           <div className="flex items-center gap-2">
+            <NotebookNavButton />
             <div className="hidden md:flex flex-col items-end">
               <span className="text-xs font-bold tracking-widest text-muted-foreground uppercase">User</span>
               <span className="text-xs">{username}</span>
