@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, like, or, sql } from 'drizzle-orm';
 
 import { db } from '../db';
 import { piUsageEvents, user } from '../db/schema';
@@ -107,6 +107,10 @@ function buildSessionQueryPattern(value: string): string {
   return `%${value.replace(/[%_]/g, '\\$&')}%`;
 }
 
+function toUnixSeconds(date: Date): number {
+  return Math.floor(date.getTime() / 1000);
+}
+
 function serializeUsageFilters(filters: UsageFilters, access: UsageAccess): SerializedUsageFilters {
   return {
     from: filters.from.toISOString(),
@@ -143,8 +147,8 @@ export function resolveUsageAccess(
 
 function buildWhere(filters: UsageFilters, access: UsageAccess) {
   const conditions = [
-    gte(piUsageEvents.assistantTimestamp, filters.from),
-    lte(piUsageEvents.assistantTimestamp, filters.to),
+    sql`${piUsageEvents.assistantTimestamp} >= ${toUnixSeconds(filters.from)}`,
+    sql`${piUsageEvents.assistantTimestamp} <= ${toUnixSeconds(filters.to)}`,
   ];
 
   if (access.effectiveUserId) {
@@ -218,14 +222,14 @@ function getGrouping(filters: UsageFilters) {
   switch (filters.groupBy) {
     case 'provider':
       return {
-        groupKey: piUsageEvents.provider,
-        label: piUsageEvents.provider,
+        groupKey: sql<string>`${piUsageEvents.provider}`,
+        label: sql<string>`${piUsageEvents.provider}`,
         orderBy: desc(sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`),
       };
     case 'model':
       return {
-        groupKey: piUsageEvents.model,
-        label: piUsageEvents.model,
+        groupKey: sql<string>`${piUsageEvents.model}`,
+        label: sql<string>`${piUsageEvents.model}`,
         orderBy: desc(sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`),
       };
     case 'user':
@@ -243,9 +247,9 @@ function getGrouping(filters: UsageFilters) {
     case 'day':
     default:
       return {
-        groupKey: sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp} / 1000, 'unixepoch')`,
-        label: sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp} / 1000, 'unixepoch')`,
-        orderBy: asc(sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp} / 1000, 'unixepoch')`),
+        groupKey: sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp}, 'unixepoch')`,
+        label: sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp}, 'unixepoch')`,
+        orderBy: asc(sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp}, 'unixepoch')`),
       };
   }
 }
@@ -258,21 +262,19 @@ export async function getUsageSummary(
   const whereClause = buildWhere(filters, access);
   const totals = await loadTotals(whereClause);
   const grouping = getGrouping(filters);
-  const groupKeyExpr = grouping.groupKey.as('groupKey');
-  const labelExpr = grouping.label.as('label');
-  const totalCostExpr = sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`.as('totalCost');
-  const totalTokensExpr = sql<number>`coalesce(sum(${piUsageEvents.totalTokens}), 0)`.as('totalTokens');
-  const inputTokensExpr = sql<number>`coalesce(sum(${piUsageEvents.inputTokens}), 0)`.as('inputTokens');
-  const outputTokensExpr = sql<number>`coalesce(sum(${piUsageEvents.outputTokens}), 0)`.as('outputTokens');
+  const totalCostExpr = sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`;
+  const totalTokensExpr = sql<number>`coalesce(sum(${piUsageEvents.totalTokens}), 0)`;
+  const inputTokensExpr = sql<number>`coalesce(sum(${piUsageEvents.inputTokens}), 0)`;
+  const outputTokensExpr = sql<number>`coalesce(sum(${piUsageEvents.outputTokens}), 0)`;
   const cacheTokensExpr =
-    sql<number>`coalesce(sum(${piUsageEvents.cacheReadTokens} + ${piUsageEvents.cacheWriteTokens}), 0)`.as('cacheTokens');
-  const sessionCountExpr = sql<number>`count(distinct ${piUsageEvents.sessionId})`.as('sessionCount');
-  const eventCountExpr = sql<number>`count(*)`.as('eventCount');
+    sql<number>`coalesce(sum(${piUsageEvents.cacheReadTokens} + ${piUsageEvents.cacheWriteTokens}), 0)`;
+  const sessionCountExpr = sql<number>`count(distinct ${piUsageEvents.sessionId})`;
+  const eventCountExpr = sql<number>`count(*)`;
 
   const rows = await db
     .select({
-      groupKey: groupKeyExpr,
-      label: labelExpr,
+      groupKey: grouping.groupKey,
+      label: grouping.label,
       totalCost: totalCostExpr,
       totalTokens: totalTokensExpr,
       inputTokens: inputTokensExpr,
@@ -284,7 +286,7 @@ export async function getUsageSummary(
     .from(piUsageEvents)
     .leftJoin(user, eq(piUsageEvents.userId, user.id))
     .where(whereClause)
-    .groupBy(groupKeyExpr, labelExpr)
+    .groupBy(grouping.groupKey, grouping.label)
     .orderBy(grouping.orderBy)
     .limit(DEFAULT_SUMMARY_LIMIT);
 
@@ -358,7 +360,7 @@ export async function getUsageEvents(
       provider: row.provider,
       model: row.model,
       stopReason: row.stopReason,
-      assistantTimestamp: row.assistantTimestamp.toISOString(),
+      assistantTimestamp: new Date(toNumber(row.assistantTimestamp) * 1000).toISOString(),
       totalTokens: toNumber(row.totalTokens),
       inputTokens: toNumber(row.inputTokens),
       outputTokens: toNumber(row.outputTokens),

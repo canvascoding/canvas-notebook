@@ -164,13 +164,17 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
                   const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
                   const cellObj = worksheet[cellRef];
                   
-                  // Store formula if present
+                  // Store formula if present (for saving later)
                   if (cellObj && cellObj.f) {
                     formulasRef.current.set(`${sheetName}!${cellRef}`, cellObj.f);
-                    return '=' + cellObj.f;  // Return formula with = prefix for jspreadsheet
+                    // Return the CALCULATED VALUE instead of the formula
+                    // This is what users expect to see
+                    if (cellObj.v !== undefined && cellObj.v !== null) {
+                      return cellObj.v;
+                    }
                   }
                   
-                  // Return value
+                  // Return value from JSON data
                   if (cell === null || cell === undefined) return '';
                   if (typeof cell === 'boolean') return cell;
                   if (typeof cell === 'number') return cell;

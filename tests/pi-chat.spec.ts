@@ -188,6 +188,272 @@ test.describe('PI Chat E2E', () => {
     expect(messageOrder.indexOf('chat-message-toolResult')).toBeLessThan(messageOrder.indexOf('chat-message-assistant'));
   });
 
+  test('should render compact usage footer for assistant responses', async ({ page }) => {
+    await page.route('**/api/stream', async (route) => {
+      const body = [
+        JSON.stringify({
+          type: 'message_update',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Usage enabled answer.' }],
+            api: 'mock',
+            provider: 'mock',
+            model: 'mock-model',
+            usage: {
+              input: 123,
+              output: 456,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 579,
+              cost: {
+                input: 0.001,
+                output: 0.0113,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0.0123,
+              },
+            },
+            stopReason: 'stop',
+            timestamp: Date.now(),
+          },
+          assistantMessageEvent: {
+            type: 'text_delta',
+            delta: 'Usage enabled answer.',
+          },
+        }),
+        JSON.stringify({
+          type: 'agent_end',
+          messages: [
+            {
+              role: 'user',
+              content: 'Show usage',
+              timestamp: Date.now(),
+            },
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Usage enabled answer.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: {
+                input: 123,
+                output: 456,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 579,
+                cost: {
+                  input: 0.001,
+                  output: 0.0113,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  total: 0.0123,
+                },
+              },
+              stopReason: 'stop',
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      ].join('\n') + '\n';
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body,
+      });
+    });
+
+    await page.goto('/chat');
+    const input = page.getByTestId('chat-input');
+    await input.fill('Render usage footer.');
+    await input.press('Enter');
+
+    const usageFooter = page.getByTestId('chat-usage-footer').first();
+    await expect(usageFooter).toBeVisible();
+    await expect(usageFooter).toContainText('579 tok · $0.0123');
+    await expect(usageFooter).toContainText('123 in / 456 out');
+  });
+
+  test('should render the usage analytics page and apply provider filters', async ({ page }) => {
+    await page.route('**/api/usage/summary**', async (route) => {
+      const url = new URL(route.request().url());
+      const provider = url.searchParams.get('provider');
+      const payload = provider === 'openai'
+        ? {
+            success: true,
+            filters: {
+              from: '2026-03-01T00:00:00.000Z',
+              to: '2026-03-30T23:59:59.999Z',
+              provider: 'openai',
+              model: null,
+              sessionId: null,
+              sessionQuery: null,
+              stopReason: null,
+              groupBy: 'provider',
+              userId: null,
+            },
+            totals: {
+              totalCost: 1.2345,
+              totalTokens: 1500,
+              inputTokens: 900,
+              outputTokens: 600,
+              cacheTokens: 0,
+              sessionCount: 3,
+              eventCount: 4,
+            },
+            rows: [
+              {
+                groupKey: 'openai',
+                label: 'openai',
+                totalCost: 1.2345,
+                totalTokens: 1500,
+                inputTokens: 900,
+                outputTokens: 600,
+                cacheTokens: 0,
+                sessionCount: 3,
+                eventCount: 4,
+              },
+            ],
+          }
+        : {
+            success: true,
+            filters: {
+              from: '2026-03-01T00:00:00.000Z',
+              to: '2026-03-30T23:59:59.999Z',
+              provider: null,
+              model: null,
+              sessionId: null,
+              sessionQuery: null,
+              stopReason: null,
+              groupBy: 'day',
+              userId: null,
+            },
+            totals: {
+              totalCost: 2.468,
+              totalTokens: 2200,
+              inputTokens: 1300,
+              outputTokens: 900,
+              cacheTokens: 0,
+              sessionCount: 5,
+              eventCount: 6,
+            },
+            rows: [
+              {
+                groupKey: '2026-03-16',
+                label: '2026-03-16',
+                totalCost: 2.468,
+                totalTokens: 2200,
+                inputTokens: 1300,
+                outputTokens: 900,
+                cacheTokens: 0,
+                sessionCount: 5,
+                eventCount: 6,
+              },
+            ],
+          };
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(payload),
+      });
+    });
+
+    await page.route('**/api/usage/events**', async (route) => {
+      const url = new URL(route.request().url());
+      const provider = url.searchParams.get('provider');
+      const payload = provider === 'openai'
+        ? {
+            success: true,
+            filters: {
+              from: '2026-03-01T00:00:00.000Z',
+              to: '2026-03-30T23:59:59.999Z',
+              provider: 'openai',
+              model: null,
+              sessionId: null,
+              sessionQuery: null,
+              stopReason: null,
+              groupBy: 'provider',
+              userId: null,
+            },
+            page: 1,
+            pageSize: 50,
+            totalRows: 1,
+            rows: [
+              {
+                id: 1,
+                userId: 'user-main',
+                userLabel: 'Main User',
+                sessionId: 'sess-openai',
+                sessionTitleSnapshot: 'OpenAI Session',
+                provider: 'openai',
+                model: 'gpt-4o',
+                stopReason: 'stop',
+                assistantTimestamp: '2026-03-16T10:00:00.000Z',
+                totalTokens: 1500,
+                inputTokens: 900,
+                outputTokens: 600,
+                cacheTokens: 0,
+                totalCost: 1.2345,
+              },
+            ],
+          }
+        : {
+            success: true,
+            filters: {
+              from: '2026-03-01T00:00:00.000Z',
+              to: '2026-03-30T23:59:59.999Z',
+              provider: null,
+              model: null,
+              sessionId: null,
+              sessionQuery: null,
+              stopReason: null,
+              groupBy: 'day',
+              userId: null,
+            },
+            page: 1,
+            pageSize: 50,
+            totalRows: 1,
+            rows: [
+              {
+                id: 1,
+                userId: 'user-main',
+                userLabel: 'Main User',
+                sessionId: 'sess-1',
+                sessionTitleSnapshot: 'Daily Session',
+                provider: 'anthropic',
+                model: 'claude-sonnet-4',
+                stopReason: 'toolUse',
+                assistantTimestamp: '2026-03-16T10:00:00.000Z',
+                totalTokens: 2200,
+                inputTokens: 1300,
+                outputTokens: 900,
+                cacheTokens: 0,
+                totalCost: 2.468,
+              },
+            ],
+          };
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(payload),
+      });
+    });
+
+    await page.goto('/usage');
+    await expect(page.getByTestId('usage-page')).toBeVisible();
+    await expect(page.getByText('Usage Analytics')).toBeVisible();
+    await expect(page.getByTestId('usage-summary-table')).toContainText('2026-03-16');
+
+    await page.getByPlaceholder('openai, anthropic, ollama').fill('openai');
+    await page.getByRole('button', { name: /apply filters/i }).click();
+
+    await expect(page.getByTestId('usage-summary-table')).toContainText('openai');
+    await expect(page.getByTestId('usage-event-row')).toContainText('OpenAI Session');
+    await expect(page.getByText('$1.2345').first()).toBeVisible();
+  });
+
   test('should save managed prompt files in settings and keep chat working', async ({ page }) => {
     await page.goto('/settings?tab=agent-settings');
 

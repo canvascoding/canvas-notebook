@@ -223,6 +223,59 @@ async function testSessionPersistence(cookie, sessionId) {
   }
 
   console.log(`[PI Test] Persistence check passed (${messages.length} messages).`);
+
+  return messages;
+}
+
+async function testUsageAnalytics(cookie, sessionId, persistedMessages) {
+  console.log('[PI Test] Testing usage analytics endpoints...');
+
+  const summary = await request('/api/usage/summary?groupBy=day', {
+    headers: { cookie },
+  });
+  if (!summary.response.ok || !summary.body?.success) {
+    throw new Error(`Usage summary failed: ${summary.response.status}`);
+  }
+
+  if (!summary.body?.totals || typeof summary.body.totals.totalTokens !== 'number') {
+    throw new Error('Usage summary payload missing totals');
+  }
+
+  const events = await request(`/api/usage/events?sessionQuery=${encodeURIComponent(sessionId)}`, {
+    headers: { cookie },
+  });
+  if (!events.response.ok || !events.body?.success) {
+    throw new Error(`Usage events failed: ${events.response.status}`);
+  }
+
+  if (!Array.isArray(events.body.rows)) {
+    throw new Error('Usage events payload missing rows');
+  }
+
+  const assistantWithUsage = persistedMessages.find((message) => {
+    if (message.role !== 'assistant' || !message.usage) {
+      return false;
+    }
+
+    return (
+      message.usage.totalTokens > 0 ||
+      message.usage.input > 0 ||
+      message.usage.output > 0 ||
+      message.usage.cacheRead > 0 ||
+      message.usage.cacheWrite > 0
+    );
+  });
+
+  if (assistantWithUsage) {
+    const matchingEvent = events.body.rows.find((row) => row.sessionId === sessionId);
+    if (!matchingEvent) {
+      throw new Error('Expected usage event for persisted assistant usage');
+    }
+  } else {
+    console.warn('[PI Test] WARNING: Persisted assistant message had no tracked usage; skipping strict usage ledger assertion.');
+  }
+
+  console.log('[PI Test] Usage analytics check passed.');
 }
 
 async function run() {
@@ -232,7 +285,8 @@ async function run() {
     await testManagedFiles(cookie);
     const sessionId = await testSessions(cookie);
     await testStream(cookie, sessionId);
-    await testSessionPersistence(cookie, sessionId);
+    const persistedMessages = await testSessionPersistence(cookie, sessionId);
+    await testUsageAnalytics(cookie, sessionId, persistedMessages);
     console.log('[PI Test] All integration tests passed! 🚀');
   } catch (error) {
     console.error('[PI Test] FAILED:', error.message);

@@ -22,6 +22,8 @@
     "test:integration:pi": "node scripts/pi-integration-test.mjs",
     "pretest:pi:attachments": "npm run todos:sync:agent",
     "test:pi:attachments": "tsx scripts/pi-attachments-test.ts",
+    "pretest:pi:usage": "npm run todos:sync:agent",
+    "test:pi:usage": "tsx scripts/pi-usage-test.ts",
     "pretest:prompt-builder": "npm run todos:sync:agent",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
     "pretest:automation:schedule": "npm run todos:sync:agent",

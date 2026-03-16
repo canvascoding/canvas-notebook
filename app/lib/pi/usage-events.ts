@@ -61,7 +61,7 @@ export function extractPiUsageEventValues(params: {
       provider: message.provider,
       model: message.model,
       sessionTitleSnapshot: params.sessionTitleSnapshot ?? null,
-      assistantTimestamp: new Date(message.timestamp),
+      assistantTimestamp: Math.floor(new Date(message.timestamp).getTime() / 1000), // Convert Date to Unix timestamp (seconds)
       stopReason: message.stopReason,
       inputTokens: message.usage.input,
       outputTokens: message.usage.output,
@@ -112,7 +112,7 @@ export async function persistPiUsageEvents({
   await db
     .insert(piUsageEvents)
     .values(values)
-    .onConflictDoNothing({ target: piUsageEvents.fingerprint });
+    .onConflictDoNothing({ target: [piUsageEvents.fingerprint] });
 
   return values.length;
 }
