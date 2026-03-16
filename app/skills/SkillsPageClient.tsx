@@ -234,6 +234,20 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
             </Button>
           </div>
 
+          {/* Integrations Hint */}
+          <Card className="border-dashed border-muted-foreground/30 bg-muted/30">
+            <CardContent className="py-4 px-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <p className="text-sm text-muted-foreground">
+                  <span className="font-medium">Hinweis:</span> Wenn Skills Env-Variablen benötigen, müssen diese im Integrations-Tab gespeichert werden.
+                </p>
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/settings?tab=integrations">Integrations öffnen</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Skills Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {skills.map((skill) => (
