@@ -257,6 +257,23 @@ function formatSessionId(value: string | null): string {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
+function isAutomaticSessionTitle(value: string | null | undefined): boolean {
+  if (!value) {
+    return true;
+  }
+
+  const normalized = value.trim();
+  return normalized === '' || normalized === 'New session' || normalized === 'New PI Chat';
+}
+
+function getSessionDisplayLabel(sessionTitle: string | null, sessionId: string | null): string {
+  if (sessionTitle && !isAutomaticSessionTitle(sessionTitle)) {
+    return sessionTitle;
+  }
+
+  return formatSessionId(sessionId);
+}
+
 function formatToolArgs(args: unknown): string {
   if (args === undefined) {
     return '';
@@ -390,6 +407,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<AISession[]>([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -456,7 +474,15 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       const res = await fetch('/api/sessions');
       const data = await res.json();
       if (data.success) {
-        setHistory(data.sessions || []);
+        const sessions = data.sessions || [];
+        setHistory(sessions);
+
+        if (sessionIdRef.current) {
+          const currentSession = sessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
+          if (currentSession) {
+            setSessionTitle(currentSession.title || null);
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to fetch history', err);
@@ -691,6 +717,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
 
     const nextSessionId = createSessionPayload.session.sessionId as string;
     setSessionId(nextSessionId);
+    setSessionTitle(createSessionPayload.session.title || null);
     sessionIdRef.current = nextSessionId;
     return nextSessionId;
   }, []);
@@ -1018,6 +1045,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
     resetStreamConnection();
     setRuntimeStatus(null);
     setSessionId(null);
+    setSessionTitle(null);
     sessionIdRef.current = null;
     lastCompactionMarkerRef.current = null;
     setMessages([]);
@@ -1034,6 +1062,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const loadSession = useCallback(async (session: AISession) => {
     resetStreamConnection();
     setSessionId(session.sessionId);
+    setSessionTitle(session.title || null);
     sessionIdRef.current = session.sessionId;
     lastCompactionMarkerRef.current = null;
     setActiveModel(session.model || DEFAULT_MODEL_ID);
@@ -1119,6 +1148,9 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
       const data = await res.json();
       if (data.success) {
         setHistory((prev) => prev.map((item) => (item.sessionId === session.sessionId ? { ...item, title: nextTitle.trim() } : item)));
+        if (sessionIdRef.current === session.sessionId) {
+          setSessionTitle(nextTitle.trim());
+        }
       }
     } catch (err) {
       console.error('Failed to rename session', err);
@@ -1407,6 +1439,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
   const contextLabel = runtimeStatus
     ? `~${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
     : 'Noch keine Session';
+  const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, sessionId);
   const runtimeBannerClass = getRuntimeBannerClass(runtimeStatus);
   const runtimePulseClass = getRuntimePulseClass(runtimeStatus);
 
@@ -1438,7 +1471,7 @@ export default function CanvasAgentChat({ onClose, initialPrompt, initialPromptS
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <div data-testid="chat-session-id" title={sessionId || 'New chat'} className="inline-flex min-w-0 items-center gap-2 border border-border bg-muted/70 px-2.5 py-1 text-xs font-semibold text-foreground">
                     <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Session</span>
-                    <span className="min-w-0 truncate font-mono">{formatSessionId(sessionId)}</span>
+                    <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                   </div>
                   <div title={`Model: ${activeModel}`} className="inline-flex items-center gap-1.5 border border-border bg-muted/70 px-2 py-1 text-xs text-foreground">
                     <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Model</span>
