@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Download, FileText, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -115,6 +115,8 @@ export function FileEditor() {
   } = useEditorStore();
 
   const saveTimeoutRef = useRef<number | null>(null);
+  const officeEditorRef = useRef<{ save: () => Promise<string | null>; hasChanges: () => boolean } | null>(null);
+  const [officeEditorHasChanges, setOfficeEditorHasChanges] = useState(false);
 
   useEffect(() => {
     // This effect synchronizes the main file store (useFileStore) 
@@ -309,7 +311,14 @@ export function FileEditor() {
           ) : isImage ? (
             <ImageViewer path={currentFile.path} />
           ) : isOffice ? (
-            <OfficeEditor key={currentFile.path} path={currentFile.path} extension={extension} updateDraft={updateDraft} />
+            <OfficeEditor 
+              key={currentFile.path} 
+              path={currentFile.path} 
+              extension={extension} 
+              updateDraft={updateDraft}
+              ref={officeEditorRef}
+              onChange={() => setOfficeEditorHasChanges(true)}
+            />
           ) : isPdf ? (
             <PdfViewer path={currentFile.path} />
           ) : isAudio ? (
