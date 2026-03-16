@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-16T17:09:10+01:00",
+  "lastUpdatedAt": "2026-03-16T17:11:36+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1476,7 +1476,7 @@
       "order": 130,
       "phase": "P21 PI Usage Tracking",
       "title": "Cover usage tracking with unit, integration, and Playwright checks",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "pi-usage-004"
@@ -1488,7 +1488,7 @@
       "order": 131,
       "phase": "P21 PI Usage Tracking",
       "title": "Run build and finalize PI usage tracking changes",
-      "status": "pending",
+      "status": "completed",
       "priority": "must",
       "dependsOn": [
         "pi-usage-005"
