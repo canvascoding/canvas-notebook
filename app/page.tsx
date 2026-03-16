@@ -4,7 +4,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { auth } from '@/app/lib/auth';
-import { buildAgentConfigReadiness, readAgentRuntimeConfig } from '@/app/lib/agents/storage';
+import { buildAgentConfigReadiness } from '@/app/lib/agents/storage';
 import SuiteAppSelector from '@/components/suite/SuiteAppSelector';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,8 +21,7 @@ type AgentSetupCardState = {
 
 async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
   try {
-    const config = await readAgentRuntimeConfig();
-    const readiness = await buildAgentConfigReadiness(config);
+    const readiness = await buildAgentConfigReadiness();
     
     // PI-first readiness
     const pi = readiness.pi;
