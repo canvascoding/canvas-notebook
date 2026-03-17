@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-17T23:17:46+01:00",
+  "lastUpdatedAt": "2026-03-17T23:58:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -650,7 +650,8 @@
       "priority": "should",
       "dependsOn": [
         "pi-009"
-      ]
+      ],
+      "description": "Expanded Ollama UI parity in the shared PI provider setup card for Settings and Onboarding: model selection now stays in the standard provider/model row, server mode and remote URL moved into a dedicated collapsible Ollama configuration section, custom-model validation was tightened, and OLLAMA_API_KEY is now treated as a required non-empty field with explicit placeholder guidance."
     },
     {
       "id": "pi-060",
@@ -661,7 +662,8 @@
       "priority": "should",
       "dependsOn": [
         "pi-059"
-      ]
+      ],
+      "description": "Updated Ollama integration coverage to use stable UI selectors for the shared provider setup card and verify the Ollama configuration accordion, custom model flow, and required API-key guidance."
     },
     {
       "id": "pi-061",
@@ -1825,7 +1827,19 @@
       "dependsOn": [
         "workspace-ux-001"
       ],
-      "description": "Extract the provider, model, thinking, auth, and provider-help flow into a shared PI provider setup card that both Settings and Onboarding render, remove the onboarding-only provider form in favor of the shared component, and add the global light/dark mode toggle to the onboarding shell. UI was validated in an isolated Playwright-backed local instance; production build verification is handled separately."
+      "description": "Extract the provider, model, thinking, auth, and provider-help flow into a shared PI provider setup card that both Settings and Onboarding render, remove the onboarding-only provider form in favor of the shared component, and add the global light/dark mode toggle to the onboarding shell. The shared card now also keeps Ollama model selection aligned with the standard provider/model row while exposing server mode, remote URL, and terminal setup inside a dedicated Ollama configuration accordion. UI was validated in an isolated Playwright-backed local instance; production build verification is handled separately."
+    },
+    {
+      "id": "pi-skill-runtime-001",
+      "order": 160,
+      "phase": "P26 Local Skill Runtime",
+      "title": "Remove CANVAS_SKILLS_TOKEN and move Gemini skills to shared local services",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "onboarding-ux-001"
+      ],
+      "description": "Delete the Canvas skills token flow, extract image generation, video generation, and ad localization into shared server-only services, switch PI tools and local skill wrappers to those services directly, keep the web API routes session-only, and update skill/tool docs so the agent uses local wrappers without manual env loading."
     }
   ]
 }

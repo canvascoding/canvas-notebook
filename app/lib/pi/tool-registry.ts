@@ -5,8 +5,18 @@ import { listDirectory, readFile, writeFile, createDirectory } from '../filesyst
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
-import { getCanvasSkillsTokenFromIntegrations } from '../integrations/env-config';
 import path from 'path';
+import {
+  IMAGE_GENERATION_ALL_FAILED_MESSAGE,
+  generateImages,
+  type ImageGenerationResultData,
+} from '../integrations/image-generation-service';
+import { generateVideo } from '../integrations/veo-generation-service';
+import {
+  AD_LOCALIZATION_ALL_FAILED_MESSAGE,
+  localizeAd,
+  type AdLocalizationResultData,
+} from '../integrations/ad-localization-service';
 
 
 const execAsync = promisify(exec);
@@ -38,6 +48,39 @@ function getErrorMessage(error: unknown): string {
 
 function asCommandExecutionError(error: unknown): CommandExecutionError {
   return error instanceof Error ? (error as CommandExecutionError) : new Error(String(error));
+}
+
+function formatImageGenerationText(data: ImageGenerationResultData): string {
+  let resultText = `Image generation complete: ${data.successCount} successful, ${data.failureCount} failed\n\n`;
+  data.results.forEach((result) => {
+    if (result.path) {
+      resultText += `Image ${result.index + 1}: ${result.path}\n`;
+      if (result.mediaUrl) {
+        resultText += `URL: ${result.mediaUrl}\n`;
+      }
+    } else if (result.error) {
+      resultText += `Image ${result.index + 1}: Failed - ${result.error}\n`;
+    }
+    resultText += '\n';
+  });
+  return resultText;
+}
+
+function formatAdLocalizationText(data: AdLocalizationResultData): string {
+  let resultText = `Ad localization complete: ${data.successCount} successful, ${data.failureCount} failed\n\n`;
+  data.results.forEach((result) => {
+    if (result.path) {
+      resultText += `Market: ${result.market}\n`;
+      resultText += `Path: ${result.path}\n`;
+      if (result.mediaUrl) {
+        resultText += `URL: ${result.mediaUrl}\n`;
+      }
+    } else if (result.error) {
+      resultText += `Market: ${result.market} - Failed: ${result.error}\n`;
+    }
+    resultText += '\n';
+  });
+  return resultText;
 }
 
 /**
@@ -230,7 +273,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'image_generation',
     label: 'Generating images',
-    description: 'Generates images using Gemini Image Generation. Use when user asks for: image creation, picture generation, "create an image of...", "generate a photo". Output: workspace/image-generation/generations/. IMPORTANT: Requires GEMINI_API_KEY to be configured in Settings → Integrations.',
+    description: 'Generates images using the local Canvas image-generation service. Use when user asks for: image creation, picture generation, "create an image of...", "generate a photo". Output: workspace/image-generation/generations/. The agent should use this local tool directly; no internal API token or manual env loading is required.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the image to generate' }),
       count: Type.Number({ description: 'Number of images to generate (1-4)' }),
@@ -238,74 +281,33 @@ export const piTools: AgentTool[] = [
       model: Type.Optional(Type.String({ description: 'Model: gemini-3.1-flash-image-preview (best quality, supports 14 reference images) or gemini-2.5-flash-image (faster, lower cost, supports 3 reference images)' })),
     }),
     execute: async (toolCallId, params) => {
-      const { prompt, aspect_ratio, count, model } = params as { 
-        prompt: string; 
-        aspect_ratio?: string; 
+      const { prompt, aspect_ratio, count, model } = params as {
+        prompt: string;
+        aspect_ratio?: string;
         count: number;
         model?: string;
       };
       try {
-        const baseUrl = 'http://localhost:3000';
-        const skillsToken = await getCanvasSkillsTokenFromIntegrations();
-        
-        if (!skillsToken) {
-          return {
-            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not found in Canvas-Integrations.env. Please ensure the server has generated the token.' }],
-            details: { error: 'Skills token missing' },
-          };
-        }
-        
-        const response = await fetch(`${baseUrl}/api/image-generation/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Canvas-Skills-Token': skillsToken,
-          },
-          body: JSON.stringify({
+        const data = await generateImages(
+          {
             prompt,
             aspectRatio: aspect_ratio || '1:1',
             imageCount: count,
             model: model || 'gemini-3.1-flash-image-preview',
             referenceImagePaths: [],
-          }),
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok || !data.success) {
-          // Check if the error is about missing Gemini API key
-          const errorMessage = data.error || 'Image generation failed';
-          if (errorMessage.toLowerCase().includes('gemini') || errorMessage.toLowerCase().includes('api key')) {
-            return {
-              content: [{ type: 'text', text: `Error: Gemini API key not configured. Please add GEMINI_API_KEY in Settings → Integrations tab.` }],
-              details: { error: errorMessage },
-            };
-          }
+          },
+          'pi-agent',
+        );
+
+        if (data.successCount === 0) {
           return {
-            content: [{ type: 'text', text: `Error: ${errorMessage}` }],
-            details: { error: errorMessage, status: response.status },
+            content: [{ type: 'text', text: `Error: ${IMAGE_GENERATION_ALL_FAILED_MESSAGE}` }],
+            details: { error: IMAGE_GENERATION_ALL_FAILED_MESSAGE, data },
           };
         }
-        
-        const results = data.data?.results || [];
-        const successCount = data.data?.successCount || 0;
-        const failureCount = data.data?.failureCount || 0;
-        
-        let resultText = `Image generation complete: ${successCount} successful, ${failureCount} failed\n\n`;
-        results.forEach((result: { index: number; path?: string; mediaUrl?: string; error?: string }) => {
-          if (result.path) {
-            resultText += `Image ${result.index + 1}: ${result.path}\n`;
-            if (result.mediaUrl) {
-              resultText += `URL: ${result.mediaUrl}\n`;
-            }
-          } else if (result.error) {
-            resultText += `Image ${result.index + 1}: Failed - ${result.error}\n`;
-          }
-          resultText += '\n';
-        });
-        
+
         return {
-          content: [{ type: 'text', text: resultText }],
+          content: [{ type: 'text', text: formatImageGenerationText(data) }],
           details: data,
         };
       } catch (error: unknown) {
@@ -320,7 +322,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'video_generation',
     label: 'Generating videos',
-    description: 'Generates videos using Google VEO. Use when user asks for: video creation, "create a video of...", "generate a video". Output: workspace/veo-studio/video-generation/. IMPORTANT: Requires GEMINI_API_KEY to be configured in Settings → Integrations. Note: Takes 3-10 minutes.',
+    description: 'Generates videos using the local Canvas video-generation service. Use when user asks for: video creation, "create a video of...", "generate a video". Output: workspace/veo-studio/video-generation/. The agent should use this local tool directly; no internal API token or manual env loading is required. Note: Takes 3-10 minutes.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the video to generate' }),
       mode: Type.Optional(Type.String({ description: 'Mode: text_to_video (default), frames_to_video, references_to_video, extend_video' })),
@@ -328,64 +330,32 @@ export const piTools: AgentTool[] = [
       resolution: Type.Optional(Type.String({ description: 'Resolution: 720p (default), 1080p, 4k' })),
     }),
     execute: async (toolCallId, params) => {
-      const { prompt, mode, aspect_ratio, resolution } = params as { 
-        prompt: string; 
-        mode?: string; 
+      const { prompt, mode, aspect_ratio, resolution } = params as {
+        prompt: string;
+        mode?: string;
         aspect_ratio?: string;
         resolution?: string;
       };
       try {
-        const baseUrl = 'http://localhost:3000';
-        const skillsToken = await getCanvasSkillsTokenFromIntegrations();
-        
-        if (!skillsToken) {
-          return {
-            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not found in Canvas-Integrations.env. Please ensure the server has generated the token.' }],
-            details: { error: 'Skills token missing' },
-          };
-        }
-        
-        const response = await fetch(`${baseUrl}/api/veo/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Canvas-Skills-Token': skillsToken,
-          },
-          body: JSON.stringify({
+        const data = await generateVideo(
+          {
             prompt,
             mode: mode || 'text_to_video',
             aspectRatio: aspect_ratio || '16:9',
             resolution: resolution || '720p',
             model: 'veo-3.1-fast-generate-preview',
-          }),
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok || !data.success) {
-          // Check if the error is about missing Gemini API key
-          const errorMessage = data.error || 'Video generation failed';
-          if (errorMessage.toLowerCase().includes('gemini') || errorMessage.toLowerCase().includes('api key')) {
-            return {
-              content: [{ type: 'text', text: `Error: Gemini API key not configured. Please add GEMINI_API_KEY in Settings → Integrations tab.` }],
-              details: { error: errorMessage },
-            };
-          }
-          return {
-            content: [{ type: 'text', text: `Error: ${errorMessage}` }],
-            details: { error: errorMessage, status: response.status },
-          };
-        }
-        
-        const result = data.data;
+          },
+          'pi-agent',
+        );
+
         let resultText = 'Video generation started! This may take 3-10 minutes.\n\n';
-        if (result?.path) {
-          resultText += `Video will be saved to: ${result.path}\n`;
+        if (data.path) {
+          resultText += `Video will be saved to: ${data.path}\n`;
         }
-        if (result?.mediaUrl) {
-          resultText += `Media URL: ${result.mediaUrl}\n`;
+        if (data.mediaUrl) {
+          resultText += `Media URL: ${data.mediaUrl}\n`;
         }
-        
+
         return {
           content: [{ type: 'text', text: resultText }],
           details: data,
@@ -402,7 +372,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'ad_localization',
     label: 'Localizing ads',
-    description: 'Localizes ad images for target markets using Gemini. Preserves layout, typography, and visual design - translates only the text. Use when user asks for: "localize this ad", "translate for market...", "adapt for country...". Output: workspace/nano-banana-ad-localizer/localizations/. IMPORTANT: Requires GEMINI_API_KEY to be configured in Settings → Integrations.',
+    description: 'Localizes ad images for target markets using the local Canvas ad-localization service. Preserves layout, typography, and visual design - translates only the text. Use when user asks for: "localize this ad", "translate for market...", "adapt for country...". Output: workspace/nano-banana-ad-localizer/localizations/. The agent should use this local tool directly; no internal API token or manual env loading is required.',
     parameters: Type.Object({
       reference_image_path: Type.String({ description: 'Path to reference image (must be under nano-banana-ad-localizer/)' }),
       target_markets: Type.Array(Type.String(), { description: 'List of target markets (e.g., ["Germany", "France", "Japan"])' }),
@@ -410,75 +380,33 @@ export const piTools: AgentTool[] = [
       instructions: Type.Optional(Type.String({ description: 'Additional localization instructions' })),
     }),
     execute: async (toolCallId, params) => {
-      const { reference_image_path, target_markets, aspect_ratio, instructions } = params as { 
-        reference_image_path: string; 
+      const { reference_image_path, target_markets, aspect_ratio, instructions } = params as {
+        reference_image_path: string;
         target_markets: string[];
         aspect_ratio?: string;
         instructions?: string;
       };
       try {
-        const baseUrl = 'http://localhost:3000';
-        const skillsToken = await getCanvasSkillsTokenFromIntegrations();
-        
-        if (!skillsToken) {
-          return {
-            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not found in Canvas-Integrations.env. Please ensure the server has generated the token.' }],
-            details: { error: 'Skills token missing' },
-          };
-        }
-        
-        const response = await fetch(`${baseUrl}/api/nano-banana/localize`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Canvas-Skills-Token': skillsToken,
-          },
-          body: JSON.stringify({
+        const data = await localizeAd(
+          {
             referenceImagePath: reference_image_path,
             targetMarkets: target_markets,
             aspectRatio: aspect_ratio || '16:9',
             model: 'gemini-3.1-flash-image-preview',
             customInstructions: instructions || '',
-          }),
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok || !data.success) {
-          // Check if the error is about missing Gemini API key
-          const errorMessage = data.error || 'Ad localization failed';
-          if (errorMessage.toLowerCase().includes('gemini') || errorMessage.toLowerCase().includes('api key')) {
-            return {
-              content: [{ type: 'text', text: `Error: Gemini API key not configured. Please add GEMINI_API_KEY in Settings → Integrations tab.` }],
-              details: { error: errorMessage },
-            };
-          }
+          },
+          'pi-agent',
+        );
+
+        if (data.successCount === 0) {
           return {
-            content: [{ type: 'text', text: `Error: ${errorMessage}` }],
-            details: { error: errorMessage, status: response.status },
+            content: [{ type: 'text', text: `Error: ${AD_LOCALIZATION_ALL_FAILED_MESSAGE}` }],
+            details: { error: AD_LOCALIZATION_ALL_FAILED_MESSAGE, data },
           };
         }
-        
-        const results = data.data?.results || [];
-        const successCount = data.data?.successCount || 0;
-        const failureCount = data.data?.failureCount || 0;
-        
-        let resultText = `Ad localization complete: ${successCount} successful, ${failureCount} failed\n\n`;
-        results.forEach((result: { market: string; path?: string; mediaUrl?: string; error?: string }) => {
-          if (result.path) {
-            resultText += `Market: ${result.market}\n`;
-            resultText += `Path: ${result.path}\n`;
-            if (result.mediaUrl) {
-              resultText += `URL: ${result.mediaUrl}\n`;
-            }
-          } else if (result.error) {
-            resultText += `Market: ${result.market} - Failed: ${result.error}\n`;
-          }
-          resultText += '\n';
-        });
-        
+
         return {
-          content: [{ type: 'text', text: resultText }],
+          content: [{ type: 'text', text: formatAdLocalizationText(data) }],
           details: data,
         };
       } catch (error: unknown) {

@@ -142,20 +142,14 @@ function normalizeTargetOutputPath(value: unknown): string | null {
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
-  const skillsToken = request.headers.get('x-canvas-skills-token');
-  const isSkillsCall = !!skillsToken && skillsToken === process.env.CANVAS_SKILLS_TOKEN;
-  
-  if (!session && !isSkillsCall) {
+  if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  const userId = session?.user?.id;
-  if (!userId && !isSkillsCall) {
+  const userId = session.user?.id;
+  if (!userId) {
     return NextResponse.json({ success: false, error: 'User not found' }, { status: 401 });
   }
-
-  // For skills calls, we need a system user ID
-  const effectiveUserId = userId || 'system';
 
   try {
     const limited = rateLimit(request, {
@@ -197,7 +191,7 @@ export async function POST(request: NextRequest) {
       status,
     };
 
-    const job = await createAutomationJob(input, effectiveUserId);
+    const job = await createAutomationJob(input, userId);
 
     return NextResponse.json({
       success: true,

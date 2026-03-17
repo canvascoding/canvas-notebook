@@ -2,8 +2,8 @@
   "name": "video-generation",
   "version": "1.0.0",
   "title": "Videos mit VEO generieren",
-  "description": "Generiert Videos mit Google VEO. Verwenden wenn der User sagt: erstelle ein Video, generiere ein Video, mache ein Video von..., create a video, generate a video. Output: workspace/veo-studio/video-generation/. Voraussetzung: GEMINI_API_KEY in /settings. Hinweis: Dauert typischerweise 3-10 Minuten.",
-  "type": "api",
+  "description": "Generiert Videos mit Google VEO über den lokalen Canvas-Wrapper. Verwenden wenn der User sagt: erstelle ein Video, generiere ein Video, mache ein Video von..., create a video, generate a video. Output: workspace/veo-studio/video-generation/. Der Gemini-Key wird zentral aus den Integrations-Einstellungen geladen; kein manuelles Env-Loading nötig. Hinweis: Dauert typischerweise 3-10 Minuten.",
+  "type": "cli",
   "author": "system",
   "created_at": "2025-01-15T00:00:00Z",
   "tool": {
@@ -51,7 +51,7 @@
     }
   },
   "handler": {
-    "type": "api",
-    "endpoint": "/api/veo/generate"
+    "type": "cli",
+    "command": "video-generation"
   }
 }

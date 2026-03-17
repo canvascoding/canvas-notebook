@@ -1,12 +1,10 @@
-import { promises as fs } from 'node:fs';
-
 import {
   advanceAutomationJobSchedule,
   listDueAutomationJobs,
   listExecutableAutomationRuns,
   scheduleAutomationJobRun,
 } from '@/app/lib/automations/store';
-import { resolveSkillsTokenPath } from '@/app/lib/runtime-data-paths';
+import { getCanvasInternalToken } from '@/app/lib/internal-auth';
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -31,15 +29,7 @@ async function executeReadyRuns() {
   const runs = await listExecutableAutomationRuns(new Date());
   const port = process.env.PORT || '3000';
   const baseUrl = process.env.BASE_URL?.trim() || `http://127.0.0.1:${port}`;
-  let internalToken = process.env.CANVAS_SKILLS_TOKEN || '';
-
-  if (!internalToken) {
-    try {
-      internalToken = (await fs.readFile(resolveSkillsTokenPath(), 'utf8')).trim();
-    } catch {
-      internalToken = '';
-    }
-  }
+  const internalToken = getCanvasInternalToken();
 
   for (const run of runs) {
     try {

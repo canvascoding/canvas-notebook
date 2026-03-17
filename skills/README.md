@@ -1,6 +1,6 @@
 # Canvas Skills
 
-Skills sind CLI-Werkzeuge, die der Agent über das `bash`-Tool aufrufen kann, um die eingebauten Micro-SaaS-Integrationen von Canvas Notebook zu nutzen.
+Skills sind lokale CLI-Werkzeuge, die der Agent über das `bash`-Tool aufrufen kann, um die eingebauten Micro-SaaS-Integrationen von Canvas Notebook zu nutzen.
 
 ## Aufruf
 
@@ -38,11 +38,8 @@ Alternativ über den vollständigen Pfad:
 **Erforderliche Konfiguration:**
 
 1. **GEMINI_API_KEY** - Muss in Canvas Notebook unter Settings → Integrations konfiguriert sein
-2. **CANVAS_SKILLS_TOKEN** - Wird vom Server automatisch in `/data/secrets/Canvas-Integrations.env` generiert
 
-**Wichtig:** Der Agent darf die Datei `/data/secrets/Canvas-Integrations.env` lesen, um CANVAS_SKILLS_TOKEN zu erhalten. Dieser Token wird für die interne API-Authentifizierung benötigt.
-
-- Server muss laufen (CLI kommuniziert mit `localhost:3000`)
+**Wichtig:** Die Wrapper laden keine zusätzlichen API-Keys oder Tokens aus Env-Dateien. Der Agent soll weder `/data/secrets/Canvas-Integrations.env` lesen noch interne API-Routen direkt aufrufen. Die Skills nutzen lokale Canvas-Services und greifen zentral auf die bereits gespeicherte Integrations-Konfiguration zu.
 
 ## Antwortformat
 
@@ -60,7 +57,7 @@ oder bei Fehler:
 
 Die `path`-Felder in der Antwort sind workspace-relativ und können mit dem `read`-Tool geöffnet werden.
 
-**Ausnahme:** `qmd` ist ein lokales CLI-Tool und gibt direkte Text-/JSON-Ausgabe zurück (kein API-Call nötig).
+**Ausnahme:** `qmd` ist ebenfalls ein lokales CLI-Tool und gibt direkte Text-/JSON-Ausgabe zurück.
 
 ## Skill-Dokumentation
 

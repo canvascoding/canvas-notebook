@@ -6,6 +6,7 @@ import { getWorkspacePath } from '../utils/workspace-manager';
 import { loadSkillsFromDisk, getSkillsDir, AnthropicSkill } from './skill-loader';
 
 const execAsync = promisify(exec);
+const RESERVED_STATIC_SKILL_NAMES = new Set(['image-generation', 'video-generation', 'ad-localization', 'qmd']);
 
 // Cache for loaded skills
 let cachedSkills: AnthropicSkill[] = [];
@@ -45,6 +46,10 @@ async function hasExecutableCapability(skillName: string): Promise<boolean> {
  * Only creates tools for skills that have executable capabilities
  */
 async function createToolFromSkill(skill: AnthropicSkill): Promise<AgentTool | null> {
+  if (RESERVED_STATIC_SKILL_NAMES.has(skill.name)) {
+    return null;
+  }
+
   // Check if this skill has an executable
   const hasExecutable = await hasExecutableCapability(skill.name);
   

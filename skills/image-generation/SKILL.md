@@ -1,11 +1,11 @@
 ---
 name: image-generation
-description: Generates images using Gemini Image Generation. Use when user asks for image creation, picture generation, "create an image of...", "generate a photo". Output goes to workspace/image-generation/generations/. Requires GEMINI_API_KEY in settings.
+description: Generates images using the local Canvas image-generation wrapper. Use when user asks for image creation, picture generation, "create an image of...", "generate a photo". Output goes to workspace/image-generation/generations/. Requires GEMINI_API_KEY in settings.
 ---
 
 # Image Generation
 
-Generates images using Gemini Image Generation.
+Generates images using the local Canvas image-generation wrapper.
 
 ## When to Use
 
@@ -26,6 +26,12 @@ Use this skill when the user requests:
 ## Output
 
 Images are saved to: `workspace/image-generation/generations/`
+
+## Agent Usage Rules
+
+- Use the local `image-generation` command directly.
+- Do not call internal Canvas API routes for this skill.
+- Do not read env files or manually load `GEMINI_API_KEY`; the wrapper resolves the configured key centrally.
 
 ## Examples
 

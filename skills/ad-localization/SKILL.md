@@ -1,11 +1,11 @@
 ---
 name: ad-localization
-description: Localizes ad images for target markets using Gemini. Preserves layout, typography, and visual design - translates only the text. Use when user asks for "localize this ad", "translate for market...", "adapt for country...". Output goes to workspace/nano-banana-ad-localizer/localizations/. Requires GEMINI_API_KEY in settings. Reference image must be under nano-banana-ad-localizer/.
+description: Localizes ad images for target markets using the local Canvas ad-localization wrapper. Preserves layout, typography, and visual design - translates only the text. Use when user asks for "localize this ad", "translate for market...", "adapt for country...". Output goes to workspace/nano-banana-ad-localizer/localizations/. Requires GEMINI_API_KEY in settings. Reference image must be under nano-banana-ad-localizer/.
 ---
 
 # Ad Localization
 
-Localizes ad images for target markets using Gemini. Preserves layout, typography, and visual design - translates only the text.
+Localizes ad images for target markets using the local Canvas ad-localization wrapper. Preserves layout, typography, and visual design - translates only the text.
 
 ## When to Use
 
@@ -26,6 +26,12 @@ Use this skill when the user requests:
 ## Output
 
 Localized ads are saved to: `workspace/nano-banana-ad-localizer/localizations/`
+
+## Agent Usage Rules
+
+- Use the local `ad-localization` command directly.
+- Do not call internal Canvas API routes for this skill.
+- Do not read env files or manually load `GEMINI_API_KEY`; the wrapper resolves the configured key centrally.
 
 ## Examples
 

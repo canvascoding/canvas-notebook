@@ -2,8 +2,8 @@
   "name": "ad-localization",
   "version": "1.0.0",
   "title": "Werbeanzeigen lokalisieren",
-  "description": "Lokalisiert Werbeanzeigen-Bilder für verschiedene Zielmärkte mit Gemini. Bewahrt Layout, Typografie und visuelles Design — übersetzt nur den Text. Verwenden wenn der User sagt: lokalisiere diese Anzeige, übersetze für Markt..., passe an für Land..., localize this ad, translate for market.... Output: workspace/nano-banana-ad-localizer/localizations/. Voraussetzung: GEMINI_API_KEY in /settings. Wichtig: Referenzbild muss unter nano-banana-ad-localizer/ liegen.",
-  "type": "api",
+  "description": "Lokalisiert Werbeanzeigen-Bilder für verschiedene Zielmärkte mit Gemini über den lokalen Canvas-Wrapper. Bewahrt Layout, Typografie und visuelles Design — übersetzt nur den Text. Verwenden wenn der User sagt: lokalisiere diese Anzeige, übersetze für Markt..., passe an für Land..., localize this ad, translate for market.... Output: workspace/nano-banana-ad-localizer/localizations/. Der Gemini-Key wird zentral aus den Integrations-Einstellungen geladen; kein manuelles Env-Loading nötig. Wichtig: Referenzbild muss unter nano-banana-ad-localizer/ liegen.",
+  "type": "cli",
   "author": "system",
   "created_at": "2025-01-15T00:00:00Z",
   "tool": {
@@ -40,7 +40,7 @@
     }
   },
   "handler": {
-    "type": "api",
-    "endpoint": "/api/nano-banana/localize"
+    "type": "cli",
+    "command": "ad-localization"
   }
 }

@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { executeAutomationRun } from '@/app/lib/automations/runner';
+import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 
 export async function POST(request: NextRequest) {
   try {
+    if (!isValidCanvasInternalToken(request.headers.get('x-canvas-internal-token'))) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     const payload = await request.json();
     const runId = typeof payload?.runId === 'string' ? payload.runId : '';
     if (!runId) {

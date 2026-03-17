@@ -8,10 +8,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth.api.getSession({ headers: request.headers });
-  const skillsToken = request.headers.get('x-canvas-skills-token');
-  const isSkillsCall = !!skillsToken && skillsToken === process.env.CANVAS_SKILLS_TOKEN;
-  
-  if (!session && !isSkillsCall) {
+  if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 

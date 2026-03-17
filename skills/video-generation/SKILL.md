@@ -1,11 +1,11 @@
 ---
 name: video-generation
-description: Generates videos using Google VEO. Use when user asks for video creation, "create a video of...", "generate a video". Output goes to workspace/veo-studio/video-generation/. Requires GEMINI_API_KEY in settings. Note: Takes 3-10 minutes.
+description: Generates videos using the local Canvas video-generation wrapper. Use when user asks for video creation, "create a video of...", "generate a video". Output goes to workspace/veo-studio/video-generation/. Requires GEMINI_API_KEY in settings. Note: Takes 3-10 minutes.
 ---
 
 # Video Generation
 
-Generates videos using Google VEO.
+Generates videos using the local Canvas video-generation wrapper.
 
 ## When to Use
 
@@ -28,6 +28,12 @@ Use this skill when the user requests:
 ## Output
 
 Videos are saved to: `workspace/veo-studio/video-generation/`
+
+## Agent Usage Rules
+
+- Use the local `video-generation` command directly.
+- Do not call internal Canvas API routes for this skill.
+- Do not read env files or manually load `GEMINI_API_KEY`; the wrapper resolves the configured key centrally.
 
 ## Examples
 

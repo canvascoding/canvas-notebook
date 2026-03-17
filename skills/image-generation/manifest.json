@@ -2,8 +2,8 @@
   "name": "image-generation",
   "version": "1.0.0",
   "title": "Bilder mit Gemini generieren",
-  "description": "Generiert Bilder mit Gemini Image Generation. Verwenden wenn der User sagt: erstelle ein Bild, generiere ein Foto, mache ein Bild von..., create an image, generate a picture. Output: workspace/image-generation/generations/. Voraussetzung: GEMINI_API_KEY in /settings.",
-  "type": "api",
+  "description": "Generiert Bilder mit Gemini Image Generation über den lokalen Canvas-Wrapper. Verwenden wenn der User sagt: erstelle ein Bild, generiere ein Foto, mache ein Bild von..., create an image, generate a picture. Output: workspace/image-generation/generations/. Der Gemini-Key wird zentral aus den Integrations-Einstellungen geladen; kein manuelles Env-Loading nötig.",
+  "type": "cli",
   "author": "system",
   "created_at": "2025-01-15T00:00:00Z",
   "tool": {
@@ -37,7 +37,7 @@
     }
   },
   "handler": {
-    "type": "api",
-    "endpoint": "/api/image-generation/generate"
+    "type": "cli",
+    "command": "image-generation"
   }
 }

@@ -40,6 +40,7 @@ const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
 Canvas Notebook hat eine Skills CLI für den Agenten.
 
 **Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein.
+**Wichtig:** Die Wrapper nutzen lokale Canvas-Services. Lies keine Env-Dateien, lade keine API-Keys manuell und rufe für diese drei Skills keine internen API-Routen direkt auf.
 
 ### Image Generation
 \`\`\`bash
@@ -263,7 +264,7 @@ export async function buildAgentConfigReadiness(): Promise<AgentConfigReadiness>
     const apiKey = await resolvePiApiKey(piConfig.activeProvider);
     
     const piIssues: string[] = [];
-    if (!apiKey && piConfig.activeProvider !== 'ollama') {
+    if (!apiKey) {
       piIssues.push(`API key for PI provider "${piConfig.activeProvider}" is missing.`);
     }
     if (!piProvider?.model) {
@@ -274,7 +275,7 @@ export async function buildAgentConfigReadiness(): Promise<AgentConfigReadiness>
       activeProvider: piConfig.activeProvider,
       model: piProvider?.model || '',
       ready: piIssues.length === 0,
-      authSet: !!apiKey || piConfig.activeProvider === 'ollama',
+      authSet: !!apiKey,
       issues: piIssues,
     };
   } catch (error) {

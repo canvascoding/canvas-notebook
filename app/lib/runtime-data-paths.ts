@@ -40,10 +40,6 @@ export function resolveSkillsDataDir(cwd = process.cwd()): string {
   return path.join(resolveCanvasDataRoot(cwd), 'skills');
 }
 
-export function resolveSkillsTokenPath(cwd = process.cwd()): string {
-  return path.join(resolveAgentStorageDir(cwd), '.skills-token');
-}
-
 export function resolveDefaultIntegrationsEnvPath(cwd = process.cwd()): string {
   return path.join(resolveSecretsDir(cwd), 'Canvas-Integrations.env');
 }

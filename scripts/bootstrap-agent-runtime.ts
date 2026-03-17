@@ -117,8 +117,9 @@ Durchsucht Markdown-Notizen. Verwenden wenn der User sagt: "suche in meinen Noti
 ## Wichtige Hinweise
 
 - **Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein (außer qmd)
-- **API-Skills** (image_generation, video_generation, ad_localization): Geben JSON zurück mit { "success": true, "data": { ... } }
+- **Lokale Skills** (image_generation, video_generation, ad_localization): Geben JSON zurück mit { "success": true, "data": { ... } }
 - **CLI-Skill** (qmd_search): Gibt direkte Text-/JSON-Ausgabe zurück
+- **Keine Token-/Env-Dateien lesen:** Für Gemini-Skills weder interne API-Routen noch Env-Dateien direkt verwenden. Die Wrapper lösen die zentrale Integrations-Konfiguration selbst auf.
 - **Output-Verzeichnisse:** Alle Ergebnisse sind workspace-relativ unter /data/workspace
 
 ## Detaillierte Dokumentation

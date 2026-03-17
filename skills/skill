@@ -3,80 +3,54 @@ set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # Canvas Skills CLI
-# Routes skill commands to Canvas Notebook API endpoints.
+# Runs Canvas Notebook local skill services without internal API hops.
 # Usage: /data/skills/skill <skill-name> [options...]
 # ---------------------------------------------------------------------------
-
-SKILLS_TOKEN_PATH="/data/canvas-agent/.skills-token"
-INTEGRATIONS_ENV_PATH="/data/secrets/Canvas-Integrations.env"
-# Use internal container port (3000) for API calls
-BASE_URL="http://localhost:3000"
-
-# Function to read token from Canvas-Integrations.env
-read_token_from_env_file() {
-  local env_file="$1"
-  local token_key="$2"
-  
-  if [ -f "$env_file" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-      # Skip comments and empty lines
-      case "$line" in
-        \#*|"" ) continue ;;
-      esac
-      
-      # Check if line starts with the token key
-      if [[ "$line" == "$token_key="* ]]; then
-        echo "${line#$token_key=}" | tr -d '[:space:]'
-        return 0
-      fi
-    done < "$env_file"
-  fi
-  
-  return 1
-}
-
-# Resolve auth token
-TOKEN=""
-
-# Priority 1: Environment variable
-if [ -n "${CANVAS_SKILLS_TOKEN:-}" ]; then
-  TOKEN="$CANVAS_SKILLS_TOKEN"
-# Priority 2: Canvas-Integrations.env file
-elif [ -f "$INTEGRATIONS_ENV_PATH" ]; then
-  TOKEN=$(read_token_from_env_file "$INTEGRATIONS_ENV_PATH" "CANVAS_SKILLS_TOKEN")
-  if [ -n "$TOKEN" ]; then
-    export CANVAS_SKILLS_TOKEN="$TOKEN"
-  fi
-# Priority 3: Legacy token file
-elif [ -f "$SKILLS_TOKEN_PATH" ]; then
-  TOKEN="$(cat "$SKILLS_TOKEN_PATH" | tr -d '[:space:]')"
-fi
-
-# Validate token
-if [ -z "$TOKEN" ]; then
-  echo "ERROR: CANVAS_SKILLS_TOKEN not configured." >&2
-  echo "The token should be set in one of the following locations:" >&2
-  echo "  1. Environment variable: CANVAS_SKILLS_TOKEN" >&2
-  echo "  2. Integrations env file: $INTEGRATIONS_ENV_PATH" >&2
-  echo "  3. Legacy token file: $SKILLS_TOKEN_PATH" >&2
-  echo "" >&2
-  echo "Please ensure the Canvas Notebook server has started and generated the token." >&2
-  exit 1
-fi
 
 # JSON string escaping via Python3 (available in all Node.js Docker images)
 json_str() {
   printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
 }
 
-call_api() {
-  local endpoint="$1"
+resolve_app_root() {
+  local script_dir
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+
+  if [ -n "${CANVAS_APP_ROOT:-}" ] && [ -x "${CANVAS_APP_ROOT}/node_modules/.bin/tsx" ] && [ -f "${CANVAS_APP_ROOT}/scripts/run-local-skill.ts" ]; then
+    printf '%s\n' "$CANVAS_APP_ROOT"
+    return 0
+  fi
+
+  if [ -x "/app/node_modules/.bin/tsx" ] && [ -f "/app/scripts/run-local-skill.ts" ]; then
+    printf '%s\n' "/app"
+    return 0
+  fi
+
+  if [ -x "$(pwd)/node_modules/.bin/tsx" ] && [ -f "$(pwd)/scripts/run-local-skill.ts" ]; then
+    printf '%s\n' "$(pwd)"
+    return 0
+  fi
+
+  if [ -x "${script_dir}/../node_modules/.bin/tsx" ] && [ -f "${script_dir}/../scripts/run-local-skill.ts" ]; then
+    printf '%s\n' "${script_dir}/.."
+    return 0
+  fi
+
+  return 1
+}
+
+run_local_skill() {
+  local skill="$1"
   local payload="$2"
-  curl -s -X POST \
-    -H "Content-Type: application/json" \
-    -H "X-Canvas-Skills-Token: $TOKEN" \
-    -d "$payload" \
-    "${BASE_URL}${endpoint}"
+  local app_root
+
+  app_root="$(resolve_app_root)" || {
+    echo "ERROR: Could not locate Canvas Notebook app root for local skill execution." >&2
+    echo "Set CANVAS_APP_ROOT or run from the repository root." >&2
+    exit 1
+  }
+
+  "${app_root}/node_modules/.bin/tsx" "${app_root}/scripts/run-local-skill.ts" "$skill" "$payload"
 }
 
 # ---------------------------------------------------------------------------
@@ -123,7 +97,7 @@ case "$SKILL" in
     done
 
     REFS="[${REF_LIST}]"
-    call_api "/api/image-generation/generate" \
+    run_local_skill "image-generation" \
       "{\"prompt\":$(json_str "$PROMPT"),\"model\":$(json_str "$MODEL"),\"aspectRatio\":$(json_str "$ASPECT_RATIO"),\"imageCount\":$COUNT,\"referenceImagePaths\":$REFS}"
     echo
     ;;
@@ -159,7 +133,7 @@ case "$SKILL" in
 
     REFS="[${REF_LIST}]"
     echo "[skill] Starting video generation (this may take 3–10 minutes)..." >&2
-    call_api "/api/veo/generate" \
+    run_local_skill "video-generation" \
       "{\"prompt\":$(json_str "$PROMPT"),\"model\":$(json_str "$MODEL"),\"mode\":$(json_str "$MODE"),\"aspectRatio\":$(json_str "$ASPECT_RATIO"),\"resolution\":$(json_str "$RESOLUTION"),\"startFramePath\":$START_FRAME,\"endFramePath\":$END_FRAME,\"inputVideoPath\":$INPUT_VIDEO,\"referenceImagePaths\":$REFS}"
     echo
     ;;
@@ -185,14 +159,14 @@ case "$SKILL" in
       esac
     done
 
-    call_api "/api/nano-banana/localize" \
+    run_local_skill "ad-localization" \
       "{\"referenceImagePath\":$(json_str "$REF"),\"targetMarkets\":[${MARKETS_LIST}],\"aspectRatio\":$(json_str "$ASPECT_RATIO"),\"model\":$(json_str "$MODEL"),\"customInstructions\":$(json_str "$INSTRUCTIONS")}"
     echo
     ;;
 
   # -------------------------------------------------------------------------
   qmd|markdown-search|search-notes)
-    # qmd is a local CLI tool, not an API endpoint
+    # qmd is a local CLI tool
     # Ensure qmd is in PATH
     export PATH="$HOME/.bun/bin:$PATH"
     

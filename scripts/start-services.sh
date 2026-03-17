@@ -1,6 +1,8 @@
 #!/bin/sh
 # Start script for Canvas Notebook
-# Starts both Terminal Service and Next.js
+# Starts Terminal Service, Next.js, and Automation Scheduler
+
+echo "[Startup] Canvas Notebook starting..."
 
 # Generate terminal auth token if not exists
 if [ -z "$CANVAS_TERMINAL_TOKEN" ]; then
@@ -42,6 +44,22 @@ if [ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ] && [ -n "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]
   fi
 fi
 
-# Start Next.js
+# Start automation scheduler in background
+echo "[Startup] Starting Automation Scheduler..."
+node scripts/automation-scheduler.js &
+SCHEDULER_PID=$!
+echo "[Startup] Automation Scheduler started (PID: $SCHEDULER_PID)"
+
+# Function to cleanup background processes on exit
+cleanup() {
+  echo "[Shutdown] Stopping services..."
+  kill $TERMINAL_PID 2>/dev/null
+  kill $SCHEDULER_PID 2>/dev/null
+  wait
+  echo "[Shutdown] Services stopped."
+}
+trap cleanup EXIT TERM INT
+
+# Start Next.js (this will block and is the main process)
 echo "[Startup] Starting Next.js..."
-exec node server.js
+exec ./node_modules/.bin/next start
