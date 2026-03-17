@@ -4,6 +4,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { auth } from '@/app/lib/auth';
+import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/status';
 import { buildAgentConfigReadiness } from '@/app/lib/agents/storage';
 import SuiteAppSelector from '@/components/suite/SuiteAppSelector';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -46,6 +47,11 @@ async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
 }
 
 export default async function Home() {
+  // Redirect to onboarding if enabled and not yet completed
+  if (isOnboardingEnabled() && !(await isOnboardingComplete())) {
+    redirect('/onboarding');
+  }
+
   const session = await auth.api.getSession({
     headers: await headers(),
   });

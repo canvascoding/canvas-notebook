@@ -2,6 +2,7 @@ import { loadAppEnv } from '../server/load-app-env';
 import { eq } from 'drizzle-orm';
 import { db } from '../app/lib/db';
 import { user } from '../app/lib/db/schema';
+import { markOnboardingComplete } from '../app/lib/onboarding/status';
 
 loadAppEnv(process.cwd());
 
@@ -33,7 +34,7 @@ async function main() {
   }
 
   // Bootstrap should work even when public sign-up is disabled.
-  process.env.ALLOW_SIGNUP = 'true';
+  process.env.ONBOARDING = 'true';
   const { auth } = await import('../app/lib/auth');
 
   try {
@@ -46,10 +47,12 @@ async function main() {
     });
 
     await ensureAdminRole(email);
+    await markOnboardingComplete({ method: 'bootstrap', notes: email }).catch(() => {});
     console.log(`[bootstrap-admin] Created admin user: ${res.user.email}`);
   } catch (error) {
     if (isUserExistsError(error)) {
       await ensureAdminRole(email);
+      await markOnboardingComplete({ method: 'bootstrap', notes: email }).catch(() => {});
       console.log(`[bootstrap-admin] User already exists, ensured admin role: ${email}`);
       return;
     }

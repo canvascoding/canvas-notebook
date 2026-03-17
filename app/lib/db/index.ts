@@ -249,6 +249,18 @@ if (tableNames.has('automation_runs')) {
   }
 }
 
+// Onboarding completion log
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS onboarding_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    completed_at INTEGER NOT NULL,
+    completed_by TEXT,
+    method TEXT NOT NULL,
+    notes TEXT,
+    created_at INTEGER NOT NULL
+  );
+`);
+
 // OAuth tokens table for provider authentication
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS oauth_tokens (

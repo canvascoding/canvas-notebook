@@ -111,6 +111,15 @@ export const piUsageEvents = sqliteTable("pi_usage_events", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const onboardingLog = sqliteTable("onboarding_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),
+  completedBy: text("completed_by"), // userId or null for bootstrap
+  method: text("method").notNull(), // 'ui' | 'bootstrap'
+  notes: text("notes"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const automationJobs = sqliteTable("automation_jobs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

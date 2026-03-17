@@ -10,10 +10,19 @@ const authSecret =
   process.env.BETTER_AUTH_SECRET ||
   process.env.AUTH_SECRET ||
   "canvas-notebook-local-dev-secret-change-me";
-const allowSignUp = process.env.ALLOW_SIGNUP === "true";
 const forceSecureCookies = process.env.AUTH_COOKIE_SECURE === "true";
 const useSecureCookies =
   forceSecureCookies || Boolean(authBaseURL && authBaseURL.startsWith("https://"));
+
+// Use a getter so disableSignUp is evaluated at request time, not at module init.
+// This allows the onboarding setup route to temporarily enable signup by setting
+// process.env.ONBOARDING = 'true' before calling auth.api.signUpEmail.
+const emailAndPasswordConfig = {
+  enabled: true,
+  get disableSignUp() {
+    return process.env.ONBOARDING !== 'true';
+  },
+};
 
 export const auth = betterAuth({
   secret: authSecret,
@@ -21,10 +30,7 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "sqlite",
   }),
-  emailAndPassword: {
-    enabled: true,
-    disableSignUp: !allowSignUp,
-  },
+  emailAndPassword: emailAndPasswordConfig,
   plugins: [
     nextCookies(),
   ],
@@ -49,11 +55,4 @@ export const auth = betterAuth({
       sameSite: "lax",
     }
   },
-  // hooks: {
-  //   before: async (ctx: any) => { // Cast ctx to any
-  //     if ((ctx.req as NextRequest).nextUrl.pathname === "/sign-up/email") { // Cast ctx.req to NextRequest
-  //       throw new Error("Sign up is disabled");
-  //     }
-  //   }
-  // }
 });
