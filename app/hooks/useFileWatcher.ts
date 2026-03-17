@@ -52,6 +52,7 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
   const lastReloadRef = useRef<number>(0);
   const reconnectAttemptsRef = useRef<number>(0);
   const isMountedRef = useRef<boolean>(false);
+  const connectRef = useRef<() => void>(() => {});
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [lastEvent, setLastEvent] = useState<FileEvent | null>(null);
 
@@ -188,11 +189,15 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
 
       reconnectTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current && enabledRef.current && !eventSourceRef.current) {
-          connect();
+          connectRef.current();
         }
       }, reconnectDelay);
     };
   }, [handleFileChange]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   // Disconnect function
   const disconnect = useCallback(() => {

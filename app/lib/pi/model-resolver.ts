@@ -76,9 +76,25 @@ export function getPiProviders(): string[] {
   return providers as string[];
 }
 
-export function getPiModels(provider: string) {
+export function getPiModels(provider: string, customModel?: string) {
   // Special handling for Ollama provider
   if (provider === OLLAMA_PROVIDER_ID) {
+    // If a custom model is provided, add it to the list
+    if (customModel) {
+      const customModelEntry: Model<'openai-completions'> = {
+        id: customModel,
+        name: `${customModel} (Custom)`,
+        api: 'openai-completions',
+        provider: 'ollama',
+        baseUrl: 'http://localhost:11434/v1',
+        reasoning: false,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 8192,
+      };
+      return [...OLLAMA_MODELS, customModelEntry];
+    }
     return OLLAMA_MODELS;
   }
   
@@ -94,8 +110,32 @@ export function getPiModels(provider: string) {
  * For Ollama, dynamically sets the correct baseUrl based on mode.
  */
 export async function resolvePiModel(provider: string, modelName: string) {
-  const models = getPiModels(provider);
-  const model = models.find(m => m.id === modelName);
+  const config = await readPiRuntimeConfig();
+  const providerConfig = config.providers[provider];
+  
+  // For Ollama, pass custom model to getPiModels if configured
+  const customModel = provider === OLLAMA_PROVIDER_ID && providerConfig?.ollamaModelSource === 'custom' 
+    ? providerConfig.ollamaCustomModel 
+    : undefined;
+  
+  const models = getPiModels(provider, customModel);
+  let model = models.find(m => m.id === modelName);
+  
+  // For Ollama custom models, create model entry if not found
+  if (provider === OLLAMA_PROVIDER_ID && !model && providerConfig?.ollamaModelSource === 'custom') {
+    model = {
+      id: modelName,
+      name: `${modelName} (Custom)`,
+      api: 'openai-completions',
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434/v1',
+      reasoning: false,
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 8192,
+    };
+  }
   
   if (!model) {
     throw new Error(`Model ${modelName} not found for provider ${provider}`);
@@ -104,11 +144,9 @@ export async function resolvePiModel(provider: string, modelName: string) {
   // For Ollama, we always use the local API endpoint (localhost:11434)
   // Cloud vs Local is distinguished by the model ID, not the URL
   if (provider === OLLAMA_PROVIDER_ID) {
-    const config = await readPiRuntimeConfig();
-    const providerConfig = config.providers[provider];
-    
     console.log(`[Ollama Debug] Resolving model ${modelName} for provider ${provider}`);
     console.log(`[Ollama Debug] Mode: ${providerConfig?.ollamaMode || 'local'}`);
+    console.log(`[Ollama Debug] Model Source: ${providerConfig?.ollamaModelSource || 'predefined'}`);
     
     // Always use localhost:11434 for all Ollama models (both local and cloud)
     // Cloud models are pulled via 'ollama pull <cloud-model>' and served locally via API

@@ -257,9 +257,11 @@ export function NanoBananaLocalizerClient() {
           {referenceImagePath ? (
             <div className="flex items-center gap-3 border border-border bg-background p-2">
               <img
-                src={toPreviewUrl(referenceImagePath, 280)}
+                src={toPreviewUrl(referenceImagePath, 280, { preset: 'mini' })}
                 alt={referenceImagePath}
                 className="h-20 w-28 border border-border bg-muted object-cover"
+                loading="lazy"
+                decoding="async"
               />
               <div className="min-w-0 text-xs text-muted-foreground">
                 <p className="truncate font-medium text-foreground">Ausgewähltes Referenzbild</p>

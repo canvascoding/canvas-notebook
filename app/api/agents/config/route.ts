@@ -49,12 +49,16 @@ export async function GET(request: NextRequest) {
     // Discovery metadata with vision support
     const providers = getPiProviders();
     const discovery = Object.fromEntries(
-      providers.map(p => [p, { 
-        models: getPiModels(p).map(m => ({
-          ...m,
-          supportsVision: modelSupportsVision(m.id) || (m.input?.includes('image') ?? false),
-        })),
-      }])
+      providers.map(p => {
+        // For Ollama, pass the custom model if configured
+        const customModel = p === 'ollama' ? piConfig.providers.ollama?.ollamaCustomModel : undefined;
+        return [p, { 
+          models: getPiModels(p, customModel).map(m => ({
+            ...m,
+            supportsVision: modelSupportsVision(m.id) || (m.input?.includes('image') ?? false),
+          })),
+        }];
+      })
     );
 
     return NextResponse.json({

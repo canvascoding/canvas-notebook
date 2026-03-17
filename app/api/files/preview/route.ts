@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import { spawn } from 'child_process';
+import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -12,6 +13,29 @@ const FFMPEG_BIN = process.env.FFMPEG_PATH || 'ffmpeg';
 const MAX_WIDTH = 1920;
 const MIN_WIDTH = 64;
 const SUPPORTED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
+const SHARP_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp']);
+
+type PreviewFormat = 'jpg' | 'png' | 'webp';
+type PreviewPreset = 'default' | 'mini';
+
+interface PreviewProfile {
+  defaultWidth: number;
+  maxWidth: number;
+  format: PreviewFormat;
+}
+
+const PREVIEW_PROFILES: Record<PreviewPreset, PreviewProfile> = {
+  default: {
+    defaultWidth: 1280,
+    maxWidth: MAX_WIDTH,
+    format: 'jpg',
+  },
+  mini: {
+    defaultWidth: 192,
+    maxWidth: 320,
+    format: 'webp',
+  },
+};
 
 function buildMediaUrl(filePath: string) {
   const encodedPath = filePath
@@ -21,12 +45,22 @@ function buildMediaUrl(filePath: string) {
   return `/media/${encodedPath}`;
 }
 
-function getOutputFormat(extension: string) {
+function getPreviewPreset(rawPreset: string | null): PreviewPreset {
+  return rawPreset === 'mini' ? 'mini' : 'default';
+}
+
+function getOutputFormat(extension: string, preset: PreviewPreset): PreviewFormat {
+  if (preset === 'mini' && extension !== 'gif') {
+    return PREVIEW_PROFILES.mini.format;
+  }
+
   return extension === 'png' ? 'png' : 'jpg';
 }
 
-function getContentType(format: string) {
-  return format === 'png' ? 'image/png' : 'image/jpeg';
+function getContentType(format: PreviewFormat) {
+  if (format === 'png') return 'image/png';
+  if (format === 'webp') return 'image/webp';
+  return 'image/jpeg';
 }
 
 async function ensureDir(dirPath: string) {
@@ -42,7 +76,7 @@ async function fileExists(filePath: string) {
   }
 }
 
-async function generateThumbnail(inputPath: string, outputPath: string, width: number, format: string) {
+async function generateVideoThumbnail(inputPath: string, outputPath: string, width: number, format: PreviewFormat) {
   const args = [
     '-hide_banner',
     '-loglevel',
@@ -81,6 +115,54 @@ async function generateThumbnail(inputPath: string, outputPath: string, width: n
   });
 }
 
+async function generateImageThumbnail(
+  inputPath: string,
+  outputPath: string,
+  width: number,
+  format: PreviewFormat,
+  preset: PreviewPreset,
+) {
+  let image = sharp(inputPath, { animated: false, limitInputPixels: false }).rotate().resize({
+    width,
+    withoutEnlargement: true,
+    fit: 'inside',
+  });
+
+  if (format === 'png') {
+    image = image.png({
+      compressionLevel: preset === 'mini' ? 9 : 6,
+      palette: preset === 'mini',
+    });
+  } else if (format === 'webp') {
+    image = image.webp({
+      quality: preset === 'mini' ? 58 : 75,
+      effort: preset === 'mini' ? 2 : 4,
+    });
+  } else {
+    image = image.jpeg({
+      quality: preset === 'mini' ? 58 : 82,
+      mozjpeg: true,
+    });
+  }
+
+  await image.toFile(outputPath);
+}
+
+async function generateThumbnail(
+  inputPath: string,
+  outputPath: string,
+  extension: string,
+  width: number,
+  format: PreviewFormat,
+  preset: PreviewPreset,
+) {
+  if (SHARP_EXTENSIONS.has(extension)) {
+    return generateImageThumbnail(inputPath, outputPath, width, format, preset);
+  }
+
+  return generateVideoThumbnail(inputPath, outputPath, width, format);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const limited = rateLimit(request, {
@@ -100,6 +182,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const filePath = searchParams.get('path');
     const widthParam = searchParams.get('w') || '';
+    const preset = getPreviewPreset(searchParams.get('preset'));
+    const profile = PREVIEW_PROFILES[preset];
 
     if (!filePath) {
       return NextResponse.json(
@@ -110,8 +194,8 @@ export async function GET(request: NextRequest) {
 
     const widthRaw = Number(widthParam);
     const width = Number.isFinite(widthRaw)
-      ? Math.min(Math.max(widthRaw, MIN_WIDTH), MAX_WIDTH)
-      : 1280;
+      ? Math.min(Math.max(widthRaw, MIN_WIDTH), profile.maxWidth)
+      : profile.defaultWidth;
 
     const extension = path.posix.extname(filePath).slice(1).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(extension)) {
@@ -132,10 +216,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const format = getOutputFormat(extension);
+    const format = getOutputFormat(extension, preset);
     const cacheKey = crypto
       .createHash('sha1')
-      .update(`${filePath}:${stats.size}:${stats.mtimeMs}:${width}:${format}`)
+      .update(`${filePath}:${stats.size}:${stats.mtimeMs}:${width}:${preset}:${format}`)
       .digest('hex');
     const cacheFile = path.join(CACHE_ROOT, `${cacheKey}.${format}`);
 
@@ -144,7 +228,7 @@ export async function GET(request: NextRequest) {
     if (!(await fileExists(cacheFile))) {
       const tmpFile = path.join(CACHE_ROOT, `${cacheKey}.tmp.${format}`);
       try {
-        await generateThumbnail(fullPath, tmpFile, width, format);
+        await generateThumbnail(fullPath, tmpFile, extension, width, format, preset);
         await fs.rename(tmpFile, cacheFile);
       } catch (error) {
         await fs.rm(tmpFile, { force: true }).catch(() => {});

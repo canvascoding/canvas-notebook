@@ -452,7 +452,7 @@ export const piTools: AgentTool[] = [
     label: 'Listing automation jobs',
     description: 'Lists all automation jobs with their status and schedule information. Use when user wants to see existing automations, check job status, or view scheduled workflows.',
     parameters: Type.Object({}),
-    execute: async (toolCallId, params) => {
+    execute: async () => {
       try {
         const workspacePath = getWorkspacePath();
         const cmd = `/data/skills/skill workflow-automation list`;

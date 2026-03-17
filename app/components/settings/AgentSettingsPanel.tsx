@@ -49,6 +49,8 @@ type PiProviderConfig = {
   enabledTools: string[];
   ollamaMode?: OllamaMode;
   ollamaHost?: string;
+  ollamaModelSource?: 'predefined' | 'custom';
+  ollamaCustomModel?: string;
   authMethod?: 'api-key' | 'oauth';
 };
 
@@ -568,56 +570,154 @@ export function AgentSettingsPanel() {
 
               {/* Ollama Mode Selector */}
               {piConfigDraft.activeProvider === 'ollama' && (
-                <div className="space-y-2 text-sm">
-                  <span className="font-semibold">Ollama Server</span>
-                  <select
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    value={piConfigDraft.providers.ollama?.ollamaMode || 'local'}
-                    onChange={(event) => {
-                      const mode = event.target.value as OllamaMode;
-                      setPiProviderField('ollama', 'ollamaMode', mode);
-                      // Clear host when switching to local mode
-                      if (mode === 'local') {
-                        setPiProviderField('ollama', 'ollamaHost', undefined);
-                      }
-                    }}
-                    disabled={configSaving}
-                  >
-                    <option value="local">🏠 Lokal (localhost:11434)</option>
-                    <option value="cloud">☁️ Remote Server (custom URL)</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' 
-                      ? 'Remote Server: Verbindung zu externem Ollama Server (z.B. http://192.168.1.100:11434)'
-                      : 'Lokal Mode: Alle Modelle (inkl. Cloud-Modelle) werden lokal über localhost:11434 ausgeführt'}
-                  </p>
+                <div className="space-y-4 text-sm">
+                  {/* Server Mode Selection */}
+                  <div className="space-y-2">
+                    <span className="font-semibold">Ollama Server</span>
+                    <select
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={piConfigDraft.providers.ollama?.ollamaMode || 'local'}
+                      onChange={(event) => {
+                        const mode = event.target.value as OllamaMode;
+                        setPiProviderField('ollama', 'ollamaMode', mode);
+                        // Clear host when switching to local mode
+                        if (mode === 'local') {
+                          setPiProviderField('ollama', 'ollamaHost', undefined);
+                        }
+                      }}
+                      disabled={configSaving}
+                    >
+                      <option value="local">🏠 Standard (Lokal) - localhost:11434</option>
+                      <option value="cloud">☁️ Remote Server - Eigene URL</option>
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' 
+                        ? 'Remote Server: Verbindung zu einem externen Ollama Server im Netzwerk oder in der Cloud'
+                        : 'Standard (Lokal): Ollama läuft auf deinem Computer unter localhost:11434'}
+                    </p>
+                  </div>
+
+                  {/* Remote Server URL Input - Only shown when Remote is selected */}
+                  {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' && (
+                    <div className="space-y-2">
+                      <span className="font-semibold">Remote Server URL</span>
+                      <Input
+                        placeholder="http://192.168.1.100:11434 oder https://ollama.example.com"
+                        value={piConfigDraft.providers.ollama?.ollamaHost || ''}
+                        onChange={(event) => setPiProviderField('ollama', 'ollamaHost', event.target.value)}
+                        disabled={configSaving}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Gib die URL deines Ollama Servers ein. Beispiele: http://192.168.1.100:11434 (lokales Netzwerk) oder https://ollama.dein-server.de (Cloud)
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Terminal Button */}
+                  <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-md border border-border">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Ollama im Terminal konfigurieren</p>
+                      <p className="text-xs text-muted-foreground">
+                        Öffne das Terminal, um Modelle zu pullen und den Server zu starten
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open('/terminal', '_blank')}
+                    >
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      Terminal öffnen
+                    </Button>
+                  </div>
                 </div>
               )}
 
               {piConfigDraft.providers[piConfigDraft.activeProvider] && (
                 <div className="space-y-2 text-sm">
                   <span className="font-semibold">Modell für {piConfigDraft.activeProvider}</span>
-                  <select
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    value={piConfigDraft.providers[piConfigDraft.activeProvider].model}
-                    onChange={(event) => setPiProviderField(piConfigDraft.activeProvider, 'model', event.target.value)}
-                    disabled={configSaving}
-                  >
-                    <option value="">-- Modell wählen --</option>
-                    {(discovery[piConfigDraft.activeProvider]?.models || []).map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name || m.id} {m.supportsVision ? '👁️' : ''}
-                      </option>
-                    ))}
-                    {!discovery[piConfigDraft.activeProvider] && (
-                      <option value={piConfigDraft.providers[piConfigDraft.activeProvider].model}>
-                        {piConfigDraft.providers[piConfigDraft.activeProvider].model} (Manuell)
-                      </option>
-                    )}
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    👁️ = Vision-fähig (unterstützt Bilder)
-                  </p>
+                  
+                  {/* Special handling for Ollama with custom model support */}
+                  {piConfigDraft.activeProvider === 'ollama' ? (
+                    <>
+                      <select
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={piConfigDraft.providers.ollama?.ollamaModelSource === 'custom' ? 'custom' : piConfigDraft.providers[piConfigDraft.activeProvider].model}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          if (value === 'custom') {
+                            // Switch to custom model mode
+                            setPiProviderField('ollama', 'ollamaModelSource', 'custom');
+                            // Keep current model as custom model if exists
+                            if (!piConfigDraft.providers.ollama?.ollamaCustomModel) {
+                              setPiProviderField('ollama', 'ollamaCustomModel', piConfigDraft.providers.ollama?.model || '');
+                            }
+                          } else {
+                            // Switch to predefined model
+                            setPiProviderField('ollama', 'ollamaModelSource', 'predefined');
+                            setPiProviderField('ollama', 'model', value);
+                            setPiProviderField('ollama', 'ollamaCustomModel', undefined);
+                          }
+                        }}
+                        disabled={configSaving}
+                      >
+                        <option value="">-- Modell wählen --</option>
+                        {(discovery[piConfigDraft.activeProvider]?.models || []).map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.name || m.id} {m.supportsVision ? '👁️' : ''}
+                          </option>
+                        ))}
+                        <option value="custom">➕ Custom Model...</option>
+                      </select>
+                      
+                      {/* Custom Model Input - Only shown when Custom is selected */}
+                      {piConfigDraft.providers.ollama?.ollamaModelSource === 'custom' && (
+                        <div className="space-y-2 mt-3">
+                          <Input
+                            placeholder="z.B. mein-custom-model:latest"
+                            value={piConfigDraft.providers.ollama?.ollamaCustomModel || ''}
+                            onChange={(event) => {
+                              const customModel = event.target.value;
+                              setPiProviderField('ollama', 'ollamaCustomModel', customModel);
+                              setPiProviderField('ollama', 'model', customModel);
+                            }}
+                            disabled={configSaving}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Gib den Namen deines Custom Models ein. Beispiel: mein-modell:latest oder llama3.1:8b
+                          </p>
+                        </div>
+                      )}
+                      
+                      <p className="text-xs text-muted-foreground mt-1">
+                        👁️ = Vision-fähig (unterstützt Bilder) | Wähle "Custom Model", um ein nicht gelistetes Modell zu verwenden
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <select
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={piConfigDraft.providers[piConfigDraft.activeProvider].model}
+                        onChange={(event) => setPiProviderField(piConfigDraft.activeProvider, 'model', event.target.value)}
+                        disabled={configSaving}
+                      >
+                        <option value="">-- Modell wählen --</option>
+                        {(discovery[piConfigDraft.activeProvider]?.models || []).map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.name || m.id} {m.supportsVision ? '👁️' : ''}
+                          </option>
+                        ))}
+                        {!discovery[piConfigDraft.activeProvider] && (
+                          <option value={piConfigDraft.providers[piConfigDraft.activeProvider].model}>
+                            {piConfigDraft.providers[piConfigDraft.activeProvider].model} (Manuell)
+                          </option>
+                        )}
+                      </select>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        👁️ = Vision-fähig (unterstützt Bilder)
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
             </div>

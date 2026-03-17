@@ -8,8 +8,21 @@ export function toMediaUrl(filePath: string) {
   return suffix;
 }
 
-export function toPreviewUrl(filePath: string, width: number) {
+interface PreviewUrlOptions {
+  preset?: 'default' | 'mini';
+}
+
+export function toPreviewUrl(filePath: string, width: number, options: PreviewUrlOptions = {}) {
+  const params = new URLSearchParams({
+    path: filePath,
+    w: String(width),
+  });
+
+  if (options.preset && options.preset !== 'default') {
+    params.set('preset', options.preset);
+  }
+
   // Use relative URLs so they work in both dev and production
-  const suffix = `/api/files/preview?path=${encodeURIComponent(filePath)}&w=${width}`;
+  const suffix = `/api/files/preview?${params.toString()}`;
   return suffix;
 }

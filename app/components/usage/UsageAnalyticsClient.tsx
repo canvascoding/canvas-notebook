@@ -13,6 +13,7 @@ import type {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 type FilterState = {
   from: string;
@@ -447,29 +448,33 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             {events?.rows.length ? (
-              events.rows.map((row) => (
-                <div key={row.id} data-testid="usage-event-row" className="border border-border/70 bg-background/60 p-3">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="font-medium">
-                        {row.sessionTitleSnapshot || row.sessionId}
+              <ScrollArea className="h-[24rem] md:h-[32rem]">
+                <div className="space-y-3 pr-4">
+                  {events.rows.map((row) => (
+                    <div key={row.id} data-testid="usage-event-row" className="border border-border/70 bg-background/60 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="font-medium">
+                            {row.sessionTitleSnapshot || row.sessionId}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.provider} / {row.model}
+                            {isAdmin ? ` / ${row.userLabel}` : ''}
+                          </div>
+                        </div>
+                        <div className="text-right text-sm font-medium">{formatUsageCost(row.totalCost)}</div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {row.provider} / {row.model}
-                        {isAdmin ? ` / ${row.userLabel}` : ''}
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                        <span>{formatUsageTimestamp(row.assistantTimestamp)}</span>
+                        <span>{row.totalTokens} tok</span>
+                        <span>{row.inputTokens} in / {row.outputTokens} out</span>
+                        <span>{row.cacheTokens} cache</span>
+                        <span>{row.stopReason}</span>
                       </div>
                     </div>
-                    <div className="text-right text-sm font-medium">{formatUsageCost(row.totalCost)}</div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>{formatUsageTimestamp(row.assistantTimestamp)}</span>
-                    <span>{row.totalTokens} tok</span>
-                    <span>{row.inputTokens} in / {row.outputTokens} out</span>
-                    <span>{row.cacheTokens} cache</span>
-                    <span>{row.stopReason}</span>
-                  </div>
+                  ))}
                 </div>
-              ))
+              </ScrollArea>
             ) : (
               <div className="py-6 text-sm text-muted-foreground">
                 {isLoading ? 'Loading events...' : 'No usage events found for the current filters.'}

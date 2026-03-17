@@ -272,11 +272,17 @@ export function ImageGenerationClient() {
             {referenceImagePaths.length > 0 ? (
               <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5">
                 {referenceImagePaths.map((path) => (
-                  <div key={path} className="border border-border bg-card p-2">
-                    <div className="relative">
-                      <img src={toPreviewUrl(path, 260)} alt={path} className="aspect-square w-full bg-muted object-cover" />
-                      <button
-                        type="button"
+                    <div key={path} className="border border-border bg-card p-2">
+                      <div className="relative">
+                        <img
+                          src={toPreviewUrl(path, 260, { preset: 'mini' })}
+                          alt={path}
+                          className="aspect-square w-full bg-muted object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                        <button
+                          type="button"
                         onClick={() => removeReference(path)}
                         className="absolute right-1 top-1 border border-border bg-background p-1"
                         aria-label="Referenz entfernen"

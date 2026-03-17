@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { toPreviewUrl } from '@/app/lib/utils/media-url';
 
 type AssetKind = 'image' | 'video';
 
@@ -209,9 +210,12 @@ export function AssetPickerDialog({
                         <div className="aspect-video w-full bg-muted">
                           {asset.kind === 'image' ? (
                             <img
-                              src={asset.previewUrl}
+                              src={toPreviewUrl(asset.path, 192, { preset: 'mini' })}
                               alt={asset.name}
                               className="h-full w-full object-cover"
+                              loading="lazy"
+                              decoding="async"
+                              fetchPriority="low"
                             />
                           ) : (
                             <video src={asset.mediaUrl} className="h-full w-full object-cover" muted />

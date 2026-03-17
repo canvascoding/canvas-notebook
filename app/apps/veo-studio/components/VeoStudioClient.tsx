@@ -36,7 +36,13 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
     <div className="flex items-center gap-2 border border-border bg-background px-2 py-1">
       <div className="h-10 w-14 overflow-hidden bg-muted">
         {kind === 'image' ? (
-          <img src={toPreviewUrl(path, 200)} alt={name} className="h-full w-full object-cover" />
+          <img
+            src={toPreviewUrl(path, 200, { preset: 'mini' })}
+            alt={name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
         ) : (
           <video src={toMediaUrl(path)} className="h-full w-full object-cover" muted />
         )}
