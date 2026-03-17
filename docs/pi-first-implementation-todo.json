@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-17T08:38:18+01:00",
+  "lastUpdatedAt": "2026-03-17T14:12:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1802,6 +1802,18 @@
         "pi-chat-runtime-016"
       ],
       "description": "Replace the loose near-bottom autoscroll with a tighter bottom lock so the chat only follows new streaming output when the user is actually pinned to the end, and add Playwright coverage that verifies manual upward scrolling stays in place until the jump-to-bottom button is used."
+    },
+    {
+      "id": "workspace-ux-001",
+      "order": 158,
+      "phase": "P24 Workspace UX",
+      "title": "Hide placeholder metadata files from workspace file listings",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-017"
+      ],
+      "description": "Filter placeholder metadata files such as .gitkeep and .keep out of the shared workspace directory listing so they no longer clutter the file tree and related file pickers."
     }
   ]
 }

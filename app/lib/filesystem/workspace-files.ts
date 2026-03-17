@@ -14,6 +14,8 @@ export interface FileNode {
 
 const DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
+const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
+const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 
 export function validatePath(userPath: string): string {
   const normalizedBase = path.normalize(WORKSPACE_BASE_DIR);
@@ -29,11 +31,16 @@ export function validatePath(userPath: string): string {
 export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> {
   const fullPath = validatePath(dirPath);
   const entries = await fs.readdir(fullPath, { withFileTypes: true });
-  const ignoredDirs = ['node_modules', '.next', '.git', 'dist', 'build', '.cache'];
 
   return Promise.all(
     entries
-      .filter((entry) => !ignoredDirs.includes(entry.name))
+      .filter((entry) => {
+        if (entry.isDirectory()) {
+          return !IGNORED_WORKSPACE_DIRS.has(entry.name);
+        }
+
+        return !HIDDEN_WORKSPACE_METADATA_FILES.has(entry.name);
+      })
       .map(async (entry) => {
         const entryPath = path.join(fullPath, entry.name);
         const stats = await fs.stat(entryPath);
