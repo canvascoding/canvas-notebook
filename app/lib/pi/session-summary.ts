@@ -16,7 +16,7 @@ import { normalizePiMessagesForLlm } from './message-normalization';
 type PreparePiHistoryContextOptions = {
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
-  systemPrompt: string;
+  systemPromptTokens: number;
   model: Model<Api>;
   toolCount: number;
   sessionId?: string;
@@ -136,7 +136,7 @@ export async function summarizePiSessionHistory({
 export async function preparePiHistoryContext({
   messages,
   summary,
-  systemPrompt,
+  systemPromptTokens,
   model,
   toolCount,
   sessionId,
@@ -146,7 +146,7 @@ export async function preparePiHistoryContext({
   let composition = composePiHistoryForLlm({
     messages,
     summary: nextSummary,
-    systemPrompt,
+    systemPromptTokens,
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
     toolCount,
@@ -186,7 +186,7 @@ export async function preparePiHistoryContext({
       composition = composePiHistoryForLlm({
         messages,
         summary: nextSummary,
-        systemPrompt,
+        systemPromptTokens,
         contextWindow: model.contextWindow,
         modelMaxTokens: model.maxTokens,
         toolCount,

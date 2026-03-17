@@ -19,7 +19,7 @@ export type PiHistoryComposition = {
 type ComposePiHistoryOptions = {
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
-  systemPrompt: string;
+  systemPromptTokens: number;
   contextWindow: number;
   modelMaxTokens: number;
   toolCount: number;
@@ -37,7 +37,7 @@ const MAX_SUMMARY_SHARE = 0.45;
 const SUMMARY_PREAMBLE =
   'Internal session summary from earlier turns. Treat this as compressed background context, not as a new user request.\n\n';
 
-function estimateTextTokens(value: string): number {
+export function estimateTextTokens(value: string): number {
   return Math.ceil(value.length * TOKENS_PER_CHARACTER);
 }
 
@@ -90,13 +90,12 @@ function getSummaryMessage(summaryText: string, maxHistoryTokens: number): UserM
 }
 
 function getHistoryBudget({
-  systemPrompt,
+  systemPromptTokens,
   contextWindow,
   modelMaxTokens,
   toolCount,
   aggressive = false,
 }: Omit<ComposePiHistoryOptions, 'messages' | 'summary'>): number {
-  const systemPromptTokens = estimateTextTokens(systemPrompt);
   const outputReserve = Math.min(
     Math.max(512, Math.floor(contextWindow * 0.2)),
     Math.max(1024, Math.min(modelMaxTokens, 8192)),
@@ -121,14 +120,14 @@ export function getMessageTimestamp(message: AgentMessage): number {
 export function composePiHistoryForLlm({
   messages,
   summary,
-  systemPrompt,
+  systemPromptTokens,
   contextWindow,
   modelMaxTokens,
   toolCount,
   aggressive = false,
 }: ComposePiHistoryOptions): PiHistoryComposition {
   const availableHistoryTokens = getHistoryBudget({
-    systemPrompt,
+    systemPromptTokens,
     contextWindow,
     modelMaxTokens,
     toolCount,

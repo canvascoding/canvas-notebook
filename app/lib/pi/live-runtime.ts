@@ -10,6 +10,7 @@ import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import {
   composePiHistoryForLlm,
+  estimateTextTokens,
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
@@ -87,7 +88,7 @@ type RuntimeInit = {
   provider: string;
   model: Model<Api>;
   systemPrompt: string;
-  tools: AgentTool<any>[];
+  tools: AgentTool[];
   summary: PiSessionSummaryState;
   initialMessages: AgentMessage[];
 };
@@ -161,7 +162,7 @@ class LivePiRuntime {
   readonly provider: string;
   readonly model: Model<Api>;
   readonly systemPrompt: string;
-  readonly tools: AgentTool<any>[];
+  readonly tools: AgentTool[];
   readonly agent: Agent;
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
@@ -218,7 +219,7 @@ class LivePiRuntime {
       composePiHistoryForLlm({
         messages: this.agent.state.messages,
         summary: this.summary,
-        systemPrompt: this.systemPrompt,
+        systemPromptTokens: estimateTextTokens(this.systemPrompt),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
         toolCount: this.tools.length,
@@ -317,7 +318,7 @@ class LivePiRuntime {
     const result = await preparePiHistoryContext({
       messages: this.agent.state.messages,
       summary: this.summary,
-      systemPrompt: this.systemPrompt,
+      systemPromptTokens: estimateTextTokens(this.systemPrompt),
       model: this.model,
       toolCount: this.tools.length,
       sessionId: this.sessionId,
@@ -382,7 +383,7 @@ class LivePiRuntime {
     const result = await preparePiHistoryContext({
       messages,
       summary: this.summary,
-      systemPrompt: this.systemPrompt,
+      systemPromptTokens: estimateTextTokens(this.systemPrompt),
       model: this.model,
       toolCount: this.tools.length,
       sessionId: this.sessionId,
@@ -518,7 +519,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const { systemPrompt } = await loadManagedAgentSystemPrompt();
   const tools = await getPiTools();
 
-  let runtimeRef: LivePiRuntime;
+  const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
     initialState: {
       systemPrompt,
@@ -528,12 +529,18 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       messages: initialMessages,
     },
     convertToLlm: async (messages) => normalizePiMessagesForLlm(messages),
-    transformContext: async (messages, signal) => runtimeRef.transformContext(messages, signal),
+    transformContext: async (messages, signal) => {
+      if (!runtimeRef.current) {
+        throw new Error('PI runtime not initialized');
+      }
+
+      return runtimeRef.current.transformContext(messages, signal);
+    },
     getApiKey: resolvePiApiKey,
     sessionId,
   });
 
-  runtimeRef = new LivePiRuntime(
+  const runtime = new LivePiRuntime(
     {
       sessionId,
       userId,
@@ -546,12 +553,13 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     },
     agent,
   );
+  runtimeRef.current = runtime;
 
   agent.subscribe((event) => {
-    runtimeRef.onAgentEvent(event);
+    runtime.onAgentEvent(event);
   });
 
-  return runtimeRef;
+  return runtime;
 }
 
 type RuntimeStore = {
@@ -655,7 +663,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
   const composition = composePiHistoryForLlm({
     messages,
     summary,
-    systemPrompt,
+    systemPromptTokens: estimateTextTokens(systemPrompt),
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
     toolCount: tools.length,
