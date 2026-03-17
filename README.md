@@ -54,23 +54,21 @@ View Excel and CSV files directly, no downloads needed.
 
 ## Quickstart
 
-> Requires Docker and Node.js (for running the build script).
+**Requirements:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Node.js (v18+).
 
 ```bash
-# 1. Copy the env template
-cp .env.docker.example .env.docker.local
+npm run setup
 ```
 
-Open `.env.docker.local` and set at minimum:
-- `BETTER_AUTH_SECRET` — a random string (e.g. `openssl rand -base64 32`)
-- `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` — your login credentials
+That's it. The script will:
+1. Check that Docker is installed and running — if not, it tells you exactly where to download it
+2. Create a config file (`.env.docker.local`) from the template if one doesn't exist yet, and ask you to fill in your credentials
+3. Build the Docker image and start the container
+4. Wait for the app to be ready and open a browser window at `http://localhost:3456`
 
-```bash
-# 2. Build and start
-npm run container:rebuild
-```
+On first login, an onboarding wizard lets you create your admin account and configure an AI provider.
 
-No `npm install` needed — the script only uses built-in Node.js modules. The build takes a few minutes on first run. Once the container is ready, a browser window opens automatically at `http://localhost:3456`.
+> `npm install` is not required — the setup script only uses built-in Node.js modules.
 
 ---
 
@@ -93,16 +91,18 @@ Two named Docker volumes handle persistent tooling:
 
 ## Environment Variables
 
+Copy `.env.docker.example` to `.env.docker.local` and set the values below. `npm run setup` does this automatically on first run.
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `BETTER_AUTH_SECRET` | Yes | Random 32-byte base64 secret for session signing |
+| `BETTER_AUTH_SECRET` | Yes | Random 32-byte base64 secret — run `openssl rand -base64 32` |
 | `BASE_URL` | Yes | App URL, e.g. `http://localhost:3456` |
 | `BETTER_AUTH_BASE_URL` | Yes | Same as BASE_URL |
-| `BOOTSTRAP_ADMIN_EMAIL` | Recommended | Admin email, created on first start |
+| `BOOTSTRAP_ADMIN_EMAIL` | Recommended | Admin email, created automatically on first start |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Recommended | Admin password |
-| `BOOTSTRAP_ADMIN_NAME` | No | Display name for the admin |
-| `ALLOW_SIGNUP` | No | Set to `true` to allow public registration (default: `false`) |
-| `AI_CLI_AUTO_INSTALL` | No | Auto-install codex CLI if missing (default: `true`) |
+| `BOOTSTRAP_ADMIN_NAME` | No | Display name for the admin (default: Administrator) |
+| `ONBOARDING` | No | Set to `true` to show the onboarding wizard on first startup |
+| `AI_CLI_AUTO_INSTALL` | No | Auto-install Codex CLI if missing (default: `true`) |
 | `OLLAMA_CLI_AUTO_INSTALL` | No | Auto-install Ollama CLI if missing (default: `true`) |
 
 AI provider API keys (Claude, OpenRouter, Gemini, etc.) are configured inside the running app — you don't need them in the env file.
@@ -137,6 +137,9 @@ Skills without an executable are loaded as context into the agent's system promp
 ## Useful Commands
 
 ```bash
+# Install / first-time setup / rebuild
+npm run setup
+
 # Watch logs
 docker compose logs -f canvas-notebook
 
@@ -146,11 +149,8 @@ docker exec -it canvas-notebook sh
 # Stop
 docker compose down
 
-# Start (without rebuilding)
+# Start again without rebuilding
 docker compose up -d
-
-# Full rebuild
-npm run container:rebuild
 ```
 
 ---

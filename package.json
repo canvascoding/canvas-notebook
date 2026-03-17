@@ -32,7 +32,8 @@
     "test:e2e": "playwright test --pass-with-no-tests",
     "pretest:all": "npm run todos:sync:agent",
     "test:all": "node scripts/test-all.mjs",
-    "container:rebuild": "node scripts/rebuild-container.mjs"
+    "setup": "node scripts/setup.mjs",
+    "container:rebuild": "node scripts/setup.mjs"
   },
   "dependencies": {
     "@codemirror/lang-cpp": "^6.0.3",
