@@ -36,12 +36,36 @@ interface GenerateResponseData {
 }
 
 const SAMPLE_PROMPTS = [
-  'Premium product shot of a minimalist skincare bottle on a marble pedestal, soft studio lighting, clean luxury branding',
-  'Instagram ad creative for a summer travel campaign, bold typography space, vibrant tropical colors, modern marketing style',
-  'Hero banner scene for a SaaS landing page, abstract 3D shapes, professional corporate palette, high-end tech aesthetic',
-  'Food campaign visual with dramatic lighting, gourmet burger and fries, high contrast commercial photography look',
-  'Fashion e-commerce editorial: streetwear model in urban setting, cinematic lighting, high-detail fabric textures',
-  'Before-and-after style concept image for a home cleaning brand, split composition, bright and trustworthy tone',
+  {
+    prompt: 'Premium product shot of a minimalist skincare bottle on a marble pedestal, soft studio lighting, clean luxury branding',
+    image: '/images/examples/aura_serum_produktfoto.png',
+    label: 'Skincare Produktfoto',
+  },
+  {
+    prompt: 'Instagram ad creative for a summer travel campaign, bold typography, vibrant tropical colors, modern marketing style',
+    image: '/images/examples/reise_banner_find_your_paradise.png',
+    label: 'Reise-Kampagne',
+  },
+  {
+    prompt: 'Hero banner scene for a SaaS landing page, abstract 3D shapes, professional corporate palette, high-end tech aesthetic',
+    image: '/images/examples/tech_banner_future_of_innovation.png',
+    label: 'Tech Hero Banner',
+  },
+  {
+    prompt: 'Food campaign visual with dramatic lighting, gourmet burger and fries, high contrast commercial photography look',
+    image: '/images/examples/burger_fries_food_foto.png',
+    label: 'Food Kampagne',
+  },
+  {
+    prompt: 'Fashion e-commerce editorial: streetwear model in urban setting, cinematic lighting, high-detail fabric textures',
+    image: '/images/examples/streetwear_model_neon_gasse.png',
+    label: 'Fashion Editorial',
+  },
+  {
+    prompt: 'Before-and-after style concept image for a home cleaning brand, split composition, bright and trustworthy tone',
+    image: '/images/examples/wohnzimmer_before_after.png',
+    label: 'Before & After',
+  },
 ] as const;
 
 const MAX_IMAGE_COUNT = 4;
@@ -254,15 +278,23 @@ export function ImageGenerationClient() {
 
           <div className="space-y-2 border border-border bg-background p-3">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Prompt Ideen</p>
-            <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto">
-              {SAMPLE_PROMPTS.map((samplePrompt) => (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+              {SAMPLE_PROMPTS.map((item) => (
                 <button
-                  key={samplePrompt}
+                  key={item.image}
                   type="button"
-                  onClick={() => setPrompt(samplePrompt)}
-                  className="border border-border bg-muted px-2 py-1 text-left text-xs text-muted-foreground transition hover:border-primary/50 hover:text-foreground max-w-full"
+                  onClick={() => setPrompt(item.prompt)}
+                  className="group border border-border bg-muted text-left transition hover:border-primary/50 overflow-hidden"
+                  title={item.prompt}
                 >
-                  {samplePrompt}
+                  <img
+                    src={item.image}
+                    alt={item.label}
+                    className="w-full aspect-[4/3] object-cover transition group-hover:opacity-90"
+                  />
+                  <p className="px-1.5 py-1 text-xs text-muted-foreground truncate group-hover:text-foreground">
+                    {item.label}
+                  </p>
                 </button>
               ))}
             </div>
