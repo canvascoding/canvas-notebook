@@ -11,7 +11,11 @@ import {
   generateImages,
   type ImageGenerationResultData,
 } from '../integrations/image-generation-service';
-import { generateVideo } from '../integrations/veo-generation-service';
+import {
+  generateVideo,
+  type GenerateVideoRequestBody,
+  type GenerationMode,
+} from '../integrations/veo-generation-service';
 import {
   AD_LOCALIZATION_ALL_FAILED_MESSAGE,
   localizeAd,
@@ -29,6 +33,31 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   '.webp': 'image/webp',
   '.svg':  'image/svg+xml',
 };
+
+type VideoAspectRatio = NonNullable<GenerateVideoRequestBody['aspectRatio']>;
+type VideoResolution = NonNullable<GenerateVideoRequestBody['resolution']>;
+
+const VIDEO_GENERATION_MODES: readonly GenerationMode[] = [
+  'text_to_video',
+  'frames_to_video',
+  'references_to_video',
+  'extend_video',
+];
+
+const VIDEO_ASPECT_RATIOS: readonly VideoAspectRatio[] = ['16:9', '9:16'];
+const VIDEO_RESOLUTIONS: readonly VideoResolution[] = ['720p', '1080p', '4k'];
+
+function isGenerationMode(value: string): value is GenerationMode {
+  return VIDEO_GENERATION_MODES.includes(value as GenerationMode);
+}
+
+function isVideoAspectRatio(value: string): value is VideoAspectRatio {
+  return VIDEO_ASPECT_RATIOS.includes(value as VideoAspectRatio);
+}
+
+function isVideoResolution(value: string): value is VideoResolution {
+  return VIDEO_RESOLUTIONS.includes(value as VideoResolution);
+}
 
 function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent | null {
   const mimeType = IMAGE_EXTENSIONS[path.extname(filePath).toLowerCase()];
@@ -325,24 +354,52 @@ export const piTools: AgentTool[] = [
     description: 'Generates videos using the local Canvas video-generation service. Use when user asks for: video creation, "create a video of...", "generate a video". Output: workspace/veo-studio/video-generation/. The agent should use this local tool directly; no internal API token or manual env loading is required. Note: Takes 3-10 minutes.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the video to generate' }),
-      mode: Type.Optional(Type.String({ description: 'Mode: text_to_video (default), frames_to_video, references_to_video, extend_video' })),
-      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9 or 9:16. Default: 16:9' })),
-      resolution: Type.Optional(Type.String({ description: 'Resolution: 720p (default), 1080p, 4k' })),
+      mode: Type.Optional(
+        Type.Union([
+          Type.Literal('text_to_video'),
+          Type.Literal('frames_to_video'),
+          Type.Literal('references_to_video'),
+          Type.Literal('extend_video'),
+        ], { description: 'Mode: text_to_video (default), frames_to_video, references_to_video, extend_video' }),
+      ),
+      aspect_ratio: Type.Optional(
+        Type.Union([
+          Type.Literal('16:9'),
+          Type.Literal('9:16'),
+        ], { description: 'Aspect ratio: 16:9 or 9:16. Default: 16:9' }),
+      ),
+      resolution: Type.Optional(
+        Type.Union([
+          Type.Literal('720p'),
+          Type.Literal('1080p'),
+          Type.Literal('4k'),
+        ], { description: 'Resolution: 720p (default), 1080p, 4k' }),
+      ),
     }),
     execute: async (toolCallId, params) => {
       const { prompt, mode, aspect_ratio, resolution } = params as {
         prompt: string;
-        mode?: string;
-        aspect_ratio?: string;
-        resolution?: string;
+        mode?: GenerationMode;
+        aspect_ratio?: VideoAspectRatio;
+        resolution?: VideoResolution;
       };
       try {
+        if (mode && !isGenerationMode(mode)) {
+          throw new Error(`Invalid mode "${mode}". Allowed values: ${VIDEO_GENERATION_MODES.join(', ')}`);
+        }
+        if (aspect_ratio && !isVideoAspectRatio(aspect_ratio)) {
+          throw new Error(`Invalid aspect ratio "${aspect_ratio}". Allowed values: ${VIDEO_ASPECT_RATIOS.join(', ')}`);
+        }
+        if (resolution && !isVideoResolution(resolution)) {
+          throw new Error(`Invalid resolution "${resolution}". Allowed values: ${VIDEO_RESOLUTIONS.join(', ')}`);
+        }
+
         const data = await generateVideo(
           {
             prompt,
-            mode: mode || 'text_to_video',
-            aspectRatio: aspect_ratio || '16:9',
-            resolution: resolution || '720p',
+            mode: mode ?? 'text_to_video',
+            aspectRatio: aspect_ratio ?? '16:9',
+            resolution: resolution ?? '720p',
             model: 'veo-3.1-fast-generate-preview',
           },
           'pi-agent',

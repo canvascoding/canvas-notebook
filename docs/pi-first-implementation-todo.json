@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-18T00:05:00+01:00",
+  "lastUpdatedAt": "2026-03-18T00:12:02+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
