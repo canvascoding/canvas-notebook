@@ -7,6 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AssetPickerDialog } from '@/app/apps/veo-studio/components/AssetPickerDialog';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 type GenerationMode = 'text_to_video' | 'frames_to_video' | 'references_to_video' | 'extend_video';
 
@@ -73,6 +79,7 @@ export function VeoStudioClient() {
   const [generated, setGenerated] = useState<GenerateResponseData | null>(null);
   const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
   const [isLoadingOutputs, setIsLoadingOutputs] = useState(false);
+  const [previewItem, setPreviewItem] = useState<OutputItem | null>(null);
 
   const [picker, setPicker] = useState<{
     open: boolean;
@@ -378,10 +385,14 @@ export function VeoStudioClient() {
           ) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
               {outputItems.map((item) => (
-                <div key={item.path} className="border border-border bg-background p-2">
-                  <video src={item.mediaUrl} controls className="aspect-video w-full bg-muted max-h-[250px] sm:max-h-[300px]" />
+                <button
+                  key={item.path}
+                  onClick={() => setPreviewItem(item)}
+                  className="border border-border bg-background p-2 text-left transition hover:border-primary/40 hover:bg-accent"
+                >
+                  <video src={item.mediaUrl} className="aspect-video w-full bg-muted max-h-[250px] sm:max-h-[300px]" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.path}</p>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -396,6 +407,26 @@ export function VeoStudioClient() {
         maxSelection={picker.maxSelection}
         onConfirm={handlePickerConfirm}
       />
+
+      <Dialog open={!!previewItem} onOpenChange={(open) => !open && setPreviewItem(null)}>
+        <DialogContent layout="viewport" className="p-0">
+          <DialogHeader className="border-b bg-muted/50 px-4 py-3">
+            <DialogTitle className="text-base font-medium truncate">
+              {previewItem?.path}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-1 items-center justify-center bg-background p-4">
+            {previewItem && (
+              <video
+                src={previewItem.mediaUrl}
+                controls
+                autoPlay
+                className="max-h-[calc(100dvh-8rem)] max-w-full"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

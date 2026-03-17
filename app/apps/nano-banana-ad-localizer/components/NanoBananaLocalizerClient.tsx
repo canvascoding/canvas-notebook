@@ -396,10 +396,14 @@ export function NanoBananaLocalizerClient() {
           ) : (
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {outputItems.map((item) => (
-                <a key={item.path} href={item.mediaUrl} target="_blank" rel="noreferrer" className="border border-border bg-background p-2">
+                <button
+                  key={item.path}
+                  onClick={() => setPreviewItem(item)}
+                  className="border border-border bg-background p-2 text-left transition hover:border-primary/40 hover:bg-accent"
+                >
                   <img src={item.previewUrl} alt={item.path} className="aspect-video w-full bg-muted object-cover max-h-[200px] sm:max-h-[250px]" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.path}</p>
-                </a>
+                </button>
               ))}
             </div>
           )}
@@ -416,6 +420,25 @@ export function NanoBananaLocalizerClient() {
         uploadPath="nano-banana-ad-localizer/assets"
         onConfirm={(paths) => setReferenceImagePath(paths[0] || null)}
       />
+
+      <Dialog open={!!previewItem} onOpenChange={(open) => !open && setPreviewItem(null)}>
+        <DialogContent layout="viewport" className="p-0">
+          <DialogHeader className="border-b bg-muted/50 px-4 py-3">
+            <DialogTitle className="text-base font-medium truncate">
+              {previewItem?.path}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-1 items-center justify-center bg-background p-4">
+            {previewItem && (
+              <img
+                src={toMediaUrl(previewItem.path)}
+                alt={previewItem.path}
+                className="max-h-[calc(100dvh-8rem)] max-w-full object-contain"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
