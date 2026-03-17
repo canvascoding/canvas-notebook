@@ -28,6 +28,7 @@ import {
   BriefcaseBusiness,
   FileText,
   FolderTree,
+  Settings,
 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import Link from 'next/link';
@@ -36,7 +37,7 @@ import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
-import type { RuntimeStatus, RuntimeQueueItem } from '@/app/components/canvas-agent-chat/runtime-status';
+import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 
 interface Attachment {
   name: string;
@@ -467,8 +468,8 @@ function StarterPromptButton({
       type="button"
       data-testid={`chat-starter-prompt-${prompt.id}`}
       onClick={() => onSelect(prompt.prompt)}
-      className={`group flex min-w-0 flex-col items-start gap-3 border border-border bg-background/90 text-left text-foreground transition-colors hover:border-primary/40 hover:bg-accent ${
-        compact ? 'min-w-[280px] p-3' : 'min-w-[320px] p-4'
+      className={`group flex min-w-0 flex-col items-start gap-2 border border-border bg-background/90 text-left text-foreground transition-colors hover:border-primary/40 hover:bg-accent ${
+        compact ? 'p-2.5' : 'min-w-[320px] p-4'
       }`}
     >
       <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -477,7 +478,7 @@ function StarterPromptButton({
       </span>
       <div className="space-y-1">
         <div className={`${compact ? 'text-sm' : 'text-base'} font-semibold tracking-tight`}>{prompt.title}</div>
-        <p className={`${compact ? 'text-xs' : 'text-sm'} leading-relaxed text-muted-foreground`}>{prompt.description}</p>
+        <p className={`${compact ? 'text-xs line-clamp-2' : 'text-sm'} leading-relaxed text-muted-foreground`}>{prompt.description}</p>
       </div>
     </button>
   );
@@ -1066,6 +1067,49 @@ export default function CanvasAgentChat({
     return id;
   }, []);
 
+  const scanForImageReferences = useCallback(async (text: string): Promise<Attachment[]> => {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
+    const escapedExtensions = imageExtensions.map((ext) => ext.replace(/\./g, '\\.'));
+    const quotedPattern = `"([^"]*(?:${escapedExtensions.join('|')}))"`;
+    const unquotedPattern = `\\b([\\w\\-./]+(?:${escapedExtensions.join('|')}))\\b`;
+    const foundAttachments: Attachment[] = [];
+    const processedPaths = new Set<string>();
+
+    const collectAttachment = async (path: string) => {
+      if (processedPaths.has(path) || attachments.some((attachment) => attachment.path === path)) {
+        return;
+      }
+
+      processedPaths.add(path);
+      try {
+        const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+        if (!res.ok) return;
+        const contentType = res.headers.get('content-type') || 'application/octet-stream';
+        if (!contentType.startsWith('image/')) return;
+        foundAttachments.push({
+          name: path.split('/').pop() || path,
+          path,
+          type: contentType,
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    const quotedRegex = new RegExp(quotedPattern, 'gi');
+    let match;
+    while ((match = quotedRegex.exec(text)) !== null) {
+      await collectAttachment(match[1]);
+    }
+
+    const unquotedRegex = new RegExp(unquotedPattern, 'gi');
+    while ((match = unquotedRegex.exec(text)) !== null) {
+      await collectAttachment(match[1]);
+    }
+
+    return foundAttachments;
+  }, [attachments]);
+
   const handleControlAction = useCallback(async (
     action: 'send' | 'steer' | 'replace',
     override?: { text: string; attachments: Attachment[] },
@@ -1118,7 +1162,7 @@ export default function CanvasAgentChat({
       prev.map((message) => (message.role === 'user' && message.status === 'sending' ? { ...message, status: 'aborting' } : message)),
     );
     await postControl(targetSessionId, 'replace', userMessage);
-  }, [appendOptimisticUserMessage, attachments, ensureSession, input, openRuntimeStream, postControl]);
+  }, [appendOptimisticUserMessage, attachments, ensureSession, input, openRuntimeStream, postControl, scanForImageReferences]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -1382,49 +1426,6 @@ export default function CanvasAgentChat({
     }, 0);
   }, [cursorPosition, input]);
 
-  const scanForImageReferences = useCallback(async (text: string): Promise<Attachment[]> => {
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
-    const escapedExtensions = imageExtensions.map((ext) => ext.replace(/\./g, '\\.'));
-    const quotedPattern = `"([^"]*(?:${escapedExtensions.join('|')}))"`;
-    const unquotedPattern = `\\b([\\w\\-./]+(?:${escapedExtensions.join('|')}))\\b`;
-    const foundAttachments: Attachment[] = [];
-    const processedPaths = new Set<string>();
-
-    const collectAttachment = async (path: string) => {
-      if (processedPaths.has(path) || attachments.some((attachment) => attachment.path === path)) {
-        return;
-      }
-
-      processedPaths.add(path);
-      try {
-        const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
-        if (!res.ok) return;
-        const contentType = res.headers.get('content-type') || 'application/octet-stream';
-        if (!contentType.startsWith('image/')) return;
-        foundAttachments.push({
-          name: path.split('/').pop() || path,
-          path,
-          type: contentType,
-        });
-      } catch {
-        // ignore
-      }
-    };
-
-    const quotedRegex = new RegExp(quotedPattern, 'gi');
-    let match;
-    while ((match = quotedRegex.exec(text)) !== null) {
-      await collectAttachment(match[1]);
-    }
-
-    const unquotedRegex = new RegExp(unquotedPattern, 'gi');
-    while ((match = unquotedRegex.exec(text)) !== null) {
-      await collectAttachment(match[1]);
-    }
-
-    return foundAttachments;
-  }, [attachments]);
-
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
@@ -1620,6 +1621,7 @@ export default function CanvasAgentChat({
   const scrollContentPadding = composerHeight + 24;
   const scrollButtonOffset = composerHeight + 16;
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
+  const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
 
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
@@ -1628,8 +1630,6 @@ export default function CanvasAgentChat({
     textareaRef.current?.focus();
   }, []);
 
-  const showMobilePrimaryStop = isMobile && Boolean(runtimeStatus?.canAbort);
-  const showMobilePrimaryCompact = isMobile && !runtimeStatus?.canAbort && Boolean(sessionId) && runtimeStatus?.phase === 'idle';
   const composerPlaceholder = isMobile
     ? 'Frag nach Kampagnen oder Dateien...'
     : isCompactComposer
@@ -1955,9 +1955,9 @@ export default function CanvasAgentChat({
                     </p>
                   </div>
                 </div>
-                <div data-testid="chat-starter-prompts" className="flex w-full gap-4 overflow-x-auto pb-3 no-scrollbar md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3">
+                <div data-testid="chat-starter-prompts" className={`w-full gap-3 pb-3 ${isCompactView ? 'grid grid-cols-1 sm:grid-cols-2' : 'flex overflow-x-auto no-scrollbar md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3'} gap-4`}>
                   {BUSINESS_STARTER_PROMPTS.map((prompt) => (
-                    <StarterPromptButton key={prompt.id} prompt={prompt} onSelect={applyStarterPrompt} compact={isMobile} />
+                    <StarterPromptButton key={prompt.id} prompt={prompt} onSelect={applyStarterPrompt} compact={isCompactView} />
                   ))}
                 </div>
               </div>
@@ -2160,13 +2160,13 @@ export default function CanvasAgentChat({
 
         {isMobile ? (
           <>
-            {showMobileActionPanel ? (
+            {showMobileActionPanel && totalQueuedMessages > 0 ? (
               <div data-testid="chat-mobile-action-panel" className="mb-2 grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   data-testid="chat-steer"
                   onClick={() => void handleSteer()}
-                  disabled={!hasComposerContent || runtimeStatus?.phase === 'idle'}
+                  disabled={!hasComposerContent}
                   className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Steuern
@@ -2175,7 +2175,7 @@ export default function CanvasAgentChat({
                   type="button"
                   data-testid="chat-send-now"
                   onClick={() => void handleNowSend()}
-                  disabled={!hasComposerContent || runtimeStatus?.phase === 'idle'}
+                  disabled={!hasComposerContent}
                   className="border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Jetzt senden
@@ -2199,13 +2199,13 @@ export default function CanvasAgentChat({
               </div>
             ) : null}
           </>
-        ) : (
+        ) : totalQueuedMessages > 0 ? (
           <div className="mb-2 flex flex-wrap gap-2">
             <button
               type="button"
               data-testid="chat-steer"
               onClick={() => void handleSteer()}
-              disabled={!hasComposerContent || runtimeStatus?.phase === 'idle'}
+              disabled={!hasComposerContent}
               className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
               Steuern
@@ -2214,13 +2214,13 @@ export default function CanvasAgentChat({
               type="button"
               data-testid="chat-send-now"
               onClick={() => void handleNowSend()}
-              disabled={!hasComposerContent || runtimeStatus?.phase === 'idle'}
+              disabled={!hasComposerContent}
               className="border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Jetzt senden
             </button>
           </div>
-        )}
+        ) : null}
 
         <div className="flex items-end gap-2">
           <button
@@ -2271,14 +2271,17 @@ export default function CanvasAgentChat({
               </div>
             )}
           </div>
-          {isMobile ? (
+          {isMobile && totalQueuedMessages > 0 ? (
             <button
               type="button"
               data-testid="chat-mobile-action-toggle"
               onClick={() => setShowMobileActionPanel((current) => !current)}
-              className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
+              className="relative border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
               title="Quick actions"
             >
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                {totalQueuedMessages}
+              </span>
               {showMobileActionPanel ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
             </button>
           ) : null}
@@ -2294,22 +2297,33 @@ export default function CanvasAgentChat({
             </svg>
           </button>
         </div>
-        <div className="mt-2 flex flex-col items-start gap-1">
-          <button
-            type="button"
-            data-testid="chat-composer-hint-toggle"
-            aria-expanded={showComposerHint}
-            onClick={() => setShowComposerHint((current) => !current)}
-            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+        <div className="mt-2 flex items-start justify-between gap-2">
+          <div className="flex flex-col items-start gap-1">
+            <button
+              type="button"
+              data-testid="chat-composer-hint-toggle"
+              aria-expanded={showComposerHint}
+              onClick={() => setShowComposerHint((current) => !current)}
+              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <CircleHelp className="h-3.5 w-3.5" />
+              Hinweis
+            </button>
+            {showComposerHint ? (
+              <div className="max-w-[38rem] border border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
+                {composerHint}
+              </div>
+            ) : null}
+          </div>
+          <Link
+            href="/settings?tab=agent"
+            aria-label="Open agent settings"
+            className="inline-flex items-center gap-1 border border-border/60 bg-muted/30 px-2 py-1 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+            title="Open agent settings"
           >
-            <CircleHelp className="h-3.5 w-3.5" />
-            Hinweis
-          </button>
-          {showComposerHint ? (
-            <div className="max-w-[38rem] border border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-              {composerHint}
-            </div>
-          ) : null}
+            <Settings className="h-3 w-3" />
+            <span>Einstellungen</span>
+          </Link>
         </div>
       </div>
     </div>

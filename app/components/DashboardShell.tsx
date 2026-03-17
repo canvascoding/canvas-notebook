@@ -298,29 +298,48 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   </div>
                 )}
 
-                {/* Chat Panel - Responsive Sliding Implementation */}
-                <div 
-                  style={{ 
-                    width: isMobileViewport ? 'min(90%, 400px)' : (chatVisible ? `${chatWidth}px` : '0px')
-                  }}
-                  className={`
-                    fixed md:relative top-0 right-0 bottom-0 z-[80] md:z-auto
-                    flex-shrink-0 bg-card md:bg-background md:border-l md:border-border
-                    transition-all duration-300 ease-in-out
-                    ${chatVisible 
-                      ? 'translate-x-0 opacity-100' 
-                      : 'translate-x-full md:translate-x-0 opacity-0 md:opacity-100 overflow-hidden pointer-events-none md:w-0 md:border-none'
-                    }
-                  `}
-                >
-                  <div className="flex flex-col w-full h-full relative">
-                      <CanvasAgentChat onClose={() => setChatVisible(false)} />
+                {/* Chat Panel - Desktop: Resizable side panel, Mobile: Fullscreen overlay */}
+                {!isMobileViewport ? (
+                  <div 
+                    style={{ 
+                      width: chatVisible ? `${chatWidth}px` : '0px'
+                    }}
+                    className={`
+                      relative flex-shrink-0 bg-background border-l border-border
+                      transition-all duration-300 ease-in-out overflow-hidden
+                      ${chatVisible ? 'opacity-100' : 'opacity-0 pointer-events-none w-0 border-none'}
+                    `}
+                  >
+                    <div className="flex flex-col w-full h-full relative">
+                        <CanvasAgentChat onClose={() => setChatVisible(false)} />
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
             }
             terminal={<TerminalPanel />}
           />
+
+          {/* Fullscreen Mobile Chat */}
+          {chatVisible && isMobileViewport && (
+            <div className="fixed inset-0 z-[100] bg-background flex flex-col">
+              <div className="flex items-center justify-between p-2 bg-card border-b border-border">
+                <div className="flex items-center gap-2 px-2">
+                  <MessageSquare size={14} className="text-primary" />
+                  <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Canvas Chat</span>
+                </div>
+                <button 
+                  onClick={() => setChatVisible(false)}
+                  className="border border-transparent p-2 text-muted-foreground hover:border-border hover:bg-accent"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <CanvasAgentChat onClose={() => setChatVisible(false)} />
+              </div>
+            </div>
+          )}
 
           {/* Fullscreen Mobile Terminal */}
           {terminalVisible && isMobileViewport && (
