@@ -96,5 +96,13 @@ export function validatePiConfig(config: unknown): string | null {
     return `Model for provider "${candidate.activeProvider}" must be a non-empty string.`;
   }
 
+  if (
+    candidate.activeProvider === 'ollama' &&
+    activeProvider.ollamaModelSource === 'custom' &&
+    (!activeProvider.ollamaCustomModel || !activeProvider.ollamaCustomModel.trim())
+  ) {
+    return 'Custom Ollama model must be a non-empty string.';
+  }
+
   return null;
 }

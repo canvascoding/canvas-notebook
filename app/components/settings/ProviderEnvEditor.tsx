@@ -25,7 +25,23 @@ interface ProviderEnvEditorProps {
   onProviderActivate?: () => Promise<void>;
 }
 
-export function ProviderEnvEditor({ envVars, onSaveComplete, onProviderActivate }: ProviderEnvEditorProps) {
+function getEnvPlaceholder(providerId: string, state: EnvVarState): string {
+  if (providerId === 'ollama' && state.name === 'OLLAMA_API_KEY') {
+    return 'Beliebigen Wert eingeben oder leer lassen...';
+  }
+
+  return 'API Key eingeben...';
+}
+
+function getEnvHelperText(providerId: string, state: EnvVarState): string | null {
+  if (providerId === 'ollama' && state.name === 'OLLAMA_API_KEY') {
+    return 'Pflichtfeld für Ollama. Wenn du nichts einträgst, wird im Hintergrund automatisch eine zufällige Zahlenkette gesetzt.';
+  }
+
+  return null;
+}
+
+export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProviderActivate }: ProviderEnvEditorProps) {
   const [envStates, setEnvStates] = useState<EnvVarState[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -183,6 +199,22 @@ export function ProviderEnvEditor({ envVars, onSaveComplete, onProviderActivate 
   };
 
   const saveAll = async () => {
+    const missingRequired = envStates.filter((state) => {
+      if (providerId === 'ollama' && state.name === 'OLLAMA_API_KEY') {
+        return false;
+      }
+
+      return state.required && !state.value.trim();
+    });
+    if (missingRequired.length > 0) {
+      const names = missingRequired.map((state) => state.name).join(', ');
+      setMessage({
+        type: 'error',
+        text: `Bitte fülle die Pflichtfelder aus: ${names}`,
+      });
+      return;
+    }
+
     setSaving(true);
     setMessage(null);
 
@@ -264,7 +296,16 @@ export function ProviderEnvEditor({ envVars, onSaveComplete, onProviderActivate 
         }))
       );
 
-      setMessage({ type: 'success', text: 'API Key und Provider erfolgreich gespeichert' });
+      const ollamaFallbackGenerated =
+        providerId === 'ollama' &&
+        envStates.some((state) => state.name === 'OLLAMA_API_KEY' && !state.value.trim());
+
+      setMessage({
+        type: 'success',
+        text: ollamaFallbackGenerated
+          ? 'Ollama-Konfiguration gespeichert. Für OLLAMA_API_KEY wurde automatisch eine zufällige Zahlenkette hinterlegt.'
+          : 'API Key und Provider erfolgreich gespeichert',
+      });
       setHasChanges(false);
       onSaveComplete?.();
     } catch (error) {
@@ -358,7 +399,7 @@ export function ProviderEnvEditor({ envVars, onSaveComplete, onProviderActivate 
                     type={state.isVisible ? 'text' : 'password'}
                     value={state.value}
                     onChange={(e) => updateValue(index, e.target.value)}
-                    placeholder="API Key eingeben..."
+                    placeholder={getEnvPlaceholder(providerId, state)}
                     disabled={saving}
                     className={state.isDirty ? 'border-yellow-500' : ''}
                   />
@@ -393,8 +434,16 @@ export function ProviderEnvEditor({ envVars, onSaveComplete, onProviderActivate 
               {/* Not configured indicator */}
               {!state.value && !state.exists && (
                 <p className="text-xs text-muted-foreground">
-                  Noch nicht konfiguriert
+                  {providerId === 'ollama' && state.name === 'OLLAMA_API_KEY'
+                    ? 'Pflichtfeld noch nicht konfiguriert. Beim Speichern wird automatisch ein Fallback erzeugt.'
+                    : state.required
+                      ? 'Pflichtfeld noch nicht konfiguriert'
+                      : 'Noch nicht konfiguriert'}
                 </p>
+              )}
+
+              {getEnvHelperText(providerId, state) && (
+                <p className="text-xs text-muted-foreground">{getEnvHelperText(providerId, state)}</p>
               )}
             </div>
           ))}

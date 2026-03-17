@@ -1,4 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+const TEST_EMAIL = process.env.E2E_EMAIL || 'admin.com';
+const TEST_PASSWORD = process.env.E2E_PASSWORD || 'change-me';
 
 /**
  * Ollama Provider Integration Tests
@@ -11,42 +14,50 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Ollama Provider Integration', () => {
-  test('Ollama provider appears in discovery list', async ({ page }) => {
-    // Navigate to settings page
+  async function ensureLoggedIn(page: Page) {
+    if (!page.url().includes('/login')) {
+      return;
+    }
+
+    await page.getByPlaceholder('Enter email').fill(TEST_EMAIL);
+    await page.getByPlaceholder('Enter password').fill(TEST_PASSWORD);
+    await page.getByRole('button', { name: 'Login' }).click();
+    await page.waitForURL((url) => !url.pathname.includes('/login'));
+  }
+
+  async function openAgentSettings(page: Page) {
     await page.goto('/settings');
-    
-    // Wait for the Agent Settings tab to be visible
+    await ensureLoggedIn(page);
+    if (!page.url().includes('/settings')) {
+      await page.goto('/settings?tab=agent-settings');
+    }
+    await page.waitForURL(/\/settings/);
     await page.waitForSelector('text=Agent Settings');
-    
-    // Click on Agent Settings tab if not already active
     const agentSettingsTab = page.locator('text=Agent Settings').first();
     await agentSettingsTab.click();
-    
-    // Wait for provider dropdown to load
-    await page.waitForSelector('select');
-    
+    await page.waitForSelector('[data-testid="provider-select"]');
+  }
+
+  test('Ollama provider appears in discovery list', async ({ page }) => {
+    await openAgentSettings(page);
+
     // Check if 'ollama' is in the provider dropdown
-    const providerSelect = page.locator('select').first();
+    const providerSelect = page.getByTestId('provider-select');
     const options = await providerSelect.locator('option').allTextContents();
-    
+
     expect(options).toContain('ollama');
   });
 
   test('Ollama models are displayed when provider is selected', async ({ page }) => {
-    await page.goto('/settings');
-    await page.waitForSelector('text=Agent Settings');
-    
+    await openAgentSettings(page);
+
     // Select Ollama provider
-    const providerSelect = page.locator('select').first();
+    const providerSelect = page.getByTestId('provider-select');
     await providerSelect.selectOption('ollama');
-    
-    // Wait for model dropdown to update
-    await page.waitForTimeout(500);
-    
-    // Find model dropdown (second select element)
-    const modelSelect = page.locator('select').nth(1);
+
+    const modelSelect = page.getByTestId('model-select');
     const modelOptions = await modelSelect.locator('option').allTextContents();
-    
+
     // Verify expected models are available
     const expectedModels = [
       'Llama 3.1',
@@ -67,13 +78,12 @@ test.describe('Ollama Provider Integration', () => {
   });
 
   test('Ollama provider help section is displayed', async ({ page }) => {
-    await page.goto('/settings');
-    await page.waitForSelector('text=Agent Settings');
-    
+    await openAgentSettings(page);
+
     // Select Ollama provider
-    const providerSelect = page.locator('select').first();
+    const providerSelect = page.getByTestId('provider-select');
     await providerSelect.selectOption('ollama');
-    
+
     // Click on the collapsible help section
     const helpTrigger = page.locator('text=Ollama - Konfiguration').first();
     await helpTrigger.click();
@@ -93,24 +103,20 @@ test.describe('Ollama Provider Integration', () => {
     await expect(page.locator('text=ollama list')).toBeVisible();
     
     // Check for cloud model references
-    await expect(page.locator('text=GLM 5.6')).toBeVisible();
+    await expect(page.locator('text=GLM 4.6')).toBeVisible();
     await expect(page.locator('text=Kimi K2.5')).toBeVisible();
     await expect(page.locator('text=Qwen 3.5')).toBeVisible();
   });
 
   test('Ollama configuration can be saved', async ({ page }) => {
-    await page.goto('/settings');
-    await page.waitForSelector('text=Agent Settings');
-    
+    await openAgentSettings(page);
+
     // Select Ollama provider
-    const providerSelect = page.locator('select').first();
+    const providerSelect = page.getByTestId('provider-select');
     await providerSelect.selectOption('ollama');
-    
-    // Wait for model dropdown to appear
-    await page.waitForTimeout(500);
-    
+
     // Select a model
-    const modelSelect = page.locator('select').nth(1);
+    const modelSelect = page.getByTestId('model-select');
     await modelSelect.selectOption('llama3.1');
     
     // Set thinking level
@@ -136,11 +142,10 @@ test.describe('Ollama Provider Integration', () => {
   });
 
   test('Provider help shows Ollama specific environment variables', async ({ page }) => {
-    await page.goto('/settings');
-    await page.waitForSelector('text=Agent Settings');
-    
+    await openAgentSettings(page);
+
     // Select Ollama provider
-    const providerSelect = page.locator('select').first();
+    const providerSelect = page.getByTestId('provider-select');
     await providerSelect.selectOption('ollama');
     
     // Open help section
@@ -148,10 +153,50 @@ test.describe('Ollama Provider Integration', () => {
     await helpTrigger.click();
     
     // Wait for environment variables section
-    await page.waitForSelector('text=OLLAMA_HOST');
+    await page.waitForSelector('text=OLLAMA_API_KEY');
     
     // Verify environment variable descriptions
-    await expect(page.locator('text=Ollama server URL')).toBeVisible();
-    await expect(page.locator('text=Optional API key for Ollama Cloud')).toBeVisible();
+    await expect(page.locator('text=Pflichtfeld für Ollama')).toBeVisible();
+    await expect(page.locator('text=automatisch erzeugten Zahlenketten-Fallback')).toBeVisible();
+  });
+
+  test('Ollama configuration accordion and custom model flow work in settings', async ({ page }) => {
+    await openAgentSettings(page);
+
+    await page.getByTestId('provider-select').selectOption('ollama');
+
+    await expect(page.getByTestId('model-select')).toBeVisible();
+    await expect(page.getByTestId('ollama-config-toggle')).toBeVisible();
+    await expect(page.getByTestId('ollama-server-select')).toHaveCount(0);
+
+    await page.getByTestId('ollama-config-toggle').click();
+    await expect(page.getByTestId('ollama-server-select')).toBeVisible();
+
+    await page.getByTestId('model-select').selectOption('custom');
+    await expect(page.getByTestId('ollama-custom-model-input')).toBeVisible();
+
+    await page.getByTestId('ollama-server-select').selectOption('cloud');
+    await expect(page.getByTestId('ollama-remote-url')).toBeVisible();
+  });
+
+  test('custom Ollama model requires a value before saving', async ({ page }) => {
+    await openAgentSettings(page);
+
+    await page.getByTestId('provider-select').selectOption('ollama');
+    await page.getByTestId('model-select').selectOption('custom');
+    await page.getByTestId('ollama-custom-model-input').fill('');
+
+    await page.getByRole('button', { name: 'Einstellungen speichern' }).click();
+
+    await expect(page.locator('text=Bitte trage einen Namen für das Custom Ollama Model ein.')).toBeVisible();
+  });
+
+  test('ollama api key fallback hint is visible', async ({ page }) => {
+    await openAgentSettings(page);
+
+    await page.getByTestId('provider-select').selectOption('ollama');
+    await page.locator('text=Ollama - Konfiguration').first().click();
+
+    await expect(page.locator('text=zufällige Zahlenkette')).toBeVisible();
   });
 });

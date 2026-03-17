@@ -1,4 +1,4 @@
-import { readScopedEnvState } from '../integrations/env-config';
+import { ensureGeneratedScopedEnvEntry, readScopedEnvState } from '../integrations/env-config';
 import { getProviderApiKey, isOAuthProvider, type OAuthProviderId } from './oauth';
 import { supportsBothAuthMethods } from './provider-help';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
@@ -71,8 +71,7 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
     case 'mistral':
       return allEntries.get('MISTRAL_API_KEY');
     case 'ollama':
-      // Ollama Cloud requires API key, local doesn't
-      return allEntries.get('OLLAMA_API_KEY');
+      return allEntries.get('OLLAMA_API_KEY') || await ensureGeneratedScopedEnvEntry('agents', 'OLLAMA_API_KEY');
     default:
       return undefined;
   }

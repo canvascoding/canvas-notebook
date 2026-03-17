@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-17T23:58:00+01:00",
+  "lastUpdatedAt": "2026-03-18T00:05:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -652,7 +652,7 @@
       "dependsOn": [
         "pi-009"
       ],
-      "description": "Expanded Ollama UI parity in the shared PI provider setup card for Settings and Onboarding: model selection now stays in the standard provider/model row, server mode and remote URL moved into a dedicated collapsible Ollama configuration section, custom-model validation was tightened, and OLLAMA_API_KEY is now treated as a required non-empty field with explicit placeholder guidance."
+      "description": "Expanded Ollama UI parity in the shared PI provider setup card for Settings and Onboarding: model selection now stays in the standard provider/model row, server mode and remote URL moved into a dedicated collapsible Ollama configuration section, custom-model validation was tightened, and OLLAMA_API_KEY is now treated as a required field with explicit placeholder guidance plus an automatic random-digit fallback when left empty."
     },
     {
       "id": "pi-060",
@@ -664,7 +664,7 @@
       "dependsOn": [
         "pi-059"
       ],
-      "description": "Updated Ollama integration coverage to use stable UI selectors for the shared provider setup card and verify the Ollama configuration accordion, custom model flow, and required API-key guidance."
+      "description": "Updated Ollama integration coverage to use stable UI selectors for the shared provider setup card and verify the Ollama configuration accordion, custom model flow, required API-key guidance, and the automatic random-digit fallback copy for missing OLLAMA_API_KEY values."
     },
     {
       "id": "pi-061",

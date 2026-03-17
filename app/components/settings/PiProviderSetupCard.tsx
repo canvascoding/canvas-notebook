@@ -116,6 +116,7 @@ export function PiProviderSetupCard({
   const [configError, setConfigError] = useState<string | null>(null);
   const [configSuccess, setConfigSuccess] = useState<string | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isOllamaConfigOpen, setIsOllamaConfigOpen] = useState(false);
   const [selectedProviderStatus, setSelectedProviderStatus] = useState<ProviderStatus | null>(null);
   const [selectedProviderLoading, setSelectedProviderLoading] = useState(false);
 
@@ -178,6 +179,7 @@ export function PiProviderSetupCard({
 
   useEffect(() => {
     setIsHelpOpen(false);
+    setIsOllamaConfigOpen(false);
     setConfigSuccess(null);
   }, [piConfigDraft?.activeProvider]);
 
@@ -231,6 +233,27 @@ export function PiProviderSetupCard({
   const saveConfig = async () => {
     if (!piConfigDraft) {
       return;
+    }
+
+    const activeProviderConfig = piConfigDraft.providers[piConfigDraft.activeProvider];
+    if (!activeProviderConfig?.model?.trim()) {
+      setConfigError(`Bitte wähle ein Modell für "${piConfigDraft.activeProvider}".`);
+      setConfigSuccess(null);
+      return;
+    }
+
+    if (piConfigDraft.activeProvider === 'ollama') {
+      if (activeProviderConfig.ollamaModelSource === 'custom' && !activeProviderConfig.ollamaCustomModel?.trim()) {
+        setConfigError('Bitte trage einen Namen für das Custom Ollama Model ein.');
+        setConfigSuccess(null);
+        return;
+      }
+
+      if ((activeProviderConfig.ollamaMode || 'local') === 'cloud' && !activeProviderConfig.ollamaHost?.trim()) {
+        setConfigError('Bitte trage eine Remote Server URL für Ollama ein.');
+        setConfigSuccess(null);
+        return;
+      }
     }
 
     setConfigSaving(true);
@@ -324,66 +347,6 @@ export function PiProviderSetupCard({
             </select>
           </label>
 
-          {piConfigDraft.activeProvider === 'ollama' && (
-            <div className="space-y-4 text-sm">
-              <div className="space-y-2">
-                <span className="font-semibold">Ollama Server</span>
-                <select
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  value={piConfigDraft.providers.ollama?.ollamaMode || 'local'}
-                  onChange={(event) => {
-                    const mode = event.target.value as OllamaMode;
-                    setPiProviderField('ollama', 'ollamaMode', mode);
-                    if (mode === 'local') {
-                      setPiProviderField('ollama', 'ollamaHost', undefined);
-                    }
-                  }}
-                  disabled={configSaving}
-                >
-                  <option value="local">🏠 Standard (Lokal) - localhost:11434</option>
-                  <option value="cloud">☁️ Remote Server - Eigene URL</option>
-                </select>
-                <p className="text-xs text-muted-foreground">
-                  {piConfigDraft.providers.ollama?.ollamaMode === 'cloud'
-                    ? 'Remote Server: Verbindung zu einem externen Ollama Server im Netzwerk oder in der Cloud'
-                    : 'Standard (Lokal): Ollama läuft auf deinem Computer unter localhost:11434'}
-                </p>
-              </div>
-
-              {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' && (
-                <div className="space-y-2">
-                  <span className="font-semibold">Remote Server URL</span>
-                  <Input
-                    placeholder="http://192.168.1.100:11434 oder https://ollama.example.com"
-                    value={piConfigDraft.providers.ollama?.ollamaHost || ''}
-                    onChange={(event) => setPiProviderField('ollama', 'ollamaHost', event.target.value)}
-                    disabled={configSaving}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Gib die URL deines Ollama Servers ein. Beispiele: http://192.168.1.100:11434 oder https://ollama.dein-server.de
-                  </p>
-                </div>
-              )}
-
-              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 p-3">
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Ollama im Terminal konfigurieren</p>
-                  <p className="text-xs text-muted-foreground">
-                    Öffne das Terminal, um Modelle zu pullen und den Server zu starten
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.open('/terminal', '_blank')}
-                >
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Terminal öffnen
-                </Button>
-              </div>
-            </div>
-          )}
-
           {activeProviderConfig && (
             <div className="space-y-2 text-sm">
               <span className="font-semibold">Modell für {piConfigDraft.activeProvider}</span>
@@ -391,6 +354,7 @@ export function PiProviderSetupCard({
               {piConfigDraft.activeProvider === 'ollama' ? (
                 <>
                   <select
+                    data-testid="model-select"
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     value={
                       piConfigDraft.providers.ollama?.ollamaModelSource === 'custom'
@@ -425,6 +389,7 @@ export function PiProviderSetupCard({
                   {piConfigDraft.providers.ollama?.ollamaModelSource === 'custom' && (
                     <div className="mt-3 space-y-2">
                       <Input
+                        data-testid="ollama-custom-model-input"
                         placeholder="z.B. mein-custom-model:latest"
                         value={piConfigDraft.providers.ollama?.ollamaCustomModel || ''}
                         onChange={(event) => {
@@ -447,6 +412,7 @@ export function PiProviderSetupCard({
               ) : (
                 <>
                   <select
+                    data-testid="model-select"
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     value={activeProviderConfig.model}
                     onChange={(event) => setPiProviderField(piConfigDraft.activeProvider, 'model', event.target.value)}
@@ -470,6 +436,84 @@ export function PiProviderSetupCard({
             </div>
           )}
         </div>
+
+        {piConfigDraft.activeProvider === 'ollama' && (
+          <Collapsible open={isOllamaConfigOpen} onOpenChange={setIsOllamaConfigOpen}>
+            <CollapsibleTrigger
+              data-testid="ollama-config-toggle"
+              className="flex w-full items-center justify-between rounded border border-border bg-muted/30 p-3 text-sm transition-colors hover:bg-muted/50"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Ollama Konfiguration</span>
+                <span className="rounded bg-background px-2 py-0.5 text-xs text-muted-foreground">
+                  {(piConfigDraft.providers.ollama?.ollamaMode || 'local') === 'cloud' ? 'Remote Server' : 'Standard (Lokal)'}
+                </span>
+              </div>
+              {isOllamaConfigOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-4 rounded-b border-x border-b border-border bg-muted/20 p-4 text-sm">
+                <div className="space-y-2">
+                  <span className="font-semibold">Ollama Server</span>
+                  <select
+                    data-testid="ollama-server-select"
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={piConfigDraft.providers.ollama?.ollamaMode || 'local'}
+                    onChange={(event) => {
+                      const mode = event.target.value as OllamaMode;
+                      setPiProviderField('ollama', 'ollamaMode', mode);
+                      if (mode === 'local') {
+                        setPiProviderField('ollama', 'ollamaHost', undefined);
+                      }
+                    }}
+                    disabled={configSaving}
+                  >
+                    <option value="local">Standard (Lokal) - localhost:11434</option>
+                    <option value="cloud">Remote Server - Eigene URL</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    {piConfigDraft.providers.ollama?.ollamaMode === 'cloud'
+                      ? 'Remote Server: Verbindung zu einem externen Ollama Server im Netzwerk oder in der Cloud.'
+                      : 'Standard (Lokal): Ollama läuft auf deinem Computer unter localhost:11434.'}
+                  </p>
+                </div>
+
+                {piConfigDraft.providers.ollama?.ollamaMode === 'cloud' && (
+                  <div className="space-y-2">
+                    <span className="font-semibold">Remote Server URL</span>
+                    <Input
+                      data-testid="ollama-remote-url"
+                      placeholder="http://192.168.1.100:11434 oder https://ollama.example.com"
+                      value={piConfigDraft.providers.ollama?.ollamaHost || ''}
+                      onChange={(event) => setPiProviderField('ollama', 'ollamaHost', event.target.value)}
+                      disabled={configSaving}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Gib die URL deines Ollama Servers ein. Beispiele: http://192.168.1.100:11434 oder https://ollama.dein-server.de
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 rounded-md border border-border bg-background p-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Ollama im Terminal konfigurieren</p>
+                    <p className="text-xs text-muted-foreground">
+                      Öffne das Terminal, um Modelle zu pullen und den Server zu starten.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.open('/terminal', '_blank')}
+                  >
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Terminal öffnen
+                  </Button>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2 text-sm">

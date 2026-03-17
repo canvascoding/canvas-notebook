@@ -270,6 +270,31 @@ export async function replaceScopedEnvEntries(
   return readScopedEnvState(scope);
 }
 
+function generateNumericFallback(length = 24): string {
+  return Array.from({ length }, () => crypto.randomInt(0, 10)).join('');
+}
+
+export async function ensureGeneratedScopedEnvEntry(
+  scope: EnvScope,
+  key: string,
+  options?: { length?: number }
+): Promise<string> {
+  const state = await readScopedEnvState(scope);
+  const existing = state.entries.find((entry) => entry.key === key)?.value.trim();
+  if (existing) {
+    return existing;
+  }
+
+  const generatedValue = generateNumericFallback(options?.length ?? 24);
+  const nextEntries = state.entries
+    .filter((entry) => entry.key !== key)
+    .map((entry) => ({ key: entry.key, value: entry.value }));
+  nextEntries.push({ key, value: generatedValue });
+
+  await replaceScopedEnvEntries(scope, nextEntries);
+  return generatedValue;
+}
+
 export async function writeIntegrationsRaw(rawContent: string): Promise<void> {
   await writeScopedEnvRaw('integrations', rawContent);
 }

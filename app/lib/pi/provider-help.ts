@@ -431,6 +431,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     shortDescription: 'Führe LLMs lokal aus oder verbinde dich mit einem Remote Ollama Server',
     setupSteps: [
       'Wähle unten zwischen "Standard (Lokal)" oder "Remote Server"',
+      'Setze OLLAMA_API_KEY auf einen beliebigen Wert oder lasse das Feld leer, damit automatisch eine zufällige Zahlenkette erzeugt wird',
       'Bei Remote Server: Trage die URL deines Ollama Servers ein (z.B. http://192.168.1.100:11434)',
       'Wähle ein Modell aus der Liste oder gib ein Custom Model ein',
       'Speichere die Konfiguration',
@@ -438,9 +439,9 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     envVars: [
       {
         name: 'OLLAMA_API_KEY',
-        description: 'Nur für Remote Server mit Authentifizierung erforderlich',
+        description: 'Pflichtfeld für Ollama. Trage einen beliebigen nicht-leeren Wert ein, oder lasse das Feld leer und nutze den automatisch erzeugten Zahlenketten-Fallback.',
         scope: 'agents',
-        required: false
+        required: true
       },
     ],
     cliCommands: [
@@ -456,6 +457,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       'Verwende den Terminal-Button oben, um Ollama-Befehle direkt auszuführen',
       'Standard (Lokal): Ollama läuft auf deinem Computer unter localhost:11434',
       'Remote Server: Verbindung zu einem anderen Computer oder Cloud-Instanz',
+      'OLLAMA_API_KEY muss immer gesetzt sein; wenn nichts eingetragen ist, wird automatisch eine zufällige Zahlenkette hinterlegt',
       'Custom Models: Wähle "Custom Model" im Dropdown, um ein nicht gelistetes Modell zu verwenden',
       'Cloud-Modelle werden automatisch beim ersten Pull von Ollama Hub geladen',
     ],
@@ -519,7 +521,7 @@ export function getProviderHelp(providerId: string): ProviderHelpInfo | undefine
  */
 export function requiresApiKey(providerId: string): boolean {
   const help = getProviderHelp(providerId);
-  return help?.category === 'api-key';
+  return help?.category === 'api-key' || Boolean(help?.envVars?.some((entry) => entry.required));
 }
 
 /**
