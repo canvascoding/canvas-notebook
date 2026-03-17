@@ -299,8 +299,26 @@ export async function replaceAgentsEntries(
 }
 
 export async function getGeminiApiKeyFromIntegrations(): Promise<string | null> {
-  const state = await readScopedEnvState('integrations');
-  const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
-
-  return byKey.get('GEMINI_API_KEY') || process.env.GEMINI_API_KEY || null;
+  try {
+    const state = await readScopedEnvState('integrations');
+    const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
+    
+    const envKey = byKey.get('GEMINI_API_KEY');
+    if (envKey) {
+      console.log('[EnvConfig] Found GEMINI_API_KEY in integrations env file');
+      return envKey;
+    }
+    
+    if (process.env.GEMINI_API_KEY) {
+      console.log('[EnvConfig] Found GEMINI_API_KEY in process.env');
+      return process.env.GEMINI_API_KEY;
+    }
+    
+    console.warn('[EnvConfig] GEMINI_API_KEY not found in integrations env or process.env');
+    console.warn(`[EnvConfig] Integrations env file path: ${state.path}, exists: ${state.exists}`);
+    return null;
+  } catch (error) {
+    console.error('[EnvConfig] Error loading GEMINI_API_KEY:', error);
+    return process.env.GEMINI_API_KEY || null;
+  }
 }

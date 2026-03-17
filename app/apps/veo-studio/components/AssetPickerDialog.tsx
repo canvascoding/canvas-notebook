@@ -145,7 +145,7 @@ export function AssetPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-4xl border border-border bg-card">
+      <DialogContent className="w-[95vw] max-w-4xl border border-border bg-card max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>{kind === 'image' ? 'Bild auswählen' : 'Video auswählen'}</DialogTitle>
           <DialogDescription>
@@ -182,7 +182,7 @@ export function AssetPickerDialog({
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 
-            <ScrollArea className="h-[420px] border border-border bg-background p-3">
+            <ScrollArea className="h-[50vh] sm:h-[420px] border border-border bg-background p-3 flex-1">
               {isLoading ? (
                 <div className="flex h-40 items-center justify-center text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -193,7 +193,7 @@ export function AssetPickerDialog({
                   Keine passenden Assets gefunden.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {assets.map((asset) => {
                     const selected = selectedPaths.includes(asset.path);
                     return (
@@ -207,7 +207,7 @@ export function AssetPickerDialog({
                             : 'border-border bg-card hover:border-primary/50'
                         }`}
                       >
-                        <div className="aspect-video w-full bg-muted">
+                        <div className="aspect-video w-full bg-muted max-h-[150px] sm:max-h-[180px]">
                           {asset.kind === 'image' ? (
                             <img
                               src={toPreviewUrl(asset.path, 192, { preset: 'mini' })}
@@ -223,7 +223,7 @@ export function AssetPickerDialog({
                         </div>
                         <div className="p-2">
                           <p className="truncate text-xs font-medium">{asset.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">{asset.path}</p>
+                          <p className="truncate text-xs text-muted-foreground hidden sm:block">{asset.path}</p>
                         </div>
                       </button>
                     );

@@ -170,7 +170,7 @@ export function ImageGenerationClient() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <div className="flex flex-col gap-2">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">Model</span>
@@ -247,13 +247,13 @@ export function ImageGenerationClient() {
 
           <div className="space-y-2 border border-border bg-background p-3">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Prompt Ideen</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto">
               {SAMPLE_PROMPTS.map((samplePrompt) => (
                 <button
                   key={samplePrompt}
                   type="button"
                   onClick={() => setPrompt(samplePrompt)}
-                  className="border border-border bg-muted px-2 py-1 text-left text-xs text-muted-foreground transition hover:border-primary/50 hover:text-foreground"
+                  className="border border-border bg-muted px-2 py-1 text-left text-xs text-muted-foreground transition hover:border-primary/50 hover:text-foreground max-w-full"
                 >
                   {samplePrompt}
                 </button>
@@ -270,24 +270,24 @@ export function ImageGenerationClient() {
             </div>
 
             {referenceImagePaths.length > 0 ? (
-              <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5">
+              <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                 {referenceImagePaths.map((path) => (
                     <div key={path} className="border border-border bg-card p-2">
                       <div className="relative">
                         <img
                           src={toPreviewUrl(path, 260, { preset: 'mini' })}
                           alt={path}
-                          className="aspect-square w-full bg-muted object-cover"
+                          className="aspect-square w-full bg-muted object-cover max-h-[120px] sm:max-h-[150px]"
                           loading="lazy"
                           decoding="async"
                         />
                         <button
                           type="button"
                         onClick={() => removeReference(path)}
-                        className="absolute right-1 top-1 border border-border bg-background p-1"
+                        className="absolute right-1 top-1 border border-border bg-background p-1.5 sm:p-1 min-w-[28px] min-h-[28px] sm:min-w-[24px] sm:min-h-[24px] flex items-center justify-center"
                         aria-label="Referenz entfernen"
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-4 w-4 sm:h-3 sm:w-3" />
                       </button>
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground" title={path}>
@@ -303,14 +303,14 @@ export function ImageGenerationClient() {
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button className="gap-2" onClick={handleGenerate} disabled={!canGenerate}>
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
+            <Button className="gap-2 w-full sm:w-auto" onClick={handleGenerate} disabled={!canGenerate}>
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
-              {isGenerating ? 'Generiere Bilder...' : `Bilder generieren (${imageCount})`}
+              {isGenerating ? 'Generiere...' : `Generieren (${imageCount})`}
             </Button>
-            <Button variant="outline" onClick={() => void loadOutputs()} disabled={isLoadingOutputs}>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => void loadOutputs()} disabled={isLoadingOutputs}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingOutputs ? 'animate-spin' : ''}`} />
-              Output aktualisieren
+              Aktualisieren
             </Button>
           </div>
         </CardContent>
@@ -325,7 +325,7 @@ export function ImageGenerationClient() {
           {results.length === 0 ? (
             <p className="text-sm text-muted-foreground">Noch keine Generierung in dieser Session.</p>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
               {results.map((result) => (
                 <div key={result.index} className="border border-border bg-background p-2">
                   <div className="mb-2 flex items-center justify-between gap-2">
@@ -339,7 +339,7 @@ export function ImageGenerationClient() {
                   {result.error ? (
                     <p className="text-sm text-destructive">{result.error}</p>
                   ) : result.mediaUrl ? (
-                    <img src={result.mediaUrl} alt={`Variation ${result.index + 1}`} className="aspect-square w-full border border-border bg-muted object-cover" />
+                    <img src={result.mediaUrl} alt={`Variation ${result.index + 1}`} className="aspect-square w-full border border-border bg-muted object-cover max-h-[300px] sm:max-h-[400px]" />
                   ) : (
                     <p className="text-sm text-muted-foreground">Kein Bild zurückgegeben.</p>
                   )}
@@ -360,10 +360,10 @@ export function ImageGenerationClient() {
           {outputItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">Noch keine Bilder im Output-Ordner gefunden.</p>
           ) : (
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {outputItems.map((item) => (
                 <a key={item.path} href={item.mediaUrl} target="_blank" rel="noreferrer" className="border border-border bg-background p-2">
-                  <img src={item.previewUrl} alt={item.path} className="aspect-square w-full bg-muted object-cover" />
+                  <img src={item.previewUrl} alt={item.path} className="aspect-square w-full bg-muted object-cover max-h-[250px] sm:max-h-[300px]" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.path}</p>
                 </a>
               ))}

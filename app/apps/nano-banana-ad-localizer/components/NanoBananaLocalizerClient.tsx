@@ -204,7 +204,7 @@ export function NanoBananaLocalizerClient() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             <div className="flex flex-col gap-2">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">Model</span>
@@ -255,17 +255,18 @@ export function NanoBananaLocalizerClient() {
           </div>
 
           {referenceImagePath ? (
-            <div className="flex items-center gap-3 border border-border bg-background p-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 border border-border bg-background p-2">
               <img
                 src={toPreviewUrl(referenceImagePath, 280, { preset: 'mini' })}
                 alt={referenceImagePath}
-                className="h-20 w-28 border border-border bg-muted object-cover"
+                className="h-24 w-32 sm:h-20 sm:w-28 border border-border bg-muted object-cover flex-shrink-0"
                 loading="lazy"
                 decoding="async"
               />
-              <div className="min-w-0 text-xs text-muted-foreground">
+              <div className="min-w-0 text-xs text-muted-foreground flex-1">
                 <p className="truncate font-medium text-foreground">Ausgewähltes Referenzbild</p>
-                <p className="truncate font-mono">{referenceImagePath}</p>
+                <p className="truncate font-mono hidden sm:block">{referenceImagePath}</p>
+                <p className="text-xs text-muted-foreground sm:hidden">{referenceImagePath.split('/').pop()}</p>
               </div>
             </div>
           ) : (
@@ -274,7 +275,7 @@ export function NanoBananaLocalizerClient() {
 
           <div className="space-y-2 border border-border bg-background p-3">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Target Markets</p>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 placeholder="Markt/Land hinzufügen (z. B. Germany)"
                 value={marketInput}
@@ -287,7 +288,7 @@ export function NanoBananaLocalizerClient() {
                   }
                 }}
               />
-              <Button type="button" variant="outline" onClick={() => addMarket(marketInput)}>
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => addMarket(marketInput)}>
                 <Plus className="mr-1 h-4 w-4" />
                 Hinzufügen
               </Button>
@@ -299,16 +300,16 @@ export function NanoBananaLocalizerClient() {
             </datalist>
 
             {targetMarkets.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto">
                 {targetMarkets.map((market) => (
                   <button
                     key={market}
                     type="button"
                     onClick={() => removeMarket(market)}
-                    className="inline-flex items-center gap-1 border border-border bg-muted px-2 py-1 text-xs"
+                    className="inline-flex items-center gap-1 border border-border bg-muted px-2 py-1.5 sm:py-1 text-xs min-h-[32px] sm:min-h-[28px]"
                   >
                     {market}
-                    <X className="h-3 w-3" />
+                    <X className="h-4 w-4 sm:h-3 sm:w-3" />
                   </button>
                 ))}
               </div>
@@ -329,14 +330,14 @@ export function NanoBananaLocalizerClient() {
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button className="gap-2" onClick={handleGenerate} disabled={!canGenerate}>
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
+            <Button className="gap-2 w-full sm:w-auto" onClick={handleGenerate} disabled={!canGenerate}>
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
-              {isGenerating ? 'Lokalisiere...' : 'Ads lokalisieren'}
+              {isGenerating ? 'Lokalisiere...' : 'Lokalisieren'}
             </Button>
-            <Button variant="outline" onClick={() => void loadOutputs()} disabled={isLoadingOutputs}>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => void loadOutputs()} disabled={isLoadingOutputs}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingOutputs ? 'animate-spin' : ''}`} />
-              Output aktualisieren
+              Aktualisieren
             </Button>
           </div>
         </CardContent>
@@ -351,7 +352,7 @@ export function NanoBananaLocalizerClient() {
           {results.length === 0 ? (
             <p className="text-sm text-muted-foreground">Noch keine Lokalisierung in dieser Session.</p>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
               {results.map((result) => (
                 <div key={result.market} className="border border-border bg-background p-2">
                   <div className="mb-2 flex items-center justify-between gap-2">
@@ -365,7 +366,7 @@ export function NanoBananaLocalizerClient() {
                   {result.error ? (
                     <p className="text-sm text-destructive">{result.error}</p>
                   ) : result.mediaUrl ? (
-                    <img src={result.mediaUrl} alt={result.market} className="aspect-video w-full border border-border bg-muted object-cover" />
+                    <img src={result.mediaUrl} alt={result.market} className="aspect-video w-full border border-border bg-muted object-cover max-h-[250px] sm:max-h-[300px]" />
                   ) : (
                     <p className="text-sm text-muted-foreground">Kein Bild zurückgegeben.</p>
                   )}
@@ -386,10 +387,10 @@ export function NanoBananaLocalizerClient() {
           {outputItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">Noch keine lokalisierten Ads im Output-Ordner gefunden.</p>
           ) : (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {outputItems.map((item) => (
                 <a key={item.path} href={item.mediaUrl} target="_blank" rel="noreferrer" className="border border-border bg-background p-2">
-                  <img src={item.previewUrl} alt={item.path} className="aspect-video w-full bg-muted object-cover" />
+                  <img src={item.previewUrl} alt={item.path} className="aspect-video w-full bg-muted object-cover max-h-[200px] sm:max-h-[250px]" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.path}</p>
                 </a>
               ))}

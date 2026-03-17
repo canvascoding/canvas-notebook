@@ -34,7 +34,9 @@ export async function GET(
   context: { params: Promise<{ path: string[] }> }
 ) {
   const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
+  const skillsToken = request.headers.get('x-canvas-skills-token');
+  const isSkillsCall = !!skillsToken && skillsToken === process.env.CANVAS_SKILLS_TOKEN;
+  if (!session && !isSkillsCall) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 

@@ -33,8 +33,8 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
   const name = path.split('/').pop() || path;
 
   return (
-    <div className="flex items-center gap-2 border border-border bg-background px-2 py-1">
-      <div className="h-10 w-14 overflow-hidden bg-muted">
+    <div className="flex items-center gap-2 border border-border bg-background px-2 py-1.5 sm:py-1">
+      <div className="h-12 w-16 sm:h-10 sm:w-14 overflow-hidden bg-muted flex-shrink-0">
         {kind === 'image' ? (
           <img
             src={toPreviewUrl(path, 200, { preset: 'mini' })}
@@ -47,9 +47,9 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
           <video src={toMediaUrl(path)} className="h-full w-full object-cover" muted />
         )}
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium">{name}</p>
-        <p className="truncate text-xs text-muted-foreground">{path}</p>
+        <p className="truncate text-xs text-muted-foreground hidden sm:block">{path}</p>
       </div>
     </div>
   );
@@ -200,7 +200,7 @@ export function VeoStudioClient() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">Mode</span>
               <select
@@ -266,13 +266,13 @@ export function VeoStudioClient() {
           {mode === 'frames_to_video' && (
             <div className="space-y-2 border border-border bg-background p-3">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Frames</p>
-              <div className="flex flex-col gap-2 md:flex-row">
-                <Button variant="outline" onClick={() => openPicker('start', 'image')}>
-                  Start Frame auswählen
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('start', 'image')}>
+                  Start Frame
                 </Button>
                 {!isLooping && (
-                  <Button variant="outline" onClick={() => openPicker('end', 'image')}>
-                    End Frame auswählen
+                  <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('end', 'image')}>
+                    End Frame
                   </Button>
                 )}
               </div>
@@ -287,9 +287,9 @@ export function VeoStudioClient() {
                     }
                   }}
                 />
-                Loop-Video (End Frame = Start Frame)
+                Loop-Video
               </label>
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
                 {startFramePath && <PreviewChip path={startFramePath} kind="image" />}
                 {!isLooping && endFramePath && <PreviewChip path={endFramePath} kind="image" />}
               </div>
@@ -298,14 +298,14 @@ export function VeoStudioClient() {
 
           {mode === 'references_to_video' && (
             <div className="space-y-2 border border-border bg-background p-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                 <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Reference Images</p>
-                <Button variant="outline" size="sm" onClick={() => openPicker('references', 'image', true, 3)}>
+                <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => openPicker('references', 'image', true, 3)}>
                   Referenzen auswählen
                 </Button>
               </div>
               {referenceImagePaths.length > 0 ? (
-                <div className="grid gap-2 md:grid-cols-3">
+                <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                   {referenceImagePaths.map((item) => (
                     <PreviewChip key={item} path={item} kind="image" />
                   ))}
@@ -319,7 +319,7 @@ export function VeoStudioClient() {
           {mode === 'extend_video' && (
             <div className="space-y-2 border border-border bg-background p-3">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Input Video</p>
-              <Button variant="outline" onClick={() => openPicker('input', 'video')}>
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('input', 'video')}>
                 Input Video auswählen
               </Button>
               {inputVideoPath ? (
@@ -332,14 +332,14 @@ export function VeoStudioClient() {
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button className="gap-2" onClick={handleGenerate} disabled={!canGenerate}>
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
+            <Button className="gap-2 w-full sm:w-auto" onClick={handleGenerate} disabled={!canGenerate}>
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
-              {isGenerating ? 'Generiere Video...' : 'Video generieren'}
+              {isGenerating ? 'Generiere...' : 'Generieren'}
             </Button>
-            <Button variant="outline" onClick={() => void loadOutputs()} disabled={isLoadingOutputs}>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => void loadOutputs()} disabled={isLoadingOutputs}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingOutputs ? 'animate-spin' : ''}`} />
-              Output aktualisieren
+              Aktualisieren
             </Button>
           </div>
         </CardContent>
@@ -353,11 +353,11 @@ export function VeoStudioClient() {
         <CardContent className="space-y-2">
           {generated ? (
             <>
-              <video src={generated.mediaUrl} controls className="aspect-video w-full border border-border bg-muted" />
-              <p className="text-xs text-muted-foreground">
+              <video src={generated.mediaUrl} controls className="aspect-video w-full border border-border bg-muted max-h-[300px] sm:max-h-[400px]" />
+              <p className="text-xs text-muted-foreground truncate">
                 Video: <span className="font-mono">{generated.path}</span>
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground truncate">
                 Metadaten: <span className="font-mono">{generated.metadataPath}</span>
               </p>
             </>
@@ -376,10 +376,10 @@ export function VeoStudioClient() {
           {outputItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">Noch keine Videos im Output-Ordner gefunden.</p>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
               {outputItems.map((item) => (
                 <div key={item.path} className="border border-border bg-background p-2">
-                  <video src={item.mediaUrl} controls className="aspect-video w-full bg-muted" />
+                  <video src={item.mediaUrl} controls className="aspect-video w-full bg-muted max-h-[250px] sm:max-h-[300px]" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.path}</p>
                 </div>
               ))}

@@ -8,7 +8,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 SKILLS_TOKEN_PATH="/data/canvas-agent/.skills-token"
-BASE_URL="${CANVAS_BASE_URL:-http://localhost:3000}"
+BASE_URL="${CANVAS_BASE_URL:-${NEXT_PUBLIC_APP_URL:-http://localhost:3000}}"
 
 # Resolve auth token
 if [ -n "${CANVAS_SKILLS_TOKEN:-}" ]; then
