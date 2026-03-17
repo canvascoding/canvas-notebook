@@ -8,6 +8,7 @@ import jspreadsheet from 'jspreadsheet-ce';
 // Import Jspreadsheet styles
 import 'jsuites/dist/jsuites.css';
 import 'jspreadsheet-ce/dist/jspreadsheet.css';
+import './spreadsheet-editor.css';
 
 interface SpreadsheetEditorProps {
   path: string;
@@ -18,6 +19,8 @@ interface SheetData {
   name: string;
   data: (string | number | boolean)[][];
 }
+
+type SpreadsheetCellValue = string | number | boolean;
 
 export interface SpreadsheetEditorRef {
   save: () => Promise<string | null>;
@@ -34,27 +37,26 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
     const [fileExtension, setFileExtension] = useState<string>('');
     const [sheetNames, setSheetNames] = useState<string[]>([]);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-    const workbookRef = useRef<XLSX.WorkBook | null>(null);
-    const formulasRef = useRef<Map<string, string>>(new Map());
 
     useImperativeHandle(ref, () => ({
       save: async () => {
-        if (!workbookRef.current || !jspreadsheetInstanceRef.current) {
+        if (!jspreadsheetInstanceRef.current) {
           return null;
         }
-        return convertToBase64(workbookRef.current, fileExtension);
+        return convertToBase64(fileExtension);
       },
       getData: () => {
-        if (!workbookRef.current) return null;
-        return workbookRef.current.SheetNames.map((name, index) => ({
-          name,
+        const instance = jspreadsheetInstanceRef.current;
+        if (!instance) return null;
+        return instance.map((worksheet, index) => ({
+          name: sheetNames[index] || `Sheet${index + 1}`,
           data: getSheetData(index),
         }));
       },
       hasChanges: () => hasUnsavedChanges,
-    }));
+    }), [fileExtension, hasUnsavedChanges, sheetNames]);
 
-    const getSheetData = (sheetIndex: number): (string | number | boolean)[][] => {
+    const getSheetData = (sheetIndex: number): SpreadsheetCellValue[][] => {
       const instance = jspreadsheetInstanceRef.current;
       if (!instance || !instance.length) return [['']];
       
@@ -62,7 +64,81 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
       const worksheet = instance[sheetIndex];
       if (!worksheet) return [['']];
       
-      return worksheet.getData();
+      return worksheet.getData(false, false) as SpreadsheetCellValue[][];
+    };
+
+    const extractWorksheetData = (worksheet: XLSX.WorkSheet): SpreadsheetCellValue[][] => {
+      const rangeRef = worksheet['!ref'] || 'A1:A1';
+      const range = XLSX.utils.decode_range(rangeRef);
+      const rowCount = Math.max(range.e.r - range.s.r + 1, 1);
+      const columnCount = Math.max(range.e.c - range.s.c + 1, 1);
+
+      const data = Array.from({ length: rowCount }, () =>
+        Array.from({ length: columnCount }, () => '' as SpreadsheetCellValue)
+      );
+
+      for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+        for (let colIndex = 0; colIndex < columnCount; colIndex += 1) {
+          const cellRef = XLSX.utils.encode_cell({
+            r: range.s.r + rowIndex,
+            c: range.s.c + colIndex,
+          });
+          const cell = worksheet[cellRef];
+
+          if (!cell) {
+            continue;
+          }
+
+          if (cell.f) {
+            data[rowIndex][colIndex] = `=${cell.f}`;
+            continue;
+          }
+
+          if (cell.t === 'b') {
+            data[rowIndex][colIndex] = Boolean(cell.v);
+            continue;
+          }
+
+          if (typeof cell.v === 'number') {
+            data[rowIndex][colIndex] = cell.v;
+            continue;
+          }
+
+          data[rowIndex][colIndex] = String(cell.w ?? cell.v ?? '');
+        }
+      }
+
+      return data;
+    };
+
+    const normalizeProcessedValue = (value: unknown): string | number | boolean | undefined => {
+      if (typeof value === 'number' || typeof value === 'boolean') {
+        return value;
+      }
+
+      if (typeof value !== 'string') {
+        return undefined;
+      }
+
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return '';
+      }
+
+      if (trimmed.toLowerCase() === 'true') {
+        return true;
+      }
+
+      if (trimmed.toLowerCase() === 'false') {
+        return false;
+      }
+
+      const numericValue = Number(trimmed);
+      if (!Number.isNaN(numericValue) && /^[-+]?\d+(\.\d+)?$/.test(trimmed)) {
+        return numericValue;
+      }
+
+      return trimmed;
     };
 
     useEffect(() => {
@@ -118,7 +194,6 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           }
 
           let sheets: SheetData[] = [];
-          formulasRef.current = new Map();
 
           if (extension === 'csv') {
             // Parse CSV
@@ -136,9 +211,8 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
               })
             );
             sheets = [{ name: 'Sheet1', data: rows.length > 0 ? rows : [['']] }];
-            workbookRef.current = null;
           } else {
-            // Parse XLSX/XLS with formula support
+            // Parse XLSX/XLS and keep formulas so the grid can recalculate them.
             const workbook = XLSX.read(arrayBuffer, { 
               type: 'array',
               cellFormula: true,  // Keep formulas
@@ -146,45 +220,13 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
               cellStyles: true,   // Keep styles
             });
             
-            workbookRef.current = workbook;
-            
             // Extract all sheets
             sheets = workbook.SheetNames.map(sheetName => {
               const worksheet = workbook.Sheets[sheetName];
               
-              // Get data with formulas
-              const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-                header: 1,
-                raw: false,  // Get formatted values
-              }) as unknown[][];
-              
-              // Process data and extract formulas
-              const processedData = jsonData.map((row, rowIndex) => 
-                (row || []).map((cell, colIndex) => {
-                  const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
-                  const cellObj = worksheet[cellRef];
-                  
-                  // Store formula if present (for saving later)
-                  if (cellObj && cellObj.f) {
-                    formulasRef.current.set(`${sheetName}!${cellRef}`, cellObj.f);
-                    // Return the CALCULATED VALUE instead of the formula
-                    // This is what users expect to see
-                    if (cellObj.v !== undefined && cellObj.v !== null) {
-                      return cellObj.v;
-                    }
-                  }
-                  
-                  // Return value from JSON data
-                  if (cell === null || cell === undefined) return '';
-                  if (typeof cell === 'boolean') return cell;
-                  if (typeof cell === 'number') return cell;
-                  return String(cell);
-                })
-              );
-              
               return {
                 name: sheetName,
-                data: processedData.length > 0 ? processedData : [['']]
+                data: extractWorksheetData(worksheet)
               };
             });
           }
@@ -205,11 +247,14 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
             
             const instance = jspreadsheet(containerRef.current, {
               worksheets: worksheets,
+              parseFormulas: true,
+              tabs: sheets.length > 1,
               onchange: () => {
                 setHasUnsavedChanges(true);
                 onChange?.();
               },
               onload: () => {
+                setHasUnsavedChanges(false);
                 setIsLoading(false);
               },
             });
@@ -231,23 +276,20 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
       return () => {
         // Cleanup
         if (jspreadsheetInstanceRef.current) {
-          // jspreadsheet doesn't have a destroy method, but we can clear the container
           if (containerElement) {
-            containerElement.innerHTML = '';
+            jspreadsheet.destroy(containerElement as Parameters<typeof jspreadsheet.destroy>[0], true);
           }
           jspreadsheetInstanceRef.current = null;
         }
-        workbookRef.current = null;
-        formulasRef.current = new Map();
       };
     }, [path, onChange]);
 
-    const convertToBase64 = (workbook: XLSX.WorkBook, extension: string): string => {
+    const convertToBase64 = (extension: string): string => {
       if (extension === 'csv') {
         // For CSV, only export first sheet
         const instance = jspreadsheetInstanceRef.current;
         if (instance && instance.length > 0) {
-          const data = instance[0].getData();
+          const data = instance[0].getData(false, true) as SpreadsheetCellValue[][];
           const csv = data.map(row => 
             row.map(cell => {
               const cellStr = String(cell ?? '');
@@ -267,19 +309,23 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
         
         if (instance) {
           instance.forEach((worksheet, index) => {
-            const data = worksheet.getData();
             const sheetName = sheetNames[index] || `Sheet${index + 1}`;
-            const ws = XLSX.utils.aoa_to_sheet(data);
-            
-            // Restore formulas from cells that start with =
-            data.forEach((row, rowIndex) => {
+            const rawData = worksheet.getData(false, false) as SpreadsheetCellValue[][];
+            const ws = XLSX.utils.aoa_to_sheet(rawData);
+
+            rawData.forEach((row, rowIndex) => {
               row.forEach((cell, colIndex) => {
-                const cellStr = String(cell);
-                if (cellStr.startsWith('=')) {
-                  const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
-                  if (!ws[cellRef]) ws[cellRef] = {};
-                  ws[cellRef].f = cellStr.substring(1);  // Remove = prefix
+                if (typeof cell !== 'string' || !cell.startsWith('=')) {
+                  return;
                 }
+
+                const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+                const processedValue = normalizeProcessedValue(worksheet.getValueFromCoords(colIndex, rowIndex, true));
+
+                ws[cellRef] = {
+                  ...(processedValue !== undefined ? XLSX.utils.aoa_to_sheet([[processedValue]])['A1'] : {}),
+                  f: cell.slice(1),
+                };
               });
             });
             
@@ -310,7 +356,7 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
     }
 
     return (
-      <div className="flex h-full w-full flex-col bg-background">
+      <div className="spreadsheet-editor-shell flex h-full w-full flex-col bg-background">
         {isLoading && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-background">
             <div className="flex flex-col items-center gap-2">

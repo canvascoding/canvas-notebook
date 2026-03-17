@@ -1,0 +1,107 @@
+.spreadsheet-editor-shell {
+  height: 100%;
+  background: var(--background) !important;
+}
+
+.spreadsheet-editor-shell .jss_spreadsheet,
+.spreadsheet-editor-shell .jss_container,
+.spreadsheet-editor-shell .jtabs,
+.spreadsheet-editor-shell .jtabs-content,
+.spreadsheet-editor-shell .jtabs-content > div {
+  width: 100%;
+  height: 100%;
+}
+
+.spreadsheet-editor-shell .jss_content {
+  background: color-mix(in oklab, var(--background) 92%, var(--card)) !important;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 35%, transparent) transparent;
+}
+
+.spreadsheet-editor-shell .jss_content::-webkit-scrollbar-track {
+  background: color-mix(in oklab, var(--background) 88%, var(--card)) !important;
+}
+
+.spreadsheet-editor-shell .jss_content::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 30%, transparent) !important;
+}
+
+.spreadsheet-editor-shell .jss_worksheet {
+  background: var(--card) !important;
+  border-right-color: var(--border) !important;
+  border-bottom-color: var(--border) !important;
+  color: var(--foreground) !important;
+}
+
+.spreadsheet-editor-shell .jss_worksheet > thead > tr > td,
+.spreadsheet-editor-shell .jss_worksheet > tbody > tr > td:first-child,
+.spreadsheet-editor-shell .jss_worksheet > tfoot > tr > td {
+  background: color-mix(in oklab, var(--muted) 82%, var(--card)) !important;
+  border-top-color: var(--border) !important;
+  border-left-color: var(--border) !important;
+  color: var(--foreground) !important;
+}
+
+.spreadsheet-editor-shell .jss_worksheet > tbody > tr > td {
+  background: color-mix(in oklab, var(--card) 94%, var(--background)) !important;
+  border-top-color: var(--border) !important;
+  border-left-color: var(--border) !important;
+  color: var(--foreground) !important;
+}
+
+.spreadsheet-editor-shell .jss_worksheet > tbody > tr.dragging > td,
+.spreadsheet-editor-shell .jss_worksheet > thead > tr > td.selected,
+.spreadsheet-editor-shell .jss_worksheet > tbody > tr.selected > td:first-child {
+  background: color-mix(in oklab, var(--accent) 55%, var(--card)) !important;
+}
+
+.spreadsheet-editor-shell .jss_worksheet > tbody > tr > td.readonly {
+  color: color-mix(in oklab, var(--foreground) 45%, transparent) !important;
+}
+
+.spreadsheet-editor-shell .jss_worksheet .highlight,
+.spreadsheet-editor-shell .jss_worksheet .highlight-selected,
+.spreadsheet-editor-shell .jss_corner {
+  background: color-mix(in oklab, var(--primary) 18%, var(--card)) !important;
+}
+
+.spreadsheet-editor-shell .jss_worksheet .selection,
+.spreadsheet-editor-shell .jss_worksheet .selection-left,
+.spreadsheet-editor-shell .jss_worksheet .selection-right,
+.spreadsheet-editor-shell .jss_worksheet .selection-top,
+.spreadsheet-editor-shell .jss_worksheet .selection-bottom {
+  border-color: var(--ring) !important;
+}
+
+.spreadsheet-editor-shell .jss_worksheet .editor,
+.spreadsheet-editor-shell .jss_worksheet .editor > input,
+.spreadsheet-editor-shell .jss_worksheet > tbody > tr > td > select,
+.spreadsheet-editor-shell .jss_worksheet > tbody > tr > td > input,
+.spreadsheet-editor-shell .jss_worksheet > tbody > tr > td > textarea {
+  background: transparent !important;
+  color: var(--foreground) !important;
+}
+
+.spreadsheet-editor-shell .jtabs .jtabs-headers {
+  background: color-mix(in oklab, var(--muted) 75%, var(--card)) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.spreadsheet-editor-shell .jtabs .jtabs-headers > div:not(.jtabs-border) {
+  background: color-mix(in oklab, var(--muted) 88%, var(--card)) !important;
+  color: var(--muted-foreground) !important;
+}
+
+.spreadsheet-editor-shell .jtabs .jtabs-headers > div.jtabs-selected {
+  background: var(--card) !important;
+  color: var(--foreground) !important;
+}
+
+.spreadsheet-editor-shell .jtabs .jtabs-headers > div > div,
+.spreadsheet-editor-shell .jss_about,
+.spreadsheet-editor-shell .jss_about a {
+  color: var(--muted-foreground) !important;
+}
+
+.spreadsheet-editor-shell .jtabs .jtabs-border {
+  background: var(--primary) !important;
+}
