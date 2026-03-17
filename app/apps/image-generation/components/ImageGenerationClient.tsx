@@ -378,7 +378,7 @@ export function ImageGenerationClient() {
                   {result.error ? (
                     <p className="text-sm text-destructive">{result.error}</p>
                   ) : result.mediaUrl ? (
-                    <img src={result.mediaUrl} alt={`Variation ${result.index + 1}`} className="aspect-square w-full border border-border bg-muted object-cover max-h-[300px] sm:max-h-[400px]" />
+                    <img src={result.mediaUrl} alt={`Variation ${result.index + 1}`} className="w-full h-auto border border-border bg-muted object-contain" />
                   ) : (
                     <p className="text-sm text-muted-foreground">Kein Bild zurückgegeben.</p>
                   )}
@@ -406,7 +406,7 @@ export function ImageGenerationClient() {
                   onClick={() => setPreviewItem(item)}
                   className="border border-border bg-background p-2 text-left transition hover:border-primary/40 hover:bg-accent"
                 >
-                  <img src={item.previewUrl} alt={item.path} className="aspect-square w-full bg-muted object-cover max-h-[250px] sm:max-h-[300px]" />
+                  <img src={item.previewUrl} alt={item.path} className="w-full h-auto bg-muted object-contain" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.path}</p>
                 </button>
               ))}
