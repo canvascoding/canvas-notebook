@@ -13,6 +13,14 @@ type RateLimitBucket = {
 
 const buckets = new Map<string, RateLimitBucket>();
 
+// Periodically remove expired buckets to prevent unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of buckets) {
+    if (now > bucket.resetAt) buckets.delete(key);
+  }
+}, 60_000);
+
 function getClientId(request: NextRequest) {
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) {

@@ -2,7 +2,7 @@ import { type AgentTool } from '@mariozechner/pi-agent-core';
 import { type ImageContent } from '@mariozechner/pi-ai';
 import { Type } from '@sinclair/typebox';
 import { listDirectory, readFile, writeFile, createDirectory } from '../filesystem/workspace-files';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
 import { getCanvasSkillsTokenFromIntegrations } from '../integrations/env-config';
@@ -170,20 +170,25 @@ export const piTools: AgentTool[] = [
       try {
         const workspacePath = getWorkspacePath();
         const targetPath = searchPath || '.';
-        // Use ripgrep (rg) if available, otherwise fallback to grep
-        const command = `rg -n "${pattern.replace(/"/g, '\\"')}" ${targetPath} || grep -rnE "${pattern.replace(/"/g, '\\"')}" ${targetPath}`;
-        const { stdout, stderr } = await execAsync(command, { cwd: workspacePath });
+        // Use execFile to avoid shell injection via pattern or path
+        const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+          execFile('rg', ['-n', pattern, targetPath], { cwd: workspacePath }, (err, stdout, stderr) => {
+            if (err && (err as NodeJS.ErrnoException & { code?: number }).code === 1) {
+              resolve({ stdout: '', stderr: '' }); // no matches
+            } else if (err) {
+              reject(err);
+            } else {
+              resolve({ stdout, stderr });
+            }
+          });
+        });
         const output = [stdout, stderr].filter(Boolean).join('\n');
         return {
           content: [{ type: 'text', text: output || '(no matches found)' }],
           details: { stdout, stderr },
         };
       } catch (error: unknown) {
-        const execError = asCommandExecutionError(error);
-        if (execError.code === 1) {
-          return { content: [{ type: 'text', text: '(no matches found)' }], details: { stdout: '', stderr: '' } };
-        }
-        const message = execError.message;
+        const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
           details: { error: message },
@@ -202,8 +207,12 @@ export const piTools: AgentTool[] = [
       const { pattern } = params as { pattern: string };
       try {
         const workspacePath = getWorkspacePath();
-        const command = `find . -name "${pattern.replace(/"/g, '\\"')}"`;
-        const { stdout, stderr } = await execAsync(command, { cwd: workspacePath });
+        // Use execFile with argument array to avoid shell injection via pattern
+        const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+          execFile('find', ['.', '-name', pattern], { cwd: workspacePath }, (err, stdout, stderr) => {
+            if (err) reject(err); else resolve({ stdout, stderr });
+          });
+        });
         return {
           content: [{ type: 'text', text: stdout || '(no matches found)' }],
           details: { stdout, stderr },
