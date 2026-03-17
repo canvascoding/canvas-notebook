@@ -97,47 +97,134 @@ function ensureSkillsToken() {
   try {
     fs.mkdirSync(AGENT_STORAGE_DIR, { recursive: true });
     let token;
+    let isNewToken = false;
+    
     try {
       token = fs.readFileSync(SKILLS_TOKEN_PATH, 'utf8').trim();
+      console.log(`[Startup] Loaded existing skills token from ${SKILLS_TOKEN_PATH}`);
     } catch (e) {
-      if (e.code !== 'ENOENT') throw e;
+      if (e.code !== 'ENOENT') {
+        console.error(`[Startup] Error reading skills token file: ${e.message}`);
+        throw e;
+      }
       token = crypto.randomBytes(32).toString('hex');
-      fs.writeFileSync(SKILLS_TOKEN_PATH, token + '\n', { encoding: 'utf8', mode: 0o600 });
-      console.log(`[Startup] Generated new skills token at ${SKILLS_TOKEN_PATH}`);
+      isNewToken = true;
+      try {
+        fs.writeFileSync(SKILLS_TOKEN_PATH, token + '\n', { encoding: 'utf8', mode: 0o600 });
+        console.log(`[Startup] Generated new skills token at ${SKILLS_TOKEN_PATH}`);
+      } catch (writeError) {
+        console.error(`[Startup] Failed to write skills token file: ${writeError.message}`);
+        throw writeError;
+      }
     }
+    
     process.env.CANVAS_SKILLS_TOKEN = token;
     
     // Also save to Canvas-Integrations.env for centralized access
+    const integrationsEnvPath = path.join(DATA, 'secrets', 'Canvas-Integrations.env');
+    
     try {
-      const integrationsEnvPath = path.join(DATA, 'secrets', 'Canvas-Integrations.env');
-      fs.mkdirSync(path.dirname(integrationsEnvPath), { recursive: true });
+      // Ensure directory exists
+      const secretsDir = path.dirname(integrationsEnvPath);
+      try {
+        fs.mkdirSync(secretsDir, { recursive: true });
+        console.log(`[Startup] Ensured secrets directory exists: ${secretsDir}`);
+      } catch (mkdirError) {
+        console.error(`[Startup] Failed to create secrets directory: ${mkdirError.message}`);
+        throw mkdirError;
+      }
       
+      // Read existing content
       let envContent = '';
+      let lines = [];
       try {
         envContent = fs.readFileSync(integrationsEnvPath, 'utf8');
+        lines = envContent.split('\n');
+        console.log(`[Startup] Read existing integrations env file (${lines.length} lines)`);
       } catch (e) {
-        if (e.code !== 'ENOENT') throw e;
+        if (e.code !== 'ENOENT') {
+          console.error(`[Startup] Error reading integrations env file: ${e.message}`);
+          throw e;
+        }
+        console.log(`[Startup] Integrations env file does not exist yet, will create new one`);
       }
       
-      // Check if CANVAS_SKILLS_TOKEN already exists
-      const lines = envContent.split('\n');
-      const tokenLineIndex = lines.findIndex(line => line.startsWith('CANVAS_SKILLS_TOKEN='));
+      // Find and update/remove all existing CANVAS_SKILLS_TOKEN entries
+      const tokenKey = 'CANVAS_SKILLS_TOKEN';
+      let foundExisting = false;
+      let updatedLines = [];
       
-      if (tokenLineIndex >= 0) {
-        // Update existing token
-        lines[tokenLineIndex] = `CANVAS_SKILLS_TOKEN=${token}`;
-      } else {
-        // Add new token line
-        lines.push(`CANVAS_SKILLS_TOKEN=${token}`);
+      for (const line of lines) {
+        if (line.startsWith(`${tokenKey}=`)) {
+          const existingValue = line.substring(tokenKey.length + 1).trim();
+          if (existingValue === token) {
+            console.log(`[Startup] Token already exists in integrations env with same value`);
+            foundExisting = true;
+            updatedLines.push(line); // Keep existing line
+          } else {
+            console.log(`[Startup] Updating existing token in integrations env (old value different)`);
+            foundExisting = true;
+            updatedLines.push(`${tokenKey}=${token}`);
+          }
+        } else if (line.trim() !== '') {
+          updatedLines.push(line);
+        }
       }
       
-      fs.writeFileSync(integrationsEnvPath, lines.join('\n'), { encoding: 'utf8', mode: 0o600 });
-      console.log(`[Startup] Saved CANVAS_SKILLS_TOKEN to ${integrationsEnvPath}`);
+      // If no existing token found, add it
+      if (!foundExisting) {
+        console.log(`[Startup] Adding new CANVAS_SKILLS_TOKEN to integrations env`);
+        updatedLines.push(`${tokenKey}=${token}`);
+      }
+      
+      // Ensure file ends with newline
+      const newContent = updatedLines.join('\n') + (updatedLines.length > 0 ? '\n' : '');
+      
+      // Atomic write: write to temp file first, then rename
+      const tempPath = `${integrationsEnvPath}.tmp`;
+      try {
+        fs.writeFileSync(tempPath, newContent, { encoding: 'utf8', mode: 0o600 });
+        fs.renameSync(tempPath, integrationsEnvPath);
+        console.log(`[Startup] Successfully saved CANVAS_SKILLS_TOKEN to ${integrationsEnvPath}`);
+      } catch (writeError) {
+        console.error(`[Startup] Failed to write integrations env file: ${writeError.message}`);
+        // Try to clean up temp file
+        try {
+          if (fs.existsSync(tempPath)) {
+            fs.unlinkSync(tempPath);
+          }
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+        }
+        throw writeError;
+      }
+      
+      // Verify the write was successful
+      try {
+        const verifyContent = fs.readFileSync(integrationsEnvPath, 'utf8');
+        const verifyLines = verifyContent.split('\n');
+        const verifyTokenLine = verifyLines.find(line => line.startsWith(`${tokenKey}=`));
+        if (verifyTokenLine) {
+          const verifyValue = verifyTokenLine.substring(tokenKey.length + 1).trim();
+          if (verifyValue === token) {
+            console.log(`[Startup] Verified: CANVAS_SKILLS_TOKEN is correctly saved in integrations env`);
+          } else {
+            console.error(`[Startup] Verification failed: Token value mismatch in integrations env`);
+          }
+        } else {
+          console.error(`[Startup] Verification failed: CANVAS_SKILLS_TOKEN not found in integrations env after write`);
+        }
+      } catch (verifyError) {
+        console.error(`[Startup] Failed to verify integrations env file: ${verifyError.message}`);
+      }
+      
     } catch (envError) {
-      console.error('[Startup] Failed to save skills token to integrations env:', envError);
+      console.error('[Startup] Failed to save skills token to integrations env:', envError.message);
+      console.error('[Startup] Stack trace:', envError.stack);
     }
   } catch (error) {
-    console.error('[Startup] Failed to ensure skills token:', error);
+    console.error('[Startup] Failed to ensure skills token:', error.message);
+    console.error('[Startup] Stack trace:', error.stack);
   }
 }
 
@@ -190,6 +277,7 @@ function ensureSkillsDirectory() {
 function ensureRuntimeDirectories() {
   try {
     fs.mkdirSync(path.resolve(MEDIA_ROOT), { recursive: true });
+    console.log(`[Startup] Ensured workspace directory exists: ${MEDIA_ROOT}`);
   } catch (error) {
     console.error(`[Startup] Failed to create WORKSPACE_DIR at ${MEDIA_ROOT}:`, error);
     throw error;
@@ -197,8 +285,19 @@ function ensureRuntimeDirectories() {
 
   try {
     fs.mkdirSync(path.dirname(SQLITE_PATH), { recursive: true });
+    console.log(`[Startup] Ensured SQLite directory exists: ${path.dirname(SQLITE_PATH)}`);
   } catch (error) {
     console.error(`[Startup] Failed to create SQLite directory for ${SQLITE_PATH}:`, error);
+    throw error;
+  }
+
+  // Ensure secrets directory exists for Canvas-Integrations.env
+  const secretsDir = path.join(DATA, 'secrets');
+  try {
+    fs.mkdirSync(secretsDir, { recursive: true });
+    console.log(`[Startup] Ensured secrets directory exists: ${secretsDir}`);
+  } catch (error) {
+    console.error(`[Startup] Failed to create secrets directory at ${secretsDir}:`, error);
     throw error;
   }
 }
