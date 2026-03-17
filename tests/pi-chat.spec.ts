@@ -287,6 +287,130 @@ test.describe('PI Chat E2E', () => {
     await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
   });
 
+  test('should keep the current scroll position when streaming continues after the user scrolls up', async ({ page }) => {
+    await page.addInitScript(() => {
+      const originalFetch = window.fetch.bind(window);
+      const emptyUsage = {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      };
+
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+        const pathname = new URL(url, window.location.origin).pathname;
+
+        if (pathname === '/api/stream') {
+          const encoder = new TextEncoder();
+          const totalChunks = 18;
+          const linesPerChunk = 3;
+          let chunkIndex = 0;
+
+          const buildText = (count: number) =>
+            Array.from(
+              { length: count * linesPerChunk },
+              (_, lineIndex) => `Stream line ${lineIndex + 1}: keep this answer growing while I inspect older history.`,
+            ).join('\n');
+
+          const stream = new ReadableStream({
+            async pull(controller) {
+              if (chunkIndex >= totalChunks) {
+                controller.close();
+                return;
+              }
+
+              const text = buildText(chunkIndex + 1);
+              const payload =
+                chunkIndex === totalChunks - 1
+                  ? {
+                      type: 'message_end',
+                      message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text }],
+                        api: 'mock',
+                        provider: 'mock',
+                        model: 'mock-model',
+                        usage: emptyUsage,
+                        stopReason: 'stop',
+                        timestamp: Date.now(),
+                      },
+                    }
+                  : {
+                      type: 'message_update',
+                      message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text }],
+                        api: 'mock',
+                        provider: 'mock',
+                        model: 'mock-model',
+                        usage: emptyUsage,
+                        stopReason: 'streaming',
+                        timestamp: Date.now(),
+                      },
+                      assistantMessageEvent: {
+                        type: 'text_delta',
+                        delta: text,
+                      },
+                    };
+
+              await new Promise((resolve) => window.setTimeout(resolve, chunkIndex < 6 ? 35 : 70));
+              controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+              chunkIndex += 1;
+            },
+          });
+
+          return new Response(stream, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        }
+
+        return originalFetch(input, init);
+      };
+    });
+
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    await page.getByTestId('chat-input').fill('Stream a long answer so I can scroll away from the bottom.');
+    await page.getByTestId('chat-input').press('Enter');
+
+    const scrollRegion = page.getByTestId('chat-scroll-region');
+    const assistantMessage = page.getByTestId('chat-message-assistant').first();
+
+    await expect
+      .poll(async () => scrollRegion.evaluate((element) => element.scrollHeight - element.clientHeight), { timeout: 10000 })
+      .toBeGreaterThan(240);
+
+    const lockedScrollTop = await scrollRegion.evaluate((element) => {
+      element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 220);
+      element.dispatchEvent(new Event('scroll'));
+      return element.scrollTop;
+    });
+
+    expect(lockedScrollTop).toBeGreaterThan(0);
+    await expect(page.getByTitle('Scroll to bottom')).toBeVisible();
+    await expect(assistantMessage).toContainText('Stream line 30', { timeout: 10000 });
+    await expect(assistantMessage).toContainText('Stream line 48', { timeout: 10000 });
+
+    await page.waitForTimeout(250);
+
+    const scrollTopAfterStreaming = await scrollRegion.evaluate((element) => element.scrollTop);
+    expect(Math.abs(scrollTopAfterStreaming - lockedScrollTop)).toBeLessThan(24);
+    await expect(page.getByTitle('Scroll to bottom')).toBeVisible();
+  });
+
   test('should render compact usage footer for assistant responses', async ({ page }) => {
     await page.route('**/api/stream', async (route) => {
       const body = [
@@ -375,6 +499,106 @@ test.describe('PI Chat E2E', () => {
     await expect(usageFooter).toBeVisible();
     await expect(usageFooter).toContainText('579 tok · $0.0123');
     await expect(usageFooter).toContainText('123 in / 456 out');
+  });
+
+  test('should only render cumulative usage on the final assistant message of a tool chain', async ({ page }) => {
+    await page.route('**/api/stream', async (route) => {
+      const now = Date.now();
+      const body = [
+        JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Ich sammle zuerst die Daten.' }],
+            api: 'mock',
+            provider: 'mock',
+            model: 'mock-model',
+            usage: {
+              input: 50,
+              output: 80,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 130,
+              cost: {
+                input: 0.001,
+                output: 0.002,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0.003,
+              },
+            },
+            stopReason: 'tool_call',
+            timestamp: now,
+          },
+        }),
+        JSON.stringify({
+          type: 'tool_execution_start',
+          toolCallId: 'tool-usage-1',
+          toolName: 'search_workspace',
+          args: { query: 'usage footer' },
+        }),
+        JSON.stringify({
+          type: 'tool_execution_end',
+          toolCallId: 'tool-usage-1',
+          toolName: 'search_workspace',
+          result: {
+            content: [{ type: 'text', text: 'Gefundene Treffer' }],
+          },
+        }),
+        JSON.stringify({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Hier ist die zusammengefasste Antwort.' }],
+            api: 'mock',
+            provider: 'mock',
+            model: 'mock-model',
+            usage: {
+              input: 70,
+              output: 110,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 180,
+              cost: {
+                input: 0.004,
+                output: 0.005,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0.009,
+              },
+            },
+            stopReason: 'stop',
+            timestamp: now + 1,
+          },
+        }),
+      ].join('\n') + '\n';
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body,
+      });
+    });
+
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    const input = page.getByTestId('chat-input');
+    await input.fill('Nutze ein Tool und zeige nur den kumulierten Footer.');
+    await input.press('Enter');
+
+    const firstAssistantMessage = page.getByTestId('chat-message-assistant').filter({ hasText: 'Ich sammle zuerst die Daten.' }).last();
+    const finalAssistantMessage = page.getByTestId('chat-message-assistant').filter({ hasText: 'Hier ist die zusammengefasste Antwort.' }).last();
+
+    await expect(firstAssistantMessage).toBeVisible();
+    await expect(finalAssistantMessage).toBeVisible();
+    await expect(firstAssistantMessage.getByTestId('chat-usage-footer')).toHaveCount(0);
+
+    const usageFooter = finalAssistantMessage.getByTestId('chat-usage-footer');
+    await expect(usageFooter).toBeVisible();
+    await expect(usageFooter).toContainText('310 tok · $0.0120');
+    await expect(usageFooter).toContainText('120 in / 190 out');
+    await expect(page.getByTestId('chat-usage-footer')).toHaveCount(1);
   });
 
   test('should show runtime status, queue state, and context budget in the chat UI', async ({ page }) => {

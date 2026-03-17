@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import type { Usage } from '@mariozechner/pi-ai';
 import {
   Paperclip,
   X,
@@ -139,6 +140,8 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
 };
 
 const DEFAULT_MODEL_ID = 'pi';
+const BOTTOM_LOCK_THRESHOLD_PX = 16;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -238,6 +241,79 @@ function getAssistantUsage(message?: AgentMessage | null) {
   }
 
   return message.usage;
+}
+
+const EMPTY_USAGE: Usage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  },
+};
+
+function sumUsage(left: Usage, right: Usage): Usage {
+  return {
+    input: left.input + right.input,
+    output: left.output + right.output,
+    cacheRead: left.cacheRead + right.cacheRead,
+    cacheWrite: left.cacheWrite + right.cacheWrite,
+    totalTokens: left.totalTokens + right.totalTokens,
+    cost: {
+      input: left.cost.input + right.cost.input,
+      output: left.cost.output + right.cost.output,
+      cacheRead: left.cost.cacheRead + right.cost.cacheRead,
+      cacheWrite: left.cost.cacheWrite + right.cost.cacheWrite,
+      total: left.cost.total + right.cost.total,
+    },
+  };
+}
+
+function getAssistantChainUsage(messages: ChatMessage[], index: number): Usage | null {
+  const currentMessage = messages[index];
+  if (!currentMessage || currentMessage.role !== 'assistant') {
+    return null;
+  }
+
+  let chainStart = index;
+  while (chainStart > 0 && messages[chainStart - 1]?.role !== 'user') {
+    chainStart -= 1;
+  }
+
+  let chainEnd = index;
+  while (chainEnd + 1 < messages.length && messages[chainEnd + 1]?.role !== 'user') {
+    chainEnd += 1;
+  }
+
+  let lastAssistantIndex = -1;
+  let aggregatedUsage: Usage | null = null;
+
+  for (let cursor = chainStart; cursor <= chainEnd; cursor += 1) {
+    const message = messages[cursor];
+    if (message?.role !== 'assistant') {
+      continue;
+    }
+
+    lastAssistantIndex = cursor;
+    const usage = getAssistantUsage(message.piMessage);
+    if (!usage) {
+      continue;
+    }
+
+    aggregatedUsage = aggregatedUsage ? sumUsage(aggregatedUsage, usage) : sumUsage(EMPTY_USAGE, usage);
+  }
+
+  if (lastAssistantIndex !== index || !aggregatedUsage || !hasRenderableUsage(aggregatedUsage)) {
+    return null;
+  }
+
+  return aggregatedUsage;
 }
 
 function formatSessionId(value: string | null): string {
@@ -457,6 +533,7 @@ export default function CanvasAgentChat({
   const lastCompactionMarkerRef = useRef<string | null>(null);
   const userStartedNewChatRef = useRef(false);
   const previousMessageCountRef = useRef(0);
+  const isAtBottomRef = useRef(true);
 
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
@@ -466,34 +543,54 @@ export default function CanvasAgentChat({
     sessionIdRef.current = sessionId;
   }, [sessionId]);
 
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    isAtBottomRef.current = true;
+    setIsAtBottom(true);
     messagesEndRef.current?.scrollIntoView({ behavior });
-  };
+  }, []);
+
+  const syncBottomLockState = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      return true;
+    }
+
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+    const nextIsAtBottom = scrollHeight - scrollTop - clientHeight <= BOTTOM_LOCK_THRESHOLD_PX;
+    isAtBottomRef.current = nextIsAtBottom;
+    setIsAtBottom((current) => (current === nextIsAtBottom ? current : nextIsAtBottom));
+    return nextIsAtBottom;
+  }, []);
 
   const handleScroll = useCallback(() => {
-    if (!scrollContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    setIsAtBottom(scrollHeight - scrollTop - clientHeight < 100);
-  }, []);
+    syncBottomLockState();
+  }, [syncBottomLockState]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
+    syncBottomLockState();
     scrollContainer.addEventListener('scroll', handleScroll);
     return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [handleScroll]);
+  }, [handleScroll, syncBottomLockState]);
 
-  useEffect(() => {
-    if (messages.length === 0) return;
+  useLayoutEffect(() => {
+    if (messages.length === 0) {
+      previousMessageCountRef.current = 0;
+      isAtBottomRef.current = true;
+      setIsAtBottom(true);
+      return;
+    }
+
     const lastMessage = messages[messages.length - 1];
     const messageCountIncreased = messages.length > previousMessageCountRef.current;
 
-    if (isAtBottom || (messageCountIncreased && lastMessage.role === 'user')) {
+    if (isAtBottomRef.current || (messageCountIncreased && lastMessage.role === 'user')) {
       scrollToBottom(lastMessage.role === 'user' ? 'smooth' : 'auto');
     }
 
     previousMessageCountRef.current = messages.length;
-  }, [messages, isAtBottom]);
+  }, [messages, scrollToBottom]);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -1719,7 +1816,7 @@ export default function CanvasAgentChat({
             
             {/* Context Progress Bar - Slim */}
             <div className="mt-1.5 flex items-center gap-2">
-              <div className="flex-1 h-1 overflow-hidden rounded-full bg-black/5">
+              <div className="flex-1 h-1 overflow-hidden rounded-full bg-black/5 dark:bg-gray-700">
                 <div
                   data-testid="chat-context-progress"
                   className={`h-full rounded-full transition-all ${
@@ -1827,6 +1924,7 @@ export default function CanvasAgentChat({
 
         <div
           ref={scrollContainerRef}
+          data-testid="chat-scroll-region"
           className="absolute inset-0 space-y-4 overflow-y-auto p-4 scroll-smooth"
           style={{ paddingBottom: `${scrollContentPadding}px` }}
         >
@@ -1866,13 +1964,13 @@ export default function CanvasAgentChat({
             </div>
           )}
 
-          {messages.map((message) => {
+          {messages.map((message, index) => {
             const isUser = message.role === 'user';
             const isAssistant = message.role === 'assistant';
             const isTool = message.role === 'toolResult';
             const isSystem = message.role === 'system';
             const isSystemError = isSystem && message.status === 'error';
-            const usage = getAssistantUsage(message.piMessage);
+            const usage = getAssistantChainUsage(messages, index);
             const isCompactBreak = message.type === 'compact_break';
             const isStreamingAssistant = isAssistant && message.status === 'sending';
 

@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-17T08:33:42+01:00",
+  "lastUpdatedAt": "2026-03-17T08:38:18+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1469,7 +1469,7 @@
       "dependsOn": [
         "pi-usage-003"
       ],
-      "description": "Render compact per-answer token/cost footers in chat and add a filterable /usage page plus navigation entry."
+      "description": "Render compact chat usage footers only on the final assistant message of a tool chain with cumulative token/cost totals, and add a filterable /usage page plus navigation entry."
     },
     {
       "id": "pi-usage-005",
@@ -1481,7 +1481,7 @@
       "dependsOn": [
         "pi-usage-004"
       ],
-      "description": "Add targeted tests for usage extraction, aggregation, API authorization, chat UI display, and /usage filtering."
+      "description": "Add targeted tests for usage extraction, chain-end aggregation, API authorization, chat UI display, and /usage filtering."
     },
     {
       "id": "pi-usage-006",
@@ -1790,6 +1790,18 @@
         "pi-chat-runtime-015"
       ],
       "description": "Render assistant replies as plain text while they are still streaming to avoid half-parsed Markdown flicker, and add a very small animated streaming indicator so incomplete output reads as intentional UI state instead of a rendering glitch."
+    },
+    {
+      "id": "pi-chat-runtime-017",
+      "order": 157,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Keep manual chat scroll position locked while assistant streaming continues",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-016"
+      ],
+      "description": "Replace the loose near-bottom autoscroll with a tighter bottom lock so the chat only follows new streaming output when the user is actually pinned to the end, and add Playwright coverage that verifies manual upward scrolling stays in place until the jump-to-bottom button is used."
     }
   ]
 }
