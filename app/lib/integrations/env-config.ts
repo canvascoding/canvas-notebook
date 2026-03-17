@@ -322,3 +322,28 @@ export async function getGeminiApiKeyFromIntegrations(): Promise<string | null> 
     return process.env.GEMINI_API_KEY || null;
   }
 }
+
+export async function getCanvasSkillsTokenFromIntegrations(): Promise<string | null> {
+  try {
+    const state = await readScopedEnvState('integrations');
+    const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
+    
+    const envToken = byKey.get('CANVAS_SKILLS_TOKEN');
+    if (envToken) {
+      console.log('[EnvConfig] Found CANVAS_SKILLS_TOKEN in integrations env file');
+      return envToken;
+    }
+    
+    if (process.env.CANVAS_SKILLS_TOKEN) {
+      console.log('[EnvConfig] Found CANVAS_SKILLS_TOKEN in process.env');
+      return process.env.CANVAS_SKILLS_TOKEN;
+    }
+    
+    console.warn('[EnvConfig] CANVAS_SKILLS_TOKEN not found in integrations env or process.env');
+    console.warn(`[EnvConfig] Integrations env file path: ${state.path}, exists: ${state.exists}`);
+    return null;
+  } catch (error) {
+    console.error('[EnvConfig] Error loading CANVAS_SKILLS_TOKEN:', error);
+    return process.env.CANVAS_SKILLS_TOKEN || null;
+  }
+}

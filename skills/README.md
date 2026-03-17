@@ -35,7 +35,13 @@ Alternativ über den vollständigen Pfad:
 
 ## Voraussetzungen
 
-- GEMINI_API_KEY muss in Canvas Notebook unter `/settings` konfiguriert sein
+**Erforderliche Konfiguration:**
+
+1. **GEMINI_API_KEY** - Muss in Canvas Notebook unter Settings → Integrations konfiguriert sein
+2. **CANVAS_SKILLS_TOKEN** - Wird vom Server automatisch in `/data/secrets/Canvas-Integrations.env` generiert
+
+**Wichtig:** Der Agent darf die Datei `/data/secrets/Canvas-Integrations.env` lesen, um CANVAS_SKILLS_TOKEN zu erhalten. Dieser Token wird für die interne API-Authentifizierung benötigt.
+
 - Server muss laufen (CLI kommuniziert mit `localhost:3000`)
 
 ## Antwortformat

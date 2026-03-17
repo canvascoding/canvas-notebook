@@ -8,8 +8,8 @@ import { auth } from '@/app/lib/auth';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-const CACHE_ROOT = process.env.MEDIA_CACHE_PATH || '/tmp/canvas-media-cache';
-const FFMPEG_BIN = process.env.FFMPEG_PATH || 'ffmpeg';
+const CACHE_ROOT = '/tmp/canvas-media-cache';
+const FFMPEG_BIN = 'ffmpeg';
 const MAX_WIDTH = 1920;
 const MIN_WIDTH = 64;
 const SUPPORTED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);

@@ -49,6 +49,5 @@ Ensure these are set. Local dev uses `.env.local`, Docker/Compose should use `.e
 - `BETTER_AUTH_BASE_URL` (or fallback `BASE_URL`)
 - `DATA` (recommended: `./data` - base path for workspace, sqlite.db, skills, etc.)
 - `ALLOW_SIGNUP=false` (set `true` only for initial onboarding)
-- `MAX_TERMINALS_PER_USER` and `TERMINAL_IDLE_TIMEOUT`
 
 `DATA` should point to persistent storage. Workspace files, SQLite database, and skills are stored under this path (e.g., `/data/workspace`, `/data/sqlite.db`, `/data/skills`).

@@ -12,7 +12,13 @@ description: |
   - "generate a video"
   
   Output: workspace/veo-studio/video-generation/
-  Voraussetzung: GEMINI_API_KEY in /settings
+  
+  Voraussetzungen:
+  - GEMINI_API_KEY in Settings → Integrations
+  - CANVAS_SKILLS_TOKEN in /data/secrets/Canvas-Integrations.env (wird vom Server automatisch generiert)
+  
+  Der Agent darf die Canvas-Integrations.env Datei lesen, um CANVAS_SKILLS_TOKEN zu erhalten.
+  
   Hinweis: Dauert typischerweise 3-10 Minuten
 version: "1.0.0"
 type: api

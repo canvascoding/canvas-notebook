@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 import { useTerminalStore } from '@/app/store/terminal-store';
 import { cn } from '@/lib/utils';
 
-const MAX_TERMINAL_SESSIONS = Number(process.env.NEXT_PUBLIC_MAX_TERMINALS_PER_USER || 4);
+const MAX_TERMINAL_SESSIONS = 4;
 const SAFE_MAX_TERMINAL_SESSIONS =
   Number.isFinite(MAX_TERMINAL_SESSIONS) && MAX_TERMINAL_SESSIONS > 0
     ? MAX_TERMINAL_SESSIONS

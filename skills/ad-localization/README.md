@@ -13,7 +13,13 @@ description: |
   - "translate for market..."
   
   Output: workspace/nano-banana-ad-localizer/localizations/
-  Voraussetzung: GEMINI_API_KEY in /settings
+  
+  Voraussetzungen:
+  - GEMINI_API_KEY in Settings → Integrations
+  - CANVAS_SKILLS_TOKEN in /data/secrets/Canvas-Integrations.env (wird vom Server automatisch generiert)
+  
+  Der Agent darf die Canvas-Integrations.env Datei lesen, um CANVAS_SKILLS_TOKEN zu erhalten.
+  
   Wichtig: Referenzbild muss unter nano-banana-ad-localizer/ liegen
 version: "1.0.0"
 type: api

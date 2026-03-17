@@ -12,7 +12,12 @@ description: |
   - "generate a picture"
   
   Output: workspace/image-generation/generations/
-  Voraussetzung: GEMINI_API_KEY in /settings
+  
+  Voraussetzungen:
+  - GEMINI_API_KEY in Settings → Integrations
+  - CANVAS_SKILLS_TOKEN in /data/secrets/Canvas-Integrations.env (wird vom Server automatisch generiert)
+  
+  Der Agent darf die Canvas-Integrations.env Datei lesen, um CANVAS_SKILLS_TOKEN zu erhalten.
 version: "1.0.0"
 type: api
 tool:
@@ -23,17 +28,17 @@ tool:
       type: string
       required: true
       description: "Text-Prompt für die Bildgenerierung"
+    count:
+      type: integer
+      required: true
+      minimum: 1
+      maximum: 4
+      description: "Anzahl der zu generierenden Bilder (1-4)"
     aspect_ratio:
       type: string
       enum: ["16:9", "1:1", "9:16", "4:3", "3:4"]
       default: "1:1"
       description: "Seitenverhältnis des Bildes"
-    count:
-      type: integer
-      minimum: 1
-      maximum: 4
-      default: 1
-      description: "Anzahl der zu generierenden Bilder"
     model:
       type: string
       enum: ["gemini-3.1-flash-image-preview", "gemini-2.5-flash-image-preview"]

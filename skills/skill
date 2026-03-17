@@ -8,16 +8,59 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 SKILLS_TOKEN_PATH="/data/canvas-agent/.skills-token"
+INTEGRATIONS_ENV_PATH="/data/secrets/Canvas-Integrations.env"
 # Use internal container port (3000) for API calls
 BASE_URL="http://localhost:3000"
 
+# Function to read token from Canvas-Integrations.env
+read_token_from_env_file() {
+  local env_file="$1"
+  local token_key="$2"
+  
+  if [ -f "$env_file" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      # Skip comments and empty lines
+      case "$line" in
+        \#*|"" ) continue ;;
+      esac
+      
+      # Check if line starts with the token key
+      if [[ "$line" == "$token_key="* ]]; then
+        echo "${line#$token_key=}" | tr -d '[:space:]'
+        return 0
+      fi
+    done < "$env_file"
+  fi
+  
+  return 1
+}
+
 # Resolve auth token
+TOKEN=""
+
+# Priority 1: Environment variable
 if [ -n "${CANVAS_SKILLS_TOKEN:-}" ]; then
   TOKEN="$CANVAS_SKILLS_TOKEN"
+# Priority 2: Canvas-Integrations.env file
+elif [ -f "$INTEGRATIONS_ENV_PATH" ]; then
+  TOKEN=$(read_token_from_env_file "$INTEGRATIONS_ENV_PATH" "CANVAS_SKILLS_TOKEN")
+  if [ -n "$TOKEN" ]; then
+    export CANVAS_SKILLS_TOKEN="$TOKEN"
+  fi
+# Priority 3: Legacy token file
 elif [ -f "$SKILLS_TOKEN_PATH" ]; then
   TOKEN="$(cat "$SKILLS_TOKEN_PATH" | tr -d '[:space:]')"
-else
-  echo "ERROR: CANVAS_SKILLS_TOKEN not configured. Please ensure the Canvas Notebook server is running and the token is set." >&2
+fi
+
+# Validate token
+if [ -z "$TOKEN" ]; then
+  echo "ERROR: CANVAS_SKILLS_TOKEN not configured." >&2
+  echo "The token should be set in one of the following locations:" >&2
+  echo "  1. Environment variable: CANVAS_SKILLS_TOKEN" >&2
+  echo "  2. Integrations env file: $INTEGRATIONS_ENV_PATH" >&2
+  echo "  3. Legacy token file: $SKILLS_TOKEN_PATH" >&2
+  echo "" >&2
+  echo "Please ensure the Canvas Notebook server has started and generated the token." >&2
   exit 1
 fi
 

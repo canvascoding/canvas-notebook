@@ -7,7 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { AssetPickerDialog } from '@/app/apps/veo-studio/components/AssetPickerDialog';
-import { toPreviewUrl } from '@/app/lib/utils/media-url';
+import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface LocalizedResult {
   market: string;
@@ -98,6 +104,7 @@ export function NanoBananaLocalizerClient() {
   const [isLoadingOutputs, setIsLoadingOutputs] = useState(false);
   const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [previewItem, setPreviewItem] = useState<OutputItem | null>(null);
 
   const canGenerate = useMemo(() => {
     return Boolean(referenceImagePath) && targetMarkets.length > 0 && !isGenerating;

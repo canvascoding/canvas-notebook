@@ -120,7 +120,7 @@ function createSession(sessionId: string, ownerId: string, cwd: string): Termina
   }
   
   // Create PTY
-  const shell = process.env.SHELL || '/bin/bash';
+  const shell = '/bin/bash';
   const finalCwd = fs.existsSync(cwd) ? cwd : WORKSPACE_DIR;
   
   log(`Creating session ${sessionId} for ${normalizedOwnerId} in ${finalCwd}`);

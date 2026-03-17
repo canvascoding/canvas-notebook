@@ -5,6 +5,7 @@ import { listDirectory, readFile, writeFile, createDirectory } from '../filesyst
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
+import { getCanvasSkillsTokenFromIntegrations } from '../integrations/env-config';
 import path from 'path';
 
 
@@ -236,11 +237,11 @@ export const piTools: AgentTool[] = [
       };
       try {
         const baseUrl = 'http://localhost:3000';
-        const skillsToken = process.env.CANVAS_SKILLS_TOKEN;
+        const skillsToken = await getCanvasSkillsTokenFromIntegrations();
         
         if (!skillsToken) {
           return {
-            content: [{ type: 'text', text: 'Error: Internal server token not configured. Please contact the administrator.' }],
+            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not found in Canvas-Integrations.env. Please ensure the server has generated the token.' }],
             details: { error: 'Skills token missing' },
           };
         }
@@ -326,11 +327,11 @@ export const piTools: AgentTool[] = [
       };
       try {
         const baseUrl = 'http://localhost:3000';
-        const skillsToken = process.env.CANVAS_SKILLS_TOKEN;
+        const skillsToken = await getCanvasSkillsTokenFromIntegrations();
         
         if (!skillsToken) {
           return {
-            content: [{ type: 'text', text: 'Error: Internal server token not configured. Please contact the administrator.' }],
+            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not found in Canvas-Integrations.env. Please ensure the server has generated the token.' }],
             details: { error: 'Skills token missing' },
           };
         }
@@ -408,11 +409,11 @@ export const piTools: AgentTool[] = [
       };
       try {
         const baseUrl = 'http://localhost:3000';
-        const skillsToken = process.env.CANVAS_SKILLS_TOKEN;
+        const skillsToken = await getCanvasSkillsTokenFromIntegrations();
         
         if (!skillsToken) {
           return {
-            content: [{ type: 'text', text: 'Error: Internal server token not configured. Please contact the administrator.' }],
+            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not found in Canvas-Integrations.env. Please ensure the server has generated the token.' }],
             details: { error: 'Skills token missing' },
           };
         }

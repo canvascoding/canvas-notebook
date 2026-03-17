@@ -11,18 +11,16 @@ interface FileEntry {
   isImage: boolean;
 }
 
-async function collectFilesRecursive(dirPath: string, basePath: string = ''): Promise<FileEntry[]> {
+async function collectFilesRecursive(dirPath: string): Promise<FileEntry[]> {
   try {
     const entries = await listDirectory(dirPath);
     const files: FileEntry[] = [];
 
     for (const entry of entries) {
-      const fullPath = basePath ? `${basePath}/${entry.path}` : entry.path;
-      
       if (entry.type === 'directory') {
         // Recursively collect files from subdirectories
         try {
-          const subFiles = await collectFilesRecursive(fullPath, fullPath);
+          const subFiles = await collectFilesRecursive(entry.path);
           files.push(...subFiles);
         } catch {
           // Skip directories we can't read
@@ -34,7 +32,7 @@ async function collectFilesRecursive(dirPath: string, basePath: string = ''): Pr
         
         files.push({
           name: entry.name,
-          path: fullPath,
+          path: entry.path,
           type: 'file',
           extension,
           isImage,

@@ -106,6 +106,36 @@ function ensureSkillsToken() {
       console.log(`[Startup] Generated new skills token at ${SKILLS_TOKEN_PATH}`);
     }
     process.env.CANVAS_SKILLS_TOKEN = token;
+    
+    // Also save to Canvas-Integrations.env for centralized access
+    try {
+      const integrationsEnvPath = path.join(DATA, 'secrets', 'Canvas-Integrations.env');
+      fs.mkdirSync(path.dirname(integrationsEnvPath), { recursive: true });
+      
+      let envContent = '';
+      try {
+        envContent = fs.readFileSync(integrationsEnvPath, 'utf8');
+      } catch (e) {
+        if (e.code !== 'ENOENT') throw e;
+      }
+      
+      // Check if CANVAS_SKILLS_TOKEN already exists
+      const lines = envContent.split('\n');
+      const tokenLineIndex = lines.findIndex(line => line.startsWith('CANVAS_SKILLS_TOKEN='));
+      
+      if (tokenLineIndex >= 0) {
+        // Update existing token
+        lines[tokenLineIndex] = `CANVAS_SKILLS_TOKEN=${token}`;
+      } else {
+        // Add new token line
+        lines.push(`CANVAS_SKILLS_TOKEN=${token}`);
+      }
+      
+      fs.writeFileSync(integrationsEnvPath, lines.join('\n'), { encoding: 'utf8', mode: 0o600 });
+      console.log(`[Startup] Saved CANVAS_SKILLS_TOKEN to ${integrationsEnvPath}`);
+    } catch (envError) {
+      console.error('[Startup] Failed to save skills token to integrations env:', envError);
+    }
   } catch (error) {
     console.error('[Startup] Failed to ensure skills token:', error);
   }

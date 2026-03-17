@@ -1414,14 +1414,14 @@ export default function CanvasAgentChat({
     if (lastAtIndex === -1) return;
     const before = input.slice(0, lastAtIndex);
     const after = input.slice(cursorPosition);
-    const newValue = `${before}"${file.path}" ${after}`;
+    const newValue = `${before}@"${file.path}" ${after}`;
     setInput(newValue);
     setShowFilePicker(false);
     setFilePickerQuery('');
 
     setTimeout(() => {
       textareaRef.current?.focus();
-      const newCursorPos = before.length + file.path.length + 3;
+      const newCursorPos = before.length + file.path.length + 4;
       textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
     }, 0);
   }, [cursorPosition, input]);

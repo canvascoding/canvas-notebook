@@ -6,7 +6,13 @@ import { Loader2, RefreshCw, WandSparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AssetPickerDialog } from '@/app/apps/veo-studio/components/AssetPickerDialog';
-import { toPreviewUrl } from '@/app/lib/utils/media-url';
+import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface GeneratedResult {
   index: number;
@@ -78,6 +84,7 @@ export function ImageGenerationClient() {
   const [isLoadingOutputs, setIsLoadingOutputs] = useState(false);
   const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [previewItem, setPreviewItem] = useState<OutputItem | null>(null);
 
   const canGenerate = useMemo(() => {
     return !isGenerating && (prompt.trim().length > 0 || referenceImagePaths.length > 0);
@@ -362,10 +369,14 @@ export function ImageGenerationClient() {
           ) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {outputItems.map((item) => (
-                <a key={item.path} href={item.previewUrl} target="_blank" rel="noreferrer" className="border border-border bg-background p-2">
+                <button
+                  key={item.path}
+                  onClick={() => setPreviewItem(item)}
+                  className="border border-border bg-background p-2 text-left transition hover:border-primary/40 hover:bg-accent"
+                >
                   <img src={item.previewUrl} alt={item.path} className="aspect-square w-full bg-muted object-cover max-h-[250px] sm:max-h-[300px]" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.path}</p>
-                </a>
+                </button>
               ))}
             </div>
           )}
@@ -382,6 +393,25 @@ export function ImageGenerationClient() {
         uploadPath="image-generation/assets"
         onConfirm={(paths) => setReferenceImagePaths(paths.slice(0, MAX_REFERENCE_IMAGES))}
       />
+
+      <Dialog open={!!previewItem} onOpenChange={(open) => !open && setPreviewItem(null)}>
+        <DialogContent layout="viewport" className="p-0">
+          <DialogHeader className="border-b bg-muted/50 px-4 py-3">
+            <DialogTitle className="text-base font-medium truncate">
+              {previewItem?.path}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-1 items-center justify-center bg-background p-4">
+            {previewItem && (
+              <img
+                src={toMediaUrl(previewItem.path)}
+                alt={previewItem.path}
+                className="max-h-[calc(100dvh-8rem)] max-w-full object-contain"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
