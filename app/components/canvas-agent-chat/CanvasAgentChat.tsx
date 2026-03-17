@@ -2195,14 +2195,6 @@ export default function CanvasAgentChat({
               <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <Link
-            href="/settings"
-            aria-label="Open settings"
-            className="flex-shrink-0 border border-border bg-muted/50 p-2.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-            title="Open settings"
-          >
-            <Settings className="h-5 w-5" />
-          </Link>
         </div>
         <div className="mt-2 flex flex-col items-start gap-1">
           <button

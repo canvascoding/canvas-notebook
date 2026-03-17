@@ -210,6 +210,83 @@ test.describe('PI Chat E2E', () => {
     expect(messageOrder.indexOf('chat-message-toolResult')).toBeLessThan(messageOrder.indexOf('chat-message-assistant'));
   });
 
+  test('should keep assistant streaming output in plain text until the final message arrives', async ({ page }) => {
+    await page.addInitScript(() => {
+      const originalFetch = window.fetch.bind(window);
+
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+
+        if (url.includes('/api/stream')) {
+          const encoder = new TextEncoder();
+          const chunks = [
+            JSON.stringify({
+              type: 'message_update',
+              assistantMessageEvent: {
+                type: 'text_delta',
+                delta: 'Streaming **bold',
+              },
+            }) + '\n',
+            JSON.stringify({
+              type: 'message_end',
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Streaming **bold** answer' }],
+                api: 'mock',
+                provider: 'mock',
+                model: 'mock-model',
+                usage: EMPTY_USAGE,
+                stopReason: 'stop',
+                timestamp: Date.now(),
+              },
+            }) + '\n',
+          ];
+
+          let chunkIndex = 0;
+
+          const stream = new ReadableStream({
+            async pull(controller) {
+              if (chunkIndex >= chunks.length) {
+                controller.close();
+                return;
+              }
+
+              const delay = chunkIndex === 0 ? 0 : 250;
+              await new Promise((resolve) => window.setTimeout(resolve, delay));
+              controller.enqueue(encoder.encode(chunks[chunkIndex]));
+              chunkIndex += 1;
+            },
+          });
+
+          return new Response(stream, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        }
+
+        return originalFetch(input, init);
+      };
+    });
+
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    const input = page.getByTestId('chat-input');
+    await input.fill('Show streaming state.');
+    await input.press('Enter');
+
+    const assistantMessage = page.getByTestId('chat-message-assistant').first();
+    await expect(assistantMessage).toContainText('Streaming **bold');
+    await expect(assistantMessage.locator('strong')).toHaveCount(0);
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toBeVisible();
+
+    await expect(assistantMessage).toContainText('Streaming bold answer');
+    await expect(assistantMessage.locator('strong')).toHaveText('bold');
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
+  });
+
   test('should render compact usage footer for assistant responses', async ({ page }) => {
     await page.route('**/api/stream', async (route) => {
       const body = [
