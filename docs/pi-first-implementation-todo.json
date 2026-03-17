@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-17T14:23:10+01:00",
+  "lastUpdatedAt": "2026-03-17T23:17:46+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1814,6 +1814,18 @@
         "pi-chat-runtime-017"
       ],
       "description": "Filter placeholder metadata files such as .gitkeep and .keep out of the shared workspace directory listing so they no longer clutter the file tree and related file pickers."
+    },
+    {
+      "id": "onboarding-ux-001",
+      "order": 159,
+      "phase": "P25 Onboarding UX",
+      "title": "Reuse the shared PI provider setup UI inside onboarding and add theme switching there",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "workspace-ux-001"
+      ],
+      "description": "Extract the provider, model, thinking, auth, and provider-help flow into a shared PI provider setup card that both Settings and Onboarding render, remove the onboarding-only provider form in favor of the shared component, and add the global light/dark mode toggle to the onboarding shell. UI was validated in an isolated Playwright-backed local instance; production build verification is handled separately."
     }
   ]
 }
