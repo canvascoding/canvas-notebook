@@ -4,7 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import { auth } from '@/app/lib/auth';
 import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
   IMAGE_GENERATION_OUTPUT_DIR,
@@ -46,6 +46,7 @@ interface GeneratedImageResult {
   path?: string;
   metadataPath?: string;
   mediaUrl?: string;
+  previewUrl?: string;
   error?: string;
 }
 
@@ -317,6 +318,7 @@ export async function POST(request: NextRequest) {
           path: outputPath,
           metadataPath,
           mediaUrl: toMediaUrl(outputPath),
+          previewUrl: toPreviewUrl(outputPath, 1280),
         };
       } catch (error) {
         return {

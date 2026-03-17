@@ -32,6 +32,16 @@ fi
 
 echo "[Startup] Terminal Service started (PID: $TERMINAL_PID)"
 
+# Bootstrap admin user if env vars are set
+if [ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ] && [ -n "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]; then
+  echo "[Startup] Running bootstrap-admin..."
+  if npx tsx scripts/bootstrap-admin.ts; then
+    echo "[Startup] Bootstrap-admin finished."
+  else
+    echo "[Startup] WARNING: bootstrap-admin failed. Continuing startup."
+  fi
+fi
+
 # Start Next.js
 echo "[Startup] Starting Next.js..."
 exec node server.js

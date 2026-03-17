@@ -47,16 +47,15 @@ async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
 }
 
 export default async function Home() {
-  // Redirect to onboarding if enabled and not yet completed
-  if (isOnboardingEnabled() && !(await isOnboardingComplete())) {
-    redirect('/onboarding');
-  }
-
   const session = await auth.api.getSession({
     headers: await headers(),
   });
 
   if (!session) {
+    // Not logged in — send to onboarding if not yet done, otherwise login
+    if (isOnboardingEnabled() && !(await isOnboardingComplete())) {
+      redirect('/onboarding');
+    }
     redirect('/login');
   }
 

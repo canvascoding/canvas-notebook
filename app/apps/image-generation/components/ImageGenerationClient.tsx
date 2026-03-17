@@ -19,6 +19,7 @@ interface GeneratedResult {
   path?: string;
   metadataPath?: string;
   mediaUrl?: string;
+  previewUrl?: string;
   error?: string;
 }
 
@@ -98,7 +99,7 @@ export function ImageGenerationClient() {
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState<string>(MODEL_OPTIONS[0].value);
   const [aspectRatio, setAspectRatio] = useState<(typeof ASPECT_RATIOS)[number]>('1:1');
-  const [imageCount, setImageCount] = useState(MAX_IMAGE_COUNT);
+  const [imageCount, setImageCount] = useState(1);
   const [referenceImagePaths, setReferenceImagePaths] = useState<string[]>([]);
 
   const [isGenerating, setIsGenerating] = useState(false);
@@ -369,16 +370,16 @@ export function ImageGenerationClient() {
                 <div key={result.index} className="border border-border bg-background p-2">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <p className="text-xs font-semibold">Variation {result.index + 1}</p>
-                    {result.mediaUrl ? (
-                      <a href={result.mediaUrl} download className="text-xs text-primary hover:underline">
+                    {result.path ? (
+                      <a href={`/api/files/download?path=${encodeURIComponent(result.path)}`} download className="text-xs text-primary hover:underline">
                         Download
                       </a>
                     ) : null}
                   </div>
                   {result.error ? (
                     <p className="text-sm text-destructive">{result.error}</p>
-                  ) : result.mediaUrl ? (
-                    <img src={result.mediaUrl} alt={`Variation ${result.index + 1}`} className="w-full h-auto border border-border bg-muted object-contain" />
+                  ) : result.previewUrl ?? result.mediaUrl ? (
+                    <img src={result.previewUrl ?? result.mediaUrl} alt={`Variation ${result.index + 1}`} className="w-full h-auto border border-border bg-muted object-contain" />
                   ) : (
                     <p className="text-sm text-muted-foreground">Kein Bild zurückgegeben.</p>
                   )}

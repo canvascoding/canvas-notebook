@@ -67,7 +67,7 @@ function ensureDataDirs() {
   }
 }
 
-async function waitForReady(url, maxWaitMs = 120_000, intervalMs = 2_000) {
+async function waitForReady(url, maxWaitMs = 300_000, intervalMs = 3_000) {
   const start = Date.now();
   let attempt = 0;
 
@@ -83,8 +83,9 @@ async function waitForReady(url, maxWaitMs = 120_000, intervalMs = 2_000) {
       // not ready yet
     }
 
-    if (attempt % 5 === 0) {
-      log(`Still waiting for app to start... (${Math.round((Date.now() - start) / 1000)}s)`, 'cyan');
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    if (elapsed % 15 === 0 || attempt === 1) {
+      log(`Still waiting for app to start... (${elapsed}s)`, 'cyan');
     }
 
     await new Promise(resolve => setTimeout(resolve, intervalMs));
@@ -184,7 +185,7 @@ async function main() {
 
   // Step 7: Wait for app to be ready
   log('Step 7: Waiting for app to be ready...', 'yellow');
-  const ready = await waitForReady(`${APP_URL}/login`);
+  const ready = await waitForReady(`${APP_URL}/api/health`);
   console.log();
 
   // Step 8: Show status

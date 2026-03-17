@@ -94,8 +94,13 @@ const SKILLS_REPO_DIR = path.resolve(process.cwd(), 'skills');
 const SKILLS_DATA_DIR = resolveSkillsDataDir();
 
 function ensureSkillsToken() {
+  console.log('[Startup] ensureSkillsToken() started - DATA path:', DATA);
+  console.log('[Startup] SKILLS_TOKEN_PATH:', SKILLS_TOKEN_PATH);
+  
   try {
     fs.mkdirSync(AGENT_STORAGE_DIR, { recursive: true });
+    console.log('[Startup] Created agent storage directory:', AGENT_STORAGE_DIR);
+    
     let token;
     let isNewToken = false;
     
@@ -119,9 +124,11 @@ function ensureSkillsToken() {
     }
     
     process.env.CANVAS_SKILLS_TOKEN = token;
+    console.log('[Startup] Set CANVAS_SKILLS_TOKEN in process.env');
     
     // Also save to Canvas-Integrations.env for centralized access
     const integrationsEnvPath = path.join(DATA, 'secrets', 'Canvas-Integrations.env');
+    console.log('[Startup] Will save token to:', integrationsEnvPath);
     
     try {
       // Ensure directory exists
@@ -132,6 +139,15 @@ function ensureSkillsToken() {
       } catch (mkdirError) {
         console.error(`[Startup] Failed to create secrets directory: ${mkdirError.message}`);
         throw mkdirError;
+      }
+      
+      // Check write permissions
+      try {
+        fs.accessSync(secretsDir, fs.constants.W_OK);
+        console.log('[Startup] Have write permissions for secrets directory');
+      } catch (permError) {
+        console.error(`[Startup] No write permissions for secrets directory: ${permError.message}`);
+        throw permError;
       }
       
       // Read existing content
@@ -421,10 +437,48 @@ function serveMedia(req, res) {
   });
 }
 
-ensureRuntimeDirectories();
-ensureSkillsToken();
-ensureSkillsDirectory();
-startAutomationScheduler();
+// Ensure all runtime directories and tokens are set up before starting the server
+console.log('[Startup] Starting runtime setup...');
+
+try {
+  console.log('[Startup] Calling ensureRuntimeDirectories()...');
+  ensureRuntimeDirectories();
+  console.log('[Startup] ensureRuntimeDirectories() completed');
+} catch (error) {
+  console.error('[Startup] CRITICAL ERROR in ensureRuntimeDirectories():', error.message);
+  console.error('[Startup] Stack trace:', error.stack);
+  // Continue anyway - don't block server startup
+}
+
+try {
+  console.log('[Startup] Calling ensureSkillsToken()...');
+  ensureSkillsToken();
+  console.log('[Startup] ensureSkillsToken() completed successfully');
+} catch (error) {
+  console.error('[Startup] CRITICAL ERROR in ensureSkillsToken():', error.message);
+  console.error('[Startup] Stack trace:', error.stack);
+  // Continue anyway - server can still run without skills token
+}
+
+try {
+  console.log('[Startup] Calling ensureSkillsDirectory()...');
+  ensureSkillsDirectory();
+  console.log('[Startup] ensureSkillsDirectory() completed');
+} catch (error) {
+  console.error('[Startup] ERROR in ensureSkillsDirectory():', error.message);
+  console.error('[Startup] Stack trace:', error.stack);
+}
+
+try {
+  console.log('[Startup] Calling startAutomationScheduler()...');
+  startAutomationScheduler();
+  console.log('[Startup] startAutomationScheduler() completed');
+} catch (error) {
+  console.error('[Startup] ERROR in startAutomationScheduler():', error.message);
+  console.error('[Startup] Stack trace:', error.stack);
+}
+
+console.log('[Startup] Runtime setup complete');
 
 app
   .prepare()
