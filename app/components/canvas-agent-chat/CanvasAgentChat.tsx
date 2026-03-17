@@ -354,6 +354,27 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
   );
 }
 
+function StreamingMessageIndicator() {
+  return (
+    <div
+      data-testid="chat-assistant-streaming-indicator"
+      aria-label="Assistant response is still streaming"
+      className="mt-2 inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/80"
+    >
+      <span className="sr-only">Assistant response is still streaming</span>
+      {[0, 160, 320].map((delay) => (
+        <span
+          key={delay}
+          aria-hidden="true"
+          className="h-1 w-1 rounded-full bg-current opacity-45 animate-pulse"
+          style={{ animationDelay: `${delay}ms`, animationDuration: '1.2s' }}
+        />
+      ))}
+      <span aria-hidden="true">Streaming</span>
+    </div>
+  );
+}
+
 function StarterPromptButton({
   prompt,
   onSelect,
@@ -1853,6 +1874,7 @@ export default function CanvasAgentChat({
             const isSystemError = isSystem && message.status === 'error';
             const usage = getAssistantUsage(message.piMessage);
             const isCompactBreak = message.type === 'compact_break';
+            const isStreamingAssistant = isAssistant && message.status === 'sending';
 
             if (isCompactBreak) {
               return (
@@ -1945,10 +1967,16 @@ export default function CanvasAgentChat({
                       {isUser ? (
                         <MarkdownMessage content={bodyContent} variant="user" />
                       ) : isAssistant ? (
-                        <MarkdownMessage content={bodyContent} variant="assistant" />
+                        isStreamingAssistant ? (
+                          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
+                        ) : (
+                          <MarkdownMessage content={bodyContent} variant="assistant" />
+                        )
                       ) : (
                         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
                       )}
+
+                      {isStreamingAssistant ? <StreamingMessageIndicator /> : null}
                     </>
                   )}
 
@@ -2167,6 +2195,14 @@ export default function CanvasAgentChat({
               <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
+          <Link
+            href="/settings"
+            aria-label="Open settings"
+            className="flex-shrink-0 border border-border bg-muted/50 p-2.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+            title="Open settings"
+          >
+            <Settings className="h-5 w-5" />
+          </Link>
         </div>
         <div className="mt-2 flex flex-col items-start gap-1">
           <button
