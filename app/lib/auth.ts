@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/app/lib/db";
 import { nextCookies } from "better-auth/next-js";
+import { BOOTSTRAP_SIGNUP_ENV } from "@/app/lib/bootstrap-admin";
 
 const authBaseURL =
   process.env.BETTER_AUTH_BASE_URL ||
@@ -14,13 +15,10 @@ const forceSecureCookies = process.env.AUTH_COOKIE_SECURE === "true";
 const useSecureCookies =
   forceSecureCookies || Boolean(authBaseURL && authBaseURL.startsWith("https://"));
 
-// Use a getter so disableSignUp is evaluated at request time, not at module init.
-// This allows the onboarding setup route to temporarily enable signup by setting
-// process.env.ONBOARDING = 'true' before calling auth.api.signUpEmail.
 const emailAndPasswordConfig = {
   enabled: true,
   get disableSignUp() {
-    return process.env.ONBOARDING !== 'true';
+    return process.env[BOOTSTRAP_SIGNUP_ENV] !== 'true';
   },
 };
 

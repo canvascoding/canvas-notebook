@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { onboardingLog } from '@/app/lib/db/schema';
 
@@ -7,7 +8,7 @@ export function isOnboardingEnabled(): boolean {
 
 export async function isOnboardingComplete(): Promise<boolean> {
   try {
-    const row = await db.select().from(onboardingLog).limit(1);
+    const row = await db.select().from(onboardingLog).where(eq(onboardingLog.method, 'ui')).limit(1);
     return row.length > 0;
   } catch {
     return false; // fail-open: show wizard if DB not ready yet

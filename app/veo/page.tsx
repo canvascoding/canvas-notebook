@@ -1,8 +1,6 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
-import { auth } from '@/app/lib/auth';
+import { requirePageSession } from '@/app/lib/auth-guards';
 import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,13 +10,7 @@ import { LogoutButton } from '@/app/components/LogoutButton';
 import { VeoStudioClient } from '@/app/apps/veo-studio/components/VeoStudioClient';
 
 export default async function VeoPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session) {
-    redirect('/login');
-  }
+  const session = await requirePageSession();
 
   const username = session.user.name || session.user.email;
   const geminiApiKey = await getGeminiApiKeyFromIntegrations();

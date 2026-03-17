@@ -1,15 +1,13 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
-import { headers } from 'next/headers';
-import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
-import { auth } from '@/app/lib/auth';
+import { requirePageSession } from '@/app/lib/auth-guards';
 import { Button } from '@/components/ui/button';
 
 export const metadata: Metadata = {
@@ -18,13 +16,7 @@ export const metadata: Metadata = {
 };
 
 export default async function TerminalPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session) {
-    redirect('/login');
-  }
+  const session = await requirePageSession();
 
   const username = session.user.name || session.user.email;
 

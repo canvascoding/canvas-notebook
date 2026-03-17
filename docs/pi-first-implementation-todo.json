@@ -17,7 +17,8 @@
     "legacyStrategy": "full replacement of existing AI agent logic after cutover validation",
     "runtimeMixPolicy": "no legacy and pi backend mix in main branch",
     "cutoverPolicy": "hard cutover with deletion of legacy backend agent code",
-    "upstreamUpdatePolicy": "keep mario packages unmodified and adapt in local integration layer"
+    "upstreamUpdatePolicy": "keep mario packages unmodified and adapt in local integration layer",
+    "authModel": "single bootstrap admin from env, provider onboarding only"
   },
   "testProtocol": {
     "containerPolicy": [

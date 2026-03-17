@@ -1,8 +1,6 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { auth } from '@/app/lib/auth';
+import { requirePageSession } from '@/app/lib/auth-guards';
 import { Button } from '@/components/ui/button';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { LogoutButton } from '@/app/components/LogoutButton';
@@ -10,13 +8,7 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { IntegrationsSettingsClient } from '@/app/components/settings/IntegrationsSettingsClient';
 
 export default async function SettingsPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session) {
-    redirect('/login');
-  }
+  const session = await requirePageSession();
 
   const username = session.user.name || session.user.email;
 

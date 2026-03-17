@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
-import { headers } from 'next/headers';
-import { redirect } from 'next/navigation';
 
-import { auth } from '@/app/lib/auth';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
+import { requirePageSession } from '@/app/lib/auth-guards';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 
 import SkillsPageClient from './SkillsPageClient';
@@ -14,13 +12,7 @@ export const metadata: Metadata = {
 };
 
 export default async function SkillsPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session) {
-    redirect('/login');
-  }
+  const session = await requirePageSession();
 
   const username = session.user.name || session.user.email;
   

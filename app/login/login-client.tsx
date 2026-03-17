@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/app/lib/auth-client';
@@ -85,14 +84,6 @@ export default function LoginClient() {
             {loading ? 'Logging in...' : 'Login'}
           </Button>
         </form>
-
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          Need an initial account? Enable sign-up and open{' '}
-          <Link href="/sign-up" className="underline hover:text-foreground">
-            /sign-up
-          </Link>
-          .
-        </p>
       </div>
     </div>
   );

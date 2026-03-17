@@ -312,7 +312,7 @@ async function main() {
   console.log();
   log(`  URL:  ${APP_URL}`, 'bold');
   console.log();
-  info('On first login, an onboarding wizard will guide you through setup.');
+  info('After login, an optional onboarding wizard can guide you through provider setup.');
   console.log();
   log('Useful commands:', 'blue');
   info('  docker compose logs -f canvas-notebook   # follow logs');

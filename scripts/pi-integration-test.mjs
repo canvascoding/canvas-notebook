@@ -1,6 +1,6 @@
 const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-const loginEmail = process.env.TEST_LOGIN_EMAIL || 'admin.com';
-const loginPassword = process.env.TEST_LOGIN_PASSWORD || 'change-me';
+const loginEmail = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin.com';
+const loginPassword = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function request(path, options = {}) {
   const response = await fetch(`${baseUrl}${path}`, options);

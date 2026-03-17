@@ -1,9 +1,7 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
-import { auth } from '@/app/lib/auth';
+import { requirePageSession } from '@/app/lib/auth-guards';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -11,13 +9,7 @@ import { Button } from '@/components/ui/button';
 import { AutomationsClient } from '@/app/apps/automationen/components/AutomationsClient';
 
 export default async function AutomationenPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session) {
-    redirect('/login');
-  }
+  const session = await requirePageSession();
 
   const username = session.user.name || session.user.email;
 

@@ -47,8 +47,8 @@ View Excel and CSV files directly, no downloads needed.
 
 ### Authentication
 - Login-protected by default
-- Signup can be disabled (recommended for self-hosted)
-- Initial admin account is created automatically from env vars on first start
+- No public signup or in-app user management
+- The bootstrap admin is created or synchronized from env vars on every start
 
 ---
 
@@ -66,7 +66,7 @@ That's it. The script will:
 3. Build the Docker image and start the container
 4. Wait for the app to be ready and open a browser window at `http://localhost:3456`
 
-On first login, an onboarding wizard lets you create your admin account and configure an AI provider.
+After login, an optional onboarding wizard can guide you through AI provider setup. The app user itself is always defined via the bootstrap env vars.
 
 > `npm install` is not required — the setup script only uses built-in Node.js modules.
 
@@ -98,10 +98,10 @@ Copy `.env.docker.example` to `.env.docker.local` and set the values below. `npm
 | `BETTER_AUTH_SECRET` | Yes | Random 32-byte base64 secret — run `openssl rand -base64 32` |
 | `BASE_URL` | Yes | App URL, e.g. `http://localhost:3456` |
 | `BETTER_AUTH_BASE_URL` | Yes | Same as BASE_URL |
-| `BOOTSTRAP_ADMIN_EMAIL` | Recommended | Admin email, created automatically on first start |
-| `BOOTSTRAP_ADMIN_PASSWORD` | Recommended | Admin password |
-| `BOOTSTRAP_ADMIN_NAME` | No | Display name for the admin (default: Administrator) |
-| `ONBOARDING` | No | Set to `true` to show the onboarding wizard on first startup |
+| `BOOTSTRAP_ADMIN_EMAIL` | Recommended | Single app login email, created or synchronized on every start |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Recommended | Password for the bootstrap admin |
+| `BOOTSTRAP_ADMIN_NAME` | No | Display name for the bootstrap admin (default: Administrator) |
+| `ONBOARDING` | No | Set to `true` to show the provider onboarding wizard after login |
 | `AI_CLI_AUTO_INSTALL` | No | Auto-install Codex CLI if missing (default: `true`) |
 | `OLLAMA_CLI_AUTO_INSTALL` | No | Auto-install Ollama CLI if missing (default: `true`) |
 

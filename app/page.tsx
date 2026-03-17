@@ -1,11 +1,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { headers } from 'next/headers';
-import { redirect } from 'next/navigation';
 
-import { auth } from '@/app/lib/auth';
-import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/status';
 import { buildAgentConfigReadiness } from '@/app/lib/agents/storage';
+import { requirePageSession } from '@/app/lib/auth-guards';
 import SuiteAppSelector from '@/components/suite/SuiteAppSelector';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -47,17 +44,7 @@ async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
 }
 
 export default async function Home() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session) {
-    // Not logged in — send to onboarding if not yet done, otherwise login
-    if (isOnboardingEnabled() && !(await isOnboardingComplete())) {
-      redirect('/onboarding');
-    }
-    redirect('/login');
-  }
+  const session = await requirePageSession();
 
   const username = session.user.name || session.user.email;
   const setupCardState = await loadAgentSetupCardState();

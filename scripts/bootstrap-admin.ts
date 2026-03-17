@@ -1,14 +1,14 @@
 import { loadAppEnv } from '../server/load-app-env';
-import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
+import { hashPassword } from 'better-auth/crypto';
 import { db } from '../app/lib/db';
-import { user } from '../app/lib/db/schema';
-import { markOnboardingComplete } from '../app/lib/onboarding/status';
+import { account, user } from '../app/lib/db/schema';
+import { BOOTSTRAP_SIGNUP_ENV, getBootstrapAdminConfig } from '../app/lib/bootstrap-admin';
 
 loadAppEnv(process.cwd());
 
-const email = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
-const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
-const name = process.env.BOOTSTRAP_ADMIN_NAME?.trim() || 'Administrator';
+const bootstrapAdmin = getBootstrapAdminConfig();
 
 function isUserExistsError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -20,24 +20,70 @@ function isUserExistsError(error: unknown): boolean {
   return code === 'USER_ALREADY_EXISTS' || /already exists/i.test(message);
 }
 
-async function ensureAdminRole(adminEmail: string) {
+async function syncCredentialPassword(userId: string, password: string) {
+  const now = new Date();
+  const passwordHash = await hashPassword(password);
+  const existingAccount = await db
+    .select()
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, 'credential')))
+    .limit(1);
+
+  if (existingAccount[0]) {
+    await db
+      .update(account)
+      .set({
+        accountId: userId,
+        password: passwordHash,
+        updatedAt: now,
+      })
+      .where(eq(account.id, existingAccount[0].id));
+    return;
+  }
+
+  await db.insert(account).values({
+    id: randomUUID(),
+    accountId: userId,
+    providerId: 'credential',
+    userId,
+    password: passwordHash,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+async function ensureBootstrapAdmin(userId: string, name: string, password: string) {
   await db
     .update(user)
-    .set({ role: 'admin', updatedAt: new Date() })
-    .where(eq(user.email, adminEmail));
+    .set({ name, role: 'admin', updatedAt: new Date() })
+    .where(eq(user.id, userId));
+
+  await syncCredentialPassword(userId, password);
+}
+
+async function findUserByEmail(email: string) {
+  const rows = await db.select().from(user).where(eq(user.email, email)).limit(1);
+  return rows[0] ?? null;
 }
 
 async function main() {
-  if (!email || !password) {
+  if (!bootstrapAdmin) {
     console.log('[bootstrap-admin] Skipped (BOOTSTRAP_ADMIN_EMAIL/BOOTSTRAP_ADMIN_PASSWORD not set).');
     return;
   }
 
-  // Bootstrap should work even when public sign-up is disabled.
-  process.env.ONBOARDING = 'true';
-  const { auth } = await import('../app/lib/auth');
+  const { email, password, name } = bootstrapAdmin;
+  const existingUser = await findUserByEmail(email);
+
+  if (existingUser) {
+    await ensureBootstrapAdmin(existingUser.id, name, password);
+    console.log(`[bootstrap-admin] Synced bootstrap admin user: ${email}`);
+    return;
+  }
 
   try {
+    process.env[BOOTSTRAP_SIGNUP_ENV] = 'true';
+    const { auth } = await import('../app/lib/auth');
     const res = await auth.api.signUpEmail({
       body: {
         email,
@@ -46,19 +92,22 @@ async function main() {
       },
     });
 
-    await ensureAdminRole(email);
-    await markOnboardingComplete({ method: 'bootstrap', notes: email }).catch(() => {});
+    await ensureBootstrapAdmin(res.user.id, name, password);
     console.log(`[bootstrap-admin] Created admin user: ${res.user.email}`);
   } catch (error) {
     if (isUserExistsError(error)) {
-      await ensureAdminRole(email);
-      await markOnboardingComplete({ method: 'bootstrap', notes: email }).catch(() => {});
-      console.log(`[bootstrap-admin] User already exists, ensured admin role: ${email}`);
+      const currentUser = await findUserByEmail(email);
+      if (currentUser) {
+        await ensureBootstrapAdmin(currentUser.id, name, password);
+      }
+      console.log(`[bootstrap-admin] User already exists, synced bootstrap admin: ${email}`);
       return;
     }
 
     console.error('[bootstrap-admin] Failed:', error);
     throw error;
+  } finally {
+    delete process.env[BOOTSTRAP_SIGNUP_ENV];
   }
 }
 

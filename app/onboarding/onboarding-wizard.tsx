@@ -1,58 +1,40 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import Image from 'next/image';
 
 import { PiProviderSetupCard } from '@/app/components/settings/PiProviderSetupCard';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 
-type Step = 'account' | 'provider' | 'done';
+type Step = 'provider' | 'done';
 
-const STEPS: Step[] = ['account', 'provider', 'done'];
+const STEPS: Step[] = ['provider', 'done'];
 
 export default function OnboardingWizard() {
-  const [step, setStep] = useState<Step>('account');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [accountLoading, setAccountLoading] = useState(false);
+  const [step, setStep] = useState<Step>('provider');
+  const [completeLoading, setCompleteLoading] = useState(false);
 
-  async function handleAccountSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (password !== confirmPassword) {
-      toast.error('Passwörter stimmen nicht überein');
-      return;
-    }
-
-    setAccountLoading(true);
+  async function handleDone() {
+    setCompleteLoading(true);
     try {
-      const response = await fetch('/api/onboarding/setup', {
+      const response = await fetch('/api/onboarding/complete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
       });
 
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
-        toast.error(data.error || 'Account konnte nicht erstellt werden');
+        toast.error(data.error || 'Onboarding konnte nicht abgeschlossen werden');
         return;
       }
 
-      setStep('provider');
+      window.location.href = '/';
     } catch {
-      toast.error('Unerwarteter Fehler beim Erstellen des Accounts');
+      toast.error('Unerwarteter Fehler beim Abschließen des Onboardings');
     } finally {
-      setAccountLoading(false);
+      setCompleteLoading(false);
     }
-  }
-
-  function handleDone() {
-    window.location.href = '/';
   }
 
   return (
@@ -89,91 +71,13 @@ export default function OnboardingWizard() {
                 ))}
               </div>
 
-              {step === 'account' && (
-                <>
-                  <h2 className="mb-1 text-xl font-semibold">Willkommen!</h2>
-                  <p className="mb-6 text-sm text-muted-foreground">
-                    Erstelle deinen Admin-Account für Canvas Notebook.
-                  </p>
-
-                  <form onSubmit={handleAccountSubmit} className="space-y-4">
-                    <div>
-                      <label htmlFor="name" className="mb-1 block text-sm font-medium text-foreground/90">
-                        Name
-                      </label>
-                      <Input
-                        id="name"
-                        type="text"
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
-                        placeholder="Dein Name"
-                        className="placeholder:text-muted-foreground"
-                        required
-                        autoFocus
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="email" className="mb-1 block text-sm font-medium text-foreground/90">
-                        E-Mail
-                      </label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        placeholder="du@example.com"
-                        className="placeholder:text-muted-foreground"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="password" className="mb-1 block text-sm font-medium text-foreground/90">
-                        Passwort
-                      </label>
-                      <Input
-                        id="password"
-                        type="password"
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        placeholder="Mindestens 8 Zeichen"
-                        className="placeholder:text-muted-foreground"
-                        required
-                        minLength={8}
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="confirmPassword" className="mb-1 block text-sm font-medium text-foreground/90">
-                        Passwort bestätigen
-                      </label>
-                      <Input
-                        id="confirmPassword"
-                        type="password"
-                        value={confirmPassword}
-                        onChange={(event) => setConfirmPassword(event.target.value)}
-                        placeholder="Passwort wiederholen"
-                        className="placeholder:text-muted-foreground"
-                        required
-                        minLength={8}
-                      />
-                    </div>
-
-                    <Button type="submit" className="mt-2 w-full" disabled={accountLoading}>
-                      {accountLoading ? 'Account wird erstellt...' : 'Account erstellen'}
-                    </Button>
-                  </form>
-                </>
-              )}
-
               {step === 'provider' && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="mb-1 text-xl font-semibold">KI-Provider einrichten</h2>
+                    <h2 className="mb-1 text-xl font-semibold">Willkommen!</h2>
                     <p className="text-sm text-muted-foreground">
-                      Dieselbe Provider-Konfiguration aus den Settings steht dir hier direkt im Onboarding zur Verfügung.
-                      Sessions und Systemprompt-Verwaltung folgen später in den Einstellungen.
+                      Du bist mit dem per Environment konfigurierten Admin bereits angemeldet. Richte jetzt deinen
+                      KI-Provider ein. Benutzerverwaltung erfolgt ausschließlich über die Container-Environment.
                     </p>
                   </div>
 
@@ -201,11 +105,10 @@ export default function OnboardingWizard() {
                   <div className="mb-4 text-4xl">✓</div>
                   <h2 className="mb-2 text-xl font-semibold">Einrichtung abgeschlossen</h2>
                   <p className="mb-8 text-sm text-muted-foreground">
-                    Dein Account ist bereit. Provider, Modelle und weitere Agent-Einstellungen kannst du jederzeit unter
-                    Settings anpassen.
+                    Provider, Modelle und weitere Agent-Einstellungen kannst du jederzeit unter Settings anpassen.
                   </p>
-                  <Button onClick={handleDone} className="w-full">
-                    Zur App
+                  <Button onClick={handleDone} className="w-full" disabled={completeLoading}>
+                    {completeLoading ? 'Wird abgeschlossen...' : 'Zur App'}
                   </Button>
                 </div>
               )}

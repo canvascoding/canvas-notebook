@@ -7,11 +7,10 @@ import LoginClient from './login-client';
 export default async function LoginPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (session) {
+    if (isOnboardingEnabled() && !(await isOnboardingComplete())) {
+      redirect('/onboarding');
+    }
     redirect('/');
-  }
-
-  if (isOnboardingEnabled() && !(await isOnboardingComplete())) {
-    redirect('/onboarding');
   }
 
   return <LoginClient />;
