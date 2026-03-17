@@ -362,7 +362,7 @@ export function ImageGenerationClient() {
           ) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {outputItems.map((item) => (
-                <a key={item.path} href={item.mediaUrl} target="_blank" rel="noreferrer" className="border border-border bg-background p-2">
+                <a key={item.path} href={item.previewUrl} target="_blank" rel="noreferrer" className="border border-border bg-background p-2">
                   <img src={item.previewUrl} alt={item.path} className="aspect-square w-full bg-muted object-cover max-h-[250px] sm:max-h-[300px]" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.path}</p>
                 </a>
