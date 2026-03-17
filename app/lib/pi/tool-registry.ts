@@ -220,18 +220,18 @@ export const piTools: AgentTool[] = [
   {
     name: 'image_generation',
     label: 'Generating images',
-    description: 'Generates images using Gemini Image Generation. Use when user asks for: image creation, picture generation, "create an image of...", "generate a photo". Output: workspace/image-generation/generations/. Requires GEMINI_API_KEY in settings.',
+    description: 'Generates images using Gemini Image Generation. Use when user asks for: image creation, picture generation, "create an image of...", "generate a photo". Output: workspace/image-generation/generations/. IMPORTANT: Requires GEMINI_API_KEY to be configured in Settings → Integrations.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the image to generate' }),
+      count: Type.Number({ description: 'Number of images to generate (1-4)' }),
       aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9, 1:1, 9:16, 4:3, 3:4. Default: 1:1' })),
-      count: Type.Optional(Type.Number({ description: 'Number of images to generate (1-4). Default: 1' })),
       model: Type.Optional(Type.String({ description: 'Model: gemini-3.1-flash-image-preview (best quality, supports 14 reference images) or gemini-2.5-flash-image (faster, lower cost, supports 3 reference images)' })),
     }),
     execute: async (toolCallId, params) => {
       const { prompt, aspect_ratio, count, model } = params as { 
         prompt: string; 
         aspect_ratio?: string; 
-        count?: number;
+        count: number;
         model?: string;
       };
       try {
@@ -240,7 +240,7 @@ export const piTools: AgentTool[] = [
         
         if (!skillsToken) {
           return {
-            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not configured' }],
+            content: [{ type: 'text', text: 'Error: Internal server token not configured. Please contact the administrator.' }],
             details: { error: 'Skills token missing' },
           };
         }
@@ -254,7 +254,7 @@ export const piTools: AgentTool[] = [
           body: JSON.stringify({
             prompt,
             aspectRatio: aspect_ratio || '1:1',
-            imageCount: count || 1,
+            imageCount: count,
             model: model || 'gemini-3.1-flash-image-preview',
             referenceImagePaths: [],
           }),
@@ -263,9 +263,17 @@ export const piTools: AgentTool[] = [
         const data = await response.json();
         
         if (!response.ok || !data.success) {
+          // Check if the error is about missing Gemini API key
+          const errorMessage = data.error || 'Image generation failed';
+          if (errorMessage.toLowerCase().includes('gemini') || errorMessage.toLowerCase().includes('api key')) {
+            return {
+              content: [{ type: 'text', text: `Error: Gemini API key not configured. Please add GEMINI_API_KEY in Settings → Integrations tab.` }],
+              details: { error: errorMessage },
+            };
+          }
           return {
-            content: [{ type: 'text', text: `Error: ${data.error || 'Image generation failed'}` }],
-            details: { error: data.error, status: response.status },
+            content: [{ type: 'text', text: `Error: ${errorMessage}` }],
+            details: { error: errorMessage, status: response.status },
           };
         }
         
@@ -302,7 +310,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'video_generation',
     label: 'Generating videos',
-    description: 'Generates videos using Google VEO. Use when user asks for: video creation, "create a video of...", "generate a video". Output: workspace/veo-studio/video-generation/. Requires GEMINI_API_KEY in settings. Note: Takes 3-10 minutes.',
+    description: 'Generates videos using Google VEO. Use when user asks for: video creation, "create a video of...", "generate a video". Output: workspace/veo-studio/video-generation/. IMPORTANT: Requires GEMINI_API_KEY to be configured in Settings → Integrations. Note: Takes 3-10 minutes.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the video to generate' }),
       mode: Type.Optional(Type.String({ description: 'Mode: text_to_video (default), frames_to_video, references_to_video, extend_video' })),
@@ -322,7 +330,7 @@ export const piTools: AgentTool[] = [
         
         if (!skillsToken) {
           return {
-            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not configured' }],
+            content: [{ type: 'text', text: 'Error: Internal server token not configured. Please contact the administrator.' }],
             details: { error: 'Skills token missing' },
           };
         }
@@ -345,9 +353,17 @@ export const piTools: AgentTool[] = [
         const data = await response.json();
         
         if (!response.ok || !data.success) {
+          // Check if the error is about missing Gemini API key
+          const errorMessage = data.error || 'Video generation failed';
+          if (errorMessage.toLowerCase().includes('gemini') || errorMessage.toLowerCase().includes('api key')) {
+            return {
+              content: [{ type: 'text', text: `Error: Gemini API key not configured. Please add GEMINI_API_KEY in Settings → Integrations tab.` }],
+              details: { error: errorMessage },
+            };
+          }
           return {
-            content: [{ type: 'text', text: `Error: ${data.error || 'Video generation failed'}` }],
-            details: { error: data.error, status: response.status },
+            content: [{ type: 'text', text: `Error: ${errorMessage}` }],
+            details: { error: errorMessage, status: response.status },
           };
         }
         
@@ -376,7 +392,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'ad_localization',
     label: 'Localizing ads',
-    description: 'Localizes ad images for target markets using Gemini. Preserves layout, typography, and visual design - translates only the text. Use when user asks for: "localize this ad", "translate for market...", "adapt for country...". Output: workspace/nano-banana-ad-localizer/localizations/. Requires GEMINI_API_KEY in settings.',
+    description: 'Localizes ad images for target markets using Gemini. Preserves layout, typography, and visual design - translates only the text. Use when user asks for: "localize this ad", "translate for market...", "adapt for country...". Output: workspace/nano-banana-ad-localizer/localizations/. IMPORTANT: Requires GEMINI_API_KEY to be configured in Settings → Integrations.',
     parameters: Type.Object({
       reference_image_path: Type.String({ description: 'Path to reference image (must be under nano-banana-ad-localizer/)' }),
       target_markets: Type.Array(Type.String(), { description: 'List of target markets (e.g., ["Germany", "France", "Japan"])' }),
@@ -396,7 +412,7 @@ export const piTools: AgentTool[] = [
         
         if (!skillsToken) {
           return {
-            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not configured' }],
+            content: [{ type: 'text', text: 'Error: Internal server token not configured. Please contact the administrator.' }],
             details: { error: 'Skills token missing' },
           };
         }
@@ -419,9 +435,17 @@ export const piTools: AgentTool[] = [
         const data = await response.json();
         
         if (!response.ok || !data.success) {
+          // Check if the error is about missing Gemini API key
+          const errorMessage = data.error || 'Ad localization failed';
+          if (errorMessage.toLowerCase().includes('gemini') || errorMessage.toLowerCase().includes('api key')) {
+            return {
+              content: [{ type: 'text', text: `Error: Gemini API key not configured. Please add GEMINI_API_KEY in Settings → Integrations tab.` }],
+              details: { error: errorMessage },
+            };
+          }
           return {
-            content: [{ type: 'text', text: `Error: ${data.error || 'Ad localization failed'}` }],
-            details: { error: data.error, status: response.status },
+            content: [{ type: 'text', text: `Error: ${errorMessage}` }],
+            details: { error: errorMessage, status: response.status },
           };
         }
         

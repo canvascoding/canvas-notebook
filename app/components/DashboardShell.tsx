@@ -167,7 +167,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
         <div className="mx-auto flex h-full items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
-              <Link href="/">
+              <Link href="/" target="_blank" rel="noopener noreferrer">
                 <ArrowLeft className="h-4 w-4" />
                 <span className="hidden sm:inline">Suite</span>
               </Link>

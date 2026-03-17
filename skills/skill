@@ -8,7 +8,8 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 SKILLS_TOKEN_PATH="/data/canvas-agent/.skills-token"
-BASE_URL="${CANVAS_BASE_URL:-${NEXT_PUBLIC_APP_URL:-http://localhost:3000}}"
+# Use internal container port (3000) for API calls
+BASE_URL="http://localhost:3000"
 
 # Resolve auth token
 if [ -n "${CANVAS_SKILLS_TOKEN:-}" ]; then
@@ -16,7 +17,7 @@ if [ -n "${CANVAS_SKILLS_TOKEN:-}" ]; then
 elif [ -f "$SKILLS_TOKEN_PATH" ]; then
   TOKEN="$(cat "$SKILLS_TOKEN_PATH" | tr -d '[:space:]')"
 else
-  echo "ERROR: Skills token not found. Is the Canvas Notebook server running?" >&2
+  echo "ERROR: CANVAS_SKILLS_TOKEN not configured. Please ensure the Canvas Notebook server is running and the token is set." >&2
   exit 1
 fi
 
