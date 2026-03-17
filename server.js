@@ -201,7 +201,9 @@ function serveMedia(req, res) {
   }
 
   const filePath = resolveMediaPath(decodedPath);
+  console.log(`[Media Debug] Request: ${decodedPath} -> Resolved: ${filePath} | MEDIA_ROOT: ${MEDIA_ROOT} | DATA: ${DATA}`);
   if (!filePath) {
+    console.log(`[Media Debug] Forbidden: Path resolved to null`);
     res.statusCode = 403;
     res.end('Forbidden');
     return;
@@ -209,6 +211,7 @@ function serveMedia(req, res) {
 
   fs.stat(filePath, (statErr, stats) => {
     if (statErr || !stats.isFile()) {
+      console.log(`[Media Debug] 404: File not found at ${filePath} | Error: ${statErr?.message || 'Not a file'}`);
       res.statusCode = 404;
       res.end('Not found');
       return;

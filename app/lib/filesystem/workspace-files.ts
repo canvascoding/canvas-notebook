@@ -28,6 +28,14 @@ export function validatePath(userPath: string): string {
   return normalizedPath;
 }
 
+function isImageGenerationMetadataFile(filePath: string, fileName: string): boolean {
+  // Hide JSON metadata files in image-generation/generations directory
+  if (filePath.includes('image-generation/generations') && fileName.endsWith('.json')) {
+    return true;
+  }
+  return false;
+}
+
 export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> {
   const fullPath = validatePath(dirPath);
   const entries = await fs.readdir(fullPath, { withFileTypes: true });
@@ -39,7 +47,17 @@ export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> 
           return !IGNORED_WORKSPACE_DIRS.has(entry.name);
         }
 
-        return !HIDDEN_WORKSPACE_METADATA_FILES.has(entry.name);
+        if (HIDDEN_WORKSPACE_METADATA_FILES.has(entry.name)) {
+          return false;
+        }
+
+        // Hide image generation metadata JSON files
+        const entryPath = path.join(dirPath, entry.name);
+        if (isImageGenerationMetadataFile(entryPath, entry.name)) {
+          return false;
+        }
+
+        return true;
       })
       .map(async (entry) => {
         const entryPath = path.join(fullPath, entry.name);
