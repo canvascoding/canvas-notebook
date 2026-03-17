@@ -8,7 +8,7 @@ export default async function OnboardingPage() {
   }
 
   if (await isOnboardingComplete()) {
-    redirect('/');
+    redirect('/login');
   }
 
   return <OnboardingWizard />;

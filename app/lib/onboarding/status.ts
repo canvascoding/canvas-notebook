@@ -6,8 +6,12 @@ export function isOnboardingEnabled(): boolean {
 }
 
 export async function isOnboardingComplete(): Promise<boolean> {
-  const row = await db.select().from(onboardingLog).limit(1);
-  return row.length > 0;
+  try {
+    const row = await db.select().from(onboardingLog).limit(1);
+    return row.length > 0;
+  } catch {
+    return false; // fail-open: show wizard if DB not ready yet
+  }
 }
 
 export async function markOnboardingComplete(opts: {

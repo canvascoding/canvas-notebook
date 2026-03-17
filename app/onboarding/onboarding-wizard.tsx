@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { authClient } from '@/app/lib/auth-client';
 import { toast } from 'sonner';
 
 type Step = 'account' | 'provider' | 'done';
@@ -91,13 +90,7 @@ export default function OnboardingWizard() {
         return;
       }
 
-      // Sign in to get a session cookie
-      const { error } = await authClient.signIn.email({ email, password });
-      if (error) {
-        toast.error('Account erstellt, aber Anmeldung fehlgeschlagen: ' + (error.message || ''));
-        return;
-      }
-
+      // Session cookie is set by the setup route — go directly to next step
       setStep('provider');
     } catch {
       toast.error('Unerwarteter Fehler beim Erstellen des Accounts');

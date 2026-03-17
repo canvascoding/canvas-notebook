@@ -24,15 +24,24 @@ export async function POST(req: NextRequest) {
   // Enable signup temporarily for this call — the emailAndPasswordConfig getter reads this at call time
   process.env.ONBOARDING = 'true';
 
-  let signUpResult: Awaited<ReturnType<typeof auth.api.signUpEmail>>;
+  let baResponse: Response;
   try {
-    signUpResult = await auth.api.signUpEmail({
+    baResponse = await auth.api.signUpEmail({
       body: { name, email, password },
-    });
+      headers: req.headers,
+      asResponse: true,
+    }) as Response;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Sign-up failed';
     return NextResponse.json({ error: message }, { status: 400 });
   }
+
+  if (!baResponse.ok) {
+    const data = await baResponse.json().catch(() => ({}));
+    return NextResponse.json({ error: (data as { message?: string }).message || 'Sign-up failed' }, { status: 400 });
+  }
+
+  const signUpData = await baResponse.json() as { user: { id: string; email: string } };
 
   // Promote to admin
   await db
@@ -42,10 +51,17 @@ export async function POST(req: NextRequest) {
 
   // Log onboarding completion
   await markOnboardingComplete({
-    completedBy: signUpResult.user.id,
+    completedBy: signUpData.user.id,
     method: 'ui',
     notes: email,
   });
 
-  return NextResponse.json({ success: true });
+  // Forward Set-Cookie from better-auth so the browser gets the session
+  const result = NextResponse.json({ success: true });
+  baResponse.headers.forEach((value, key) => {
+    if (key.toLowerCase() === 'set-cookie') {
+      result.headers.append('set-cookie', value);
+    }
+  });
+  return result;
 }
