@@ -235,12 +235,60 @@ export const piTools: AgentTool[] = [
         model?: string;
       };
       try {
-        const workspacePath = getWorkspacePath();
-        const cmd = `/data/skills/skill image-generation --prompt "${prompt.replace(/"/g, '\\"')}"${aspect_ratio ? ` --aspect-ratio "${aspect_ratio}"` : ''}${count ? ` --count ${count}` : ''}${model ? ` --model "${model}"` : ''}`;
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+        const baseUrl = 'http://localhost:3000';
+        const skillsToken = process.env.CANVAS_SKILLS_TOKEN;
+        
+        if (!skillsToken) {
+          return {
+            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not configured' }],
+            details: { error: 'Skills token missing' },
+          };
+        }
+        
+        const response = await fetch(`${baseUrl}/api/image-generation/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Canvas-Skills-Token': skillsToken,
+          },
+          body: JSON.stringify({
+            prompt,
+            aspectRatio: aspect_ratio || '1:1',
+            imageCount: count || 1,
+            model: model || 'gemini-3.1-flash-image-preview',
+            referenceImagePaths: [],
+          }),
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok || !data.success) {
+          return {
+            content: [{ type: 'text', text: `Error: ${data.error || 'Image generation failed'}` }],
+            details: { error: data.error, status: response.status },
+          };
+        }
+        
+        const results = data.data?.results || [];
+        const successCount = data.data?.successCount || 0;
+        const failureCount = data.data?.failureCount || 0;
+        
+        let resultText = `Image generation complete: ${successCount} successful, ${failureCount} failed\n\n`;
+        results.forEach((result: { index: number; path?: string; mediaUrl?: string; error?: string }) => {
+          if (result.path) {
+            resultText += `Image ${result.index + 1}: ${result.path}\n`;
+            if (result.mediaUrl) {
+              resultText += `URL: ${result.mediaUrl}\n`;
+            }
+          } else if (result.error) {
+            resultText += `Image ${result.index + 1}: Failed - ${result.error}\n`;
+          }
+          resultText += '\n';
+        });
+        
         return {
-          content: [{ type: 'text', text: stdout || stderr || 'Image generation started' }],
-          details: { stdout, stderr },
+          content: [{ type: 'text', text: resultText }],
+          details: data,
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -269,12 +317,52 @@ export const piTools: AgentTool[] = [
         resolution?: string;
       };
       try {
-        const workspacePath = getWorkspacePath();
-        const cmd = `/data/skills/skill video-generation --prompt "${prompt.replace(/"/g, '\\"')}"${mode ? ` --mode "${mode}"` : ''}${aspect_ratio ? ` --aspect-ratio "${aspect_ratio}"` : ''}${resolution ? ` --resolution "${resolution}"` : ''}`;
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+        const baseUrl = 'http://localhost:3000';
+        const skillsToken = process.env.CANVAS_SKILLS_TOKEN;
+        
+        if (!skillsToken) {
+          return {
+            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not configured' }],
+            details: { error: 'Skills token missing' },
+          };
+        }
+        
+        const response = await fetch(`${baseUrl}/api/veo/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Canvas-Skills-Token': skillsToken,
+          },
+          body: JSON.stringify({
+            prompt,
+            mode: mode || 'text_to_video',
+            aspectRatio: aspect_ratio || '16:9',
+            resolution: resolution || '720p',
+            model: 'veo-3.1-fast-generate-preview',
+          }),
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok || !data.success) {
+          return {
+            content: [{ type: 'text', text: `Error: ${data.error || 'Video generation failed'}` }],
+            details: { error: data.error, status: response.status },
+          };
+        }
+        
+        const result = data.data;
+        let resultText = 'Video generation started! This may take 3-10 minutes.\n\n';
+        if (result?.path) {
+          resultText += `Video will be saved to: ${result.path}\n`;
+        }
+        if (result?.mediaUrl) {
+          resultText += `Media URL: ${result.mediaUrl}\n`;
+        }
+        
         return {
-          content: [{ type: 'text', text: stdout || stderr || 'Video generation started (this may take 3-10 minutes)' }],
-          details: { stdout, stderr },
+          content: [{ type: 'text', text: resultText }],
+          details: data,
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -303,18 +391,61 @@ export const piTools: AgentTool[] = [
         instructions?: string;
       };
       try {
-        const workspacePath = getWorkspacePath();
-        let cmd = `/data/skills/skill ad-localization --ref "${reference_image_path.replace(/"/g, '\\"')}"`;
-        target_markets.forEach(market => {
-          cmd += ` --market "${market.replace(/"/g, '\\"')}"`;
-        });
-        if (aspect_ratio) cmd += ` --aspect-ratio "${aspect_ratio}"`;
-        if (instructions) cmd += ` --instructions "${instructions.replace(/"/g, '\\"')}"`;
+        const baseUrl = 'http://localhost:3000';
+        const skillsToken = process.env.CANVAS_SKILLS_TOKEN;
         
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+        if (!skillsToken) {
+          return {
+            content: [{ type: 'text', text: 'Error: CANVAS_SKILLS_TOKEN not configured' }],
+            details: { error: 'Skills token missing' },
+          };
+        }
+        
+        const response = await fetch(`${baseUrl}/api/nano-banana/localize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Canvas-Skills-Token': skillsToken,
+          },
+          body: JSON.stringify({
+            referenceImagePath: reference_image_path,
+            targetMarkets: target_markets,
+            aspectRatio: aspect_ratio || '16:9',
+            model: 'gemini-3.1-flash-image-preview',
+            customInstructions: instructions || '',
+          }),
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok || !data.success) {
+          return {
+            content: [{ type: 'text', text: `Error: ${data.error || 'Ad localization failed'}` }],
+            details: { error: data.error, status: response.status },
+          };
+        }
+        
+        const results = data.data?.results || [];
+        const successCount = data.data?.successCount || 0;
+        const failureCount = data.data?.failureCount || 0;
+        
+        let resultText = `Ad localization complete: ${successCount} successful, ${failureCount} failed\n\n`;
+        results.forEach((result: { market: string; path?: string; mediaUrl?: string; error?: string }) => {
+          if (result.path) {
+            resultText += `Market: ${result.market}\n`;
+            resultText += `Path: ${result.path}\n`;
+            if (result.mediaUrl) {
+              resultText += `URL: ${result.mediaUrl}\n`;
+            }
+          } else if (result.error) {
+            resultText += `Market: ${result.market} - Failed: ${result.error}\n`;
+          }
+          resultText += '\n';
+        });
+        
         return {
-          content: [{ type: 'text', text: stdout || stderr || 'Ad localization started' }],
-          details: { stdout, stderr },
+          content: [{ type: 'text', text: resultText }],
+          details: data,
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
