@@ -71,7 +71,7 @@ temp/screenshots/
 *.tsbuildinfo
 next-env.d.ts
 
-docs/template
+/docs
 
 # Sentry Config File
 .env.sentry-build-plugin
