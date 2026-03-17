@@ -1,0 +1,60 @@
+---
+name: video-generation
+description: Generates videos using Google VEO. Use when user asks for video creation, "create a video of...", "generate a video". Output goes to workspace/veo-studio/video-generation/. Requires GEMINI_API_KEY in settings. Note: Takes 3-10 minutes.
+---
+
+# Video Generation
+
+Generates videos using Google VEO.
+
+## When to Use
+
+Use this skill when the user requests:
+- "Create a video"
+- "Generate a video"
+- "Make a video of..."
+- "Create a video of..."
+
+## Parameters
+
+- **prompt** (required): Text description of the video to generate
+- **mode**: Generation mode (text_to_video, frames_to_video, references_to_video, extend_video). Default: text_to_video
+- **aspect_ratio**: Aspect ratio (16:9, 9:16). Default: 16:9
+- **resolution**: Resolution (720p, 1080p, 4k). Default: 720p
+- **start_frame**: Path to start frame (for frames_to_video mode)
+- **end_frame**: Path to end frame (for frames_to_video mode)
+- **input_video**: Path to input video (for extend_video mode)
+
+## Output
+
+Videos are saved to: `workspace/veo-studio/video-generation/`
+
+## Examples
+
+Text to video:
+```
+video-generation --prompt "A gentle wave breaking on a sandy beach" --aspect-ratio 16:9
+```
+
+Frames to video:
+```
+video-generation \
+  --mode frames_to_video \
+  --start-frame "veo-studio/assets/start.png" \
+  --end-frame "veo-studio/assets/end.png" \
+  --prompt "Smooth transition between the two frames"
+```
+
+With reference images:
+```
+video-generation \
+  --mode references_to_video \
+  --ref "veo-studio/assets/char1.png" \
+  --ref "veo-studio/assets/bg.png" \
+  --prompt "Character walking through the scene"
+```
+
+## Requirements
+
+- GEMINI_API_KEY must be configured in settings
+- Video generation typically takes 3-10 minutes
