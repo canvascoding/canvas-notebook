@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import * as XLSX from 'xlsx';
 import { Loader2, AlertCircle } from 'lucide-react';
 import jspreadsheet from 'jspreadsheet-ce';
@@ -28,6 +28,36 @@ export interface SpreadsheetEditorRef {
   hasChanges: () => boolean;
 }
 
+function normalizeProcessedValue(value: unknown): string | number | boolean | undefined {
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (trimmed.toLowerCase() === 'true') {
+    return true;
+  }
+
+  if (trimmed.toLowerCase() === 'false') {
+    return false;
+  }
+
+  const numericValue = Number(trimmed);
+  if (!Number.isNaN(numericValue) && /^[-+]?\d+(\.\d+)?$/.test(trimmed)) {
+    return numericValue;
+  }
+
+  return trimmed;
+}
+
 export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEditorProps>(
   function SpreadsheetEditor({ path, onChange }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -37,24 +67,6 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
     const [fileExtension, setFileExtension] = useState<string>('');
     const [sheetNames, setSheetNames] = useState<string[]>([]);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-
-    useImperativeHandle(ref, () => ({
-      save: async () => {
-        if (!jspreadsheetInstanceRef.current) {
-          return null;
-        }
-        return convertToBase64(fileExtension);
-      },
-      getData: () => {
-        const instance = jspreadsheetInstanceRef.current;
-        if (!instance) return null;
-        return instance.map((worksheet, index) => ({
-          name: sheetNames[index] || `Sheet${index + 1}`,
-          data: getSheetData(index),
-        }));
-      },
-      hasChanges: () => hasUnsavedChanges,
-    }), [fileExtension, hasUnsavedChanges, sheetNames]);
 
     const getSheetData = (sheetIndex: number): SpreadsheetCellValue[][] => {
       const instance = jspreadsheetInstanceRef.current;
@@ -109,36 +121,6 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
       }
 
       return data;
-    };
-
-    const normalizeProcessedValue = (value: unknown): string | number | boolean | undefined => {
-      if (typeof value === 'number' || typeof value === 'boolean') {
-        return value;
-      }
-
-      if (typeof value !== 'string') {
-        return undefined;
-      }
-
-      const trimmed = value.trim();
-      if (!trimmed) {
-        return '';
-      }
-
-      if (trimmed.toLowerCase() === 'true') {
-        return true;
-      }
-
-      if (trimmed.toLowerCase() === 'false') {
-        return false;
-      }
-
-      const numericValue = Number(trimmed);
-      if (!Number.isNaN(numericValue) && /^[-+]?\d+(\.\d+)?$/.test(trimmed)) {
-        return numericValue;
-      }
-
-      return trimmed;
     };
 
     useEffect(() => {
@@ -284,7 +266,7 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
       };
     }, [path, onChange]);
 
-    const convertToBase64 = (extension: string): string => {
+    const convertToBase64 = useCallback((extension: string): string => {
       if (extension === 'csv') {
         // For CSV, only export first sheet
         const instance = jspreadsheetInstanceRef.current;
@@ -336,7 +318,25 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
         const wbout = XLSX.write(newWorkbook, { type: 'base64', bookType: 'xlsx' });
         return 'base64:' + wbout;
       }
-    };
+    }, [sheetNames]);
+
+    useImperativeHandle(ref, () => ({
+      save: async () => {
+        if (!jspreadsheetInstanceRef.current) {
+          return null;
+        }
+        return convertToBase64(fileExtension);
+      },
+      getData: () => {
+        const instance = jspreadsheetInstanceRef.current;
+        if (!instance) return null;
+        return instance.map((worksheet, index) => ({
+          name: sheetNames[index] || `Sheet${index + 1}`,
+          data: getSheetData(index),
+        }));
+      },
+      hasChanges: () => hasUnsavedChanges,
+    }), [convertToBase64, fileExtension, hasUnsavedChanges, sheetNames]);
 
     if (error) {
       return (
