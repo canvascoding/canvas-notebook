@@ -14,7 +14,7 @@ Thanks for your interest in Canvas Notebook!
 
 ## Before You Submit a PR
 
-- Test your change locally with `npm run container:rebuild`
+- Test your change locally with `npm run setup`
 - Run the test suite: `npm run test:all`
 - Keep PRs focused — one thing per PR, no unrelated changes mixed in
 - Describe what changed and why
