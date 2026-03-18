@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-18T08:17:22+01:00",
+  "lastUpdatedAt": "2026-03-18T08:32:58+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1937,7 +1937,7 @@
       "order": 169,
       "phase": "P28 QMD Production Hardening",
       "title": "Add regression coverage and verification for canonical qmd search behavior",
-      "status": "in_progress",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "qmd-prod-002"
