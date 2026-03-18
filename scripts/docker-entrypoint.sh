@@ -1,6 +1,30 @@
 #!/bin/sh
 set -eu
 
+fatal_startup() {
+  echo "[entrypoint] ERROR: $1"
+  exit 1
+}
+
+prepare_writable_dir() {
+  target_dir="$1"
+  owner="$(id -un):$(id -gn)"
+
+  if mkdir -p "$target_dir" 2>/dev/null && [ -w "$target_dir" ]; then
+    return 0
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    echo "[entrypoint] Fixing permissions for ${target_dir}..."
+    if sudo mkdir -p "$target_dir" && sudo chown -R "$owner" "$target_dir"; then
+      return 0
+    fi
+  fi
+
+  echo "[entrypoint] WARNING: Could not prepare writable directory ${target_dir}."
+  return 1
+}
+
 # Ensure required data directories exist (critical for container persistence)
 echo "[entrypoint] Ensuring data directories exist..."
 mkdir -p /data/canvas-agent
@@ -28,7 +52,7 @@ fi
 
 # Runtime bootstrap must happen in the container because /home/node is volume-mounted
 # and not available during image build.
-echo "[entrypoint] Bootstrapping agent runtime in /home/node/canvas-agent..."
+echo "[entrypoint] Bootstrapping agent runtime in /data/canvas-agent..."
 if npx tsx scripts/bootstrap-agent-runtime.ts; then
   echo "[entrypoint] Agent runtime bootstrap finished."
 else
@@ -37,30 +61,6 @@ fi
 
 # Preferred flag name: AI_CLI_AUTO_INSTALL (legacy fallback: CODEX_AUTO_INSTALL)
 auto_install="${AI_CLI_AUTO_INSTALL:-${CODEX_AUTO_INSTALL:-true}}"
-
-fatal_startup() {
-  echo "[entrypoint] ERROR: $1"
-  exit 1
-}
-
-prepare_writable_dir() {
-  target_dir="$1"
-  owner="$(id -un):$(id -gn)"
-
-  if mkdir -p "$target_dir" 2>/dev/null && [ -w "$target_dir" ]; then
-    return 0
-  fi
-
-  if command -v sudo >/dev/null 2>&1; then
-    echo "[entrypoint] Fixing permissions for ${target_dir}..."
-    if sudo mkdir -p "$target_dir" && sudo chown -R "$owner" "$target_dir"; then
-      return 0
-    fi
-  fi
-
-  echo "[entrypoint] WARNING: Could not prepare writable directory ${target_dir}."
-  return 1
-}
 
 if [ -n "${OLLAMA_MODELS:-}" ]; then
   prepare_writable_dir "${OLLAMA_MODELS}" || true
