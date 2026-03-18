@@ -11,8 +11,8 @@ import { requirePageSession } from '@/app/lib/auth-guards';
 import { Button } from '@/components/ui/button';
 
 export const metadata: Metadata = {
-  title: 'Terminal | Canvas Studios Suite',
-  description: 'Fullscreen terminal app for the Canvas Studios workspace.',
+  title: 'Terminal | Canvas Notebook',
+  description: 'Fullscreen terminal app for the Canvas Notebook workspace.',
 };
 
 export default async function TerminalPage() {
@@ -32,7 +32,7 @@ export default async function TerminalPage() {
               </Link>
             </Button>
             <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="shrink-0 border border-border" />
-            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">CANVAS STUDIOS</h1>
+            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">CANVAS NOTEBOOK</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
             <NotebookNavButton />

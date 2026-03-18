@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { Github, Heart } from 'lucide-react';
 
 import { buildAgentConfigReadiness } from '@/app/lib/agents/storage';
 import { requirePageSession } from '@/app/lib/auth-guards';
@@ -54,9 +55,9 @@ export default async function Home() {
       <header className="h-16 border-b border-border bg-background/95">
         <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4 md:px-6">
           <div className="flex items-center gap-3">
-            <Image src="/logo.jpg" alt="Canvas Studios logo" width={32} height={32} className="border border-border" />
+            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="border border-border" />
             <div className="flex flex-col">
-              <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Canvas Studios</span>
+              <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Canvas Notebook</span>
               <span className="text-sm font-semibold">Software Suite</span>
             </div>
           </div>
@@ -73,7 +74,7 @@ export default async function Home() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto pb-12">
         <div className="mx-auto grid w-full max-w-6xl gap-4 px-4 pt-6 md:px-6 md:pt-8 lg:grid-cols-[1fr_320px]">
           <div>
             <SuiteAppSelector isAuthenticated />
@@ -142,6 +143,28 @@ export default async function Home() {
           </div>
         </div>
       </main>
+
+      <footer className="h-10 flex-shrink-0 border-t border-border bg-background/95">
+        <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4 md:px-6">
+          <a
+            href="https://agency.canvas.holdings"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Made with <Heart className="h-3 w-3 fill-current text-red-500" /> by Canvas Coding
+          </a>
+          <a
+            href="https://github.com/canvascoding/canvas-notebook"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Github className="h-3.5 w-3.5" />
+            canvascoding/canvas-notebook
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }

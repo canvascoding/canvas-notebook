@@ -2,9 +2,9 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Canvas Studios Suite',
-    short_name: 'Canvas Suite',
-    description: 'Canvas Studios software suite with shared workspace apps.',
+    name: 'Canvas Notebook',
+    short_name: 'Canvas Notebook',
+    description: 'Canvas Notebook — self-hosted workspace suite with file browser, terminal, and AI chat.',
     start_url: '/',
     scope: '/',
     display: 'standalone',

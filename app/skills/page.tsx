@@ -7,7 +7,7 @@ import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 import SkillsPageClient from './SkillsPageClient';
 
 export const metadata: Metadata = {
-  title: 'Skill Gallery | Canvas Studios Suite',
+  title: 'Skill Gallery | Canvas Notebook',
   description: 'Browse and manage Canvas Notebook skills.',
 };
 

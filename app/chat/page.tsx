@@ -12,8 +12,8 @@ import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants
 import { Button } from '@/components/ui/button';
 
 export const metadata: Metadata = {
-  title: 'Canvas Chat | Canvas Studios Suite',
-  description: 'Fullscreen chat app for the Canvas Studios workspace.',
+  title: 'Canvas Chat | Canvas Notebook',
+  description: 'Fullscreen chat app for the Canvas Notebook workspace.',
 };
 
 export default async function ChatPage() {

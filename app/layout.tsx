@@ -18,13 +18,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Canvas Studios Suite",
-  description: "Canvas Studios Software Suite",
-  applicationName: "Canvas Studios Suite",
+  title: "Canvas Notebook",
+  description: "Canvas Notebook — self-hosted workspace suite",
+  applicationName: "Canvas Notebook",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Canvas Studios Suite",
+    title: "Canvas Notebook",
     statusBarStyle: "black-translucent",
   },
   icons: {
