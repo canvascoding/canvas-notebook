@@ -63,15 +63,26 @@ ad-localization --ref "nano-banana-ad-localizer/assets/ad.png" --market "Germany
 Referenzbild MUSS unter nano-banana-ad-localizer/ liegen. Bis zu 12 Märkte pro Aufruf.
 Output: workspace/nano-banana-ad-localizer/localizations/
 
+### qmd Workspace Search
+- Verwende das **PI-Tool \`qmd\`** für jede Workspace-Suche nach Dateien oder Inhalten.
+- Verwende **nicht** \`ls\`, um Dateien zu finden; \`ls\` ist nur für explizites Ordner-Listing.
+- Tool-Aufruf: \`qmd({ query, mode, limit, collection })\`
+- **Default**: \`mode="search"\` für schnelle BM25-Suche
+- **Fallback**: \`mode="vsearch"\` nur wenn Keyword-Suche keine brauchbaren Treffer liefert
+- **Nicht Standard**: \`mode="query"\` ist teuer und in Canvas Notebook absichtlich standardmäßig deaktiviert
+- Suchbasis: \`workspace-text\` für direkte Textdateien und \`workspace-derived\` für abgeleitete Dokumenttexte wie DOCX
+- Nach dem Finden eines Kandidaten öffnest du die konkrete Datei mit dem \`read\`-Tool
+
 ### Antwortformat
 \`{ "success": true, "data": { ... } }\` oder \`{ "success": false, "error": "..." }\`
 "path"-Felder sind workspace-relativ und können mit dem read-Tool geöffnet werden.
 
 ### Skill-Dokumentation
 - /data/skills/README.md
-- /data/skills/image-generation/README.md
-- /data/skills/video-generation/README.md
-- /data/skills/ad-localization/README.md
+- /data/skills/image-generation/SKILL.md
+- /data/skills/video-generation/SKILL.md
+- /data/skills/ad-localization/SKILL.md
+- /data/skills/qmd/SKILL.md
 `,
 };
 

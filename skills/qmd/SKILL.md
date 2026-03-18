@@ -1,31 +1,34 @@
 ---
 name: qmd
-description: Searches markdown notes and documents in the workspace using qmd. Automatically indexes all .md files in /data/workspace. Use when user asks for "search my notes", "find related documents", "search in my workspace". Prefer qmd search (fast keyword search) over vsearch (semantic, slower).
+description: Searches the Canvas Notebook workspace with qmd. Use when the user asks to find files, search workspace content, or locate related notes/documents. Default to qmd mode=search, use vsearch only as a fallback, and avoid query by default because it is expensive in this runtime.
 ---
 
-# Markdown Search (qmd)
+# Workspace Search (qmd)
 
-Local hybrid search for markdown notes and documents in the Canvas Notebook Workspace. Index once, search fast.
+Local workspace search for Canvas Notebook. Searches direct text files via `workspace-text` and derived document text such as DOCX extracts via `workspace-derived`.
 
 ## When to Use
 
 Use this skill when the user requests:
 - "Search my notes"
 - "Find related documents"
-- "Search my markdown files"
+- "Search my workspace"
 - "Search for ... in my workspace"
+- "Where is ..."
+- "Finde ..."
 
 ## Default Behavior
 
-- Prefer `qmd search` (BM25) - typically available immediately
-- Use `qmd vsearch` only if keyword search fails and semantic similarity is needed (can be very slow on cold start)
-- Avoid `qmd query` unless user explicitly wants best hybrid quality and can tolerate long runtimes
+- Use the PI tool contract: `qmd({ query, mode, limit, collection })`
+- Prefer `mode=search` (BM25) - fast and safe as the default
+- Use `mode=vsearch` only if keyword search fails and semantic similarity is needed
+- Avoid `mode=query` unless it was explicitly enabled for this runtime or the user explicitly asks for the expensive path
 
 ## Parameters
 
 - **query** (required): Search query
 - **mode**: Search mode (search, vsearch, query). Default: search
-- **collection**: Collection to search. Default: workspace
+- **collection**: Collection to search. Default: workspace-text + workspace-derived
 - **limit**: Maximum number of results. Default: 10
 
 ## Search Modes
@@ -37,29 +40,16 @@ Use this skill when the user requests:
 ## Examples
 
 Standard search:
-```
-qmd search "my search term"
-```
+`qmd({ query: "my search term", mode: "search" })`
 
 Specific collection:
-```
-qmd search "search term" -c workspace
-```
+`qmd({ query: "search term", collection: "workspace-text" })`
 
 More results:
-```
-qmd search "search term" -n 10
-```
-
-JSON output for agents:
-```
-qmd search "search term" --json
-```
+`qmd({ query: "search term", limit: 10 })`
 
 Semantic search (slower):
-```
-qmd vsearch "conceptually similar content"
-```
+`qmd({ query: "conceptually similar content", mode: "vsearch" })`
 
 ## Requirements
 

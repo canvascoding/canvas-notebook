@@ -77,6 +77,10 @@ All file operations (ls, read, write, glob, grep, bash) work within the workspac
 - Files outside this directory are not accessible
 - Use relative paths (e.g., "docs/file.md" not "/data/workspace/docs/file.md")
 
+## Default Output Format
+
+When no specific format is requested, create a Markdown document (.md) in the workspace. It's readable, performant, and native to Canvas Notebook.
+
 ## File Types
 
 You can access ALL file types in the workspace:
@@ -114,24 +118,27 @@ Generiert Videos mit VEO. Verwenden wenn der User sagt: "erstelle ein Video", "g
 ### ad_localization
 Lokalisiert Werbeanzeigen. Verwenden wenn der User sagt: "lokalisiere diese Anzeige", "übersetze für Markt...", "passe an für Land..."
 
-### qmd_search
-Durchsucht Markdown-Notizen. Verwenden wenn der User sagt: "suche in meinen Notizen", "finde verwandte Notizen", "durchsuche meine Markdown-Dateien"
+### qmd
+Durchsucht den Workspace über qmd. Verwenden wenn der User sagt: "suche ...", "finde ...", "where is ...", "search my workspace"
 
 ## Wichtige Hinweise
 
 - **Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein (außer qmd)
 - **Lokale Skills** (image_generation, video_generation, ad_localization): Geben JSON zurück mit { "success": true, "data": { ... } }
-- **CLI-Skill** (qmd_search): Gibt direkte Text-/JSON-Ausgabe zurück
+- **Workspace-Suche** (\`qmd\`): Nutze für jede Datei-/Inhaltssuche das PI-Tool \`qmd({ query, mode, limit, collection })\`
+- **Default qmd mode:** \`search\` für BM25-Keyword-Suche
+- **Fallback qmd mode:** \`vsearch\` nur nach schwachen Keyword-Ergebnissen
+- **Nicht Standard:** \`query\` ist teuer und absichtlich standardmäßig deaktiviert
 - **Keine Token-/Env-Dateien lesen:** Für Gemini-Skills weder interne API-Routen noch Env-Dateien direkt verwenden. Die Wrapper lösen die zentrale Integrations-Konfiguration selbst auf.
 - **Output-Verzeichnisse:** Alle Ergebnisse sind workspace-relativ unter /data/workspace
 
 ## Detaillierte Dokumentation
 
 Für vollständige Dokumentation, Parameter-Details und Beispiele:
-- /data/skills/image-generation/README.md
-- /data/skills/video-generation/README.md
-- /data/skills/ad-localization/README.md
-- /data/skills/qmd/README.md
+- /data/skills/image-generation/SKILL.md
+- /data/skills/video-generation/SKILL.md
+- /data/skills/ad-localization/SKILL.md
+- /data/skills/qmd/SKILL.md
 
 ## Trigger-Phrasen (Wann welchen Skill verwenden)
 
@@ -156,12 +163,11 @@ Für vollständige Dokumentation, Parameter-Details und Beispiele:
 - "localize this ad"
 - "translate for market..."
 
-**qmd_search:**
-- "suche in meinen Notizen"
-- "finde verwandte Notizen"
-- "durchsuche meine Markdown-Dateien"
-- "suche nach ... in meinem Workspace"
-- "search my notes"
+**qmd:**
+- "suche nach ..."
+- "finde ..."
+- "where is ..."
+- "search my workspace"
 - "find related documents"
 
 ## Skill Creator

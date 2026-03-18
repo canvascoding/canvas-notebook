@@ -41,6 +41,31 @@ type DoctorResult = {
     usedFallback: boolean;
     fallbackReason: 'all-empty' | 'read-failed' | null;
   };
+  qmd: {
+    ready: boolean;
+    binaryAvailable: boolean;
+    defaultMode: 'search' | 'vsearch' | 'query';
+    allowExpensiveQueryMode: boolean;
+    collections: Array<{
+      name: string;
+      sourceType: 'workspace-text' | 'workspace-derived';
+      path: string;
+      present: boolean;
+    }>;
+    lastUpdateAt: string | null;
+    lastUpdateSuccess: boolean;
+    lastEmbedAt: string | null;
+    derivedDocxIndexing: {
+      enabled: boolean;
+      healthy: boolean;
+      lastRunAt: string | null;
+      extractedCount: number;
+      updatedCount: number;
+      errorCount: number;
+      warningCount: number;
+    };
+    issues: string[];
+  };
 };
 
 type SessionItem = {
@@ -342,8 +367,39 @@ export function AgentSettingsPanel() {
                     : 'Inactive'}
                 </span>
               </p>
+              <div className="mt-3 rounded border border-border/70 bg-background/70 p-3">
+                <p>
+                  qmd: <span className={doctorResult.qmd.ready ? 'text-primary font-medium' : 'text-destructive font-medium'}>
+                    {doctorResult.qmd.ready ? 'Ready' : 'Needs attention'}
+                  </span>
+                </p>
+                <p>qmd binary: {doctorResult.qmd.binaryAvailable ? 'available' : 'missing'}</p>
+                <p>Default mode: {doctorResult.qmd.defaultMode}</p>
+                <p>Expensive query mode: {doctorResult.qmd.allowExpensiveQueryMode ? 'enabled' : 'disabled'}</p>
+                <p>Collections: {doctorResult.qmd.collections.map((collection) => collection.name).join(', ') || 'None'}</p>
+                <p>Last qmd update: {doctorResult.qmd.lastUpdateAt ? new Date(doctorResult.qmd.lastUpdateAt).toLocaleString() : 'No successful update yet'}</p>
+                <p>Last qmd embed: {doctorResult.qmd.lastEmbedAt ? new Date(doctorResult.qmd.lastEmbedAt).toLocaleString() : 'Not recorded yet'}</p>
+                <p>
+                  Derived DOCX indexing:{' '}
+                  <span className={doctorResult.qmd.derivedDocxIndexing.enabled && doctorResult.qmd.derivedDocxIndexing.healthy ? 'text-primary font-medium' : 'text-destructive font-medium'}>
+                    {doctorResult.qmd.derivedDocxIndexing.enabled
+                      ? doctorResult.qmd.derivedDocxIndexing.healthy
+                        ? 'Healthy'
+                        : 'With issues'
+                      : 'Disabled'}
+                  </span>
+                </p>
+                <p>Derived last run: {doctorResult.qmd.derivedDocxIndexing.lastRunAt ? new Date(doctorResult.qmd.derivedDocxIndexing.lastRunAt).toLocaleString() : 'Not run yet'}</p>
+                <p>Derived files: {doctorResult.qmd.derivedDocxIndexing.extractedCount}</p>
+                <p>Derived updates: {doctorResult.qmd.derivedDocxIndexing.updatedCount}</p>
+                <p>Derived warnings: {doctorResult.qmd.derivedDocxIndexing.warningCount}</p>
+                <p>Derived errors: {doctorResult.qmd.derivedDocxIndexing.errorCount}</p>
+              </div>
               {doctorResult.readiness.pi?.issues.map((issue, idx) => (
                 <p key={idx} className="text-destructive font-medium mt-1">• {issue}</p>
+              ))}
+              {doctorResult.qmd.issues.map((issue, idx) => (
+                <p key={`qmd-${idx}`} className="text-destructive font-medium mt-1">• {issue}</p>
               ))}
             </div>
           )}

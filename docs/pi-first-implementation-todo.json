@@ -1925,7 +1925,7 @@
       "order": 168,
       "phase": "P28 QMD Production Hardening",
       "title": "Expose qmd readiness, default mode, collections, and derived indexing in Doctor and runtime guidance",
-      "status": "in_progress",
+      "status": "done",
       "priority": "must",
       "dependsOn": [
         "qmd-prod-001"
@@ -1937,7 +1937,7 @@
       "order": 169,
       "phase": "P28 QMD Production Hardening",
       "title": "Add regression coverage and verification for canonical qmd search behavior",
-      "status": "pending",
+      "status": "in_progress",
       "priority": "must",
       "dependsOn": [
         "qmd-prod-002"

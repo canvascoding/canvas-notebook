@@ -7,6 +7,7 @@ import {
   buildAgentConfigReadiness,
 } from '@/app/lib/agents/storage';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
+import { getQmdDoctorStatus } from '@/app/lib/qmd/status';
 
 type DoctorPayload = {
   livePing?: boolean;
@@ -45,8 +46,14 @@ export async function POST(request: NextRequest) {
   try {
     await request.json().catch(() => ({} as DoctorPayload));
     // buildAgentConfigReadiness no longer requires a config parameter
-    const readiness = await buildAgentConfigReadiness();
-    const { diagnostics } = await loadManagedAgentSystemPrompt();
+    const [readiness, promptResult, qmd] = await Promise.all([
+      buildAgentConfigReadiness(),
+      loadManagedAgentSystemPrompt(),
+      getQmdDoctorStatus(),
+    ]);
+    const { diagnostics } = promptResult;
+    const errorCount = (readiness.pi?.issues.length || 0) + qmd.issues.length;
+    const warningCount = (diagnostics.usedFallback ? 1 : 0) + (qmd.derivedDocxIndexing.warningCount > 0 ? 1 : 0);
 
     return NextResponse.json({
       success: true,
@@ -54,10 +61,11 @@ export async function POST(request: NextRequest) {
         checkedAt: new Date().toISOString(),
         readiness,
         promptDiagnostics: diagnostics,
+        qmd,
         summary: {
-          ready: readiness.activeProviderReady && !diagnostics.usedFallback,
-          errors: readiness.pi?.issues.length || 0,
-          warnings: diagnostics.usedFallback ? 1 : 0,
+          ready: readiness.activeProviderReady && !diagnostics.usedFallback && qmd.ready,
+          errors: errorCount,
+          warnings: warningCount,
         },
       },
     });

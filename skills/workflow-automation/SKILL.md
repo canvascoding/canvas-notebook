@@ -45,7 +45,7 @@ Creates a new scheduled automation job.
   - `timeZone`: Timezone (default: UTC)
 
 **Optional Parameters:**
-- `preferredSkill`: Which skill to use for execution ("auto", "image_generation", "video_generation", "ad_localization", "qmd_search")
+- `preferredSkill`: Which skill to use for execution ("auto", "image_generation", "video_generation", "ad_localization", "qmd")
 - `targetOutputPath`: Where to save job outputs (relative to workspace)
 - `workspaceContextPaths`: Array of file paths to include as context
 - `status`: "active" (default) or "paused"

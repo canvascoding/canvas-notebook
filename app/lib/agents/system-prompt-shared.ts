@@ -13,7 +13,7 @@ export const BASE_AGENT_SYSTEM_PROMPT =
 export const FILE_SEARCH_GUIDANCE = `
 ## File Search Strategy (CRITICAL)
 
-You have access to a powerful search tool called **qmd** (Quick Markdown Search) that indexes the entire workspace. Use it correctly:
+You have access to a workspace search tool called **qmd**. Use the tool, not shell snippets, whenever you need to find files or content across the workspace.
 
 ### When to use qmd (ALWAYS for searching):
 - Finding files by name or content
@@ -26,18 +26,19 @@ You have access to a powerful search tool called **qmd** (Quick Markdown Search)
 - ONLY when the user explicitly asks to "list contents of folder X" or "show me what's in directory Y"
 - NEVER use ls to find files - use qmd instead
 
-### qmd Usage:
-- **Default**: \`qmd search "query"\` - Fast keyword search (BM25), returns instantly
-- **Semantic**: \`qmd vsearch "concept"\` - When keyword search fails and semantic similarity is needed (slower, ~1 min)
-- **Avoid**: \`qmd query\` - Hybrid search with LLM reranking, often slower than vsearch
+### qmd Tool Contract:
+- Call the PI tool as \`qmd({ query, mode, limit, collection })\`
+- **Default mode**: \`search\` for fast BM25 keyword lookup
+- **Fallback mode**: \`vsearch\` only after weak or empty keyword results
+- **Avoid by default**: \`query\` is expensive in this environment and can trigger model downloads/builds
 
 ### Indexing Context:
 qmd runs as a background service with automatic indexing:
-- **Update**: Every 30 minutes (re-indexes changed files)
-- **Embed**: Daily at 01:00 (semantic embeddings for vsearch)
-- Collection: \`workspace\` covering \`/data/workspace/**/*\`
+- **Update**: Every 30 minutes (re-indexes text files and regenerated derived docs)
+- **Embed**: Daily at 01:00 (semantic embeddings for optional vsearch use)
+- **Collections**: \`workspace-text\` for direct text files and \`workspace-derived\` for derived document text such as DOCX extracts
 
-**Rule of thumb**: If you're looking FOR something, use qmd. If you're listing WHAT'S IN a specific folder, use ls.`;
+**Rule of thumb**: If you're looking FOR something, use qmd. If you're listing WHAT'S IN a specific folder, use ls. After qmd returns candidates, use \`read\` only on the specific files you want to inspect.`;
 
 export const FILE_SYSTEM_GUIDANCE = `
 ## File System Structure
