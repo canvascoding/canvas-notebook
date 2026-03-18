@@ -19,7 +19,7 @@ const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
  * POST /api/oauth/pi/exchange
  * Exchange authorization code for OAuth credentials
  * Body: { flowId: string, provider: string, code: string }
- * Returns: { success: boolean, message?: string, error?: string }
+ * Returns: { success: boolean, pending?: boolean, message?: string, error?: string }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
     await writeFile(codeFile, code);
 
     // Wait for the background process to complete
-    const maxWait = 30000; // 30 seconds
+    const maxWait = 5000; // Keep request short; UI continues via poll/complete
     const startTime = Date.now();
     
     // Check immediately first (in case process was already waiting)
@@ -149,9 +149,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      success: false,
-      error: 'Timeout waiting for OAuth completion',
-    }, { status: 500 });
+      success: true,
+      pending: true,
+      message: 'Authorization code received. Waiting for provider completion...',
+    }, { status: 202 });
   } catch (error) {
     console.error('OAuth exchange failed:', error);
     return NextResponse.json(

@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-18T10:56:53+01:00",
+  "lastUpdatedAt": "2026-03-18T15:35:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1991,6 +1991,18 @@
         "runtime-boot-006"
       ],
       "description": "Replaced the production bootstrap-admin path with a standalone Node.js script that writes directly to the configured SQLite database without tsx or TypeScript source imports, updated startup logging to report execution or explicit skip reasons, documented that EasyPanel and similar hosts must not override the image entrypoint/command, and verified the fix with a fresh Docker image build plus recreated positive and negative container runs and a Playwright login flow against the production container."
+    },
+    {
+      "id": "pi-oauth-fix-001",
+      "order": 174,
+      "phase": "P30 OAuth Reliability",
+      "title": "Fix PI OAuth callback completion, canonical token persistence, and UI finalization",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-069"
+      ],
+      "description": "Aligned the Canvas PI OAuth integration with PI's callback-server providers by wiring OpenAI Codex manual callback input through onManualCodeInput, shortened /api/oauth/pi/exchange into a pending handoff instead of surfacing false timeouts, auto-finalized completed flows in the settings UI via /api/oauth/pi/complete, switched OAuth credential persistence to the canonical resolved canvas-agent storage path, and covered the pending-to-connected flow with Playwright."
     }
   ]
 }

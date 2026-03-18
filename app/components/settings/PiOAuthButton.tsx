@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -42,17 +42,79 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const completedFlowRef = useRef<string | null>(null);
 
   // Load OAuth status on mount
   useEffect(() => {
     void loadStatus();
   }, []);
 
-  // Poll for auth URL when flow is active
-  useEffect(() => {
-    if (!flowId || !isOpen || authUrl) return;
+  const resetDialogState = () => {
+    setCode('');
+    setFlowId('');
+    setAuthUrl('');
+    setInstructions('');
+    setSelectedProvider(null);
+    setIsPolling(false);
+    setPendingMessage(null);
+    setIsFinalizing(false);
+    completedFlowRef.current = null;
+  };
 
-    const pollInterval = setInterval(async () => {
+  const handleConnected = async (provider: OAuthStatus, message?: string) => {
+    setIsOpen(false);
+    resetDialogState();
+    setSuccessMessage(message || `Successfully connected to ${provider.displayName}`);
+    await loadStatus();
+    onStatusChange?.();
+  };
+
+  const completeOAuthFlow = async (currentFlowId: string, provider: OAuthStatus) => {
+    if (completedFlowRef.current === currentFlowId) {
+      return;
+    }
+
+    completedFlowRef.current = currentFlowId;
+    setIsFinalizing(true);
+    setPendingMessage('Finishing provider connection...');
+    setError(null);
+
+    try {
+      const response = await fetch('/api/oauth/pi/complete', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flowId: currentFlowId,
+          provider: provider.provider,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to complete OAuth flow');
+      }
+
+      await handleConnected(provider, data.message);
+    } catch (err) {
+      completedFlowRef.current = null;
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
+  // Poll for auth URL and flow completion while dialog is open
+  useEffect(() => {
+    if (!flowId || !isOpen || !selectedProvider) return;
+
+    let authUrlResolved = Boolean(authUrl);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const pollFlow = async () => {
       try {
         const response = await fetch(`/api/oauth/pi/poll?flowId=${flowId}`, {
           credentials: 'include',
@@ -66,38 +128,64 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
           if (data.authUrl) {
             setAuthUrl(data.authUrl);
             setInstructions(data.instructions || '');
-            clearInterval(pollInterval);
             setIsPolling(false);
+            authUrlResolved = true;
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              timeoutId = null;
+            }
             
             // Auto-open the auth URL
-            window.open(data.authUrl, '_blank');
+            if (!authUrl) {
+              window.open(data.authUrl, '_blank');
+            }
+          }
+
+          if (data.status === 'completed' && data.hasCredentials) {
+            await completeOAuthFlow(flowId, selectedProvider);
+            return;
           }
           
           if (data.status === 'failed' || data.error) {
             setError(data.error || 'OAuth flow failed');
             setIsPolling(false);
-            clearInterval(pollInterval);
+            setPendingMessage(null);
           }
         }
       } catch (err) {
         console.error('Poll error:', err);
       }
+    };
+
+    const pollInterval = setInterval(() => {
+      void pollFlow();
     }, 1000);
 
+    void pollFlow();
+
     // Stop polling after 60 seconds
-    const timeout = setTimeout(() => {
-      clearInterval(pollInterval);
-      if (!authUrl) {
-        setError('Timeout waiting for authorization URL');
-        setIsPolling(false);
-      }
-    }, 60000);
+    if (!authUrlResolved) {
+      timeoutId = setTimeout(() => {
+        if (!authUrlResolved) {
+          setError('Timeout waiting for authorization URL');
+          setIsPolling(false);
+        }
+      }, 60000);
+    }
 
     return () => {
       clearInterval(pollInterval);
-      clearTimeout(timeout);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
-  }, [flowId, isOpen, authUrl]);
+  }, [flowId, isOpen, selectedProvider, authUrl]);
+
+  useEffect(() => {
+    if (!isOpen && flowId) {
+      resetDialogState();
+    }
+  }, [isOpen, flowId]);
 
   // Clear success message after 5 seconds
   useEffect(() => {
@@ -134,10 +222,12 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     setIsPolling(true);
     setError(null);
     setSuccessMessage(null);
+    setPendingMessage(null);
     setAuthUrl('');
     setInstructions('');
     setCode('');
     setFlowId('');
+    completedFlowRef.current = null;
 
     try {
       const response = await fetch('/api/oauth/pi/initiate', {
@@ -184,6 +274,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
     setIsLoading(true);
     setError(null);
+    setPendingMessage(null);
 
     try {
       const response = await fetch('/api/oauth/pi/exchange', {
@@ -203,17 +294,13 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
         throw new Error(data.error || 'Failed to exchange code');
       }
 
-      setIsOpen(false);
-      setCode('');
-      setFlowId('');
-      setAuthUrl('');
-      setSelectedProvider(null);
-      
-      // Show success message
-      setSuccessMessage(`Successfully connected to ${selectedProvider.displayName}`);
-      
-      await loadStatus();
-      onStatusChange?.();
+      if (data.pending) {
+        setPendingMessage(data.message || 'Authorization code received. Waiting for provider completion...');
+        setIsPolling(true);
+        return;
+      }
+
+      await handleConnected(selectedProvider, data.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -337,6 +424,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                   variant="outline" 
                   className="flex-1 justify-between h-10"
                   disabled={isLoading}
+                  data-testid="pi-oauth-provider-select"
                 >
                   {selectedProvider ? (
                     <span className="font-medium">{selectedProvider.displayName}</span>
@@ -358,11 +446,12 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button
-              onClick={() => void initiateAuth()}
-              disabled={isLoading || !selectedProvider}
-              className="h-10"
-            >
+              <Button
+                onClick={() => void initiateAuth()}
+                disabled={isLoading || !selectedProvider}
+                className="h-10"
+                data-testid="pi-oauth-connect-button"
+              >
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -415,6 +504,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                     value={authUrl}
                     readOnly
                     className="font-mono text-xs flex-1"
+                    data-testid="pi-oauth-auth-url"
                   />
                   <Button
                     variant="outline"
@@ -460,6 +550,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                   onChange={(e) => setCode(e.target.value)}
                   placeholder="Paste authorization code or callback URL..."
                   className="font-mono text-sm"
+                  data-testid="pi-oauth-code-input"
                 />
               </div>
             )}
@@ -470,12 +561,19 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
               </div>
             )}
 
+            {pendingMessage && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
+                {pendingMessage}
+              </div>
+            )}
+
             <Button
               onClick={() => void exchangeCode()}
-              disabled={isLoading || !authUrl || !code.trim()}
+              disabled={isLoading || isFinalizing || !authUrl || !code.trim()}
               className="w-full"
+              data-testid="pi-oauth-complete-button"
             >
-              {isLoading ? (
+              {isLoading || isFinalizing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Link2 className="mr-2 h-4 w-4" />

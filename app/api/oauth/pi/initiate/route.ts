@@ -148,7 +148,8 @@ export async function POST(request: NextRequest) {
 
 /**
  * Generate the OAuth script that runs in a background process
- * All providers use manual code entry for consistency (works in Docker/containers)
+ * Providers with callback servers also get explicit manual callback input so Docker/container
+ * deployments do not stall waiting for an unreachable localhost callback.
  */
 function generateOAuthScript(provider: string, flowId: string, stateFile: string, tempAuthPath: string): string {
   const loginFn = getLoginFunctionName(provider);
@@ -161,6 +162,7 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   // - google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?)
   const isOptionsBased = ['openai-codex', 'github-copilot'].includes(provider);
   const isSimpleCallback = provider === 'anthropic';
+  const usesManualCodeInputOption = provider === 'openai-codex';
   
   return `
 import fs from 'fs';
@@ -263,6 +265,7 @@ async function run() {
         handleAuthUrl(url, instructions);
       },
       onPrompt: handlePromptCode,
+      ${usesManualCodeInputOption ? 'onManualCodeInput: handlePromptCode,' : ''}
       onProgress: handleProgress
     });
     ` : `

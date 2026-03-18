@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
         status: state.status,
         authUrl: state.authUrl,
         instructions: state.instructions,
+        hasCredentials: Boolean(state.hasCredentials),
         error: state.error,
       });
     } catch {

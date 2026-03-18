@@ -5,6 +5,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
 import {
   loginAnthropic,
   loginOpenAICodex,
@@ -21,7 +22,7 @@ import {
 export type { OAuthCredentials, OAuthProviderId, OAuthPrompt };
 
 // Credentials storage path - use env var or fall back to local dev path
-const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || './data/canvas-agent/auth.json';
+const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(resolveAgentStorageDir(), 'auth.json');
 
 // All supported OAuth providers
 export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
