@@ -51,3 +51,14 @@ Ensure these are set. Local dev uses `.env.local`, Docker/Compose should use `.e
 - `ALLOW_SIGNUP=false` (set `true` only for initial onboarding)
 
 `DATA` should point to persistent storage. Workspace files, SQLite database, and skills are stored under this path (e.g., `/data/workspace`, `/data/sqlite.db`, `/data/skills`).
+
+## Docker / EasyPanel
+- Do not override the image `ENTRYPOINT` or startup command with `next-server`, `node server.js`, or a platform default.
+- The image bootstrap path is responsible for creating or synchronizing the bootstrap admin before Next.js starts.
+- If your platform requires an explicit command, use:
+
+```bash
+./scripts/docker-entrypoint.sh ./scripts/start-services.sh
+```
+
+- After deployment, container logs should include `[Startup] Running bootstrap-admin...` followed by either `Created admin user` or `Synced bootstrap admin user`.

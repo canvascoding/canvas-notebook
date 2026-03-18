@@ -68,12 +68,16 @@ echo "[Startup] Terminal Service started (PID: $TERMINAL_PID)"
 # Bootstrap admin user if env vars are set
 if [ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ] && [ -n "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]; then
   echo "[Startup] Running bootstrap-admin..."
-  if npx tsx scripts/bootstrap-admin.ts; then
+  if node scripts/bootstrap-admin.js; then
     echo "[Startup] Bootstrap-admin finished."
   else
     echo "[Startup] ERROR: bootstrap-admin failed."
     exit 1
   fi
+elif [ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ] || [ -n "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]; then
+  echo "[Startup] Skipping bootstrap-admin (requires both BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD)."
+else
+  echo "[Startup] Skipping bootstrap-admin (BOOTSTRAP_ADMIN_EMAIL/BOOTSTRAP_ADMIN_PASSWORD not set)."
 fi
 
 # Function to cleanup background processes on exit

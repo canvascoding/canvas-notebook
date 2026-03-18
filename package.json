@@ -9,7 +9,7 @@
     "dev": "node scripts/run-dev.mjs",
     "prebuild": "npm run todos:sync:agent",
     "build": "next build --webpack",
-    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
+    "bootstrap:admin": "node scripts/bootstrap-admin.js",
     "prestart": "npm run todos:sync:agent",
     "start": "NODE_ENV=production ./scripts/start-services.sh",
     "prelint": "npm run todos:sync:agent",

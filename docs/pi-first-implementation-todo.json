@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-18T08:57:50+01:00",
+  "lastUpdatedAt": "2026-03-18T10:56:53+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1979,6 +1979,18 @@
         "terminal-reliability-001"
       ],
       "description": "Moved the onboarding wizard into its own fixed scroll container so the app-wide hidden body overflow no longer traps the provider setup on small screens, aligned the main content to start at the top when vertical space is tight, and added a focused Playwright regression that verifies the onboarding viewport can scroll on a small-height device."
+    },
+    {
+      "id": "runtime-boot-007",
+      "order": 173,
+      "phase": "P27 Runtime Boot Reliability",
+      "title": "Make bootstrap-admin runner-safe in production images and document the required container startup path",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "runtime-boot-006"
+      ],
+      "description": "Replaced the production bootstrap-admin path with a standalone Node.js script that writes directly to the configured SQLite database without tsx or TypeScript source imports, updated startup logging to report execution or explicit skip reasons, documented that EasyPanel and similar hosts must not override the image entrypoint/command, and verified the fix with a fresh Docker image build plus recreated positive and negative container runs and a Playwright login flow against the production container."
     }
   ]
 }
