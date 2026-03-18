@@ -1,6 +1,6 @@
 services:
   canvas-notebook:
-    image: canvascoding/canvas-notebook:latest
+    build: .
     ports:
       - "3456:3000"
     env_file:
