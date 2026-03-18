@@ -34,17 +34,50 @@ export async function GET(
       start(controller) {
         // Connect to terminal service
         const socket = new net.Socket();
+        const encoder = new TextEncoder();
         let buffer = '';
+        let isClosed = false;
+
+        const handleAbort = () => {
+          closeStream();
+        };
+
+        const closeStream = () => {
+          if (isClosed) {
+            return;
+          }
+
+          isClosed = true;
+          request.signal.removeEventListener('abort', handleAbort);
+
+          if (!socket.destroyed) {
+            socket.destroy();
+          }
+
+          try {
+            controller.close();
+          } catch {
+            // Stream already closed
+          }
+        };
 
         const sendEvent = (data: Record<string, unknown>) => {
+          if (isClosed) {
+            return;
+          }
+
           try {
-            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
           } catch {
-            // Stream closed
+            closeStream();
           }
         };
 
         socket.on('connect', () => {
+          if (isClosed) {
+            return;
+          }
+
           // Authenticate
           const authMsg = JSON.stringify({
             id: 'auth',
@@ -55,6 +88,10 @@ export async function GET(
         });
 
         socket.on('data', (data) => {
+          if (isClosed) {
+            return;
+          }
+
           buffer += data.toString();
 
           let newlineIndex;
@@ -70,7 +107,7 @@ export async function GET(
                 if (message.id === 'auth') {
                   if (message.error) {
                     sendEvent({ type: 'error', error: 'Authentication failed' });
-                    controller.close();
+                    closeStream();
                     return;
                   }
 
@@ -88,7 +125,7 @@ export async function GET(
                 if (message.id === 'attach') {
                   if (message.error) {
                     sendEvent({ type: 'error', error: String(message.error.message) });
-                    controller.close();
+                    closeStream();
                     return;
                   }
                   sendEvent({ type: 'ready', sessionId });
@@ -110,12 +147,19 @@ export async function GET(
 
         socket.on('error', (err) => {
           sendEvent({ type: 'error', error: err.message });
-          controller.close();
+          closeStream();
         });
 
         socket.on('close', () => {
-          controller.close();
+          closeStream();
         });
+
+        if (request.signal.aborted) {
+          closeStream();
+          return;
+        }
+
+        request.signal.addEventListener('abort', handleAbort, { once: true });
 
         // Connect
         if (USE_UNIX_SOCKET) {
@@ -123,11 +167,6 @@ export async function GET(
         } else {
           socket.connect(TCP_PORT, '127.0.0.1');
         }
-
-        // Handle client disconnect
-        request.signal.addEventListener('abort', () => {
-          socket.end();
-        });
       }
     });
 
