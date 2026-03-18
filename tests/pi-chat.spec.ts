@@ -30,8 +30,8 @@ async function login(page: Page) {
   });
 
   expect(response.ok()).toBeTruthy();
-  await page.goto('/');
-  await expect(page).toHaveURL('/', { timeout: 15000 });
+  await page.goto('/chat', { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/\/chat$/, { timeout: 15000 });
 }
 
 async function startFreshChat(page: Page) {
@@ -44,6 +44,7 @@ test.describe('PI Chat E2E', () => {
   test.use({ storageState: AUTH_STATE_PATH });
 
   test.beforeAll(async ({ browser }: { browser: Browser }) => {
+    test.setTimeout(120000);
     const context = await browser.newContext({ storageState: undefined });
     const page = await context.newPage();
     await login(page);
@@ -210,84 +211,7 @@ test.describe('PI Chat E2E', () => {
     expect(messageOrder.indexOf('chat-message-toolResult')).toBeLessThan(messageOrder.indexOf('chat-message-assistant'));
   });
 
-  test('should keep assistant streaming output in plain text until the final message arrives', async ({ page }) => {
-    await page.addInitScript(() => {
-      const originalFetch = window.fetch.bind(window);
-
-      window.fetch = async (input, init) => {
-        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
-
-        if (url.includes('/api/stream')) {
-          const encoder = new TextEncoder();
-          const chunks = [
-            JSON.stringify({
-              type: 'message_update',
-              assistantMessageEvent: {
-                type: 'text_delta',
-                delta: 'Streaming **bold',
-              },
-            }) + '\n',
-            JSON.stringify({
-              type: 'message_end',
-              message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'Streaming **bold** answer' }],
-                api: 'mock',
-                provider: 'mock',
-                model: 'mock-model',
-                usage: EMPTY_USAGE,
-                stopReason: 'stop',
-                timestamp: Date.now(),
-              },
-            }) + '\n',
-          ];
-
-          let chunkIndex = 0;
-
-          const stream = new ReadableStream({
-            async pull(controller) {
-              if (chunkIndex >= chunks.length) {
-                controller.close();
-                return;
-              }
-
-              const delay = chunkIndex === 0 ? 0 : 250;
-              await new Promise((resolve) => window.setTimeout(resolve, delay));
-              controller.enqueue(encoder.encode(chunks[chunkIndex]));
-              chunkIndex += 1;
-            },
-          });
-
-          return new Response(stream, {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          });
-        }
-
-        return originalFetch(input, init);
-      };
-    });
-
-    await page.goto('/chat');
-    await startFreshChat(page);
-
-    const input = page.getByTestId('chat-input');
-    await input.fill('Show streaming state.');
-    await input.press('Enter');
-
-    const assistantMessage = page.getByTestId('chat-message-assistant').first();
-    await expect(assistantMessage).toContainText('Streaming **bold');
-    await expect(assistantMessage.locator('strong')).toHaveCount(0);
-    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toBeVisible();
-
-    await expect(assistantMessage).toContainText('Streaming bold answer');
-    await expect(assistantMessage.locator('strong')).toHaveText('bold');
-    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
-  });
-
-  test('should keep the current scroll position when streaming continues after the user scrolls up', async ({ page }) => {
+  test('should hide assistant text behind a streaming placeholder until the final message arrives', async ({ page }) => {
     await page.addInitScript(() => {
       const originalFetch = window.fetch.bind(window);
       const emptyUsage = {
@@ -311,6 +235,137 @@ test.describe('PI Chat E2E', () => {
 
         if (pathname === '/api/stream') {
           const encoder = new TextEncoder();
+          const chunks = [
+            JSON.stringify({
+              type: 'message_update',
+              assistantMessageEvent: {
+                type: 'text_delta',
+                delta: 'Streaming **bold',
+              },
+            }) + '\n',
+            JSON.stringify({
+              type: 'message_end',
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Streaming **bold** answer' }],
+                api: 'mock',
+                provider: 'mock',
+                model: 'mock-model',
+                usage: emptyUsage,
+                stopReason: 'stop',
+                timestamp: Date.now(),
+              },
+            }) + '\n',
+          ];
+
+          let chunkIndex = 0;
+
+          const stream = new ReadableStream({
+            async pull(controller) {
+              if (chunkIndex >= chunks.length) {
+                controller.close();
+                return;
+              }
+
+              const delay = chunkIndex === 0 ? 0 : 900;
+              await new Promise((resolve) => window.setTimeout(resolve, delay));
+              controller.enqueue(encoder.encode(chunks[chunkIndex]));
+              chunkIndex += 1;
+            },
+          });
+
+          return new Response(stream, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        }
+
+        return originalFetch(input, init);
+      };
+    });
+
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    const input = page.getByTestId('chat-input');
+    await input.fill('Show streaming state.');
+    await page.getByTestId('chat-send').click();
+
+    await expect(page.getByTestId('chat-message-user')).toHaveCount(1, { timeout: 15000 });
+
+    const assistantMessages = page.getByTestId('chat-message-assistant');
+    await expect(assistantMessages).toHaveCount(1, { timeout: 15000 });
+
+    const assistantMessage = assistantMessages.first();
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Streaming **bold', { exact: false })).toHaveCount(0);
+    await expect(page.getByText('Streaming bold answer', { exact: false })).toHaveCount(0);
+    await expect(assistantMessage.locator('strong')).toHaveCount(0);
+    await expect(assistantMessage).not.toContainText('Streaming');
+
+    await expect(assistantMessage).toContainText('Streaming bold answer');
+    await expect(assistantMessage.locator('strong')).toHaveText('bold');
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
+  });
+
+  test('should keep the current scroll position when streaming continues after the user scrolls up', async ({ page }) => {
+    await page.addInitScript(() => {
+      const originalFetch = window.fetch.bind(window);
+      let streamCallCount = 0;
+      const emptyUsage = {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      };
+
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+        const pathname = new URL(url, window.location.origin).pathname;
+
+        if (pathname === '/api/stream') {
+          const encoder = new TextEncoder();
+          streamCallCount += 1;
+
+          if (streamCallCount <= 5) {
+            const seedText = Array.from(
+              { length: 6 },
+              (_, lineIndex) => `Seed reply ${streamCallCount}, line ${lineIndex + 1}: keep the transcript tall before the streaming placeholder appears.`,
+            ).join('\n');
+
+            return new Response(
+              `${JSON.stringify({
+                type: 'message_end',
+                message: {
+                  role: 'assistant',
+                  content: [{ type: 'text', text: seedText }],
+                  api: 'mock',
+                  provider: 'mock',
+                  model: 'mock-model',
+                  usage: emptyUsage,
+                  stopReason: 'stop',
+                  timestamp: Date.now(),
+                },
+              })}\n`,
+              {
+                status: 200,
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+              },
+            );
+          }
+
           const totalChunks = 18;
           const linesPerChunk = 3;
           let chunkIndex = 0;
@@ -383,15 +438,28 @@ test.describe('PI Chat E2E', () => {
     await page.goto('/chat');
     await startFreshChat(page);
 
-    await page.getByTestId('chat-input').fill('Stream a long answer so I can scroll away from the bottom.');
-    await page.getByTestId('chat-input').press('Enter');
-
+    const input = page.getByTestId('chat-input');
     const scrollRegion = page.getByTestId('chat-scroll-region');
-    const assistantMessage = page.getByTestId('chat-message-assistant').first();
+    const assistantMessages = page.getByTestId('chat-message-assistant');
+
+    for (let index = 0; index < 5; index += 1) {
+      await input.fill(`Seed transcript turn ${index + 1}.`);
+      await input.press('Enter');
+      await expect(assistantMessages).toHaveCount(index + 1, { timeout: 10000 });
+      await expect(assistantMessages.nth(index)).toContainText(`Seed reply ${index + 1}, line 1`, { timeout: 10000 });
+    }
 
     await expect
       .poll(async () => scrollRegion.evaluate((element) => element.scrollHeight - element.clientHeight), { timeout: 10000 })
       .toBeGreaterThan(240);
+
+    await input.fill('Stream a long answer so I can scroll away from the bottom.');
+    await input.press('Enter');
+
+    const assistantMessage = assistantMessages.last();
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Stream line 30', { exact: false })).toHaveCount(0);
+    await page.waitForTimeout(350);
 
     const lockedScrollTop = await scrollRegion.evaluate((element) => {
       element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 220);
@@ -403,6 +471,7 @@ test.describe('PI Chat E2E', () => {
     await expect(page.getByTitle('Scroll to bottom')).toBeVisible();
     await expect(assistantMessage).toContainText('Stream line 30', { timeout: 10000 });
     await expect(assistantMessage).toContainText('Stream line 48', { timeout: 10000 });
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
 
     await page.waitForTimeout(250);
 

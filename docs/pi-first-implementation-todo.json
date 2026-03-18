@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-18T02:28:00+01:00",
+  "lastUpdatedAt": "2026-03-18T08:17:22+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1907,6 +1907,66 @@
       "dependsOn": [
         "runtime-boot-005"
       ]
+    },
+    {
+      "id": "qmd-prod-001",
+      "order": 167,
+      "phase": "P28 QMD Production Hardening",
+      "title": "Make qmd the canonical PI search tool and replace raw workspace indexing with text plus derived collections",
+      "status": "in_progress",
+      "priority": "must",
+      "dependsOn": [
+        "runtime-boot-004"
+      ],
+      "description": "Canonicalize the PI search tool as qmd with qmd_search as a legacy alias, default agent search mode to BM25 search instead of query, add structured tool output, replace the legacy workspace **/* collection with workspace-text plus workspace-derived, and generate DOCX-derived markdown in /data/cache/qmd/derived before qmd updates run."
+    },
+    {
+      "id": "qmd-prod-002",
+      "order": 168,
+      "phase": "P28 QMD Production Hardening",
+      "title": "Expose qmd readiness, default mode, collections, and derived indexing in Doctor and runtime guidance",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "qmd-prod-001"
+      ],
+      "description": "Extend Doctor and agent guidance to show qmd runtime health, default search mode, active collections, derived DOCX indexing status, and the canonical qmd search contract across prompts, managed tool docs, skills, and automation labels."
+    },
+    {
+      "id": "qmd-prod-003",
+      "order": 169,
+      "phase": "P28 QMD Production Hardening",
+      "title": "Add regression coverage and verification for canonical qmd search behavior",
+      "status": "pending",
+      "priority": "must",
+      "dependsOn": [
+        "qmd-prod-002"
+      ],
+      "description": "Cover the canonical qmd prompt/tool behavior, collection/index preparation, and doctor surface with regression checks, then verify the implementation with build plus UI/browser validation."
+    },
+    {
+      "id": "pi-chat-runtime-018",
+      "order": 170,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Hide streamed assistant text behind a compact placeholder and tighten scroll anchoring",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-017"
+      ],
+      "description": "Replace the live assistant text body with a compact three-dot placeholder while the reply is still streaming, remove the duplicate sending pulse in the assistant header, disable browser scroll anchoring when the user is manually off the bottom, and verify the behavior with focused Playwright coverage plus a manual browser check on /chat."
+    },
+    {
+      "id": "terminal-reliability-001",
+      "order": 171,
+      "phase": "P29 Terminal Reliability",
+      "title": "Unify terminal transport selection, separate create from attach, and implement real owner-scoped kill-all handling",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-chat-runtime-018"
+      ],
+      "description": "Added a shared transport resolver for dev/container parity, removed the old create-implies-attach control-channel behavior, implemented owner-scoped terminateAll for the terminal service and /api/terminal/kill, kept the JS runtime entrypoint for Docker with explicit comments, and verified the flow with terminal transport/service tests plus a browser run against /terminal."
     }
   ]
 }

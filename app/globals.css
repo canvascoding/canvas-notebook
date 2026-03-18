@@ -168,6 +168,23 @@
   }
 }
 
+@keyframes chat-streaming-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.chat-streaming-dot {
+  animation: chat-streaming-dot 1.05s ease-in-out infinite;
+}
+
 /* Prose table styles for markdown content */
 .prose table {
   width: 100%;

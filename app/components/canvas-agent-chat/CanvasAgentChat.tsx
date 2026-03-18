@@ -436,18 +436,17 @@ function StreamingMessageIndicator() {
     <div
       data-testid="chat-assistant-streaming-indicator"
       aria-label="Assistant response is still streaming"
-      className="mt-2 inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/80"
+      className="inline-flex min-h-8 min-w-12 items-center justify-center px-1 text-muted-foreground/80"
     >
       <span className="sr-only">Assistant response is still streaming</span>
       {[0, 160, 320].map((delay) => (
         <span
           key={delay}
           aria-hidden="true"
-          className="h-1 w-1 rounded-full bg-current opacity-45 animate-pulse"
-          style={{ animationDelay: `${delay}ms`, animationDuration: '1.2s' }}
+          className="chat-streaming-dot mx-0.5 h-1.5 w-1.5 rounded-full bg-current"
+          style={{ animationDelay: `${delay}ms` }}
         />
       ))}
-      <span aria-hidden="true">Streaming</span>
     </div>
   );
 }
@@ -1925,8 +1924,11 @@ export default function CanvasAgentChat({
         <div
           ref={scrollContainerRef}
           data-testid="chat-scroll-region"
-          className="absolute inset-0 space-y-4 overflow-y-auto p-4 scroll-smooth"
-          style={{ paddingBottom: `${scrollContentPadding}px` }}
+          className="absolute inset-0 space-y-4 overflow-y-auto p-4"
+          style={{
+            paddingBottom: `${scrollContentPadding}px`,
+            overflowAnchor: isAtBottom ? 'auto' : 'none',
+          }}
         >
           {messages.length === 0 && (
             <div className="flex min-h-full flex-col justify-start py-4 md:justify-center md:py-0">
@@ -2057,7 +2059,7 @@ export default function CanvasAgentChat({
                     <>
                       <div className="mb-2 flex items-center gap-2">
                         <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
-                        {(message.status === 'sending' || message.status === 'aborting') && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />}
+                        {message.status === 'aborting' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />}
                         {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Queue</span> : null}
                         {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Steer</span> : null}
                       </div>
@@ -2066,15 +2068,13 @@ export default function CanvasAgentChat({
                         <MarkdownMessage content={bodyContent} variant="user" />
                       ) : isAssistant ? (
                         isStreamingAssistant ? (
-                          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
+                          <StreamingMessageIndicator />
                         ) : (
                           <MarkdownMessage content={bodyContent} variant="assistant" />
                         )
                       ) : (
                         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
                       )}
-
-                      {isStreamingAssistant ? <StreamingMessageIndicator /> : null}
                     </>
                   )}
 
