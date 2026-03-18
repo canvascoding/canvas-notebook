@@ -97,6 +97,6 @@ RUN chown -R ${APP_USER}:${APP_USER} /data /home/${APP_USER} /tmp
 USER ${APP_USER}
 
 EXPOSE 3000
-VOLUME ["/data"]
+VOLUME ["/data", "/home/node", "/ollama"]
 ENTRYPOINT ["./scripts/docker-entrypoint.sh"]
 CMD ["./scripts/start-services.sh"]
