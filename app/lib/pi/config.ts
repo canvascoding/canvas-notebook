@@ -26,6 +26,9 @@ export interface PiRuntimeConfig {
   activeProvider: string;
   providers: Record<string, PiProviderConfig>;
   enabledSkills: string[]; // List of enabled skill names (empty = all enabled)
+  qmd?: {
+    allowExpensiveQueryMode?: boolean;
+  };
   updatedAt: string;
   updatedBy: string;
 }
@@ -61,6 +64,9 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
     },
   },
   enabledSkills: [], // Empty array means all skills are enabled by default
+  qmd: {
+    allowExpensiveQueryMode: false,
+  },
   updatedAt: new Date().toISOString(),
   updatedBy: 'system:bootstrap',
 };
@@ -102,6 +108,16 @@ export function validatePiConfig(config: unknown): string | null {
     (!activeProvider.ollamaCustomModel || !activeProvider.ollamaCustomModel.trim())
   ) {
     return 'Custom Ollama model must be a non-empty string.';
+  }
+
+  if (
+    candidate.qmd !== undefined &&
+    (typeof candidate.qmd !== 'object' ||
+      candidate.qmd === null ||
+      ('allowExpensiveQueryMode' in candidate.qmd &&
+        typeof candidate.qmd.allowExpensiveQueryMode !== 'boolean'))
+  ) {
+    return 'qmd.allowExpensiveQueryMode must be a boolean when provided.';
   }
 
   return null;

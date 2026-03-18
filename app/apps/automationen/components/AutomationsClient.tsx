@@ -50,7 +50,7 @@ const PREFERRED_SKILLS: Array<{ value: AutomationPreferredSkill; label: string; 
   { value: 'image_generation', label: 'Bild erstellen', hint: 'Fokus auf Bild-Generierung.' },
   { value: 'video_generation', label: 'Video erstellen', hint: 'Fokus auf Video-Generierung.' },
   { value: 'ad_localization', label: 'Anzeige lokalisieren', hint: 'Fokus auf Ad-Lokalisierung.' },
-  { value: 'qmd_search', label: 'Notizen durchsuchen', hint: 'Fokus auf Markdown- und Wissenssuche.' },
+  { value: 'qmd', label: 'Workspace durchsuchen', hint: 'Fokus auf qmd-Workspace-Suche mit Text- und Dokumentindex.' },
 ];
 
 function defaultDraft(): JobDraft {

@@ -124,11 +124,72 @@ else
   echo "[entrypoint] Skipping Ollama CLI auto-install (OLLAMA_CLI_AUTO_INSTALL=${ollama_auto_install})"
 fi
 
-# Install Bun and qmd for markdown search skill
+# Install Bun and qmd for workspace search
 qmd_auto_install="${QMD_AUTO_INSTALL:-true}"
 if [ "$qmd_auto_install" = "true" ]; then
   export BUN_INSTALL="${BUN_INSTALL:-/data/cache/.bun}"
   export PATH="${BUN_INSTALL}/bin:$PATH"
+  QMD_TEXT_COLLECTION_NAME="workspace-text"
+  QMD_DERIVED_COLLECTION_NAME="workspace-derived"
+  QMD_TEXT_COLLECTION_MASK='**/*.{md,mdx,txt,text,json,jsonl,csv,xml,ts,tsx,js,jsx,mjs,cjs,py,html,css,scss,sql,yaml,yml}'
+  QMD_DERIVED_COLLECTION_MASK='**/*.md'
+  QMD_DERIVED_DOCX_ROOT="/data/cache/qmd/derived/docx"
+  QMD_RUNTIME_STATUS_PATH="/data/cache/qmd/runtime-status.json"
+  QMD_DERIVED_STATUS_PATH="/data/cache/qmd/derived/status.json"
+
+  write_qmd_runtime_status() {
+    last_update_at="${1:-null}"
+    last_update_success="${2:-false}"
+    last_embed_at="${3:-null}"
+
+    mkdir -p /data/cache/qmd
+    cat > "$QMD_RUNTIME_STATUS_PATH" <<EOF
+{
+  "qmdAvailable": true,
+  "defaultMode": "search",
+  "allowExpensiveQueryMode": false,
+  "collections": [
+    {
+      "name": "${QMD_TEXT_COLLECTION_NAME}",
+      "sourceType": "workspace-text",
+      "path": "/data/workspace"
+    },
+    {
+      "name": "${QMD_DERIVED_COLLECTION_NAME}",
+      "sourceType": "workspace-derived",
+      "path": "${QMD_DERIVED_DOCX_ROOT}"
+    }
+  ],
+  "derivedDocxEnabled": true,
+  "derivedStatusPath": "${QMD_DERIVED_STATUS_PATH}",
+  "lastUpdateAt": ${last_update_at},
+  "lastUpdateSuccess": ${last_update_success},
+  "lastEmbedAt": ${last_embed_at}
+}
+EOF
+  }
+
+  ensure_qmd_collection() {
+    collection_name="$1"
+    collection_path="$2"
+    collection_mask="$3"
+
+    if qmd collection list 2>/dev/null | grep -q "^${collection_name} "; then
+      echo "[entrypoint] qmd collection already present: ${collection_name}"
+      return 0
+    fi
+
+    echo "[entrypoint] Creating qmd collection ${collection_name}..."
+    qmd collection add "$collection_path" --name "$collection_name" --mask "$collection_mask" 2>/dev/null
+  }
+
+  prepare_qmd_derived_docx() {
+    echo "[qmd-derived] Preparing DOCX-derived markdown artifacts..."
+    mkdir -p "$QMD_DERIVED_DOCX_ROOT"
+    if ! node ./scripts/qmd-prepare-derived-docx.mjs; then
+      echo "[qmd-derived] WARNING: DOCX preprocessing failed. Continuing with direct text collections only."
+    fi
+  }
 
   qmd_cli_ready() {
     command -v qmd >/dev/null 2>&1 && qmd --version >/dev/null 2>&1
@@ -186,27 +247,34 @@ if [ "$qmd_auto_install" = "true" ]; then
     echo "[entrypoint] qmd already available: $(qmd --version 2>/dev/null || echo 'unknown version')."
   fi
 
-  # Initialize workspace collection if qmd is working
+  write_qmd_runtime_status null false null
+
+  # Initialize workspace collections if qmd is working
   if qmd_indexing_ready; then
-    # Check if collection exists by trying to list it
-    if ! qmd collection list 2>/dev/null | grep -q "workspace"; then
-      echo "[entrypoint] Initializing qmd workspace collection..."
-      if qmd collection add /data/workspace --name workspace --mask "**/*" 2>/dev/null; then
-        echo "[entrypoint] qmd workspace collection created."
-        # Add context for better search results
-        qmd context add qmd://workspace "Canvas Studios workspace files and documents" 2>/dev/null || true
-      else
-        fatal_startup "Failed to create qmd workspace collection."
-      fi
-    else
-      echo "[entrypoint] qmd workspace collection already exists."
+    if qmd collection list 2>/dev/null | grep -q "^workspace "; then
+      echo "[entrypoint] Removing legacy qmd workspace collection..."
+      qmd collection remove workspace >/dev/null 2>&1 || true
     fi
+
+    prepare_qmd_derived_docx
+
+    if ! ensure_qmd_collection "$QMD_TEXT_COLLECTION_NAME" /data/workspace "$QMD_TEXT_COLLECTION_MASK"; then
+      fatal_startup "Failed to create qmd workspace-text collection."
+    fi
+    if ! ensure_qmd_collection "$QMD_DERIVED_COLLECTION_NAME" "$QMD_DERIVED_DOCX_ROOT" "$QMD_DERIVED_COLLECTION_MASK"; then
+      fatal_startup "Failed to create qmd workspace-derived collection."
+    fi
+
+    qmd context add "qmd://${QMD_TEXT_COLLECTION_NAME}" "Canvas Studios workspace text files, notes, code, and structured documents." 2>/dev/null || true
+    qmd context add "qmd://${QMD_DERIVED_COLLECTION_NAME}" "Derived searchable document text extracted from workspace DOCX files. Always map results back to the original workspace document path." 2>/dev/null || true
 
     # Run initial update
     echo "[qmd-indexer] Running initial qmd update..."
     if ! qmd update 2>/dev/null; then
+      write_qmd_runtime_status null false null
       fatal_startup "Initial qmd update failed."
     fi
+    write_qmd_runtime_status "\"$(date -Iseconds)\"" true null
 
     # Start background indexing loops
     echo "[qmd-indexer] Starting background indexing loops..."
@@ -215,8 +283,14 @@ if [ "$qmd_auto_install" = "true" ]; then
     (
       while true; do
         sleep 1800
+        prepare_qmd_derived_docx
         echo "[qmd-indexer] Running qmd update at $(date)..."
-        qmd update 2>/dev/null || echo "[qmd-indexer] Update completed with warnings at $(date)."
+        if qmd update 2>/dev/null; then
+          write_qmd_runtime_status "\"$(date -Iseconds)\"" true null
+        else
+          write_qmd_runtime_status "\"$(date -Iseconds)\"" false null
+          echo "[qmd-indexer] Update completed with warnings at $(date)."
+        fi
       done
     ) &
 
@@ -227,6 +301,7 @@ if [ "$qmd_auto_install" = "true" ]; then
 
       echo "[qmd-indexer] Running initial qmd embed at $(date)..."
       qmd embed 2>/dev/null &
+      write_qmd_runtime_status "\"$(date -Iseconds)\"" true "\"$(date -Iseconds)\""
 
       while true; do
         # Calculate minutes until 01:00
@@ -242,6 +317,7 @@ if [ "$qmd_auto_install" = "true" ]; then
 
         echo "[qmd-indexer] Running scheduled qmd embed at $(date)..."
         qmd embed 2>/dev/null &
+        write_qmd_runtime_status "\"$(date -Iseconds)\"" true "\"$(date -Iseconds)\""
 
         # Wait until next day
         sleep 86400

@@ -6,6 +6,7 @@ export type AutomationPreferredSkill =
   | 'image_generation'
   | 'video_generation'
   | 'ad_localization'
+  | 'qmd'
   | 'qmd_search';
 export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
 export type AutomationWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';

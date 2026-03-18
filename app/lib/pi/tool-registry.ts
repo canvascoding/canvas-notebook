@@ -21,6 +21,17 @@ import {
   localizeAd,
   type AdLocalizationResultData,
 } from '../integrations/ad-localization-service';
+import { readPiRuntimeConfig } from '../agents/storage';
+import {
+  QMD_CANONICAL_TOOL_NAME,
+  extractFirstJsonArray,
+  formatQmdSearchSummary,
+  mergeQmdResults,
+  normalizeQmdCollections,
+  normalizeQmdMode,
+  normalizeQmdResults,
+  type QmdSearchMode,
+} from '../qmd/runtime';
 
 
 const execAsync = promisify(exec);
@@ -110,6 +121,139 @@ function formatAdLocalizationText(data: AdLocalizationResultData): string {
     resultText += '\n';
   });
   return resultText;
+}
+
+async function executeQmdCommand(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    BUN_INSTALL: process.env.BUN_INSTALL || '/data/cache/.bun',
+  };
+
+  const bunInstall = env.BUN_INSTALL || '/data/cache/.bun';
+  const pathEntries = [path.join(bunInstall, 'bin'), env.PATH || ''].filter(Boolean);
+  env.PATH = pathEntries.join(':');
+
+  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    execFile('qmd', args, { cwd, env, maxBuffer: 1024 * 1024 * 8 }, (error, stdout, stderr) => {
+      if (error) {
+        const execError = error as CommandExecutionError;
+        execError.stdout = stdout;
+        execError.stderr = stderr;
+        reject(execError);
+        return;
+      }
+
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+async function runQmdSearch(params: {
+  query: string;
+  mode?: unknown;
+  collection?: unknown;
+  limit?: unknown;
+}): Promise<{
+  summary: string;
+  details: {
+    mode: QmdSearchMode;
+    collections: string[];
+    results: ReturnType<typeof mergeQmdResults>;
+    raw: Array<{ collection: string; stdout: string; stderr: string }>;
+    stderr: string[];
+  };
+}> {
+  const workspacePath = getWorkspacePath();
+  const piConfig = await readPiRuntimeConfig();
+  const mode = normalizeQmdMode(params.mode);
+  const collections = normalizeQmdCollections(params.collection);
+  const limit = typeof params.limit === 'number' && Number.isFinite(params.limit)
+    ? Math.max(1, Math.min(Math.trunc(params.limit), 50))
+    : 10;
+
+  if (mode === 'query' && piConfig.qmd?.allowExpensiveQueryMode !== true) {
+    throw new Error(
+      'qmd query mode is disabled by default in Canvas Notebook because it can trigger model downloads and local builds. Set qmd.allowExpensiveQueryMode=true in the PI runtime config to enable it.',
+    );
+  }
+
+  const rawOutputs: Array<{ collection: string; stdout: string; stderr: string }> = [];
+  const parsedResults = [];
+
+  for (const collection of collections) {
+    const args = [mode, params.query, '--json', '-n', String(limit), '-c', collection];
+    const { stdout, stderr } = await executeQmdCommand(args, workspacePath);
+    rawOutputs.push({ collection, stdout, stderr });
+    parsedResults.push(...normalizeQmdResults(extractFirstJsonArray(stdout), collection));
+  }
+
+  const mergedResults = mergeQmdResults(parsedResults);
+
+  return {
+    summary: formatQmdSearchSummary(mergedResults, mode),
+    details: {
+      mode,
+      collections,
+      results: mergedResults,
+      raw: rawOutputs,
+      stderr: rawOutputs.map((entry) => entry.stderr).filter(Boolean),
+    },
+  };
+}
+
+function createQmdTool(name: string, legacy = false): AgentTool {
+  return {
+    name,
+    label: legacy ? 'Searching workspace (legacy qmd alias)' : 'Searching workspace',
+    description: legacy
+      ? 'Legacy alias for qmd. Searches the workspace with qmd using fast BM25 search by default. Prefer mode=search; use vsearch only after weak keyword results. query mode is intentionally disabled by default because it can trigger large local model downloads/builds.'
+      : 'Searches the Canvas workspace with qmd. Use this for file/content lookup across workspace-text and workspace-derived collections. Default mode=search (fast BM25). Use vsearch only after weak keyword results. query mode is intentionally disabled by default because it can trigger large local model downloads/builds.',
+    parameters: Type.Object({
+      query: Type.String({ description: 'Search query' }),
+      mode: Type.Optional(
+        Type.Union([
+          Type.Literal('search'),
+          Type.Literal('vsearch'),
+          Type.Literal('query'),
+        ], { description: 'Search mode. Default: search. query is disabled unless qmd.allowExpensiveQueryMode is enabled in PI config.' }),
+      ),
+      collection: Type.Optional(
+        Type.Union([
+          Type.String({ description: 'Collection name. Defaults to workspace-text and workspace-derived.' }),
+          Type.Array(Type.String(), { description: 'Collection names. Defaults to workspace-text and workspace-derived.' }),
+        ]),
+      ),
+      limit: Type.Optional(Type.Number({ description: 'Maximum number of results. Default: 10 (max 50).' })),
+    }),
+    execute: async (toolCallId, params) => {
+      try {
+        const result = await runQmdSearch(params as {
+          query: string;
+          mode?: unknown;
+          collection?: unknown;
+          limit?: unknown;
+        });
+
+        return {
+          content: [{ type: 'text', text: result.summary }],
+          details: result.details,
+        };
+      } catch (error: unknown) {
+        const execError = asCommandExecutionError(error);
+        const stderr = [execError.stderr, execError.stdout].filter(Boolean).join('\n').trim();
+        const message = stderr || execError.message || getErrorMessage(error);
+
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: {
+            error: message,
+            stdout: execError.stdout,
+            stderr: execError.stderr,
+          },
+        };
+      }
+    },
+  };
 }
 
 /**
@@ -476,48 +620,16 @@ export const piTools: AgentTool[] = [
     },
   },
   {
-    name: 'qmd_search',
-    label: 'Searching markdown notes',
-    description: 'Searches markdown notes and documents in the workspace using qmd. Automatically indexes all .md files in /data/workspace. Use when user asks for: "search my notes", "find related documents", "search in my workspace". Prefer qmd search (fast keyword search) over vsearch (semantic, slower).',
-    parameters: Type.Object({
-      query: Type.String({ description: 'Search query' }),
-      mode: Type.Optional(Type.String({ description: 'Search mode: search (fast keyword, default), vsearch (semantic, slower), query (hybrid)' })),
-      collection: Type.Optional(Type.String({ description: 'Collection to search. Default: workspace' })),
-      limit: Type.Optional(Type.Number({ description: 'Maximum number of results. Default: 10' })),
-    }),
-    execute: async (toolCallId, params) => {
-      const { query, mode, collection, limit } = params as { 
-        query: string; 
-        mode?: string;
-        collection?: string;
-        limit?: number;
-      };
-      try {
-        const workspacePath = getWorkspacePath();
-        const searchMode = mode || 'search';
-        let cmd = `export BUN_INSTALL="\${BUN_INSTALL:-/data/cache/.bun}" && export PATH="$BUN_INSTALL/bin:$PATH" && qmd ${searchMode} "${query.replace(/"/g, '\\"')}"`;
-        if (collection) cmd += ` -c "${collection}"`;
-        if (limit) cmd += ` -n ${limit}`;
-        
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
-        return {
-          content: [{ type: 'text', text: stdout || stderr || 'Search completed' }],
-          details: { stdout, stderr },
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
+    ...createQmdTool(QMD_CANONICAL_TOOL_NAME),
+  },
+  {
+    ...createQmdTool('qmd_search', true),
   },
   // Workflow Automation Tools
   {
     name: 'create_automation_job',
     label: 'Creating automation job',
-    description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: preferredSkill (auto/image_generation/video_generation/ad_localization/qmd_search), targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
+    description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: preferredSkill (auto/image_generation/video_generation/ad_localization/qmd), targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
     parameters: Type.Object({
       name: Type.String({ description: 'Name of the automation job (max 120 chars)' }),
       prompt: Type.String({ description: 'The script/prompt to execute when the job runs' }),
@@ -530,7 +642,7 @@ export const piTools: AgentTool[] = [
         unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
         timeZone: Type.Optional(Type.String({ description: 'Timezone (default: UTC)' })),
       }),
-      preferredSkill: Type.Optional(Type.String({ description: 'Skill to use: auto, image_generation, video_generation, ad_localization, qmd_search' })),
+      preferredSkill: Type.Optional(Type.String({ description: 'Skill to use: auto, image_generation, video_generation, ad_localization, qmd' })),
       targetOutputPath: Type.Optional(Type.String({ description: 'Where to save job outputs (relative to workspace)' })),
       workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Array of file paths to include as context' })),
       status: Type.Optional(Type.String({ description: 'Job status: active (default) or paused' })),

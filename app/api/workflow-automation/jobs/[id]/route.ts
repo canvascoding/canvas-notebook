@@ -107,11 +107,15 @@ const VALID_PREFERRED_SKILLS: AutomationPreferredSkill[] = [
   'image_generation',
   'video_generation',
   'ad_localization',
+  'qmd',
   'qmd_search',
 ];
 
 function normalizePreferredSkill(value: unknown): AutomationPreferredSkill {
   const normalized = typeof value === 'string' ? value.trim() : 'auto';
+  if (normalized === 'qmd_search') {
+    return 'qmd';
+  }
   if (VALID_PREFERRED_SKILLS.includes(normalized as AutomationPreferredSkill)) {
     return normalized as AutomationPreferredSkill;
   }

@@ -23,6 +23,7 @@ const VALID_PREFERRED_SKILLS = new Set<AutomationPreferredSkill>([
   'image_generation',
   'video_generation',
   'ad_localization',
+  'qmd',
   'qmd_search',
 ]);
 
@@ -43,6 +44,9 @@ function normalizeString(value: unknown, field: string, maxLength = 4000): strin
 
 function normalizePreferredSkill(value: unknown): AutomationPreferredSkill {
   const normalized = typeof value === 'string' ? value.trim() : 'auto';
+  if (normalized === 'qmd_search') {
+    return 'qmd';
+  }
   if (VALID_PREFERRED_SKILLS.has(normalized as AutomationPreferredSkill)) {
     return normalized as AutomationPreferredSkill;
   }
@@ -95,7 +99,7 @@ function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord
     name: row.name,
     status: row.status as AutomationJobRecord['status'],
     prompt: row.prompt,
-    preferredSkill: row.preferredSkill as AutomationPreferredSkill,
+    preferredSkill: normalizePreferredSkill(row.preferredSkill),
     workspaceContextPaths,
     targetOutputPath,
     effectiveTargetOutputPath: getEffectiveAutomationTargetOutputPath({ name: row.name, targetOutputPath }),
