@@ -66,7 +66,9 @@ That's it. The script will:
 3. Build the Docker image and start the container
 4. Wait for the app to be ready and open a browser window at `http://localhost:3456`
 
-After login, an optional onboarding wizard can guide you through AI provider setup. The app user itself is always defined via the bootstrap env vars.
+If you don't change the config, the default login is `admin@example.com` / `admin`. You can change email and password at any time by editing the env file and restarting the container — the bootstrap script syncs the admin user on every startup.
+
+After login, an optional onboarding wizard can guide you through AI provider setup.
 
 > `npm install` is not required — the setup script only uses built-in Node.js modules.
 
@@ -174,7 +176,9 @@ docker compose -f compose.hub.yaml up -d
 All required environment variables are documented as comments inside the file. The only things you need to change are:
 - `BETTER_AUTH_SECRET` — generate with `openssl rand -base64 32`
 - `BASE_URL` / `BETTER_AUTH_BASE_URL` — the URL where the app will be reachable
-- `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` — your login credentials
+- `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` — your login credentials (defaults: `admin@example.com` / `admin`)
+
+You can update these at any time — just edit the values and restart the container. The bootstrap script syncs the admin user on every startup.
 
 ### Option B: Quick start with docker run
 
