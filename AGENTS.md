@@ -21,7 +21,7 @@
 - Test-Container bei neuem Testlauf immer mit aktuellem Stand neu laden (recreate/rebuild), statt alte Container weiterzuverwenden.
 - commmit sauber die einzelnen fertigen to dos, aber nicht pushen. 
 - container auf port 3000 nur bauen wenn es explizit gefordert wird 
-- login für die app ist email: admin.com und psw: change-me
+- login für die app über `BOOTSTRAP_ADMIN_EMAIL` und `BOOTSTRAP_ADMIN_PASSWORD` aus der lokalen Env-Konfiguration
 - mach mit keinem to do weiter wenn der vorherige to do noch nicht fertig ist
 - update immer /Users/frankalexanderweber/.openclaw/workspace-mango-jerry/canvasstudios-notebook/docs/pi-first-implementation-todo.json damit wir up to date bleiben
 - arbeite proaktiv, mach commits zwischendurch und mach noch keine weitere task bevor eine wichtige task fertig ist. 

@@ -36,7 +36,7 @@ These rules are **non-negotiable** for all work on the new agent logic:
     - **Container Usage:** Always use a single container on port `3000` for manual tests.
     - **Isolate Environments:** Ensure no multiple test containers run in parallel.
     - **Clean Slate:** Rebuild/recreate (`--force-recreate`) the container for every new test run; do not reuse old containers.
-3.  **Authentication:** Use `admin.com` / `change-me` for testing.
+3.  **Authentication:** Use `TEST_LOGIN_EMAIL` / `TEST_LOGIN_PASSWORD` or the locally configured bootstrap admin credentials for testing.
 4.  **Documentation Sync:** Always update `/Users/frankalexanderweber/.openclaw/workspace-mango-jerry/canvasstudios-notebook/docs/pi-first-implementation-todo.json` to keep status current.
 5.  **Proactive Workflow:** Work proactively, make frequent commits for completed sub-tasks, and **never push** unless explicitly instructed.
 6.  **UI Verification:** Always test the UI when integrating backend components.

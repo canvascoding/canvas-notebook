@@ -33,8 +33,8 @@
       "E2E_EXTERNAL_SERVER=1 BASE_URL=http://localhost:3000 npm run test:integration:pi"
     ],
     "appLogin": {
-      "email": "admin.com",
-      "password": "change-me"
+      "email": "<BOOTSTRAP_ADMIN_EMAIL>",
+      "password": "<BOOTSTRAP_ADMIN_PASSWORD>"
     }
   },
   "tasks": [

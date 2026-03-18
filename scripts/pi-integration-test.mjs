@@ -1,5 +1,5 @@
 const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-const loginEmail = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin.com';
+const loginEmail = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const loginPassword = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function request(path, options = {}) {

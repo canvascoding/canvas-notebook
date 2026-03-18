@@ -135,9 +135,9 @@ docker compose down --remove-orphans
 ```bash
 docker compose up -d --build --force-recreate
 ```
-4. Login in der App:
-- Email: `admin.com`
-- Passwort: `change-me`
+4. Login in der App mit lokal konfiguriertem Bootstrap-Admin:
+- Email: `BOOTSTRAP_ADMIN_EMAIL`
+- Passwort: `BOOTSTRAP_ADMIN_PASSWORD`
 5. Settings -> Agent Settings:
 - Provider `ollama` waehlbar
 - Base URL + Model speicherbar

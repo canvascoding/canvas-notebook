@@ -3,13 +3,16 @@ loadAppEnv(process.cwd());
 
 import { auth } from './app/lib/auth';
 
+const email = process.env.DEBUG_AUTH_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
+const password = process.env.DEBUG_AUTH_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
+
 async function testLogin() {
   console.log('Attempting login...');
   try {
     const res = await auth.api.signInEmail({
         body: {
-            email: "admin.com",
-            password: "change-me"
+            email,
+            password
         }
     });
     console.log('Login result:', res);

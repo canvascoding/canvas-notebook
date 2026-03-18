@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const TEST_EMAIL = process.env.E2E_EMAIL || 'admin.com';
-const TEST_PASSWORD = process.env.E2E_PASSWORD || 'change-me';
+const TEST_EMAIL = process.env.E2E_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
+const TEST_PASSWORD = process.env.E2E_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 /**
  * Ollama Provider Integration Tests

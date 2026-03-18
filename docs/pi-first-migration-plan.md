@@ -110,8 +110,8 @@ E2E_EXTERNAL_SERVER=1 BASE_URL=http://localhost:3000 npm run test:e2e
 ```
 
 ### 7.3 Login fuer manuelle Tests
-- Email: `admin.com`
-- Passwort: `change-me`
+- Email: `BOOTSTRAP_ADMIN_EMAIL`
+- Passwort: `BOOTSTRAP_ADMIN_PASSWORD`
 
 ## 8) Implementierungsreihenfolge
 Die verbindliche Reihenfolge ist in `docs/pi-first-implementation-todo.json` definiert.
