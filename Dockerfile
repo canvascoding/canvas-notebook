@@ -63,7 +63,8 @@ COPY --from=builder /app/app ./app
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
-# Copy server directory (terminal-service.js and load-app-env.js needed)
+# Copy runtime server entrypoints.
+# terminal-service.js stays as a deliberate JS artifact because the runner image executes it directly.
 COPY --from=builder /app/server/terminal-service.js ./server/terminal-service.js
 COPY --from=builder /app/server/load-app-env.js ./server/load-app-env.js
 

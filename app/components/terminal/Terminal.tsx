@@ -154,9 +154,11 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
       if (!response.ok) {
         throw new Error('Failed to reset terminals');
       }
+      const result = await response.json() as { closed?: number };
       clearSessions();
       setSelectMode(false);
-      toast.success('Terminal sessions reset');
+      const closed = typeof result.closed === 'number' ? result.closed : 0;
+      toast.success(closed > 0 ? `${closed} terminal session${closed === 1 ? '' : 's'} reset` : 'Terminal sessions reset');
     } catch (error) {
       console.error('[Terminal] Failed to reset sessions', error);
       toast.error('Failed to reset terminals');

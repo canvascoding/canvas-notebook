@@ -10,6 +10,7 @@ const path = require('path');
 const assert = require('assert');
 
 const TERMINAL_SERVICE_PATH = path.join(__dirname, '..', 'server', 'terminal-service.js');
+const NODE_PTY_MOCK_PATH = path.join(__dirname, 'test-terminal-node-pty-mock.js');
 const TEST_TOKEN = 'test-token-12345';
 const TEST_PORT = 3458;
 
@@ -20,6 +21,8 @@ class TerminalClient {
     this.messageQueue = new Map();
     this.messageId = 0;
     this.authenticated = false;
+    this.receivedMessages = [];
+    this.waiters = [];
   }
 
   async connect(port) {
@@ -56,6 +59,9 @@ class TerminalClient {
             } else {
               pending.resolve(message.result);
             }
+          } else {
+            this.receivedMessages.push(message);
+            this.flushWaiters();
           }
         } catch (e) {
           // Invalid JSON
@@ -97,8 +103,49 @@ class TerminalClient {
     return this.sendMessage('create', { sessionId, ownerId });
   }
 
+  async attachSession(sessionId) {
+    return this.sendMessage('attach', { sessionId });
+  }
+
   async sendInput(sessionId, data) {
     return this.sendMessage('input', { sessionId, data });
+  }
+
+  async terminateAll(ownerId) {
+    return this.sendMessage('terminateAll', { ownerId });
+  }
+
+  flushWaiters() {
+    const pendingWaiters = [...this.waiters];
+    this.waiters = [];
+    for (const waiter of pendingWaiters) {
+      if (!waiter()) {
+        this.waiters.push(waiter);
+      }
+    }
+  }
+
+  waitForMessage(predicate, timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiters = this.waiters.filter((waiter) => waiter !== check);
+        reject(new Error('Timed out waiting for terminal message'));
+      }, timeoutMs);
+
+      const check = () => {
+        const match = this.receivedMessages.find(predicate);
+        if (!match) {
+          return false;
+        }
+        clearTimeout(timer);
+        resolve(match);
+        return true;
+      };
+
+      if (!check()) {
+        this.waiters.push(check);
+      }
+    });
   }
 
   disconnect() {
@@ -117,6 +164,7 @@ async function runTests() {
   const terminalService = spawn('node', [TERMINAL_SERVICE_PATH], {
     env: {
       ...process.env,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${NODE_PTY_MOCK_PATH}`].filter(Boolean).join(' '),
       CANVAS_TERMINAL_TOKEN: TEST_TOKEN,
       CANVAS_TERMINAL_PORT: String(TEST_PORT),
       CANVAS_TERMINAL_USE_UNIX_SOCKET: 'false',
@@ -150,16 +198,54 @@ async function runTests() {
     assert(result.sessionId === sessionId, 'Session ID mismatch');
     console.log('   ✓ Session created:', result.sessionId, '(PID:', result.pid + ')\n');
 
-    // Test 4: Send input
-    console.log('5. Testing input...');
-    await client.sendInput(sessionId, 'echo "Hello from test"\n');
-    console.log('   ✓ Input sent\n');
-
-    // Wait for output
+    // Test 4: Control socket should not receive terminal output before attach
+    console.log('5. Testing control/output separation...');
+    await client.sendInput(sessionId, 'printf "control-only\\n"\n');
     await new Promise(resolve => setTimeout(resolve, 500));
+    const controlOutput = client.receivedMessages.find((message) => message.type === 'output');
+    assert.strictEqual(controlOutput, undefined, 'Control socket should not receive terminal output');
+    console.log('   ✓ Control socket stayed response-only\n');
 
-    // Test 5: Invalid auth
-    console.log('6. Testing invalid authentication...');
+    // Test 5: Attach stream client and receive ready + buffered output
+    console.log('6. Testing attach and buffered output...');
+    const streamClient = new TerminalClient();
+    await streamClient.connect(TEST_PORT);
+    await streamClient.authenticate(TEST_TOKEN);
+    await streamClient.attachSession(sessionId);
+    await streamClient.waitForMessage((message) => message.type === 'ready');
+    const bufferedOutput = await streamClient.waitForMessage(
+      (message) => message.type === 'output' && typeof message.data === 'string' && message.data.includes('control-only')
+    );
+    assert(bufferedOutput, 'Expected buffered terminal output after attach');
+    await client.sendInput(sessionId, 'printf "after-attach\\n"\n');
+    const liveOutput = await streamClient.waitForMessage(
+      (message) => message.type === 'output' && typeof message.data === 'string' && message.data.includes('after-attach')
+    );
+    assert(liveOutput, 'Expected live terminal output after attach');
+    console.log('   ✓ Attach receives ready and terminal output\n');
+
+    // Test 6: terminateAll should be owner-scoped
+    console.log('7. Testing terminateAll owner scoping...');
+    const ownerSessionA = 'owner-session-a';
+    const ownerSessionB = 'owner-session-b';
+    const otherOwnerSession = 'other-owner-session';
+    await client.createSession(ownerSessionA, 'owner-a');
+    await client.createSession(ownerSessionB, 'owner-a');
+    await client.createSession(otherOwnerSession, 'owner-b');
+    const terminateAllResult = await client.terminateAll('owner-a');
+    assert.strictEqual(terminateAllResult.success, true, 'terminateAll should succeed');
+    assert.strictEqual(terminateAllResult.closed, 2, 'terminateAll should only close matching owner sessions');
+    try {
+      await client.sendInput(ownerSessionA, 'echo "should fail"\n');
+      assert.fail('Expected terminated session input to fail');
+    } catch (error) {
+      assert.match(String(error), /Session not found/);
+    }
+    await client.sendInput(otherOwnerSession, 'printf "owner-b-still-live\\n"\n');
+    console.log('   ✓ terminateAll only closed the requested owner sessions\n');
+
+    // Test 7: Invalid auth
+    console.log('8. Testing invalid authentication...');
     const badClient = new TerminalClient();
     await badClient.connect(TEST_PORT);
     try {
@@ -171,8 +257,8 @@ async function runTests() {
     }
     badClient.disconnect();
 
-    // Test 6: Unauthorized request
-    console.log('7. Testing unauthorized request...');
+    // Test 8: Unauthorized request
+    console.log('9. Testing unauthorized request...');
     const unauthClient = new TerminalClient();
     await unauthClient.connect(TEST_PORT);
     try {
@@ -185,6 +271,7 @@ async function runTests() {
     unauthClient.disconnect();
 
     // Cleanup
+    streamClient.disconnect();
     client.disconnect();
     
     console.log('✅ All tests passed!');

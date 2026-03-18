@@ -1,18 +1,15 @@
 /**
  * Terminal Client - Verbindet Next.js mit Terminal Service
- * 
+ *
  * Unterstützt Unix Socket (Docker) und TCP (Local Dev)
  */
 
 import * as net from 'net';
-import * as fs from 'fs';
-import { randomBytes } from 'crypto';
+import { resolveTerminalTransport } from '@/app/lib/terminal-transport';
 
 // Configuration
-const SOCKET_PATH = process.env.CANVAS_TERMINAL_SOCKET || '/tmp/canvas-terminal.sock';
-const TCP_PORT = parseInt(process.env.CANVAS_TERMINAL_PORT || '3457', 10);
 const AUTH_TOKEN = process.env.CANVAS_TERMINAL_TOKEN || '';
-const USE_UNIX_SOCKET = fs.existsSync(SOCKET_PATH);
+const transport = resolveTerminalTransport();
 
 interface TerminalMessage {
   id: string;
@@ -35,33 +32,39 @@ class TerminalClient {
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (this.socket) {
+      if (this.socket && !this.socket.destroyed && this.authenticated) {
         resolve();
         return;
       }
 
+      if (this.socket) {
+        this.disconnect();
+      }
+
       this.socket = new net.Socket();
-      
+
       this.socket.on('data', (data) => {
         this.handleData(data.toString());
       });
 
       this.socket.on('error', (err) => {
         console.error('[Terminal Client] Socket error:', err.message);
+        this.rejectPendingMessages(err);
         reject(err);
       });
 
       this.socket.on('close', () => {
+        this.rejectPendingMessages(new Error('Terminal client connection closed'));
         this.socket = null;
         this.authenticated = false;
       });
 
-      if (USE_UNIX_SOCKET) {
-        this.socket.connect(SOCKET_PATH, () => {
+      if (transport.useUnixSocket) {
+        this.socket.connect(transport.socketPath, () => {
           this.authenticate().then(() => resolve()).catch(reject);
         });
       } else {
-        this.socket.connect(TCP_PORT, '127.0.0.1', () => {
+        this.socket.connect(transport.tcpPort, transport.tcpHost, () => {
           this.authenticate().then(() => resolve()).catch(reject);
         });
       }
@@ -78,12 +81,12 @@ class TerminalClient {
 
   private handleData(data: string): void {
     this.buffer += data;
-    
+
     let newlineIndex;
     while ((newlineIndex = this.buffer.indexOf('\n')) !== -1) {
       const line = this.buffer.slice(0, newlineIndex);
       this.buffer = this.buffer.slice(newlineIndex + 1);
-      
+
       if (line.trim()) {
         try {
           const message: TerminalResponse = JSON.parse(line);
@@ -100,6 +103,17 @@ class TerminalClient {
           console.error('[Terminal Client] Invalid JSON:', line);
         }
       }
+    }
+  }
+
+  private rejectPendingMessages(error: Error): void {
+    if (this.messageQueue.size === 0) {
+      return;
+    }
+
+    for (const [id, pending] of this.messageQueue.entries()) {
+      this.messageQueue.delete(id);
+      pending.reject(error);
     }
   }
 
@@ -137,11 +151,6 @@ class TerminalClient {
     return this.sendMessage('create', { sessionId, ownerId, cwd });
   }
 
-  async attachSession(sessionId: string): Promise<unknown> {
-    await this.connect();
-    return this.sendMessage('attach', { sessionId });
-  }
-
   async sendInput(sessionId: string, data: string): Promise<unknown> {
     await this.connect();
     return this.sendMessage('input', { sessionId, data });
@@ -157,12 +166,9 @@ class TerminalClient {
     return this.sendMessage('terminate', { sessionId });
   }
 
-  getSocket(): net.Socket | null {
-    return this.socket;
-  }
-
-  isConnected(): boolean {
-    return this.socket !== null && !this.socket.destroyed && this.authenticated;
+  async terminateAll(ownerId: string): Promise<unknown> {
+    await this.connect();
+    return this.sendMessage('terminateAll', { ownerId });
   }
 
   disconnect(): void {
@@ -182,16 +188,4 @@ export function getTerminalClient(): TerminalClient {
     client = new TerminalClient();
   }
   return client;
-}
-
-export function resetTerminalClient(): void {
-  if (client) {
-    client.disconnect();
-    client = null;
-  }
-}
-
-// Generate token for new sessions
-export function generateSessionToken(): string {
-  return randomBytes(16).toString('hex');
 }

@@ -5,13 +5,11 @@
 
 import { NextRequest } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { resolveTerminalTransport } from '@/app/lib/terminal-transport';
 import * as net from 'net';
-import * as fs from 'fs';
 
-const SOCKET_PATH = process.env.CANVAS_TERMINAL_SOCKET || '/tmp/canvas-terminal.sock';
-const TCP_PORT = parseInt(process.env.CANVAS_TERMINAL_PORT || '3457', 10);
 const AUTH_TOKEN = process.env.CANVAS_TERMINAL_TOKEN || '';
-const USE_UNIX_SOCKET = fs.existsSync(SOCKET_PATH);
+const transport = resolveTerminalTransport();
 
 export async function GET(
   request: NextRequest,
@@ -162,10 +160,10 @@ export async function GET(
         request.signal.addEventListener('abort', handleAbort, { once: true });
 
         // Connect
-        if (USE_UNIX_SOCKET) {
-          socket.connect(SOCKET_PATH);
+        if (transport.useUnixSocket) {
+          socket.connect(transport.socketPath);
         } else {
-          socket.connect(TCP_PORT, '127.0.0.1');
+          socket.connect(transport.tcpPort, transport.tcpHost);
         }
       }
     });

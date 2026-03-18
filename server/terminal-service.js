@@ -1,8 +1,11 @@
 /**
  * Terminal Service - Separater Prozess für Terminal-Management
- * 
+ *
  * Kommuniziert über Unix Socket (Docker) oder TCP (Local Dev)
  * Protokoll: JSON-RPC mit Message Framing
+ *
+ * NOTE: This JS runtime entrypoint is copied directly into the Docker runner image.
+ * Keep it in sync with server/terminal-service.ts.
  */
 
 const net = require('net');
@@ -54,6 +57,21 @@ function countOwnerSessions(ownerId) {
   return count;
 }
 
+function clearIdleTimer(session) {
+  if (session.idleTimer) {
+    clearTimeout(session.idleTimer);
+    session.idleTimer = null;
+  }
+}
+
+function scheduleIdleTermination(session) {
+  clearIdleTimer(session);
+  session.idleTimer = setTimeout(() => {
+    log(`Session ${session.id} idle timeout`);
+    terminateSession(session.id);
+  }, DEFAULT_IDLE_TIMEOUT);
+}
+
 function evictIdleOwnerSessions(ownerId) {
   const normalized = normalizeOwnerId(ownerId);
   const idleSessions = [];
@@ -94,23 +112,29 @@ function createSession(sessionId, ownerId, cwd) {
   }
   
   // Create PTY
-  const shell = process.env.SHELL || '/bin/bash';
   const finalCwd = fs.existsSync(cwd) ? cwd : WORKSPACE_DIR;
+  const shell = resolveShell();
   
   log(`Creating session ${sessionId} for ${normalizedOwnerId} in ${finalCwd}`);
-  
-  const ptyProcess = spawn(shell, [], {
-    name: 'xterm-256color',
-    cols: 80,
-    rows: 24,
-    cwd: finalCwd,
-    env: {
-      ...process.env,
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
-      LANG: 'en_US.UTF-8',
-    },
-  });
+
+  let ptyProcess;
+  try {
+    ptyProcess = spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: finalCwd,
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+        LANG: 'en_US.UTF-8',
+      },
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown spawn error';
+    throw new Error(`Failed to spawn terminal shell "${shell}" in "${finalCwd}": ${errorMessage}`);
+  }
   
   const session = {
     id: sessionId,
@@ -167,7 +191,25 @@ function createSession(sessionId, ownerId, cwd) {
   });
   
   sessions.set(sessionId, session);
+  scheduleIdleTermination(session);
   return session;
+}
+
+function resolveShell() {
+  const candidates = [
+    process.env.CANVAS_TERMINAL_SHELL,
+    process.env.SHELL,
+    '/bin/bash',
+    '/bin/sh',
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return '/bin/sh';
 }
 
 function attachClient(sessionId, client) {
@@ -179,10 +221,7 @@ function attachClient(sessionId, client) {
   session.clients.add(client);
   
   // Clear idle timer
-  if (session.idleTimer) {
-    clearTimeout(session.idleTimer);
-    session.idleTimer = null;
-  }
+  clearIdleTimer(session);
   
   // Send buffered output to new client
   if (session.outputBuffer) {
@@ -212,10 +251,7 @@ function detachClient(sessionId, client) {
   
   // Start idle timer if no clients connected
   if (session.clients.size === 0) {
-    session.idleTimer = setTimeout(() => {
-      log(`Session ${sessionId} idle timeout`);
-      terminateSession(sessionId);
-    }, DEFAULT_IDLE_TIMEOUT);
+    scheduleIdleTermination(session);
   }
 }
 
@@ -225,9 +261,7 @@ function terminateSession(sessionId) {
   
   log(`Terminating session ${sessionId}`);
   
-  if (session.idleTimer) {
-    clearTimeout(session.idleTimer);
-  }
+  clearIdleTimer(session);
   
   try {
     session.pty.kill();
@@ -236,6 +270,23 @@ function terminateSession(sessionId) {
   }
   
   sessions.delete(sessionId);
+}
+
+function terminateOwnerSessions(ownerId) {
+  const normalized = normalizeOwnerId(ownerId);
+  const ownedSessionIds = [];
+
+  for (const [id, session] of sessions.entries()) {
+    if (session.ownerId === normalized) {
+      ownedSessionIds.push(id);
+    }
+  }
+
+  for (const sessionId of ownedSessionIds) {
+    terminateSession(sessionId);
+  }
+
+  return ownedSessionIds.length;
 }
 
 function handleInput(sessionId, data) {
@@ -283,7 +334,6 @@ function handleMessage(client, message) {
         
         const { sessionId, ownerId, cwd } = params;
         const session = createSession(sessionId, ownerId, cwd || WORKSPACE_DIR);
-        attachClient(sessionId, client);
         sendResult(client, id, { 
           success: true, 
           sessionId: session.id,
@@ -337,6 +387,18 @@ function handleMessage(client, message) {
         const { sessionId } = params;
         terminateSession(sessionId);
         sendResult(client, id, { success: true });
+        break;
+      }
+
+      case 'terminateAll': {
+        if (!authenticatedClients.has(client)) {
+          sendError(client, id, 401, 'Unauthorized');
+          return;
+        }
+
+        const { ownerId } = params;
+        const closed = terminateOwnerSessions(ownerId);
+        sendResult(client, id, { success: true, closed });
         break;
       }
       
