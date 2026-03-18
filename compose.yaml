@@ -1,9 +1,6 @@
 services:
   canvas-notebook:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: canvas-notebook:local
+    image: canvascoding/canvas-notebook:latest
     ports:
       - "3456:3000"
     env_file:

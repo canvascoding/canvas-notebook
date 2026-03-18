@@ -1,0 +1,34 @@
+services:
+  canvas-notebook:
+    image: canvascoding/canvas-notebook:latest
+    ports:
+      - "3456:3000"
+    environment:
+      # Required: random 32-byte base64 secret — generate with: openssl rand -base64 32
+      BETTER_AUTH_SECRET: "change-me-generate-with-openssl-rand-base64-32"
+
+      # Required: the URL where the app will be accessible
+      BASE_URL: "http://localhost:3456"
+      BETTER_AUTH_BASE_URL: "http://localhost:3456"
+
+      # Recommended: your login credentials
+      BOOTSTRAP_ADMIN_EMAIL: "admin@example.com"
+      BOOTSTRAP_ADMIN_PASSWORD: "change-me"
+      BOOTSTRAP_ADMIN_NAME: "Administrator"
+
+      # Set to "true" to show the provider onboarding wizard after first login
+      ONBOARDING: "true"
+
+      # Do not change
+      HOSTNAME: "0.0.0.0"
+      DATA: "/data"
+      ALLOW_SIGNUP: "false"
+    volumes:
+      - ./data:/data
+      - canvas_notebook_home:/home/node
+      - canvas_notebook_ollama:/ollama
+    restart: unless-stopped
+
+volumes:
+  canvas_notebook_home:
+  canvas_notebook_ollama:

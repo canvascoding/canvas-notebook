@@ -157,13 +157,46 @@ docker compose up -d
 
 ## Pre-built Image
 
-If you don't want to build locally, a pre-built image is available on GHCR and updated on every push to `main`:
+A pre-built image is available on Docker Hub — no local build required:
 
 ```
-ghcr.io/canvascoding/canvas-notebook:latest
+docker pull canvascoding/canvas-notebook:latest
 ```
 
-Works with EasyPanel, Coolify, or any other Docker-based hosting platform. Use `Docker image` as the source and mount `/data` as a persistent volume.
+### Option A: Docker Compose (recommended)
+
+Download [`compose.hub.yaml`](https://github.com/canvascoding/canvas-notebook/blob/main/compose.hub.yaml), fill in your values, and run:
+
+```bash
+docker compose -f compose.hub.yaml up -d
+```
+
+All required environment variables are documented as comments inside the file. The only things you need to change are:
+- `BETTER_AUTH_SECRET` — generate with `openssl rand -base64 32`
+- `BASE_URL` / `BETTER_AUTH_BASE_URL` — the URL where the app will be reachable
+- `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` — your login credentials
+
+### Option B: Quick start with docker run
+
+```bash
+docker run -d \
+  --name canvas-notebook \
+  -p 3456:3000 \
+  -v $(pwd)/data:/data \
+  -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
+  -e BASE_URL="http://localhost:3456" \
+  -e BETTER_AUTH_BASE_URL="http://localhost:3456" \
+  -e BOOTSTRAP_ADMIN_EMAIL="admin@example.com" \
+  -e BOOTSTRAP_ADMIN_PASSWORD="change-me" \
+  -e ONBOARDING="true" \
+  canvascoding/canvas-notebook:latest
+```
+
+Then open `http://localhost:3456`.
+
+### Hosting platforms (EasyPanel, Coolify, etc.)
+
+Use `canvascoding/canvas-notebook:latest` as the image source and set the environment variables above in the platform UI. Mount `/data` as a persistent volume.
 
 ---
 
