@@ -1,5 +1,0 @@
-{
-  "name": "AI Studio Image Generator",
-  "description": "Generate 4 image variations simultaneously using text prompts and optional reference images with Gemini 3.1 Flash Image.",
-  "requestFramePermissions": []
-}
