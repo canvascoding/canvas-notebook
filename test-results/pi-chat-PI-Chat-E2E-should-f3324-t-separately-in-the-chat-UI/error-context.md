@@ -1,0 +1,98 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - link "Suite" [ref=e6] [cursor=pointer]:
+            - /url: /
+            - img
+            - generic [ref=e7]: Suite
+          - img "Canvas Notebook logo" [ref=e8]
+          - heading "CANVAS CHAT" [level=1] [ref=e9]
+        - generic [ref=e10]:
+          - link "Notebook" [ref=e11] [cursor=pointer]:
+            - /url: /notebook
+            - img
+            - generic [ref=e12]: Notebook
+          - button "Switch to dark mode" [ref=e13]:
+            - img
+            - generic [ref=e14]: Dark
+          - link "Usage" [ref=e15] [cursor=pointer]:
+            - /url: /usage
+          - generic [ref=e16]:
+            - generic [ref=e17]: User
+            - generic [ref=e18]: Administrator
+          - button "Logout" [ref=e19]:
+            - img
+            - text: Logout
+    - main [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - generic [ref=e23]:
+            - generic [ref=e24]:
+              - button "Open history" [ref=e25]:
+                - img [ref=e26]
+              - generic [ref=e31]:
+                - generic "sess-1773789473718-uelvck4v" [ref=e32]:
+                  - generic [ref=e33]: Session
+                  - generic [ref=e34]: sess-177...lvck4v
+                - 'generic "Model: anthropic/claude-3.5-sonnet" [ref=e35]':
+                  - generic [ref=e36]: Model
+                  - generic [ref=e37]: anthropic/claude-3.5-sonnet
+            - generic [ref=e38]:
+              - button "New chat" [ref=e39]:
+                - img [ref=e40]
+                - generic [ref=e41]: New
+              - link "View skills" [ref=e42] [cursor=pointer]:
+                - /url: /skills
+                - img [ref=e43]
+                - generic [ref=e45]: Skills
+          - generic [ref=e47]:
+            - generic [ref=e49]: Bereit
+            - generic [ref=e50]:
+              - generic [ref=e51]: Noch keine Session
+              - button "Stop" [disabled] [ref=e52]
+              - button "Compact" [disabled] [ref=e53]
+        - generic [ref=e58]:
+          - generic [ref=e60]:
+            - generic [ref=e62]: You
+            - paragraph [ref=e64]: Render markdown and tools.
+          - button "ls Fertig Auto ls alpha.md\\nbeta.ts" [ref=e68]:
+            - img [ref=e70]
+            - generic [ref=e72]:
+              - generic [ref=e73]:
+                - generic [ref=e74]: ls
+                - generic [ref=e75]: Fertig
+                - generic [ref=e76]: Auto
+              - generic [ref=e77]: ls
+              - generic [ref=e78]: alpha.md\nbeta.ts
+            - img [ref=e80]
+          - generic [ref=e83]:
+            - generic [ref=e85]: Assistant
+            - generic [ref=e87]: Here is **bold** output - first item - second item
+            - generic "Assistant response is still streaming" [ref=e88]:
+              - generic [ref=e89]: Assistant response is still streaming
+              - generic [ref=e93]: Streaming
+        - generic [ref=e94]:
+          - generic [ref=e95]:
+            - button "Attach image" [ref=e96]:
+              - img [ref=e97]
+            - textbox "Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien." [active] [ref=e100]
+            - button [disabled] [ref=e101]:
+              - img [ref=e102]
+          - generic [ref=e104]:
+            - button "Hinweis" [ref=e106]:
+              - img [ref=e107]
+              - text: Hinweis
+            - link "Open agent settings" [ref=e110] [cursor=pointer]:
+              - /url: /settings?tab=agent
+              - img [ref=e111]
+              - generic [ref=e114]: Einstellungen
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e120] [cursor=pointer]:
+    - img [ref=e121]
+  - alert [ref=e124]
+```

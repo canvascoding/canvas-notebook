@@ -3,8 +3,8 @@ export function toMediaUrl(filePath: string) {
     .split('/')
     .map((segment) => encodeURIComponent(segment))
     .join('/');
-  // Use relative URLs so they work in both dev and production
-  const suffix = `/media/${encodedPath}`;
+  // Use API route for media serving (works with Next.js standalone)
+  const suffix = `/api/media/${encodedPath}`;
   return suffix;
 }
 
