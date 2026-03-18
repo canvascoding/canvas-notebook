@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-18T08:32:58+01:00",
+  "lastUpdatedAt": "2026-03-18T08:57:50+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1967,6 +1967,18 @@
         "pi-chat-runtime-018"
       ],
       "description": "Added a shared transport resolver for dev/container parity, removed the old create-implies-attach control-channel behavior, implemented owner-scoped terminateAll for the terminal service and /api/terminal/kill, kept the JS runtime entrypoint for Docker with explicit comments, and verified the flow with terminal transport/service tests plus a browser run against /terminal."
+    },
+    {
+      "id": "onboarding-ux-002",
+      "order": 172,
+      "phase": "P25 Onboarding UX",
+      "title": "Restore onboarding scrolling on small screens and cover it with Playwright",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "terminal-reliability-001"
+      ],
+      "description": "Moved the onboarding wizard into its own fixed scroll container so the app-wide hidden body overflow no longer traps the provider setup on small screens, aligned the main content to start at the top when vertical space is tight, and added a focused Playwright regression that verifies the onboarding viewport can scroll on a small-height device."
     }
   ]
 }

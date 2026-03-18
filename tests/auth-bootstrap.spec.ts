@@ -39,6 +39,35 @@ test.describe('Bootstrap auth flow', () => {
     expect(foreignLoginResponse.status()).toBe(401);
   });
 
+  test('allows scrolling the onboarding wizard on small screens', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await page.goto('/login');
+    await page.fill('input[type="email"]', TEST_EMAIL);
+    await page.fill('input[type="password"]', TEST_PASSWORD);
+    await page.click('button[type="submit"]');
+
+    await expect(page).toHaveURL('/onboarding', { timeout: 15000 });
+
+    const scrollRoot = page.getByTestId('onboarding-scroll-root');
+    await expect(scrollRoot).toBeVisible();
+
+    const metrics = await scrollRoot.evaluate((element) => ({
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+    }));
+
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+
+    await scrollRoot.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+
+    await expect
+      .poll(() => scrollRoot.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(page.getByRole('button', { name: 'Später einrichten' })).toBeVisible();
+  });
+
   test('sends the bootstrap admin into provider-only onboarding and completes it', async ({ page }) => {
     await page.goto('/login');
     await page.fill('input[type="email"]', TEST_EMAIL);

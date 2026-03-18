@@ -38,13 +38,16 @@ export default function OnboardingWizard() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-4 sm:px-6">
+    <div
+      data-testid="onboarding-scroll-root"
+      className="fixed inset-0 overflow-y-auto overscroll-contain bg-background text-foreground"
+    >
+      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 py-4 sm:px-6">
         <div className="mb-4 flex justify-end">
           <ThemeToggle />
         </div>
 
-        <div className="flex flex-1 items-center justify-center py-4">
+        <div className="flex flex-1 items-start justify-center py-4">
           <div className={`w-full ${step === 'provider' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
               <div className="mb-2 flex items-center justify-center">
