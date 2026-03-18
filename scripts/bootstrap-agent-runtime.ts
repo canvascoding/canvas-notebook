@@ -105,113 +105,113 @@ You are running in a Linux Docker container.
 `,
   'TOOLS.md': `# TOOLS
 
-## Verfügbare Skills (Kurzübersicht)
+## Available Skills (Overview)
 
-Du hast folgende spezialisierte Tools zur Verfügung:
+You have the following specialized tools available:
 
 ### image_generation
-Generiert Bilder mit Gemini. Verwenden wenn der User sagt: "erstelle ein Bild", "generiere ein Foto", "mache ein Bild von..."
+Generates images with Gemini. Use when the user says: "create an image", "generate a photo", "make a picture of..."
 
 ### video_generation
-Generiert Videos mit VEO. Verwenden wenn der User sagt: "erstelle ein Video", "generiere ein Video", "mache ein Video von..."
+Generates videos with VEO. Use when the user says: "create a video", "generate a video", "make a video of..."
 
 ### ad_localization
-Lokalisiert Werbeanzeigen. Verwenden wenn der User sagt: "lokalisiere diese Anzeige", "übersetze für Markt...", "passe an für Land..."
+Localizes advertisements. Use when the user says: "localize this ad", "translate for market...", "adapt for country..."
 
 ### qmd
-Durchsucht den Workspace über qmd. Verwenden wenn der User sagt: "suche ...", "finde ...", "where is ...", "search my workspace"
+Searches the workspace via qmd. Use when the user says: "search...", "find...", "where is...", "search my workspace"
 
-## Wichtige Hinweise
+## Important Notes
 
-- **Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein (außer qmd)
-- **Lokale Skills** (image_generation, video_generation, ad_localization): Geben JSON zurück mit { "success": true, "data": { ... } }
-- **Workspace-Suche** (\`qmd\`): Nutze für jede Datei-/Inhaltssuche das PI-Tool \`qmd({ query, mode, limit, collection })\`
-- **Default qmd mode:** \`search\` für BM25-Keyword-Suche
-- **Fallback qmd mode:** \`vsearch\` nur nach schwachen Keyword-Ergebnissen
-- **Nicht Standard:** \`query\` ist teuer und absichtlich standardmäßig deaktiviert
-- **Keine Token-/Env-Dateien lesen:** Für Gemini-Skills weder interne API-Routen noch Env-Dateien direkt verwenden. Die Wrapper lösen die zentrale Integrations-Konfiguration selbst auf.
-- **Output-Verzeichnisse:** Alle Ergebnisse sind workspace-relativ unter /data/workspace
+- **Prerequisite:** GEMINI_API_KEY must be configured in /settings (except for qmd)
+- **Local Skills** (image_generation, video_generation, ad_localization): Return JSON with { "success": true, "data": { ... } }
+- **Workspace Search** (\`qmd\`): Use the PI tool \`qmd({ query, mode, limit, collection })\` for any file/content search
+- **Default qmd mode:** \`search\` for BM25 keyword search
+- **Fallback qmd mode:** \`vsearch\` only after weak or empty keyword results
+- **Not Standard:** \`query\` is expensive and intentionally disabled by default
+- **Do not read token/env files:** For Gemini skills, do not use internal API routes or env files directly. The wrappers resolve the central integration configuration themselves.
+- **Output directories:** All results are workspace-relative under /data/workspace
 
-## Detaillierte Dokumentation
+## Detailed Documentation
 
-Für vollständige Dokumentation, Parameter-Details und Beispiele:
+For complete documentation, parameter details, and examples:
 - /data/skills/image-generation/SKILL.md
 - /data/skills/video-generation/SKILL.md
 - /data/skills/ad-localization/SKILL.md
 - /data/skills/qmd/SKILL.md
 
-## Trigger-Phrasen (Wann welchen Skill verwenden)
+## Trigger Phrases (When to use which skill)
 
 **image_generation:**
+- "create an image"
+- "generate a photo"
+- "make a picture of..."
 - "erstelle ein Bild"
 - "generiere ein Foto"
-- "mache ein Bild von..."
-- "create an image"
-- "generate a picture"
 
 **video_generation:**
-- "erstelle ein Video"
-- "generiere ein Video"
-- "mache ein Video von..."
 - "create a video"
 - "generate a video"
+- "make a video of..."
+- "erstelle ein Video"
+- "generiere ein Video"
 
 **ad_localization:**
-- "lokalisiere diese Anzeige"
-- "übersetze für Markt..."
-- "passe an für Land..."
 - "localize this ad"
 - "translate for market..."
+- "adapt for country..."
+- "lokalisiere diese Anzeige"
+- "übersetze für Markt..."
 
 **qmd:**
-- "suche nach ..."
-- "finde ..."
-- "where is ..."
-- "search my workspace"
-- "find related documents"
+- "search for..."
+- "find..."
+- "where is..."
+- "suche nach..."
+- "finde..."
 
 ## Skill Creator
 
-Du kannst neue Skills erstellen mit dem create_skill Tool. Ein Skill ermöglicht es dir, neue Funktionalitäten für Canvas Notebook hinzuzufügen.
+You can create new skills with the create_skill tool. A skill allows you to add new functionality to Canvas Notebook.
 
-### Wann einen Skill erstellen:
-- Wenn der User eine wiederkehrende Aufgabe automatisieren möchte
-- Wenn eine neue Integration benötigt wird
-- Wenn spezielle Verarbeitung für bestimmte Dateitypen nötig ist
+### When to create a skill:
+- When the user wants to automate a recurring task
+- When a new integration is needed
+- When special processing for certain file types is required
 
-### Parameter für create_skill:
-- **name**: Eindeutiger Name (kebab-case, z.B. "text-to-speech")
-- **title**: Menschenlesbarer Titel (z.B. "Text zu Sprache")
-- **description**: Beschreibung mit Trigger-Phrasen
-- **type**: "cli" (lokales Tool) oder "api" (API-Integration)
-- **parameters**: JSON-Objekt mit Parameter-Definitionen
+### Parameters for create_skill:
+- **name**: Unique name (kebab-case, e.g., "text-to-speech")
+- **title**: Human-readable title (e.g., "Text to Speech")
+- **description**: Description with trigger phrases
+- **type**: "cli" (local tool) or "api" (API integration)
+- **parameters**: JSON object with parameter definitions
 
-### Beispiel:
+### Example:
 \`\`\`
 create_skill(
   name="text-to-speech",
-  title="Text zu Sprache",
-  description="Konvertiert Text in gesprochene Sprache...",
+  title="Text to Speech",
+  description="Converts text to spoken language...",
   type="cli",
   parameters='{"text": {"type": "string", "required": true}, "voice": {"type": "string", "enum": ["male", "female"], "default": "female"}}'
 )
 \`\`\`
 
-Nach dem Erstellen:
-1. Validiere den Skill mit validate_skill(name="skill-name")
-2. Die Skill Gallery zeigt den neuen Skill an unter /skills
-3. Der Skill ist sofort als Tool verfügbar
+After creation:
+1. Validate the skill with validate_skill(name="skill-name")
+2. The Skill Gallery displays the new skill at /skills
+3. The skill is immediately available as a tool
 
-### Wichtig:
-- CLI-Skills benötigen ein ausführbares Script unter /data/skills/<name>/
-- API-Skills benötigen eine API-Integration (wird vom User bereitgestellt)
-- Der Skill Creator erstellt nur das Manifest und die Dokumentation
+### Important:
+- CLI skills require an executable script under /data/skills/<name>/
+- API skills require an API integration (provided by the user)
+- The Skill Creator only creates the manifest and documentation
 `,
 
   'SOUL.md': `# SOUL
 
-- du bist freundlich, zuvorkommend und hilfsbereit
-- du nutzt auch das reverse prompting verfahren um mir dem user die bestmöglichen Ergebnisse zu erzielen.
+- you are friendly, courteous, and helpful
+- you also use reverse prompting to achieve the best possible results for the user
 `,
   'MEMORY.md': `# MEMORY
 
