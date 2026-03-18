@@ -2,9 +2,6 @@ name: Build and Push
 
 on:
   push:
-    branches:
-      - main
-      - master
     tags:
       - "v*"
   workflow_dispatch:
@@ -51,10 +48,8 @@ jobs:
             ${{ env.GHCR_IMAGE }}
             canvascoding/canvas-notebook
           tags: |
-            type=ref,event=branch
             type=ref,event=tag
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -69,7 +64,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trigger EasyPanel deploy webhook
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         env:
           EASYPANEL_DEPLOY_WEBHOOK_URL: ${{ secrets.EASYPANEL_DEPLOY_WEBHOOK_URL }}
         run: |
