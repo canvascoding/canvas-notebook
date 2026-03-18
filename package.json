@@ -11,7 +11,7 @@
     "build": "next build --webpack",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
     "prestart": "npm run todos:sync:agent",
-    "start": "NODE_ENV=production tsx scripts/bootstrap-admin.ts || echo \"[bootstrap-admin] continuing startup despite failure\"; NODE_ENV=production tsx server.js",
+    "start": "NODE_ENV=production ./scripts/start-services.sh",
     "prelint": "npm run todos:sync:agent",
     "lint": "eslint",
     "pretest:smoke": "npm run todos:sync:agent",

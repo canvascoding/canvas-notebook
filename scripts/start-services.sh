@@ -2,11 +2,13 @@
 # Start script for Canvas Notebook
 # Starts Terminal Service, Next.js, and Automation Scheduler
 
+set -eu
+
 echo "[Startup] Canvas Notebook starting..."
 
 # Generate terminal auth token if not exists
-if [ -z "$CANVAS_TERMINAL_TOKEN" ]; then
-  export CANVAS_TERMINAL_TOKEN=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 64 | head -n 1)
+if [ -z "${CANVAS_TERMINAL_TOKEN:-}" ]; then
+  export CANVAS_TERMINAL_TOKEN=$(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom | fold -w 64 | head -n 1)
   # POSIX-compatible substring extraction
   TOKEN_PREVIEW=$(echo "$CANVAS_TERMINAL_TOKEN" | cut -c1-8)
   echo "[Startup] Generated terminal auth token: ${TOKEN_PREVIEW}..."
@@ -14,9 +16,38 @@ fi
 
 # Ensure socket directory exists and is writable
 mkdir -p /tmp
-chmod 777 /tmp
+chmod 777 /tmp 2>/dev/null || true
 
 cd /app
+
+NEXT_PID=""
+SCHEDULER_PID=""
+
+wait_for_next_health() {
+  health_url="http://127.0.0.1:${PORT:-3000}/api/health"
+  attempt=0
+  max_attempts="${STARTUP_HEALTH_MAX_ATTEMPTS:-60}"
+
+  echo "[Startup] Waiting for Next.js health endpoint at ${health_url}..."
+
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    if [ -n "$NEXT_PID" ] && ! kill -0 "$NEXT_PID" 2>/dev/null; then
+      echo "[Startup] ERROR: Next.js exited before becoming healthy"
+      return 1
+    fi
+
+    if curl -fsS "$health_url" >/dev/null 2>&1; then
+      echo "[Startup] Next.js health check passed."
+      return 0
+    fi
+
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+
+  echo "[Startup] ERROR: Next.js did not become healthy within ${max_attempts}s"
+  return 1
+}
 
 # Start terminal service in background
 echo "[Startup] Starting Terminal Service..."
@@ -40,26 +71,40 @@ if [ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ] && [ -n "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]
   if npx tsx scripts/bootstrap-admin.ts; then
     echo "[Startup] Bootstrap-admin finished."
   else
-    echo "[Startup] WARNING: bootstrap-admin failed. Continuing startup."
+    echo "[Startup] ERROR: bootstrap-admin failed."
+    exit 1
   fi
 fi
 
-# Start automation scheduler in background
+# Function to cleanup background processes on exit
+cleanup() {
+  echo "[Shutdown] Stopping services..."
+  if [ -n "${TERMINAL_PID:-}" ]; then
+    kill "$TERMINAL_PID" 2>/dev/null || true
+  fi
+  if [ -n "${SCHEDULER_PID:-}" ]; then
+    kill "$SCHEDULER_PID" 2>/dev/null || true
+  fi
+  if [ -n "${NEXT_PID:-}" ]; then
+    kill "$NEXT_PID" 2>/dev/null || true
+  fi
+  wait || true
+  echo "[Shutdown] Services stopped."
+}
+trap cleanup EXIT TERM INT
+
+# Start Next.js first so the scheduler can wait on a real health signal.
+echo "[Startup] Starting Next.js..."
+./node_modules/.bin/next start &
+NEXT_PID=$!
+
+if ! wait_for_next_health; then
+  exit 1
+fi
+
 echo "[Startup] Starting Automation Scheduler..."
 node scripts/automation-scheduler.js &
 SCHEDULER_PID=$!
 echo "[Startup] Automation Scheduler started (PID: $SCHEDULER_PID)"
 
-# Function to cleanup background processes on exit
-cleanup() {
-  echo "[Shutdown] Stopping services..."
-  kill $TERMINAL_PID 2>/dev/null
-  kill $SCHEDULER_PID 2>/dev/null
-  wait
-  echo "[Shutdown] Services stopped."
-}
-trap cleanup EXIT TERM INT
-
-# Start Next.js (this will block and is the main process)
-echo "[Startup] Starting Next.js..."
-exec ./node_modules/.bin/next start
+wait "$NEXT_PID"

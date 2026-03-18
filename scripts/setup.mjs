@@ -11,11 +11,12 @@
 
 import { execSync, spawn } from 'child_process';
 import { existsSync, mkdirSync, copyFileSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const rootDir = join(__dirname, '..');
+const composeProjectName = basename(rootDir);
 
 const PORT = 3456;
 const APP_URL = `http://localhost:${PORT}`;
@@ -50,6 +51,29 @@ function exec(command, options = {}) {
     return execSync(command, { stdio: 'inherit', cwd: rootDir, ...options });
   } catch (error) {
     if (!options.ignoreError) throw error;
+  }
+}
+
+function removeLingeringComposeContainers() {
+  try {
+    const output = execSync(
+      `docker ps -aq --filter label=com.docker.compose.project=${composeProjectName}`,
+      { encoding: 'utf-8', cwd: rootDir },
+    ).trim();
+
+    if (!output) {
+      return;
+    }
+
+    const ids = output.split(/\s+/).filter(Boolean);
+    if (ids.length === 0) {
+      return;
+    }
+
+    info(`Removing ${ids.length} lingering compose container(s) for project ${composeProjectName}...`);
+    exec(`docker rm -f ${ids.join(' ')}`, { ignoreError: true });
+  } catch {
+    // Best-effort cleanup; setup continues with normal compose handling.
   }
 }
 
@@ -266,7 +290,8 @@ async function main() {
 
   // ── Step 4: Stop existing container ───────────────────────────────────────
   step(4, 'Stopping existing container (if any)...');
-  exec('docker compose down', { ignoreError: true });
+  exec('docker compose down --remove-orphans', { ignoreError: true });
+  removeLingeringComposeContainers();
   ok('Done');
 
   // ── Step 5: Build image ────────────────────────────────────────────────────
@@ -284,11 +309,20 @@ async function main() {
   // ── Step 6: Start container ────────────────────────────────────────────────
   step(6, 'Starting container...');
   try {
-    exec('docker compose up -d');
+    exec('docker compose up -d --force-recreate');
     ok('Container started');
   } catch {
-    fail('Failed to start container. Check the output above for errors.');
-    process.exit(1);
+    warn('Container start hit a conflict. Retrying once after explicit cleanup...');
+    exec('docker compose down --remove-orphans', { ignoreError: true });
+    removeLingeringComposeContainers();
+
+    try {
+      exec('docker compose up -d --force-recreate');
+      ok('Container started');
+    } catch {
+      fail('Failed to start container. Check the output above for errors.');
+      process.exit(1);
+    }
   }
 
   // ── Step 7: Wait for app ───────────────────────────────────────────────────

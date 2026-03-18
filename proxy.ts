@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookie } from "better-auth/cookies";
 
 // Public routes that don't require authentication
-const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/automations/execute'];
-const PUBLIC_EXACT_ROUTES = ['/'];
+const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/automations/execute', '/api/automations/scheduler'];
+const PUBLIC_EXACT_ROUTES = ['/', '/api/health', '/manifest.webmanifest'];
 
 function setCommonHeaders(response: NextResponse) {
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate');
@@ -24,7 +24,7 @@ function setCommonHeaders(response: NextResponse) {
     "img-src 'self' data: blob:",
     "media-src 'self' data: blob:",
     "font-src 'self' data: https://fonts.gstatic.com",
-    "connect-src 'self' ws: wss:",
+    "connect-src 'self' ws: wss: https://o4511053822099456.ingest.de.sentry.io",
     "worker-src 'self' blob:",
     "frame-ancestors 'self'",
   ].join('; ');

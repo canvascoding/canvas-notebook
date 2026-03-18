@@ -32,11 +32,16 @@ echo "[entrypoint] Bootstrapping agent runtime in /home/node/canvas-agent..."
 if npx tsx scripts/bootstrap-agent-runtime.ts; then
   echo "[entrypoint] Agent runtime bootstrap finished."
 else
-  echo "[entrypoint] WARNING: Agent runtime bootstrap failed. Continuing startup."
+  fatal_startup "Agent runtime bootstrap failed."
 fi
 
 # Preferred flag name: AI_CLI_AUTO_INSTALL (legacy fallback: CODEX_AUTO_INSTALL)
 auto_install="${AI_CLI_AUTO_INSTALL:-${CODEX_AUTO_INSTALL:-true}}"
+
+fatal_startup() {
+  echo "[entrypoint] ERROR: $1"
+  exit 1
+}
 
 prepare_writable_dir() {
   target_dir="$1"
@@ -122,29 +127,37 @@ fi
 # Install Bun and qmd for markdown search skill
 qmd_auto_install="${QMD_AUTO_INSTALL:-true}"
 if [ "$qmd_auto_install" = "true" ]; then
+  export BUN_INSTALL="${BUN_INSTALL:-/data/cache/.bun}"
+  export PATH="${BUN_INSTALL}/bin:$PATH"
+
+  qmd_cli_ready() {
+    command -v qmd >/dev/null 2>&1 && qmd --version >/dev/null 2>&1
+  }
+
+  qmd_indexing_ready() {
+    qmd_cli_ready && qmd collection list >/dev/null 2>&1
+  }
+
   # Install Bun if not present
-  if [ ! -d "$HOME/.bun" ]; then
+  if [ ! -x "${BUN_INSTALL}/bin/bun" ]; then
     echo "[entrypoint] Installing Bun..."
     if curl -fsSL https://bun.sh/install | bash; then
       echo "[entrypoint] Bun installed successfully."
     else
-      echo "[entrypoint] WARNING: Bun installation failed. Continuing startup."
+      fatal_startup "Bun installation failed."
     fi
   else
     echo "[entrypoint] Bun already available."
   fi
 
-  # Add Bun to PATH for this session
-  export PATH="$HOME/.bun/bin:$PATH"
-
   # Install or repair qmd
   qmd_needs_install=false
-  qmd_install_path="$HOME/.bun/install/global/node_modules/@tobilu/qmd"
+  qmd_install_path="${BUN_INSTALL}/install/global/node_modules/@tobilu/qmd"
   
   if ! command -v qmd >/dev/null 2>&1; then
     echo "[entrypoint] qmd not found, needs installation."
     qmd_needs_install=true
-  elif ! qmd --version >/dev/null 2>&1; then
+  elif ! qmd_cli_ready; then
     echo "[entrypoint] qmd command exists but not working (missing dist/), needs rebuild."
     qmd_needs_install=true
   elif [ ! -d "$qmd_install_path/dist" ]; then
@@ -158,21 +171,23 @@ if [ "$qmd_auto_install" = "true" ]; then
       echo "[entrypoint] qmd package installed, building from source..."
       if [ -d "$qmd_install_path" ]; then
         (cd "$qmd_install_path" && bun install && bun run build) >/dev/null 2>&1
-        if qmd --version >/dev/null 2>&1; then
+        if qmd_cli_ready; then
           echo "[entrypoint] qmd built and working successfully."
         else
-          echo "[entrypoint] WARNING: qmd build may have failed, but continuing."
+          fatal_startup "qmd build finished but the CLI is still not working."
         fi
+      else
+        fatal_startup "qmd install path ${qmd_install_path} not found after installation."
       fi
     else
-      echo "[entrypoint] WARNING: qmd installation failed. Continuing startup."
+      fatal_startup "qmd installation failed."
     fi
   else
     echo "[entrypoint] qmd already available: $(qmd --version 2>/dev/null || echo 'unknown version')."
   fi
 
   # Initialize workspace collection if qmd is working
-  if qmd --version >/dev/null 2>&1; then
+  if qmd_indexing_ready; then
     # Check if collection exists by trying to list it
     if ! qmd collection list 2>/dev/null | grep -q "workspace"; then
       echo "[entrypoint] Initializing qmd workspace collection..."
@@ -181,7 +196,7 @@ if [ "$qmd_auto_install" = "true" ]; then
         # Add context for better search results
         qmd context add qmd://workspace "Canvas Studios workspace files and documents" 2>/dev/null || true
       else
-        echo "[entrypoint] WARNING: Failed to create qmd workspace collection. Continuing startup."
+        fatal_startup "Failed to create qmd workspace collection."
       fi
     else
       echo "[entrypoint] qmd workspace collection already exists."
@@ -189,7 +204,9 @@ if [ "$qmd_auto_install" = "true" ]; then
 
     # Run initial update
     echo "[qmd-indexer] Running initial qmd update..."
-    qmd update 2>/dev/null || echo "[qmd-indexer] Initial update completed with warnings."
+    if ! qmd update 2>/dev/null; then
+      fatal_startup "Initial qmd update failed."
+    fi
 
     # Start background indexing loops
     echo "[qmd-indexer] Starting background indexing loops..."
@@ -231,7 +248,7 @@ if [ "$qmd_auto_install" = "true" ]; then
       done
     ) &
   else
-    echo "[entrypoint] WARNING: qmd not working properly, skipping indexing setup."
+    fatal_startup "qmd is not working properly after setup."
   fi
 else
   echo "[entrypoint] Skipping qmd auto-install (QMD_AUTO_INSTALL=${qmd_auto_install})"

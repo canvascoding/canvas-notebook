@@ -3,6 +3,8 @@ import { requirePageSession } from '@/app/lib/auth-guards';
 import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/status';
 import OnboardingWizard from './onboarding-wizard';
 
+export const dynamic = 'force-dynamic';
+
 export default async function OnboardingPage() {
   if (!isOnboardingEnabled()) {
     redirect('/');

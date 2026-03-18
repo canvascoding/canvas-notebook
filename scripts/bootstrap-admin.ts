@@ -2,13 +2,27 @@ import { loadAppEnv } from '../server/load-app-env';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { hashPassword } from 'better-auth/crypto';
-import { db } from '../app/lib/db';
-import { account, user } from '../app/lib/db/schema';
 import { BOOTSTRAP_SIGNUP_ENV, getBootstrapAdminConfig } from '../app/lib/bootstrap-admin';
 
 loadAppEnv(process.cwd());
 
+let db: typeof import('../app/lib/db/index').db;
+let account: typeof import('../app/lib/db/schema').account;
+let user: typeof import('../app/lib/db/schema').user;
+
 const bootstrapAdmin = getBootstrapAdminConfig();
+
+async function loadDatabaseRuntime() {
+  if (db && account && user) {
+    return;
+  }
+
+  const dbModule = await import('../app/lib/db/index');
+  const schemaModule = await import('../app/lib/db/schema');
+  db = dbModule.db;
+  account = schemaModule.account;
+  user = schemaModule.user;
+}
 
 function isUserExistsError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -71,6 +85,8 @@ async function main() {
     console.log('[bootstrap-admin] Skipped (BOOTSTRAP_ADMIN_EMAIL/BOOTSTRAP_ADMIN_PASSWORD not set).');
     return;
   }
+
+  await loadDatabaseRuntime();
 
   const { email, password, name } = bootstrapAdmin;
   const existingUser = await findUserByEmail(email);

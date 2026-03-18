@@ -168,7 +168,8 @@ case "$SKILL" in
   qmd|markdown-search|search-notes)
     # qmd is a local CLI tool
     # Ensure qmd is in PATH
-    export PATH="$HOME/.bun/bin:$PATH"
+    export BUN_INSTALL="${BUN_INSTALL:-/data/cache/.bun}"
+    export PATH="$BUN_INSTALL/bin:$PATH"
     
     if ! command -v qmd >/dev/null 2>&1; then
       echo "ERROR: qmd is not installed. Please wait for the container to finish setup." >&2

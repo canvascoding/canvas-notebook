@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { statSync } from 'node:fs';
 import path from 'node:path';
+import { loadAppEnv } from '../server/load-app-env';
 
 // Database imports are optional - they may not be available in Docker container
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,6 +48,8 @@ function resolveDefaultIntegrationsEnvPath(cwd = process.cwd()): string {
 function resolveDefaultAgentsEnvPath(cwd = process.cwd()): string {
   return path.join(resolveSecretsDir(cwd), 'Canvas-Agents.env');
 }
+
+loadAppEnv(process.cwd());
 
 const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 const SECRETS_DIR = resolveSecretsDir();
@@ -385,14 +388,6 @@ async function runLegacySessionCleanupIfNeeded(): Promise<void> {
     return;
   }
 
-  // Skip if database is not available (e.g., in Docker container)
-  if (!db || !aiMessages || !aiSessions) {
-    console.log('[bootstrap-agent-runtime] Legacy wipe skipped (database not available).');
-    // Create marker to avoid repeated attempts
-    await fs.writeFile(LEGACY_WIPE_MARKER_PATH, `${JSON.stringify({ doneAt: new Date().toISOString(), skipped: true, reason: 'database_not_available' }, null, 2)}\n`, 'utf8');
-    return;
-  }
-
   const deletedMessages = await db.delete(aiMessages).returning({ id: aiMessages.id });
   const deletedSessions = await db.delete(aiSessions).returning({ id: aiSessions.id });
 
@@ -412,16 +407,16 @@ async function runLegacySessionCleanupIfNeeded(): Promise<void> {
 }
 
 async function main() {
-  // Load database modules dynamically (CJS compatible)
+  // Load database modules dynamically after env bootstrap so DATA/path aliases are available.
   try {
-    const dbModule = await import('../app/lib/db');
+    const dbModule = await import('../app/lib/db/index');
     const schemaModule = await import('../app/lib/db/schema');
     db = dbModule.db;
     aiMessages = schemaModule.aiMessages;
     aiSessions = schemaModule.aiSessions;
-  } catch {
-    // Database not available in Docker container - legacy cleanup will be skipped
-    console.log('[bootstrap-agent-runtime] Database module not available, skipping legacy session cleanup.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Database module not available during bootstrap-agent-runtime: ${message}`);
   }
 
   // First migrate any legacy files from old locations

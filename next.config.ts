@@ -9,6 +9,8 @@ const externalPackages = [
   '@mariozechner/pi-agent-core',
 ];
 
+const sentryTunnelRoute = process.env.SENTRY_TUNNEL_ROUTE?.trim() || undefined;
+
 const nextConfig: NextConfig = {
   // Output standalone for smaller Docker image
   output: 'standalone',
@@ -50,6 +52,16 @@ const nextConfig: NextConfig = {
     ];
   },
 
+  async rewrites() {
+    return [
+      // Redirect old /media/* URLs to /api/media/* for backward compatibility
+      {
+        source: '/media/:path*',
+        destination: '/api/media/:path*',
+      },
+    ];
+  },
+
   // Experimental features
   experimental: {
     serverActions: {
@@ -77,11 +89,9 @@ export default withSentryConfig(nextConfig, {
   // Upload a larger set of source maps for prettier stack traces (increases build time)
   widenClientFileUpload: true,
 
-  // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
-  // This can increase your server load as well as your hosting bill.
-  // Note: Check that the configured route will not match with your Next.js middleware, otherwise reporting of client-
-  // side errors will fail.
-  tunnelRoute: "/monitoring",
+  // Keep the Sentry tunnel opt-in. The default container path should not route browser
+  // telemetry back through Next.js because it adds avoidable startup log noise.
+  ...(sentryTunnelRoute ? { tunnelRoute: sentryTunnelRoute } : {}),
 
   webpack: {
     // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)

@@ -12,6 +12,7 @@ const crypto = require('crypto');
 
 const POLL_INTERVAL_MS = 15_000;
 const DEFAULT_AUTH_SECRET = 'canvas-notebook-local-dev-secret-change-me';
+const STARTUP_HEALTH_TIMEOUT_MS = 60_000;
 
 let started = false;
 let activeTick = null;
@@ -31,6 +32,30 @@ async function getInternalToken() {
     DEFAULT_AUTH_SECRET;
 
   return crypto.createHash('sha256').update(`canvas-internal:${baseSecret}`).digest('hex');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForBaseUrlReady() {
+  const baseUrl = getBaseUrl();
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < STARTUP_HEALTH_TIMEOUT_MS) {
+    try {
+      const response = await fetch(`${baseUrl}/api/health`);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // Keep waiting until Next.js is reachable.
+    }
+
+    await sleep(1000);
+  }
+
+  throw new Error(`Health endpoint did not become ready within ${STARTUP_HEALTH_TIMEOUT_MS}ms`);
 }
 
 async function queueDueScheduledJobs() {
@@ -56,7 +81,7 @@ async function queueDueScheduledJobs() {
       }
     }
   } catch (error) {
-    console.warn('[Scheduler] Error queuing due jobs:', error.message);
+    console.warn('[Scheduler] Error queuing due jobs:', error instanceof Error ? error.message : error);
   }
 }
 
@@ -83,7 +108,7 @@ async function executeReadyRuns() {
       }
     }
   } catch (error) {
-    console.warn('[Scheduler] Error executing ready runs:', error.message);
+    console.warn('[Scheduler] Error executing ready runs:', error instanceof Error ? error.message : error);
   }
 }
 
@@ -106,7 +131,7 @@ async function tick() {
   return activeTick;
 }
 
-function start() {
+async function start() {
   if (started) {
     return;
   }
@@ -115,15 +140,20 @@ function start() {
   console.log(`[Scheduler] Base URL: ${getBaseUrl()}`);
   console.log(`[Scheduler] Poll interval: ${POLL_INTERVAL_MS}ms`);
 
+  await waitForBaseUrlReady();
+
   started = true;
 
   // Run first tick immediately
-  tick();
+  await tick();
 
   // Then schedule regular ticks
-  setInterval(() => {
-    tick();
+  const interval = setInterval(() => {
+    void tick();
   }, POLL_INTERVAL_MS);
+  if (typeof interval.unref === 'function') {
+    interval.unref();
+  }
 
   console.log('[Scheduler] Scheduler started successfully');
 }
@@ -140,4 +170,7 @@ process.on('SIGINT', () => {
 });
 
 // Start the scheduler
-start();
+start().catch((error) => {
+  console.error('[Scheduler] Startup failed:', error);
+  process.exit(1);
+});

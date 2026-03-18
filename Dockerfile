@@ -48,7 +48,8 @@ ENV NODE_ENV=production \
     DATA=/data \
     ALLOW_SIGNUP=false \
     NPM_CONFIG_PREFIX=/home/${APP_USER}/.npm-global \
-    PATH=/home/${APP_USER}/.npm-global/bin:${PATH} \
+    BUN_INSTALL=/data/cache/.bun \
+    PATH=/data/cache/.bun/bin:/home/${APP_USER}/.npm-global/bin:${PATH} \
     CANVAS_TERMINAL_SOCKET=/tmp/canvas-terminal.sock \
     CANVAS_TERMINAL_USE_UNIX_SOCKET=true \
     XDG_CACHE_HOME=/data/cache
@@ -57,17 +58,20 @@ ENV NODE_ENV=production \
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/skills ./skills
+COPY --from=builder /app/app ./app
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
-# Copy terminal service (compiled JS)
+# Copy server directory (terminal-service.js and load-app-env.js needed)
 COPY --from=builder /app/server/terminal-service.js ./server/terminal-service.js
+COPY --from=builder /app/server/load-app-env.js ./server/load-app-env.js
+
+# Copy scripts from builder (needed for startup)
+COPY --from=builder /app/scripts ./scripts
 
 # Copy production node_modules for external packages (better-auth, etc.)
 COPY --from=builder /app/node_modules ./node_modules
-
-# Copy start-services script directly from host (not from builder)
-COPY ./scripts/start-services.sh ./scripts/start-services.sh
 
 # Ensure scripts are executable
 RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills /data/cache /tmp

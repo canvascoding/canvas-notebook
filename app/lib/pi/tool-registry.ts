@@ -495,7 +495,7 @@ export const piTools: AgentTool[] = [
       try {
         const workspacePath = getWorkspacePath();
         const searchMode = mode || 'search';
-        let cmd = `export PATH="$HOME/.bun/bin:$PATH" && qmd ${searchMode} "${query.replace(/"/g, '\\"')}"`;
+        let cmd = `export BUN_INSTALL="\${BUN_INSTALL:-/data/cache/.bun}" && export PATH="$BUN_INSTALL/bin:$PATH" && qmd ${searchMode} "${query.replace(/"/g, '\\"')}"`;
         if (collection) cmd += ` -c "${collection}"`;
         if (limit) cmd += ` -n ${limit}`;
         

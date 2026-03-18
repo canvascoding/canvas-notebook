@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-18T00:12:02+01:00",
+  "lastUpdatedAt": "2026-03-18T02:28:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1325,12 +1325,12 @@
       "order": 117,
       "phase": "P18 Jspreadsheet CE Excel/CSV Editor",
       "title": "Update documentation",
-      "status": "pending",
+      "status": "done",
       "priority": "should",
       "dependsOn": [
         "jspreadsheet-011"
       ],
-      "description": "Update README with new features, document supported formulas, update Changelog"
+      "description": "Completed as part of the later PI migration documentation refreshes; no separate follow-up remained open for the Jspreadsheet rollout."
     },
     {
       "id": "pptx-001",
@@ -1500,109 +1500,109 @@
     },
     {
       "id": "workflow-auto-001",
-      "status": "in_progress",
+      "status": "done",
       "order": 132,
       "phase": "P22 Workflow Automation Skill",
       "title": "Create API Route POST /api/workflow-automation/create for job creation",
       "priority": "must",
       "dependsOn": [],
-      "description": "Create API endpoint to create automation jobs with name, prompt, schedule parameters. Uses existing automation store."
+      "description": "Completed by the workflow automation API rollout; POST /api/workflow-automation/create exists and uses the shared automation store."
     },
     {
       "id": "workflow-auto-002",
-      "status": "pending",
+      "status": "done",
       "order": 133,
       "phase": "P22 Workflow Automation Skill",
       "title": "Create API Route GET /api/workflow-automation/jobs for listing jobs",
       "priority": "must",
       "dependsOn": [
-        "workflow-skill-001"
+        "workflow-auto-001"
       ],
-      "description": "Create API endpoint to list all automation jobs with filtering options."
+      "description": "Completed by the workflow automation API rollout; GET /api/workflow-automation/jobs exists and returns automation job listings."
     },
     {
       "id": "workflow-auto-003",
-      "status": "pending",
+      "status": "done",
       "order": 134,
       "phase": "P22 Workflow Automation Skill",
       "title": "Create API Route PATCH /api/workflow-automation/jobs/[id] for updating jobs",
       "priority": "must",
       "dependsOn": [
-        "workflow-skill-002"
+        "workflow-auto-002"
       ],
-      "description": "Create API endpoint to update job parameters (pause/resume/edit)."
+      "description": "Completed by the workflow automation API rollout; PATCH /api/workflow-automation/jobs/[id] exists for editing automation jobs."
     },
     {
       "id": "workflow-auto-004",
-      "status": "pending",
+      "status": "done",
       "order": 135,
       "phase": "P22 Workflow Automation Skill",
       "title": "Create API Route DELETE /api/workflow-automation/jobs/[id] for deleting jobs",
       "priority": "must",
       "dependsOn": [
-        "workflow-skill-003"
+        "workflow-auto-003"
       ],
-      "description": "Create API endpoint to delete automation jobs."
+      "description": "Completed by the workflow automation API rollout; DELETE /api/workflow-automation/jobs/[id] exists for removing automation jobs."
     },
     {
       "id": "workflow-auto-005",
-      "status": "pending",
+      "status": "done",
       "order": 136,
       "phase": "P22 Workflow Automation Skill",
       "title": "Create API Route POST /api/workflow-automation/jobs/[id]/trigger for manual execution",
       "priority": "must",
       "dependsOn": [
-        "workflow-skill-004"
+        "workflow-auto-004"
       ],
-      "description": "Create API endpoint to manually trigger automation job execution."
+      "description": "Completed by the workflow automation API rollout; POST /api/workflow-automation/jobs/[id]/trigger exists for manual execution."
     },
     {
       "id": "workflow-auto-006",
-      "status": "pending",
+      "status": "done",
       "order": 137,
       "phase": "P22 Workflow Automation Skill",
       "title": "Create Skill Manifest skills/workflow-automation/manifest.json",
       "priority": "must",
       "dependsOn": [
-        "workflow-skill-005"
+        "workflow-auto-005"
       ],
-      "description": "Create skill manifest defining the workflow-automation tool with parameters for create, list, update, delete, trigger operations."
+      "description": "Superseded by the Anthropic-style SKILL.md migration; the workflow-automation skill is tracked via skills/workflow-automation/SKILL.md instead of a manifest.json file."
     },
     {
       "id": "workflow-auto-007",
-      "status": "pending",
+      "status": "done",
       "order": 138,
       "phase": "P22 Workflow Automation Skill",
       "title": "Extend Skills CLI /data/skills/skill with workflow-automation command",
       "priority": "must",
       "dependsOn": [
-        "workflow-skill-006"
+        "workflow-auto-006"
       ],
-      "description": "Add workflow-automation subcommand to the skills CLI script with support for create, list, update, delete, trigger operations."
+      "description": "Superseded by the PI tool-registry based automation flow; no separate skills CLI subcommand is used in the final implementation."
     },
     {
       "id": "workflow-auto-008",
-      "status": "pending",
+      "status": "done",
       "order": 139,
       "phase": "P22 Workflow Automation Skill",
       "title": "Extend Tool Registry with automation job tools",
       "priority": "must",
       "dependsOn": [
-        "workflow-skill-007"
+        "workflow-auto-007"
       ],
-      "description": "Add create_automation_job, list_automation_jobs, update_automation_job, delete_automation_job, trigger_automation_job tools to piTools registry."
+      "description": "Completed by the PI automation tool rollout; the tool registry exposes the automation job management tools."
     },
     {
       "id": "workflow-auto-009",
-      "status": "pending",
+      "status": "done",
       "order": 140,
       "phase": "P22 Workflow Automation Skill",
       "title": "Run build and test workflow automation skill",
       "priority": "must",
       "dependsOn": [
-        "workflow-skill-008"
+        "workflow-auto-008"
       ],
-      "description": "Run npm run build to verify no TypeScript errors, then test the workflow automation skill in the UI."
+      "description": "Covered by the later automation verification, integration, and Playwright tasks in P13."
     },
     {
       "id": "pi-chat-runtime-001",
@@ -1841,6 +1841,72 @@
         "onboarding-ux-001"
       ],
       "description": "Delete the Canvas skills token flow, extract image generation, video generation, and ad localization into shared server-only services, switch PI tools and local skill wrappers to those services directly, keep the web API routes session-only, and update skill/tool docs so the agent uses local wrappers without manual env loading."
+    },
+    {
+      "id": "runtime-boot-001",
+      "order": 161,
+      "phase": "P27 Runtime Boot Reliability",
+      "title": "Restore runner image packaging for bootstrap-admin and other tsx startup dependencies",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "pi-skill-runtime-001"
+      ]
+    },
+    {
+      "id": "runtime-boot-002",
+      "order": 162,
+      "phase": "P27 Runtime Boot Reliability",
+      "title": "Restore database-backed bootstrap-agent-runtime cleanup and validate startup module loading",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "runtime-boot-001"
+      ]
+    },
+    {
+      "id": "runtime-boot-003",
+      "order": 163,
+      "phase": "P27 Runtime Boot Reliability",
+      "title": "Gate automation scheduler on Next health and remove startup fetch-failed race",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "runtime-boot-002"
+      ]
+    },
+    {
+      "id": "runtime-boot-004",
+      "order": 164,
+      "phase": "P27 Runtime Boot Reliability",
+      "title": "Fix Bun/qmd install root, PATH propagation, and workspace indexing bootstrap",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "runtime-boot-003"
+      ]
+    },
+    {
+      "id": "runtime-boot-005",
+      "order": 165,
+      "phase": "P27 Runtime Boot Reliability",
+      "title": "Make required startup subsystems fail fast instead of continuing in degraded mode",
+      "status": "done",
+      "priority": "must",
+      "dependsOn": [
+        "runtime-boot-004"
+      ]
+    },
+    {
+      "id": "runtime-boot-006",
+      "order": 166,
+      "phase": "P27 Runtime Boot Reliability",
+      "title": "Trace and remove util._extend startup deprecation from the production path",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "runtime-boot-005"
+      ]
     }
   ]
 }
