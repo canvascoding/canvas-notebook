@@ -60,17 +60,17 @@ function MobileNotebookEmptyState({
         </div>
         <div className="mt-5 space-y-3">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            Oeffne eine Datei oder starte direkt im Chat.
+            Öffne eine Datei oder starte direkt im Chat.
           </h2>
           <p className="text-sm leading-6 text-muted-foreground">
-            Der mobile Notebook-Flow startet jetzt im Editor. Waehle eine Datei
-            ueber den Explorer oder springe direkt in den PI-Chat.
+            Der mobile Notebook-Flow startet jetzt im Editor. Wähle eine Datei
+            über den Explorer oder springe direkt in den PI-Chat.
           </p>
         </div>
         <div className="mt-6 flex flex-col gap-3">
           <Button className="h-12 justify-center gap-2 rounded-2xl text-sm" onClick={onOpenExplorer}>
             <Files className="h-4 w-4" />
-            Datei auswaehlen
+            Datei auswählen
           </Button>
           <Button
             variant="outline"
@@ -78,7 +78,7 @@ function MobileNotebookEmptyState({
             onClick={onOpenChat}
           >
             <MessageSquare className="h-4 w-4" />
-            Chat oeffnen
+            Chat öffnen
           </Button>
         </div>
       </div>

@@ -297,7 +297,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => void handleDeleteClick()} disabled={isDeleteDisabled}>
                   <Trash2 className="h-4 w-4" />
-                  Auswahl loeschen
+                  Auswahl löschen
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
