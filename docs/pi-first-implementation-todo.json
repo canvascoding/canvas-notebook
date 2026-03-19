@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-19T13:57:49+01:00",
+  "lastUpdatedAt": "2026-03-19T14:24:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -2039,6 +2039,18 @@
         "pi-chat-media-preview-001"
       ],
       "description": "Reworked the Canvas chat composer textarea to auto-grow from a larger baseline up to mobile and desktop max heights with internal scrolling after the cap, kept the fixed composer padding and file-picker behavior stable through the existing composer measurements, added focused Playwright coverage for mobile growth, cap, reset, and overflow safety, and verified the change against the running localhost:3000 dev server plus npm run build."
+    },
+    {
+      "id": "notebook-mobile-001",
+      "order": 178,
+      "phase": "P31 Notebook Mobile UX",
+      "title": "Rework /notebook mobile navigation around an editor-first layout and fullscreen explorer sheet",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-019"
+      ],
+      "description": "Replaced the old mobile file surface with an editor-first notebook flow, centered Explorer/Chat/Terminal controls in the mobile navbar, added a fullscreen explorer sheet with compact global actions plus per-file overflow actions, and introduced a mobile editor empty state with direct entry points into file selection and chat. Verified with npm run lint, npm run build, and a Playwright browser pass against the existing localhost:3000 dev server."
     }
   ]
 }

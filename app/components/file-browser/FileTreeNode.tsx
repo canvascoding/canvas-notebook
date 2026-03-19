@@ -60,6 +60,11 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
       if (node.type === 'file') {
         loadFile(node.path, true);
         window.dispatchEvent(
+          new CustomEvent('notebook-mobile-file-opened', {
+            detail: { path: node.path },
+          })
+        );
+        window.dispatchEvent(
           new CustomEvent('notebook-mobile-surface', {
             detail: { surface: 'editor' },
           })
@@ -128,7 +133,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
               <SidebarMenuButton
                 className={cn(
                   'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
-                  isMobile && 'min-h-10 py-2',
+                  isMobile && 'min-h-[44px] py-2',
                   isRowActive && 'text-foreground'
                 )}
                 onClick={handleSelect}
@@ -184,7 +189,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
         <SidebarMenuButton
           className={cn(
             'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
-            isMobile && 'min-h-10 py-2',
+            isMobile && 'min-h-[44px] py-2',
             isRowActive && 'text-foreground'
           )}
           onClick={handleSelect}

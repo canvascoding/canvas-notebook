@@ -1,9 +1,16 @@
 'use client';
 
 import { useRef, useState, useCallback, type ChangeEvent, type DragEvent } from 'react';
-import { ChevronsDownUp, ChevronLeft, FilePlus, FolderPlus, House, RefreshCw, Search, Upload, CheckSquare, Trash2, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronLeft, CheckSquare, FilePlus, FolderPlus, House, MoreHorizontal, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   Tooltip,
@@ -18,12 +25,17 @@ import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-fold
 import { useFileWatcher, type FileEvent } from '@/app/hooks/useFileWatcher';
 import { useIsMobile } from '@/hooks/use-mobile';
 
-export function FileBrowser() {
+interface FileBrowserProps {
+  variant?: 'default' | 'mobile-sheet';
+}
+
+export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
   const isMobile = useIsMobile();
+  const isMobileSheet = variant === 'mobile-sheet';
   
   // Stable callback for file watcher - memoized with useCallback
   const handleFileEvent = useCallback((event: FileEvent) => {
@@ -215,11 +227,22 @@ export function FileBrowser() {
     await navigateToDirectory(parentDir);
   }, [currentDirectory, navigateToDirectory]);
 
+  const handleRefresh = useCallback(async () => {
+    await loadFileTree(currentDirectory, undefined, true);
+    const { currentFile } = useFileStore.getState();
+    if (currentFile) {
+      useFileStore.getState().loadFile(currentFile.path, true);
+    }
+  }, [currentDirectory, loadFileTree]);
+
   return (
     <section
       style={{ width: '100%', minWidth: 0, flex: '1 1 0%' }}
       className={cn(
-        'relative flex h-full w-full min-w-0 flex-1 flex-col overflow-y-auto bg-sidebar/50 md:border-r md:border-border',
+        'relative flex h-full w-full min-w-0 flex-1 flex-col',
+        isMobileSheet
+          ? 'overflow-hidden bg-background'
+          : 'overflow-y-auto bg-sidebar/50 md:border-r md:border-border',
         isDragging && 'bg-accent/50'
       )}
       onDragEnter={handleDragEnter}
@@ -233,156 +256,215 @@ export function FileBrowser() {
         </div>
       )}
       <div className="sticky top-0 z-20 border-b border-border bg-background/95">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
-          <h2 className="shrink-0 text-sm font-semibold text-foreground">Files</h2>
-          <TooltipProvider delayDuration={300}>
-            <div className="flex min-w-[180px] flex-1 flex-wrap content-start items-center justify-start gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={toggleMultiSelectMode}
-                    aria-label="Toggle select mode"
-                  >
-                    <CheckSquare className={`h-4 w-4 ${isMultiSelectMode ? 'text-primary' : ''}`} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Select</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleNewFile}
-                    aria-label="New file"
-                  >
-                    <FilePlus className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>New file</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleNewFolder}
-                    aria-label="New folder"
-                  >
-                    <FolderPlus className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>New folder</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleUploadFolderClick}
-                    aria-label="Upload folder"
-                  >
-                    <FolderPlus className="h-4 w-4 text-primary" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Upload folder</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleUploadClick}
-                    aria-label="Upload files"
-                  >
-                    <Upload className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Upload files</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleDeleteClick}
-                    disabled={isDeleteDisabled}
-                    aria-label="Delete"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Delete</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={collapseAllDirectories}
-                    aria-label="Collapse all folders"
-                  >
-                    <ChevronsDownUp className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Collapse all</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={async () => {
-                      useFileStore.getState().setCurrentDirectory('.');
-                      await loadFileTree('.', undefined, true);
-                      const { currentFile } = useFileStore.getState();
-                      if (currentFile) {
-                        useFileStore.getState().loadFile(currentFile.path, true);
-                      }
-                    }}
-                    disabled={isLoadingTree}
-                    aria-label="Refresh file tree"
-                  >
-                    <RefreshCw
-                      className={cn('h-4 w-4', isLoadingTree && 'animate-spin')}
-                    />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Refresh</TooltipContent>
-              </Tooltip>
-              <div className="ml-auto flex items-center">
+        {isMobileSheet ? (
+          <div className="flex items-center gap-2 px-3 py-2">
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 gap-2 rounded-full px-3">
+                  <MoreHorizontal className="h-4 w-4" />
+                  Aktionen
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={8} className="w-56">
+                <DropdownMenuItem onSelect={handleNewFile}>
+                  <FilePlus className="h-4 w-4" />
+                  Neue Datei
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleNewFolder}>
+                  <FolderPlus className="h-4 w-4" />
+                  Neuer Ordner
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleUploadClick}>
+                  <Upload className="h-4 w-4" />
+                  Datei hochladen
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleUploadFolderClick}>
+                  <FolderPlus className="h-4 w-4 text-primary" />
+                  Ordner hochladen
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={toggleMultiSelectMode}>
+                  <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
+                  {isMultiSelectMode ? 'Mehrfachauswahl beenden' : 'Mehrfachauswahl'}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={collapseAllDirectories}>
+                  <ChevronsDownUp className="h-4 w-4" />
+                  Alle Ordner einklappen
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleRefresh()} disabled={isLoadingTree}>
+                  <RefreshCw className={cn('h-4 w-4', isLoadingTree && 'animate-spin')} />
+                  Aktualisieren
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleDeleteClick()} disabled={isDeleteDisabled}>
+                  <Trash2 className="h-4 w-4" />
+                  Auswahl loeschen
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => void handleRefresh()}
+              disabled={isLoadingTree}
+              aria-label="Refresh file tree"
+            >
+              <RefreshCw className={cn('h-4 w-4', isLoadingTree && 'animate-spin')} />
+            </Button>
+            <div className="ml-auto flex items-center gap-2 rounded-full border border-border bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+              <span
+                className={cn(
+                  'h-2 w-2 rounded-full transition-colors',
+                  isConnected ? 'bg-green-500' : 'bg-amber-500'
+                )}
+              />
+              Sync
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
+            <h2 className="shrink-0 text-sm font-semibold text-foreground">Files</h2>
+            <TooltipProvider delayDuration={300}>
+              <div className="flex min-w-[180px] flex-1 flex-wrap content-start items-center justify-start gap-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className={cn(
-                      'flex h-2 w-2 rounded-full transition-colors',
-                      isConnected ? 'bg-green-500' : 'bg-amber-500'
-                    )} />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={toggleMultiSelectMode}
+                      aria-label="Toggle select mode"
+                    >
+                      <CheckSquare className={`h-4 w-4 ${isMultiSelectMode ? 'text-primary' : ''}`} />
+                    </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    {isConnected ? 'Auto-refresh: Connected' : 'Auto-refresh: Disconnected'}
-                  </TooltipContent>
+                  <TooltipContent>Select</TooltipContent>
                 </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleNewFile}
+                      aria-label="New file"
+                    >
+                      <FilePlus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>New file</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleNewFolder}
+                      aria-label="New folder"
+                    >
+                      <FolderPlus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>New folder</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleUploadFolderClick}
+                      aria-label="Upload folder"
+                    >
+                      <FolderPlus className="h-4 w-4 text-primary" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Upload folder</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleUploadClick}
+                      aria-label="Upload files"
+                    >
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Upload files</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleDeleteClick}
+                      disabled={isDeleteDisabled}
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={collapseAllDirectories}
+                      aria-label="Collapse all folders"
+                    >
+                      <ChevronsDownUp className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Collapse all</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => void handleRefresh()}
+                      disabled={isLoadingTree}
+                      aria-label="Refresh file tree"
+                    >
+                      <RefreshCw
+                        className={cn('h-4 w-4', isLoadingTree && 'animate-spin')}
+                      />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Refresh</TooltipContent>
+                </Tooltip>
+                <div className="ml-auto flex items-center">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className={cn(
+                        'flex h-2 w-2 rounded-full transition-colors',
+                        isConnected ? 'bg-green-500' : 'bg-amber-500'
+                      )} />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isConnected ? 'Auto-refresh: Connected' : 'Auto-refresh: Disconnected'}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={handleUploadChange}
-                multiple
-              />
-              <input
-                ref={folderInputRef}
-                type="file"
-                className="hidden"
-                onChange={handleUploadChange}
-                {...{ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>}
-                multiple
-              />
-            </div>
-          </TooltipProvider>
-        </div>
+            </TooltipProvider>
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={handleUploadChange}
+          multiple
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          className="hidden"
+          onChange={handleUploadChange}
+          {...{ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>}
+          multiple
+        />
         {isMultiSelectMode && (
           <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1 text-xs">
             <span className="text-muted-foreground">{multiSelectPaths.length} selected</span>
@@ -397,7 +479,7 @@ export function FileBrowser() {
             </Button>
           </div>
         )}
-        {isMobile && (
+        {(isMobile || isMobileSheet) && (
           <div className="border-t border-border bg-muted/30 px-3 py-2">
             <div className="flex items-center gap-2">
               <Button
@@ -449,7 +531,7 @@ export function FileBrowser() {
           )}
         </div>
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-hidden">
         <FileTree />
       </div>
     </section>
