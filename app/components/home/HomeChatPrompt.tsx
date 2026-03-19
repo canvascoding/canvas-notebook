@@ -52,7 +52,7 @@ function HomeStarterPromptButton({
     <button
       type="button"
       onClick={() => onSelect(prompt.prompt)}
-      className="group flex min-w-[280px] flex-col items-start gap-2 border border-border bg-background/80 p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent md:min-w-[320px]"
+      className="group flex w-[min(84vw,320px)] shrink-0 snap-start flex-col items-start gap-2 border border-border bg-background/80 p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent sm:w-[320px]"
     >
       <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         <Icon className="h-4 w-4 text-primary" />
@@ -303,21 +303,21 @@ export function HomeChatPrompt() {
 
   return (
     <Card className="border border-border bg-card">
-      <CardHeader className="pb-3">
+      <CardHeader className="px-4 pb-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <MessageSquare className="h-4 w-4" />
             Canvas Chat
           </CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {latestSession ? (
-              <Button asChild variant="outline" size="sm">
+              <Button asChild variant="outline" size="sm" className="flex-1 sm:flex-none">
                 <Link href={`/chat?session=${encodeURIComponent(latestSession.sessionId)}`}>
                   Letzte Session
                 </Link>
               </Button>
             ) : null}
-            <Button asChild variant="default" size="sm">
+            <Button asChild variant="default" size="sm" className="flex-1 sm:flex-none">
               <Link href="/chat">
                 Neuer Chat
               </Link>
@@ -325,16 +325,16 @@ export function HomeChatPrompt() {
           </div>
         </div>
         {latestSession ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="line-clamp-2 text-xs text-muted-foreground">
             Quicklink zur letzten Session: {latestSession.title}
           </p>
         ) : null}
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 pb-6 sm:px-6">
         <form className="space-y-3" onSubmit={handleSubmit}>
           <div className="space-y-2">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Produktive Prompt-Vorlagen</p>
-            <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar">
+            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 pr-4 no-scrollbar">
               {BUSINESS_STARTER_PROMPTS.map((starterPrompt) => (
                 <HomeStarterPromptButton key={starterPrompt.id} prompt={starterPrompt} onSelect={applyStarterPrompt} />
               ))}
@@ -403,9 +403,10 @@ export function HomeChatPrompt() {
             )}
           </div>
           
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             {/* Upload Button */}
-            <div>
+            <div className="flex items-center justify-between gap-3 sm:justify-start">
+              <p className="text-xs text-muted-foreground sm:hidden">Bilder per Upload oder Paste anhängen.</p>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -427,7 +428,7 @@ export function HomeChatPrompt() {
             <Button 
               type="submit" 
               size="sm" 
-              className="gap-2" 
+              className="w-full gap-2 sm:w-auto" 
               disabled={isSubmitting || (!prompt.trim() && attachments.length === 0)}
             >
               <Send className="h-4 w-4" />

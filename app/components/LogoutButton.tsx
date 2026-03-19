@@ -28,10 +28,10 @@ export function LogoutButton() {
       onClick={handleLogout}
       variant="outline"
       size="sm"
-      className="gap-2"
+      className="gap-2 px-2 sm:px-3"
     >
       <LogOut className="w-4 h-4" />
-      Logout
+      <span className="hidden sm:inline">Logout</span>
     </Button>
   );
 }

@@ -80,22 +80,22 @@ interface IntegrationsSectionProps {
 export default function SuiteAppSelector({ isAuthenticated }: IntegrationsSectionProps) {
   return (
     <section>
-      <div className="py-12 md:py-16">
-        <div className="mx-auto max-w-6xl px-4 md:px-6">
-          <div className="max-w-2xl space-y-4">
+      <div className="py-6 md:py-16">
+        <div className="mx-auto max-w-6xl">
+          <div className="max-w-2xl space-y-3 md:space-y-4">
             <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Canvas Software Suite</p>
-            <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">Wähle eine App und arbeite im gleichen Workspace weiter.</h2>
-            <p className="text-muted-foreground">
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl md:text-4xl">Wähle eine App und arbeite im gleichen Workspace weiter.</h2>
+            <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
               Alle Apps greifen auf denselben Workspace zu. Neue Bilder, Videos und Inhalte sind dadurch sofort für weitere Schritte
               verfügbar.
             </p>
           </div>
 
-          <div className="mt-8 max-w-2xl">
+          <div className="mt-6 max-w-2xl md:mt-8">
             <HomeChatPrompt />
           </div>
 
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {suiteApps.map((app) => (
               <IntegrationCard key={app.title} app={app} isAuthenticated={isAuthenticated} />
             ))}
@@ -112,8 +112,8 @@ function IntegrationCard({ app, isAuthenticated }: { app: SuiteApp; isAuthentica
   const canOpen = isReady && isAuthenticated && app.href;
 
   const cardContent = (
-    <Card className="border border-border bg-card p-6 shadow-sm transition-colors hover:bg-accent/50 cursor-pointer h-full">
-      <div className="flex flex-col gap-6 h-full">
+    <Card className="h-full cursor-pointer border border-border bg-card p-4 shadow-sm transition-colors hover:bg-accent/50 sm:p-6">
+      <div className="flex h-full flex-col gap-5 sm:gap-6">
         <div className="flex items-start justify-between gap-3">
           <div className="flex size-10 items-center justify-center border border-border bg-muted text-foreground">
             <Icon className="h-5 w-5" />
@@ -129,24 +129,24 @@ function IntegrationCard({ app, isAuthenticated }: { app: SuiteApp; isAuthentica
           </span>
         </div>
 
-        <div className="space-y-2 flex-1">
+        <div className="flex-1 space-y-2">
           <h3 className="text-base font-semibold">{app.title}</h3>
           <p className="text-sm text-muted-foreground">{app.description}</p>
         </div>
 
         <div className="border-t border-dashed border-border pt-4">
           {canOpen ? (
-            <Button variant="secondary" size="sm" className="gap-1 pr-2 shadow-none pointer-events-none">
+            <Button variant="secondary" size="sm" className="w-full justify-between gap-1 pr-2 shadow-none pointer-events-none sm:w-auto sm:justify-center">
               App öffnen
               <ChevronRight className="size-3.5 opacity-60" />
             </Button>
           ) : isReady ? (
-            <Button variant="outline" size="sm" className="gap-1 pr-2 pointer-events-none">
+            <Button variant="outline" size="sm" className="w-full justify-between gap-1 pr-2 pointer-events-none sm:w-auto sm:justify-center">
               Login erforderlich
               <ChevronRight className="size-3.5 opacity-60" />
             </Button>
           ) : (
-            <Button variant="outline" size="sm" disabled>
+            <Button variant="outline" size="sm" className="w-full sm:w-auto" disabled>
               Bald verfügbar
             </Button>
           )}
