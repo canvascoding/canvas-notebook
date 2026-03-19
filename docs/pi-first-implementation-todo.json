@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-19T14:24:00+01:00",
+  "lastUpdatedAt": "2026-03-19T14:46:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -2051,6 +2051,18 @@
         "pi-chat-runtime-019"
       ],
       "description": "Replaced the old mobile file surface with an editor-first notebook flow, centered Explorer/Chat/Terminal controls in the mobile navbar, added a fullscreen explorer sheet with compact global actions plus per-file overflow actions, and introduced a mobile editor empty state with direct entry points into file selection and chat. Verified with npm run lint, npm run build, and a Playwright browser pass against the existing localhost:3000 dev server."
+    },
+    {
+      "id": "notebook-mobile-002",
+      "order": 179,
+      "phase": "P31 Notebook Mobile UX",
+      "title": "Make mobile chat and terminal header buttons behave as open-close toggles",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "notebook-mobile-001"
+      ],
+      "description": "Updated the /notebook mobile header so Chat and Terminal behave as true toggles: first tap opens the surface, second tap closes it back to the editor, while the explorer sheet flow stays unchanged. Verified with npm run build and a Playwright browser check against the existing localhost:3000 dev server."
     }
   ]
 }

@@ -304,7 +304,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   size="icon-sm"
                   onClick={() => {
                     setMobileExplorerOpen(false);
-                    setMobileSurface('chat');
+                    setMobileSurface((current) => (current === 'chat' ? 'editor' : 'chat'));
                   }}
                   aria-label="Show chat"
                 >
@@ -315,7 +315,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   size="icon-sm"
                   onClick={() => {
                     setMobileExplorerOpen(false);
-                    setMobileSurface('terminal');
+                    setMobileSurface((current) => (current === 'terminal' ? 'editor' : 'terminal'));
                   }}
                   aria-label="Show terminal"
                 >
