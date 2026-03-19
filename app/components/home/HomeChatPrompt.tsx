@@ -367,7 +367,7 @@ export function HomeChatPrompt() {
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder="Starte mit einem Business-Use-Case oder passe eine Vorlage an. Enter sendet, @ referenziert Dateien."
-              className="min-h-24 w-full resize-y border border-border bg-background p-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="min-h-24 w-full resize-y border border-border bg-background p-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm"
             />
             
             {/* File Picker Dropdown */}

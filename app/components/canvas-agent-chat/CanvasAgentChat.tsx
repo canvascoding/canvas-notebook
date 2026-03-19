@@ -2241,7 +2241,7 @@ export default function CanvasAgentChat({
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder={composerPlaceholder}
-              className={`w-full resize-none border border-border bg-background text-sm placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:placeholder:text-sm ${
+              className={`w-full resize-none border border-border bg-background text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm sm:placeholder:text-sm ${
                 isMobile ? 'min-h-[40px] max-h-28 p-2.5' : 'min-h-[44px] max-h-32 p-2.5'
               }`}
             />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, type ChangeEvent, type DragEvent } from 'react';
-import { ChevronsDownUp, FilePlus, FolderPlus, RefreshCw, Search, Upload, CheckSquare, Trash2, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronLeft, FilePlus, FolderPlus, House, RefreshCw, Search, Upload, CheckSquare, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,12 +16,14 @@ import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { useFileWatcher, type FileEvent } from '@/app/hooks/useFileWatcher';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 export function FileBrowser() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
+  const isMobile = useIsMobile();
   
   // Stable callback for file watcher - memoized with useCallback
   const handleFileEvent = useCallback((event: FileEvent) => {
@@ -190,12 +192,34 @@ export function FileBrowser() {
     (isMultiSelectMode
       ? deletableMultiSelectCount === 0
       : selectedNode?.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path));
+  const currentDirectoryLabel = currentDirectory === '.' ? 'Workspace /' : `/${currentDirectory}`;
+
+  const navigateToDirectory = useCallback(
+    async (targetDir: string) => {
+      useFileStore.getState().setCurrentDirectory(targetDir);
+      await loadFileTree(targetDir, undefined, true);
+    },
+    [loadFileTree]
+  );
+
+  const handleGoRoot = useCallback(async () => {
+    await navigateToDirectory('.');
+  }, [navigateToDirectory]);
+
+  const handleGoUp = useCallback(async () => {
+    if (currentDirectory === '.') {
+      return;
+    }
+    const parts = currentDirectory.split('/').filter(Boolean);
+    const parentDir = parts.length > 1 ? parts.slice(0, -1).join('/') : '.';
+    await navigateToDirectory(parentDir);
+  }, [currentDirectory, navigateToDirectory]);
 
   return (
     <section
       style={{ width: '100%', minWidth: 0, flex: '1 1 0%' }}
       className={cn(
-        'relative flex h-full w-full min-w-0 flex-1 flex-col border-r border-border bg-sidebar/50 overflow-y-auto',
+        'relative flex h-full w-full min-w-0 flex-1 flex-col overflow-y-auto bg-sidebar/50 md:border-r md:border-border',
         isDragging && 'bg-accent/50'
       )}
       onDragEnter={handleDragEnter}
@@ -371,6 +395,38 @@ export function FileBrowser() {
               <X className="mr-1 h-3 w-3" />
               Cancel
             </Button>
+          </div>
+        )}
+        {isMobile && (
+          <div className="border-t border-border bg-muted/30 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => void handleGoRoot()}
+                aria-label="Jump to workspace root"
+              >
+                <House className="h-3.5 w-3.5" />
+                <span>Root</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => void handleGoUp()}
+                disabled={currentDirectory === '.'}
+                aria-label="Go up one folder"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                <span>Up</span>
+              </Button>
+              <div className="min-w-0 flex-1 truncate border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground">
+                {currentDirectoryLabel}
+              </div>
+            </div>
           </div>
         )}
         <div className="border-t border-border px-3 py-2">

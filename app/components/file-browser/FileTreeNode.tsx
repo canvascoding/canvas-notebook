@@ -16,6 +16,7 @@ import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
 import { FileContextMenu } from './FileContextMenu';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -23,6 +24,7 @@ interface FileTreeNodeProps {
 }
 
 export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
+  const isMobile = useIsMobile();
   const {
     expandedDirs,
     selectedNode,
@@ -40,6 +42,9 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
   const isSelected = selectedNode?.path === node.path;
   const isMultiSelected = multiSelectPaths.includes(node.path);
   const isRowActive = isSelected || isMultiSelected;
+  const rowPaddingStyle = isMobile
+    ? { paddingLeft: `${8 + Math.min(depth, 4) * 12}px` }
+    : undefined;
 
   // Sync internal state with external expanded state for directories
   const handleToggle = useCallback(() => {
@@ -54,6 +59,11 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
       selectNode(node, ctrlOrMeta);
       if (node.type === 'file') {
         loadFile(node.path, true);
+        window.dispatchEvent(
+          new CustomEvent('notebook-mobile-surface', {
+            detail: { surface: 'editor' },
+          })
+        );
       }
     },
     [node, selectNode, loadFile]
@@ -95,9 +105,11 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
         <SidebarMenuItem>
           <div
             className={cn(
-              'group relative flex w-full items-center px-2 py-0.5 text-foreground transition-colors',
+              'group relative flex w-full items-center px-2 text-foreground transition-colors',
+              isMobile ? 'py-1.5' : 'py-0.5',
               isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
             )}
+            style={rowPaddingStyle}
             onContextMenu={handleContextMenu}
           >
             {isMultiSelectMode && (
@@ -116,6 +128,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
               <SidebarMenuButton
                 className={cn(
                   'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+                  isMobile && 'min-h-10 py-2',
                   isRowActive && 'text-foreground'
                 )}
                 onClick={handleSelect}
@@ -134,7 +147,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
           </div>
         </SidebarMenuItem>
         <CollapsibleContent>
-          <SidebarMenuSub className="mr-0 pr-0">
+          <SidebarMenuSub className={cn('mr-0 pr-0', isMobile && 'mx-0 border-l-0 px-0 py-0')}>
             {node.children!.map((child) => (
               <FileTreeNode key={child.path} node={child} depth={depth + 1} />
             ))}
@@ -149,9 +162,11 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     <SidebarMenuItem>
       <div
         className={cn(
-          'group relative flex w-full items-center px-2 py-0.5 text-foreground transition-colors',
+          'group relative flex w-full items-center px-2 text-foreground transition-colors',
+          isMobile ? 'py-1.5' : 'py-0.5',
           isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
         )}
+        style={rowPaddingStyle}
         onContextMenu={handleContextMenu}
       >
         {isMultiSelectMode && (
@@ -169,6 +184,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
         <SidebarMenuButton
           className={cn(
             'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+            isMobile && 'min-h-10 py-2',
             isRowActive && 'text-foreground'
           )}
           onClick={handleSelect}
@@ -177,11 +193,11 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
           {isDirectory ? (
             <span className="h-4 w-4 shrink-0" />
           ) : (
-            <span className="h-4 w-4 shrink-0 pl-6" />
+            <span className={cn('h-4 w-4 shrink-0', isMobile ? 'pl-3' : 'pl-6')} />
           )}
           {getFileIcon()}
           <span className="flex-1 truncate text-sm">{node.name}</span>
-          {!isDirectory && node.size !== undefined && (
+          {!isMobile && !isDirectory && node.size !== undefined && (
             <span className="ml-auto shrink-0 text-xs text-muted-foreground">
               {formatSize(node.size)}
             </span>
