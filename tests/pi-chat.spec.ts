@@ -39,6 +39,56 @@ async function startFreshChat(page: Page) {
   await expect(page.getByTestId('chat-session-id')).toContainText('new chat');
 }
 
+async function mockEmptyChatBootstrap(page: Page) {
+  await page.route('**/api/agents/config', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        data: {
+          piConfig: {
+            activeProvider: 'openai',
+            providers: {
+              openai: { model: 'gpt-4o' },
+            },
+          },
+          discovery: {
+            openai: {
+              models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+            },
+          },
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/sessions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        sessions: [],
+      }),
+    });
+  });
+}
+
+async function getChatInputMetrics(page: Page) {
+  return page.getByTestId('chat-input').evaluate((element) => {
+    const textarea = element as HTMLTextAreaElement;
+    const style = window.getComputedStyle(textarea);
+    return {
+      height: textarea.getBoundingClientRect().height,
+      clientHeight: textarea.clientHeight,
+      scrollHeight: textarea.scrollHeight,
+      styleHeight: Number.parseFloat(textarea.style.height || '0'),
+      overflowY: style.overflowY,
+    };
+  });
+}
+
 test.describe('PI Chat E2E', () => {
   test.setTimeout(90000);
   test.use({ storageState: AUTH_STATE_PATH });
@@ -861,40 +911,7 @@ test.describe('PI Chat E2E', () => {
 
   test('should show productive starter prompts and prefill the mobile composer without overflow', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-
-    await page.route('**/api/agents/config', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: 'openai',
-              providers: {
-                openai: { model: 'gpt-4o' },
-              },
-            },
-            discovery: {
-              openai: {
-                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-              },
-            },
-          },
-        }),
-      });
-    });
-
-    await page.route('**/api/sessions', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          sessions: [],
-        }),
-      });
-    });
+    await mockEmptyChatBootstrap(page);
 
     await page.goto('/chat');
 
@@ -905,9 +922,55 @@ test.describe('PI Chat E2E', () => {
 
     await page.getByTestId('chat-starter-prompt-sm-campaign').click();
     await expect(page.getByTestId('chat-input')).toHaveValue(/visuelle Social-Media-Kampagne/);
-    await expect(page.getByTestId('chat-mobile-action-toggle')).toBeVisible();
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).height, { timeout: 15000 })
+      .toBeGreaterThan(56);
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).styleHeight, { timeout: 15000 })
+      .toBeLessThanOrEqual(192);
+    await expect(page.getByTestId('chat-mobile-action-toggle')).toHaveCount(0);
     await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
     await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);
+  });
+
+  test('should auto-grow the composer up to the mobile max height and collapse on reset', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockEmptyChatBootstrap(page);
+    await page.goto('/chat');
+
+    const input = page.getByTestId('chat-input');
+    const longPrompt = Array.from({ length: 20 }, (_, index) => `Zeile ${index + 1} fuer den Composer-Wachstumstest.`).join('\n');
+
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).styleHeight, { timeout: 15000 })
+      .toBe(56);
+
+    await input.fill(longPrompt);
+
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).height, { timeout: 15000 })
+      .toBeGreaterThan(56);
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).height, { timeout: 15000 })
+      .toBeLessThanOrEqual(192);
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).scrollHeight > (await getChatInputMetrics(page)).clientHeight, { timeout: 15000 })
+      .toBeTruthy();
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).overflowY, { timeout: 15000 })
+      .toBe('auto');
+    await expect
+      .poll(async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
+      .toBeTruthy();
+
+    await page.getByRole('button', { name: /new chat/i }).click();
+    await expect(input).toHaveValue('');
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).styleHeight, { timeout: 15000 })
+      .toBe(56);
+    await expect
+      .poll(async () => (await getChatInputMetrics(page)).overflowY, { timeout: 15000 })
+      .toBe('hidden');
   });
 
   test('should keep session and model hidden from the mobile header until details are expanded', async ({ page }) => {

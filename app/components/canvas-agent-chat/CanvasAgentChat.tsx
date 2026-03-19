@@ -142,6 +142,12 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
 
 const DEFAULT_MODEL_ID = 'pi';
 const BOTTOM_LOCK_THRESHOLD_PX = 16;
+const MOBILE_TEXTAREA_BASE_HEIGHT_PX = 56;
+const DESKTOP_TEXTAREA_BASE_HEIGHT_PX = 72;
+const MOBILE_TEXTAREA_MAX_HEIGHT_PX = 192;
+const DESKTOP_TEXTAREA_MAX_HEIGHT_PX = 256;
+const MOBILE_TEXTAREA_MAX_VIEWPORT_RATIO = 0.3;
+const DESKTOP_TEXTAREA_MAX_VIEWPORT_RATIO = 0.35;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -516,6 +522,7 @@ export default function CanvasAgentChat({
   const [composerHeight, setComposerHeight] = useState(220);
   const [composerWidth, setComposerWidth] = useState(0);
   const [showComposerHint, setShowComposerHint] = useState(false);
+  const [textareaHeight, setTextareaHeight] = useState(DESKTOP_TEXTAREA_BASE_HEIGHT_PX);
 
   const filePickerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -535,9 +542,42 @@ export default function CanvasAgentChat({
   const previousMessageCountRef = useRef(0);
   const isAtBottomRef = useRef(true);
 
+  const getTextareaBaseHeight = useCallback(() => (
+    isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
+  ), [isMobile]);
+
+  const getTextareaMaxHeight = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return isMobile ? MOBILE_TEXTAREA_MAX_HEIGHT_PX : DESKTOP_TEXTAREA_MAX_HEIGHT_PX;
+    }
+
+    const viewportLimit = Math.floor(
+      window.innerHeight * (isMobile ? MOBILE_TEXTAREA_MAX_VIEWPORT_RATIO : DESKTOP_TEXTAREA_MAX_VIEWPORT_RATIO),
+    );
+    const fixedLimit = isMobile ? MOBILE_TEXTAREA_MAX_HEIGHT_PX : DESKTOP_TEXTAREA_MAX_HEIGHT_PX;
+    return Math.max(getTextareaBaseHeight(), Math.min(fixedLimit, viewportLimit));
+  }, [getTextareaBaseHeight, isMobile]);
+
+  const syncTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const baseHeight = getTextareaBaseHeight();
+    const maxHeight = getTextareaMaxHeight();
+    textarea.style.height = 'auto';
+    const nextHeight = Math.max(baseHeight, Math.min(textarea.scrollHeight, maxHeight));
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    setTextareaHeight((current) => (current === nextHeight ? current : nextHeight));
+  }, [getTextareaBaseHeight, getTextareaMaxHeight]);
+
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
   }, [runtimeStatus]);
+
+  useLayoutEffect(() => {
+    syncTextareaHeight();
+  }, [input, isMobile, syncTextareaHeight]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -1610,6 +1650,10 @@ export default function CanvasAgentChat({
     };
   }, [attachments.length, isMobile, runtimeStatus?.phase, showMobileActionPanel]);
 
+  useEffect(() => {
+    syncTextareaHeight();
+  }, [composerWidth, syncTextareaHeight]);
+
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
   const contextLabel = runtimeStatus
@@ -2236,14 +2280,14 @@ export default function CanvasAgentChat({
             <textarea
               ref={textareaRef}
               data-testid="chat-input"
+              rows={1}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder={composerPlaceholder}
-              className={`w-full resize-none border border-border bg-background text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm sm:placeholder:text-sm ${
-                isMobile ? 'min-h-[40px] max-h-28 p-2.5' : 'min-h-[44px] max-h-32 p-2.5'
-              }`}
+              style={{ height: `${textareaHeight}px` }}
+              className="w-full resize-none border border-border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm sm:placeholder:text-sm"
             />
 
             {showFilePicker && (

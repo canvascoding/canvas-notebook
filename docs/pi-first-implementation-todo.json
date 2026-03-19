@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-19T13:57:13+01:00",
+  "lastUpdatedAt": "2026-03-19T13:57:49+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -2027,6 +2027,18 @@
         "pi-chat-runtime-018"
       ],
       "description": "Tool- und Skill-Guidance fuer Markdown-Bildanzeige ergaenzt, Bootstrap-TOOLS-Defaults gespiegelt, ohne bestehende user-edited Managed Files automatisch zu ueberschreiben."
+    },
+    {
+      "id": "pi-chat-runtime-019",
+      "order": 177,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Auto-grow the chat composer to a bounded max height",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-media-preview-001"
+      ],
+      "description": "Reworked the Canvas chat composer textarea to auto-grow from a larger baseline up to mobile and desktop max heights with internal scrolling after the cap, kept the fixed composer padding and file-picker behavior stable through the existing composer measurements, added focused Playwright coverage for mobile growth, cap, reset, and overflow safety, and verified the change against the running localhost:3000 dev server plus npm run build."
     }
   ]
 }
