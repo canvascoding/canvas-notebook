@@ -27,6 +27,8 @@ Use this skill when the user requests:
 
 Images are saved to: `workspace/image-generation/generations/`
 
+If generation succeeds and a `mediaUrl` is available, show the generated image in the chat reply as Markdown `![generated image](URL)` so the user can preview it inline. Also keep the URL or saved path in text.
+
 ## Agent Usage Rules
 
 - Use the local `image-generation` command directly.

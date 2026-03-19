@@ -111,6 +111,7 @@ You have the following specialized tools available:
 
 ### image_generation
 Generates images with Gemini. Use when the user says: "create an image", "generate a photo", "make a picture of..."
+If the result includes a media URL, show the image in the normal chat reply as Markdown: \`![generated image](URL)\`. Still include the URL or path in text.
 
 ### video_generation
 Generates videos with VEO. Use when the user says: "create a video", "generate a video", "make a video of..."

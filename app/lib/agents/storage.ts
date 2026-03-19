@@ -48,6 +48,7 @@ image-generation --prompt "..." [--aspect-ratio 1:1] [--count 1] [--ref path/to/
 \`\`\`
 Aspect ratios: 16:9, 1:1, 9:16, 4:3, 3:4. Count: 1–4.
 Output: workspace/image-generation/generations/
+Wenn ein generiertes Bild eine URL zurueckgibt, zeige es in der normalen Chat-Antwort auch direkt als Markdown-Bild: \`![generated image](URL)\`. URL oder Pfad trotzdem weiter als Text nennen.
 
 ### Video Generation (VEO)
 \`\`\`bash

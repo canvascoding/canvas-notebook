@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-19T10:11:14+01:00",
+  "lastUpdatedAt": "2026-03-19T13:57:13+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -2015,6 +2015,18 @@
         "pi-oauth-fix-001"
       ],
       "description": "Switched the DOCX wrapper to the package's React entrypoint, filtered the known third-party webpack critical dependency warning for @eigenpal/docx-js-editor in Next config, verified npm run build completes with a clean webpack compile, and confirmed the DOCX editor renders in the browser with a Playwright check against a sample .docx file."
+    },
+    {
+      "id": "pi-chat-media-preview-001",
+      "order": 176,
+      "phase": "P23 PI Chat Runtime UX",
+      "title": "Teach image_generation guidance to inline generated images in chat markdown",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "pi-chat-runtime-018"
+      ],
+      "description": "Tool- und Skill-Guidance fuer Markdown-Bildanzeige ergaenzt, Bootstrap-TOOLS-Defaults gespiegelt, ohne bestehende user-edited Managed Files automatisch zu ueberschreiben."
     }
   ]
 }

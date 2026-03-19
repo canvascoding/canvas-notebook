@@ -446,7 +446,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'image_generation',
     label: 'Generating images',
-    description: 'Generates images using the local Canvas image-generation service. Use when user asks for: image creation, picture generation, "create an image of...", "generate a photo". Output: workspace/image-generation/generations/. The agent should use this local tool directly; no internal API token or manual env loading is required.',
+    description: 'Generates images using the local Canvas image-generation service. Use when user asks for: image creation, picture generation, "create an image of...", "generate a photo". Output: workspace/image-generation/generations/. After a successful result with mediaUrl, the assistant should also embed the generated image in the normal chat reply as Markdown `![generated image](URL)` and still include the URL or path in text. The agent should use this local tool directly; no internal API token or manual env loading is required.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the image to generate' }),
       count: Type.Number({ description: 'Number of images to generate (1-4)' }),
