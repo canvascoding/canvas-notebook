@@ -225,6 +225,29 @@ export function DashboardShell({ username }: DashboardShellProps) {
   }, [viewportMode]);
 
   useEffect(() => {
+    const handleDesktopSidebarToggle = () => {
+      if (viewportMode !== 'desktop') {
+        return;
+      }
+      setSidebarVisible((current) => !current);
+    };
+
+    const handleDesktopChatToggle = () => {
+      if (viewportMode !== 'desktop') {
+        return;
+      }
+      setChatVisible((current) => !current);
+    };
+
+    window.addEventListener('notebook-desktop-toggle-sidebar', handleDesktopSidebarToggle);
+    window.addEventListener('notebook-desktop-toggle-chat', handleDesktopChatToggle);
+    return () => {
+      window.removeEventListener('notebook-desktop-toggle-sidebar', handleDesktopSidebarToggle);
+      window.removeEventListener('notebook-desktop-toggle-chat', handleDesktopChatToggle);
+    };
+  }, [viewportMode]);
+
+  useEffect(() => {
     const handleMouseUp = () => {
       if (isResizing.current) {
         stopResizing();

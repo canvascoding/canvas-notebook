@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-19T14:46:00+01:00",
+  "lastUpdatedAt": "2026-03-19T15:11:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -2063,6 +2063,18 @@
         "notebook-mobile-001"
       ],
       "description": "Updated the /notebook mobile header so Chat and Terminal behave as true toggles: first tap opens the surface, second tap closes it back to the editor, while the explorer sheet flow stays unchanged. Verified with npm run build and a Playwright browser check against the existing localhost:3000 dev server."
+    },
+    {
+      "id": "notebook-desktop-001",
+      "order": 180,
+      "phase": "P32 Notebook Desktop UX",
+      "title": "Add editor header toggle buttons for desktop file tree and chat panels",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "notebook-mobile-002"
+      ],
+      "description": "Added desktop-only editor header buttons for the file tree and chat panels, wired them into the existing DashboardShell panel state via editor-to-shell toggle events, and verified file tree plus chat open/close behavior with npm run build and a Playwright browser pass against the existing localhost:3000 dev server."
     }
   ]
 }
