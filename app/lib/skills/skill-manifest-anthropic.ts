@@ -234,7 +234,9 @@ export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<Anth
             }
             
             skills.push(skill);
-            console.log(`[SkillLoader] Loaded skill: ${skill.name} (enabled: ${skill.enabled})`);
+            if (process.env.DEBUG === 'true') {
+              console.log(`[SkillLoader] Loaded skill: ${skill.name} (enabled: ${skill.enabled})`);
+            }
           }
         } catch (error) {
           // SKILL.md doesn't exist or is invalid - skip this directory
@@ -245,7 +247,9 @@ export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<Anth
       }
     }
     
-    console.log(`[SkillLoader] Loaded ${skills.length} skills from disk`);
+    if (process.env.DEBUG === 'true') {
+      console.log(`[SkillLoader] Loaded ${skills.length} skills from disk`);
+    }
     return skills;
     
   } catch (error) {
