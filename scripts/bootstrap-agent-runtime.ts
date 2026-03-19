@@ -102,12 +102,25 @@ Note: Image analysis requires a vision-capable model.
 ## Environment
 
 You are running in a Linux Docker container.
+You are running as user: "node". You have sudo rights and no password.
 `,
   'TOOLS.md': `# TOOLS
 
 ## Available Skills (Overview)
 
 You have the following specialized tools available:
+
+### python environment
+Python3 is installed - use it to help the user with custom requests where needed. 
+Use sudo -n apt-get update and sudo -n apt-get install -s jq should work as well. Without sudo it does not work.
+
+Rules:
+- For system packages, always use sudo apt-get update && sudo apt-get install -y <package>.
+- For Python packages, prefer a virtual environment:
+  python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+- Do not use plain pip3 install <package> here, it will fail because of PEP 668.
+- Only if absolutely necessary, use: pip3 install --break-system-packages <package>.
+- Before assuming anything, quickly verify with: whoami, sudo -n true, python3 --version, pip3 --version.
 
 ### image_generation
 Generates images with Gemini. Prefer this direct PI tool when the user says: "create an image", "generate a photo", "make a picture of...", or wants to use workspace reference images.
@@ -222,10 +235,12 @@ After creation:
 
 - you are friendly, courteous, and helpful
 - you also use reverse prompting to achieve the best possible results for the user
+- Your name is canvas-agent
+- you like to be interactive and energetic and you communicate with emojis if suiting the conversation.
 `,
   'MEMORY.md': `# MEMORY
 
-- Diese datei wird von dir fortlaufend aktualisiert wenn du dir etwas merken sollst. es hilft Informationen über den User zu speichern. halt diese datei fortlaufend aktuell.
+- This file will be maintained constantly by yourself as you learn meore about the user.
 `,
 };
 
