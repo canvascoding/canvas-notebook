@@ -1,13 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, Wrench, BookOpen, Power, CheckCircle2, XCircle } from 'lucide-react';
+import { Wrench, BookOpen, Power, CheckCircle2, XCircle } from 'lucide-react';
 
-import { LogoutButton } from '@/app/components/LogoutButton';
-import { NotebookNavButton } from '@/app/components/NotebookNavButton';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,10 +17,9 @@ interface SkillsPageProps {
     enabled: number;
     disabled: number;
   };
-  username: string;
 }
 
-export default function SkillsPageClient({ skills: initialSkills, stats: initialStats, username }: SkillsPageProps) {
+export default function SkillsPageClient({ skills: initialSkills, stats: initialStats }: SkillsPageProps) {
   const [skills, setSkills] = useState<AnthropicSkill[]>(initialSkills);
   const [stats, setStats] = useState(initialStats);
   const [selectedSkill, setSelectedSkill] = useState<AnthropicSkill | null>(null);
@@ -163,49 +158,25 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
   }
 
   return (
-    <div className="fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-background text-foreground">
-      <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
-        <div className="mx-auto flex h-full items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
-              <Link href="/">
-                <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">Suite</span>
-              </Link>
-            </Button>
-            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="shrink-0 border border-border" />
-            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">SKILL GALLERY</h1>
-          </div>
-          <div className="flex items-center gap-1.5 md:gap-4">
-            <NotebookNavButton />
-            <ThemeToggle />
-            <div className="hidden lg:flex flex-col items-end shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">User</span>
-              <span className="text-xs text-foreground/90">{username}</span>
-            </div>
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-auto p-4 md:p-6">
-        <div className="mx-auto max-w-6xl space-y-6">
+    <>
+      <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
+        <div className="space-y-5 sm:space-y-6">
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-3">
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader className="px-4 pb-2 sm:px-6">
                 <CardDescription>Total Skills</CardDescription>
                 <CardTitle className="text-3xl">{stats.total}</CardTitle>
               </CardHeader>
             </Card>
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader className="px-4 pb-2 sm:px-6">
                 <CardDescription>Enabled</CardDescription>
                 <CardTitle className="text-3xl text-green-600">{stats.enabled}</CardTitle>
               </CardHeader>
             </Card>
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader className="px-4 pb-2 sm:px-6">
                 <CardDescription>Disabled</CardDescription>
                 <CardTitle className="text-3xl text-muted-foreground">{stats.disabled}</CardTitle>
               </CardHeader>
@@ -213,13 +184,13 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
           </div>
 
           {/* Bulk Actions */}
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <Button
               variant="outline"
               size="sm"
               onClick={enableAllSkills}
               disabled={stats.enabled === stats.total}
-              className="flex items-center gap-2"
+              className="w-full gap-2 sm:w-auto"
             >
               <CheckCircle2 className="h-4 w-4 text-green-600" />
               Enable All
@@ -229,7 +200,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
               size="sm"
               onClick={disableAllSkills}
               disabled={stats.disabled === stats.total}
-              className="flex items-center gap-2"
+              className="w-full gap-2 sm:w-auto"
             >
               <XCircle className="h-4 w-4 text-muted-foreground" />
               Disable All
@@ -237,15 +208,15 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
           </div>
 
           {/* Info Boxes: Integrations & Skill Creation */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {/* Integrations Hint */}
             <Card className="border-dashed border-muted-foreground/30 bg-muted/30">
-              <CardContent className="py-4 px-4">
-                <div className="flex items-center justify-between gap-4 flex-wrap">
+              <CardContent className="px-4 py-4 sm:px-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-muted-foreground">
                     <span className="font-medium">Hinweis:</span> Wenn Skills Env-Variablen benötigen, müssen diese im Integrations-Tab gespeichert werden.
                   </p>
-                  <Button asChild variant="outline" size="sm">
+                  <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
                     <Link href="/settings?tab=integrations">Integrations öffnen</Link>
                   </Button>
                 </div>
@@ -254,7 +225,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
 
             {/* Skill Creation Info */}
             <Card className="border-dashed border-blue-500/30 bg-blue-50/30 dark:bg-blue-950/20">
-              <CardContent className="py-4 px-4">
+              <CardContent className="px-4 py-4 sm:px-6">
                 <div className="flex items-start gap-3">
                   <div className="flex-1">
                     <p className="text-sm text-foreground">
@@ -267,14 +238,14 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
           </div>
 
           {/* Skills Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {skills.map((skill) => (
               <Card key={skill.name} className={`flex flex-col ${!skill.enabled ? 'opacity-60' : ''}`}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
+                <CardHeader className="px-4 pb-3 sm:px-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-2">
                       <Power className={`h-5 w-5 ${skill.enabled ? 'text-green-500' : 'text-muted-foreground'}`} />
-                      <CardTitle className="text-lg">{skill.title}</CardTitle>
+                      <CardTitle className="text-lg leading-tight">{skill.title}</CardTitle>
                     </div>
                     <div className="flex items-center gap-2">
                       <Switch
@@ -288,7 +259,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
                     {skill.description}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex-1 flex flex-col justify-end space-y-3">
+                <CardContent className="flex flex-1 flex-col justify-end space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
                   {skill.license && (
                     <div className="text-sm text-muted-foreground">
                       <span className="font-medium">License:</span> {skill.license}
@@ -298,7 +269,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="flex-1"
+                      className="w-full"
                       onClick={() => handleOpenSkill(skill)}
                     >
                       <BookOpen className="h-4 w-4 mr-1" />
@@ -311,22 +282,22 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
           </div>
 
           {skills.length === 0 && (
-            <div className="text-center py-12">
-              <Wrench className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No Skills Found</h3>
-              <p className="text-muted-foreground max-w-md mx-auto">
+            <div className="py-12 text-center">
+              <Wrench className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+              <h3 className="mb-2 text-lg font-semibold">No Skills Found</h3>
+              <p className="mx-auto max-w-md text-sm text-muted-foreground sm:text-base">
                 Skills will appear here once they are added to the /data/skills/ directory.
               </p>
             </div>
           )}
         </div>
-      </main>
+      </div>
 
       <SkillDetailDialog 
         skill={selectedSkill} 
         open={dialogOpen} 
         onOpenChange={setDialogOpen} 
       />
-    </div>
+    </>
   );
 }

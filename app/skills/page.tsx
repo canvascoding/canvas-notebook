@@ -4,6 +4,7 @@ import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 
+import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import SkillsPageClient from './SkillsPageClient';
 
 export const metadata: Metadata = {
@@ -32,10 +33,11 @@ export default async function SkillsPage() {
   };
 
   return (
-    <SkillsPageClient 
-      skills={skills} 
-      stats={stats} 
-      username={username}
-    />
+    <SuitePageLayout title="Skill Gallery" username={username} showLogo>
+      <SkillsPageClient
+        skills={skills}
+        stats={stats}
+      />
+    </SuitePageLayout>
   );
 }

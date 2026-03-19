@@ -51,8 +51,8 @@ export default async function Home() {
   const setupCardState = await loadAgentSetupCardState();
 
   return (
-    <div className="min-h-[100dvh] bg-background text-foreground">
-      <div className="flex min-h-[100dvh] flex-col">
+    <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
+      <div className="flex h-full flex-col">
         <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
             <div className="min-w-0 flex items-center gap-3">
@@ -75,7 +75,7 @@ export default async function Home() {
           </div>
         </header>
 
-        <main className="flex-1 pb-10 md:pb-12">
+        <main className="flex-1 overflow-y-auto pb-10 md:pb-12">
           <div className="mx-auto grid w-full max-w-6xl gap-4 px-4 pt-4 md:px-6 md:pt-8 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="min-w-0">
               <SuiteAppSelector isAuthenticated />

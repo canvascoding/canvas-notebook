@@ -1,12 +1,10 @@
 import Link from 'next/link';
-import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
-import { NotebookNavButton } from '@/app/components/NotebookNavButton';
-import { LogoutButton } from '@/app/components/LogoutButton';
+import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import { VeoStudioClient } from '@/app/apps/veo-studio/components/VeoStudioClient';
 
 export default async function VeoPage() {
@@ -16,44 +14,21 @@ export default async function VeoPage() {
   const geminiApiKey = await getGeminiApiKeyFromIntegrations();
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
-      <header className="h-16 border-b border-border bg-background/95">
-        <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4 md:px-6">
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" className="gap-2">
-              <Link href="/">
-                <ArrowLeft className="h-4 w-4" />
-                Suite
-              </Link>
-            </Button>
-            <span className="text-sm font-semibold">VEO Studio</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <NotebookNavButton />
-            <div className="hidden md:flex flex-col items-end">
-              <span className="text-xs font-bold tracking-widest text-muted-foreground uppercase">User</span>
-              <span className="text-xs">{username}</span>
-            </div>
-            <ThemeToggle />
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
-      <main className="min-h-0 flex-1 overflow-y-auto">
+    <SuitePageLayout title="VEO Studio" username={username}>
         {!geminiApiKey && (
           <div className="p-4 md:p-6">
             <Card className="border-destructive/50 bg-destructive/10">
-              <CardHeader className="pb-3">
+              <CardHeader className="px-4 pb-3 sm:px-6">
                 <CardTitle className="flex items-center gap-2 text-destructive">
                   <AlertTriangle className="h-5 w-5" />
                   API Key erforderlich
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
                 <CardDescription className="text-base text-destructive/80">
                   Diese App benötigt einen GEMINI_API_KEY. Bitte konfiguriere diesen im Integrations-Tab.
                 </CardDescription>
-                <Button asChild variant="default">
+                <Button asChild variant="default" className="w-full sm:w-auto">
                   <Link href="/settings?tab=integrations">
                     Zu Integrations
                   </Link>
@@ -64,7 +39,6 @@ export default async function VeoPage() {
         )}
         
         <VeoStudioClient />
-      </main>
-    </div>
+    </SuitePageLayout>
   );
 }

@@ -192,23 +192,23 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
   };
 
   return (
-    <div data-testid="usage-page" className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
+    <div data-testid="usage-page" className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-5 md:px-6 md:gap-6 md:py-8">
       <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <Card className="border-border/70 bg-card/95">
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-3">
+          <CardHeader className="px-4 pb-4 sm:px-6">
+            <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 items-center justify-center border border-border bg-muted">
                 <BarChart3 className="h-5 w-5" />
               </div>
-              <div>
-                <CardTitle className="text-xl">Usage Analytics</CardTitle>
+              <div className="min-w-0">
+                <CardTitle className="text-lg sm:text-xl">Usage Analytics</CardTitle>
                 <p className="text-sm text-muted-foreground">
                   Tokens und Kosten auf Basis der PI-Usage-Events ab Rollout des Ledgers.
                 </p>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
             <div className="flex flex-wrap gap-2">
               {[7, 30, 90].map((days) => (
                 <Button
@@ -309,12 +309,12 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
               ) : null}
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" className="gap-2" onClick={applyFilters}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <Button type="button" size="sm" className="w-full gap-2 sm:w-auto" onClick={applyFilters}>
                 <Filter className="h-4 w-4" />
                 Apply filters
               </Button>
-              <Button type="button" variant="outline" size="sm" className="gap-2" onClick={resetFilters}>
+              <Button type="button" variant="outline" size="sm" className="w-full gap-2 sm:w-auto" onClick={resetFilters}>
                 <RefreshCw className="h-4 w-4" />
                 Reset
               </Button>
@@ -323,16 +323,16 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
         </Card>
 
         <Card className="border-border/70 bg-card/95">
-          <CardHeader className="pb-4">
+          <CardHeader className="px-4 pb-4 sm:px-6">
             <CardTitle className="flex items-center gap-2 text-base">
               <Layers3 className="h-4 w-4" />
               Active scope
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <CardContent className="space-y-3 px-4 pb-4 text-sm text-muted-foreground sm:px-6 sm:pb-6">
             <div className="flex items-start gap-2">
               <CalendarRange className="mt-0.5 h-4 w-4 text-foreground" />
-              <span>
+              <span className="break-words">
                 {activeFilters.from} to {activeFilters.to}
               </span>
             </div>
@@ -352,7 +352,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 min-[480px]:grid-cols-2 xl:grid-cols-6">
         <StatCard
           title="Total cost"
           value={formatUsageCost(summary?.totals.totalCost ?? 0)}
@@ -387,10 +387,10 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
 
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <Card className="border-border/70 bg-card/95">
-          <CardHeader className="pb-3">
+          <CardHeader className="px-4 pb-3 sm:px-6">
             <CardTitle className="text-base">Grouped summary</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
             <div className="overflow-x-auto">
               <table data-testid="usage-summary-table" className="min-w-full border-collapse text-sm">
                 <thead>
@@ -432,10 +432,10 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
         </Card>
 
         <Card className="border-border/70 bg-card/95">
-          <CardHeader className="pb-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardHeader className="px-4 pb-3 sm:px-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <CardTitle className="text-base">Recent usage events</CardTitle>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 min-[480px]:flex-row min-[480px]:items-center">
                 <Button type="button" variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((prev) => prev - 1)}>
                   Previous
                 </Button>
@@ -446,7 +446,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
             {events?.rows.length ? (
               <ScrollArea className="h-[24rem] md:h-[32rem]">
                 <div className="space-y-3 pr-4">

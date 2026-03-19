@@ -167,13 +167,13 @@ function EnvEditorCard(props: {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle>{card.title}</CardTitle>
         <CardDescription>
-          {card.description} Datei liegt unter <span className="font-mono">{editor.state?.path || card.emptyPath}</span>.
+          {card.description} Datei liegt unter <span className="break-all font-mono">{editor.state?.path || card.emptyPath}</span>.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
         {editor.isLoading ? (
           <div className="flex items-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -198,7 +198,7 @@ function EnvEditorCard(props: {
               value={editor.activeTab}
               onValueChange={(value) => onActiveTabChange(card.scope, value as 'kv' | 'raw')}
             >
-              <TabsList>
+              <TabsList className="grid h-auto w-full grid-cols-2">
                 <TabsTrigger value="kv">Key / Value</TabsTrigger>
                 <TabsTrigger value="raw">Raw .env</TabsTrigger>
               </TabsList>
@@ -538,15 +538,19 @@ export function IntegrationsSettingsClient() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
+    <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
       <Tabs
         value={settingsTab}
         onValueChange={(value) => setSettingsTab(value as 'integrations' | 'agent-settings')}
         className="space-y-4"
       >
-        <TabsList>
-          <TabsTrigger value="integrations">Integrations</TabsTrigger>
-          <TabsTrigger value="agent-settings">Agent Settings</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-2">
+          <TabsTrigger value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
+            Integrations
+          </TabsTrigger>
+          <TabsTrigger value="agent-settings" className="min-h-9 border border-border data-[state=active]:bg-muted">
+            Agent Settings
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="integrations" className="space-y-4">
