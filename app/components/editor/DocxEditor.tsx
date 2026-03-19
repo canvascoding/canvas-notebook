@@ -2,11 +2,11 @@
 
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
-import type { DocxEditorRef } from '@eigenpal/docx-js-editor';
+import type { DocxEditorRef } from '@eigenpal/docx-js-editor/react';
 
 // Dynamically import the editor to avoid SSR issues
 const DocxEditorComponent = dynamic(
-  () => import('@eigenpal/docx-js-editor').then((mod) => mod.DocxEditor),
+  () => import('@eigenpal/docx-js-editor/react').then((mod) => mod.DocxEditor),
   { ssr: false }
 );
 
