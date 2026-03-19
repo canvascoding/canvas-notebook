@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-19T15:11:00+01:00",
+  "lastUpdatedAt": "2026-03-19T15:24:00+01:00",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -2075,6 +2075,18 @@
         "notebook-mobile-002"
       ],
       "description": "Added desktop-only editor header buttons for the file tree and chat panels, wired them into the existing DashboardShell panel state via editor-to-shell toggle events, and verified file tree plus chat open/close behavior with npm run build and a Playwright browser pass against the existing localhost:3000 dev server."
+    },
+    {
+      "id": "notebook-desktop-002",
+      "order": 181,
+      "phase": "P32 Notebook Desktop UX",
+      "title": "Open the desktop chat panel by default on initial notebook load",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "notebook-desktop-001"
+      ],
+      "description": "Updated the desktop /notebook initialization so the chat panel starts open on the first page load while mobile defaults and later manual panel toggles stay unchanged. Verified with npm run build and a Playwright desktop browser pass against the existing localhost:3000 dev server."
     }
   ]
 }

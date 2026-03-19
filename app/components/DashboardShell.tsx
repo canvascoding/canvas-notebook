@@ -103,6 +103,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
     startWidth: number;
   } | null>(null);
   const openedPathRef = useRef<string | null>(null);
+  const desktopDefaultChatAppliedRef = useRef(false);
   const currentFile = useFileStore((state) => state.currentFile);
   const currentDirectory = useFileStore((state) => state.currentDirectory);
 
@@ -182,6 +183,10 @@ export function DashboardShell({ username }: DashboardShellProps) {
         setMobileExplorerOpen(false);
       } else {
         setSidebarVisible(true);
+        if (!desktopDefaultChatAppliedRef.current) {
+          desktopDefaultChatAppliedRef.current = true;
+          setChatVisible(true);
+        }
       }
     };
 
