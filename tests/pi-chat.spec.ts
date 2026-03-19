@@ -261,6 +261,119 @@ test.describe('PI Chat E2E', () => {
     expect(messageOrder.indexOf('chat-message-toolResult')).toBeLessThan(messageOrder.indexOf('chat-message-assistant'));
   });
 
+  test('should show direct PI media tool inputs for image and video generation calls', async ({ page }) => {
+    const imageReferencePath = 'public/images/examples/aura_serum_produktfoto.png';
+    const videoStartFramePath = 'public/images/examples/tech_banner_future_of_innovation.png';
+    const videoEndFramePath = 'public/images/examples/reise_banner_find_your_paradise.png';
+
+    await page.route('**/api/stream', async (route) => {
+      const body = [
+        JSON.stringify({
+          type: 'tool_execution_start',
+          toolCallId: 'tool-call-image-1',
+          toolName: 'image_generation',
+          args: {
+            count: 1,
+            prompt: 'Use the same composition with a colder blue palette.',
+            reference_image_paths: [imageReferencePath],
+          },
+        }),
+        JSON.stringify({
+          type: 'tool_execution_end',
+          toolCallId: 'tool-call-image-1',
+          toolName: 'image_generation',
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: `Image generation complete: 1 successful, 0 failed\n\nImage 1: image-generation/generations/generated.png\nURL: /api/media/image-generation/generations/generated.png\n`,
+              },
+            ],
+          },
+        }),
+        JSON.stringify({
+          type: 'tool_execution_start',
+          toolCallId: 'tool-call-video-1',
+          toolName: 'video_generation',
+          args: {
+            mode: 'frames_to_video',
+            prompt: 'Animate a slow camera move from the first frame into the second.',
+            start_frame_path: videoStartFramePath,
+            end_frame_path: videoEndFramePath,
+            resolution: '720p',
+            is_looping: true,
+          },
+        }),
+        JSON.stringify({
+          type: 'tool_execution_end',
+          toolCallId: 'tool-call-video-1',
+          toolName: 'video_generation',
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: 'Video generation started! This may take 3-10 minutes.\n\nVideo will be saved to: veo-studio/video-generation/generated.mp4\nMedia URL: /api/media/veo-studio/video-generation/generated.mp4\n',
+              },
+            ],
+          },
+        }),
+        JSON.stringify({
+          type: 'agent_end',
+          messages: [
+            {
+              role: 'user',
+              content: 'Generate media from workspace assets.',
+              timestamp: Date.now(),
+            },
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'I used the direct PI media tools with workspace-relative asset paths.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      ].join('\n') + '\n';
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body,
+      });
+    });
+
+    await page.goto('/chat');
+    await startFreshChat(page);
+    const input = page.getByTestId('chat-input');
+    await input.fill('Use the direct PI media tools with workspace assets.');
+    const streamResponse = page.waitForResponse((response) => response.url().includes('/api/stream'));
+    await page.getByTestId('chat-send').click();
+    await expect((await streamResponse).ok()).toBeTruthy();
+
+    const toolMessages = page.getByTestId('chat-message-toolResult');
+    await expect(toolMessages).toHaveCount(2);
+
+    const imageToolMessage = toolMessages.filter({ hasText: 'image_generation' }).first();
+    await expect(imageToolMessage).toContainText('image_generation');
+    await imageToolMessage.getByTestId('chat-tool-toggle').click();
+    await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText('reference_image_paths');
+    await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText(imageReferencePath);
+    await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText('Use the same composition with a colder blue palette.');
+
+    const videoToolMessage = toolMessages.filter({ hasText: 'video_generation' }).first();
+    await expect(videoToolMessage).toContainText('video_generation');
+    await videoToolMessage.getByTestId('chat-tool-toggle').click();
+    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText('start_frame_path');
+    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText(videoStartFramePath);
+    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText('end_frame_path');
+    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText(videoEndFramePath);
+    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText('is_looping');
+  });
+
   test('should hide assistant text behind a streaming placeholder until the final message arrives', async ({ page }) => {
     await page.addInitScript(() => {
       const originalFetch = window.fetch.bind(window);

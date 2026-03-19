@@ -18,10 +18,11 @@ Use this skill when the user requests:
 
 ## Parameters
 
-- **prompt** (required): Text description of the image to generate
+- **prompt** (optional): Text description of the image to generate. Required when no reference images are provided.
 - **aspect_ratio**: Aspect ratio of the image (16:9, 1:1, 9:16, 4:3, 3:4). Default: 1:1
 - **count**: Number of images to generate (1-4). Default: 1
 - **model**: Model to use (gemini-3.1-flash-image-preview, gemini-2.5-flash-image). Default: gemini-3.1-flash-image-preview
+- **reference_image_paths**: Workspace-relative reference image paths. At least one of `prompt` or `reference_image_paths` is required.
 
 ## Output
 

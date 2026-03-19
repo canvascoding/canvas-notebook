@@ -1,0 +1,174 @@
+import assert from 'node:assert/strict';
+import Module from 'node:module';
+
+import type { GenerateImageRequestBody } from '../app/lib/integrations/image-generation-service';
+import type { GenerateVideoRequestBody } from '../app/lib/integrations/veo-generation-service';
+
+function getText(result: unknown): string {
+  const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
+  return content?.find((item) => item.type === 'text')?.text || '';
+}
+
+async function main() {
+  const moduleInternals = Module as typeof Module & {
+    _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+  };
+  const originalLoad = moduleInternals._load;
+  moduleInternals._load = (request, parent, isMain) => {
+    if (request === 'server-only') {
+      return {};
+    }
+    return originalLoad(request, parent, isMain);
+  };
+
+  const { createImageGenerationTool, createVideoGenerationTool } = await import('../app/lib/pi/tool-registry');
+
+  const imageCalls: GenerateImageRequestBody[] = [];
+  const videoCalls: GenerateVideoRequestBody[] = [];
+
+  const imageTool = createImageGenerationTool({
+    generateImagesFn: async (body) => {
+      imageCalls.push(body);
+      return {
+        model: body.model || 'gemini-3.1-flash-image-preview',
+        aspectRatio: body.aspectRatio || '1:1',
+        imageCount: body.imageCount || 1,
+        outputDir: 'image-generation/generations',
+        successCount: 1,
+        failureCount: 0,
+        results: [
+          {
+            index: 0,
+            path: 'image-generation/generations/generated.png',
+            metadataPath: 'image-generation/generations/generated.json',
+            mediaUrl: '/api/media/image-generation/generations/generated.png',
+          },
+        ],
+      };
+    },
+  });
+
+  const videoTool = createVideoGenerationTool({
+    generateVideoFn: async (body) => {
+      videoCalls.push(body);
+      return {
+        path: 'veo-studio/video-generation/generated.mp4',
+        metadataPath: 'veo-studio/video-generation/generated.json',
+        mediaUrl: '/api/media/veo-studio/video-generation/generated.mp4',
+      };
+    },
+  });
+
+  const imageReferenceResult = await imageTool.execute('img-ref', {
+    count: 2,
+    aspect_ratio: '16:9',
+    reference_image_paths: [
+      './public/images/examples/aura_serum_produktfoto.png',
+      'public/images/examples/aura_serum_produktfoto.png',
+    ],
+  });
+  assert.match(getText(imageReferenceResult), /Image generation complete: 1 successful, 0 failed/);
+  assert.equal(imageCalls.length, 1);
+  assert.equal(imageCalls[0].prompt, undefined);
+  assert.deepEqual(imageCalls[0].referenceImagePaths, ['public/images/examples/aura_serum_produktfoto.png']);
+  assert.equal(imageCalls[0].imageCount, 2);
+
+  const imageLegacyResult = await imageTool.execute('img-legacy', {
+    prompt: 'A polished product shot',
+    count: 1,
+    model: 'gemini-2.5-flash-image',
+  });
+  assert.match(getText(imageLegacyResult), /Image generation complete: 1 successful, 0 failed/);
+  assert.equal(imageCalls.length, 2);
+  assert.equal(imageCalls[1].prompt, 'A polished product shot');
+  assert.deepEqual(imageCalls[1].referenceImagePaths, []);
+  assert.equal(imageCalls[1].model, 'gemini-2.5-flash-image');
+
+  const imageMissingInputResult = await imageTool.execute('img-error', {
+    count: 1,
+  });
+  assert.equal(getText(imageMissingInputResult), 'Error: Either prompt or reference_image_paths is required.');
+
+  const videoFramesResult = await videoTool.execute('video-frames', {
+    mode: 'frames_to_video',
+    start_frame_path: './public/images/examples/tech_banner_future_of_innovation.png',
+    end_frame_path: 'public/images/examples/reise_banner_find_your_paradise.png',
+    is_looping: true,
+    resolution: '1080p',
+    model: 'veo-3.1-generate-preview',
+  });
+  assert.match(getText(videoFramesResult), /Video generation started!/);
+  assert.equal(videoCalls.length, 1);
+  assert.equal(videoCalls[0].mode, 'frames_to_video');
+  assert.equal(videoCalls[0].startFramePath, 'public/images/examples/tech_banner_future_of_innovation.png');
+  assert.equal(videoCalls[0].endFramePath, 'public/images/examples/reise_banner_find_your_paradise.png');
+  assert.equal(videoCalls[0].isLooping, true);
+  assert.equal(videoCalls[0].model, 'veo-3.1-generate-preview');
+
+  const videoReferenceResult = await videoTool.execute('video-ref', {
+    prompt: 'Animate the product reveal',
+    mode: 'references_to_video',
+    reference_image_paths: [
+      'public/images/examples/aura_serum_produktfoto.png',
+      './public/images/examples/tech_banner_future_of_innovation.png',
+    ],
+  });
+  assert.match(getText(videoReferenceResult), /Video generation started!/);
+  assert.equal(videoCalls.length, 2);
+  assert.equal(videoCalls[1].prompt, 'Animate the product reveal');
+  assert.deepEqual(videoCalls[1].referenceImagePaths, [
+    'public/images/examples/aura_serum_produktfoto.png',
+    'public/images/examples/tech_banner_future_of_innovation.png',
+  ]);
+
+  const videoExtendResult = await videoTool.execute('video-extend', {
+    mode: 'extend_video',
+    input_video_path: 'workspace-assets/sample-input.mp4',
+  });
+  assert.match(getText(videoExtendResult), /Video generation started!/);
+  assert.equal(videoCalls.length, 3);
+  assert.equal(videoCalls[2].mode, 'extend_video');
+  assert.equal(videoCalls[2].inputVideoPath, 'workspace-assets/sample-input.mp4');
+
+  const videoLegacyResult = await videoTool.execute('video-legacy', {
+    prompt: 'A calm beach at sunrise',
+  });
+  assert.match(getText(videoLegacyResult), /Video generation started!/);
+  assert.equal(videoCalls.length, 4);
+  assert.equal(videoCalls[3].mode, 'text_to_video');
+  assert.equal(videoCalls[3].prompt, 'A calm beach at sunrise');
+  assert.equal(videoCalls[3].model, 'veo-3.1-fast-generate-preview');
+
+  const videoTextError = await videoTool.execute('video-text-error', {
+    mode: 'text_to_video',
+  });
+  assert.equal(getText(videoTextError), 'Error: prompt is required for text_to_video mode.');
+
+  const videoFramesError = await videoTool.execute('video-frames-error', {
+    mode: 'frames_to_video',
+  });
+  assert.equal(getText(videoFramesError), 'Error: start_frame_path is required for frames_to_video mode.');
+
+  const videoReferenceError = await videoTool.execute('video-ref-error', {
+    mode: 'references_to_video',
+    reference_image_paths: ['public/images/examples/aura_serum_produktfoto.png'],
+  });
+  assert.equal(
+    getText(videoReferenceError),
+    'Error: prompt and at least one reference_image_paths entry are required for references_to_video mode.',
+  );
+
+  const videoExtendError = await videoTool.execute('video-extend-error', {
+    mode: 'extend_video',
+  });
+  assert.equal(getText(videoExtendError), 'Error: input_video_path is required for extend_video mode.');
+
+  console.log('pi-tool-registry-test: ok');
+
+  moduleInternals._load = originalLoad;
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

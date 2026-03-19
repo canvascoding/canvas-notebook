@@ -17,13 +17,16 @@ Use this skill when the user requests:
 
 ## Parameters
 
-- **prompt** (required): Text description of the video to generate
+- **prompt** (optional): Text description of the video to generate. Required for `text_to_video` and `references_to_video`.
 - **mode**: Generation mode (text_to_video, frames_to_video, references_to_video, extend_video). Default: text_to_video
 - **aspect_ratio**: Aspect ratio (16:9, 9:16). Default: 16:9
 - **resolution**: Resolution (720p, 1080p, 4k). Default: 720p
-- **start_frame**: Path to start frame (for frames_to_video mode)
-- **end_frame**: Path to end frame (for frames_to_video mode)
-- **input_video**: Path to input video (for extend_video mode)
+- **model**: Model to use (veo-3.1-fast-generate-preview, veo-3.1-generate-preview). Default: veo-3.1-fast-generate-preview
+- **start_frame**: Workspace-relative path to start frame (for frames_to_video mode)
+- **end_frame**: Workspace-relative path to end frame (for frames_to_video mode)
+- **reference_image_paths**: Workspace-relative reference image paths (for references_to_video mode)
+- **input_video**: Workspace-relative path to input video (for extend_video mode)
+- **is_looping**: Reuse the start frame as the end frame in `frames_to_video` mode
 
 ## Output
 

@@ -35,26 +35,50 @@ const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
 
 - **Python**: Use \`python3\` (installed) - NOT \`python\`
 
-## Skills CLI
+## PI Media Tools
 
-Canvas Notebook hat eine Skills CLI für den Agenten.
+Bevorzuge fuer Bild- und Video-Generierung immer die direkten PI-Tools. Nutze nicht \`bash\`, um die Skills CLI fuer normale Generierungen aufzurufen.
 
 **Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein.
 **Wichtig:** Die Wrapper nutzen lokale Canvas-Services. Lies keine Env-Dateien, lade keine API-Keys manuell und rufe für diese drei Skills keine internen API-Routen direkt auf.
 
 ### Image Generation
 \`\`\`bash
-image-generation --prompt "..." [--aspect-ratio 1:1] [--count 1] [--ref path/to/ref.png]
+image_generation({
+  prompt,
+  count,
+  aspect_ratio,
+  model,
+  reference_image_paths,
+})
 \`\`\`
+\`prompt\` ist optional, wenn \`reference_image_paths\` gesetzt ist.
+\`reference_image_paths\` muessen workspace-relative Bildpfade sein.
 Aspect ratios: 16:9, 1:1, 9:16, 4:3, 3:4. Count: 1–4.
 Output: workspace/image-generation/generations/
 Wenn ein generiertes Bild eine URL zurueckgibt, zeige es in der normalen Chat-Antwort auch direkt als Markdown-Bild: \`![generated image](URL)\`. URL oder Pfad trotzdem weiter als Text nennen.
 
 ### Video Generation (VEO)
 \`\`\`bash
-video-generation --prompt "..." [--mode text_to_video] [--aspect-ratio 16:9] [--resolution 720p]
+video_generation({
+  prompt,
+  mode,
+  aspect_ratio,
+  resolution,
+  model,
+  start_frame_path,
+  end_frame_path,
+  reference_image_paths,
+  input_video_path,
+  is_looping,
+})
 \`\`\`
-Modes: text_to_video, frames_to_video (--start-frame), references_to_video (--ref + --prompt), extend_video (--input-video).
+Alle Pfade muessen workspace-relativ sein.
+Modes:
+- text_to_video: \`prompt\` erforderlich
+- frames_to_video: \`start_frame_path\` erforderlich, \`end_frame_path\` optional, \`is_looping=true\` nutzt den Startframe erneut
+- references_to_video: \`prompt\` plus mindestens ein Eintrag in \`reference_image_paths\`
+- extend_video: \`input_video_path\` erforderlich
 Output: workspace/veo-studio/video-generation/ — Dauer: 3–10 Minuten.
 
 ### Ad Localization (Nano Banana)
@@ -84,6 +108,10 @@ Output: workspace/nano-banana-ad-localizer/localizations/
 - /data/skills/video-generation/SKILL.md
 - /data/skills/ad-localization/SKILL.md
 - /data/skills/qmd/SKILL.md
+
+## Skills CLI
+
+Die Skills CLI bleibt fuer manuelle Wrapper-Aufrufe verfuegbar, ist aber fuer Bild- und Video-Generierung nicht der bevorzugte Weg des PI-Agents.
 `,
 };
 

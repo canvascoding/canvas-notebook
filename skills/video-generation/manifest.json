@@ -12,8 +12,8 @@
     "parameters": {
       "prompt": {
         "type": "string",
-        "required": true,
-        "description": "Beschreibung des zu generierenden Videos"
+        "required": false,
+        "description": "Beschreibung des zu generierenden Videos. Erforderlich für text_to_video und references_to_video."
       },
       "mode": {
         "type": "string",
@@ -33,20 +33,35 @@
         "default": "720p",
         "description": "Videoauflösung"
       },
+      "model": {
+        "type": "string",
+        "required": false,
+        "description": "Zu verwendendes VEO-Modell, z. B. veo-3.1-fast-generate-preview oder veo-3.1-generate-preview"
+      },
       "start_frame": {
         "type": "string",
         "required": false,
-        "description": "Pfad zum Startbild (für frames_to_video Modus)"
+        "description": "Workspace-relativer Pfad zum Startbild (für frames_to_video Modus)"
       },
       "end_frame": {
         "type": "string",
         "required": false,
-        "description": "Pfad zum Endbild (für frames_to_video Modus)"
+        "description": "Workspace-relativer Pfad zum Endbild (für frames_to_video Modus)"
+      },
+      "reference_image_paths": {
+        "type": "array",
+        "required": false,
+        "description": "Liste workspace-relativer Referenzbilder (für references_to_video Modus)"
       },
       "input_video": {
         "type": "string",
         "required": false,
-        "description": "Pfad zum Eingangsvideo (für extend_video Modus)"
+        "description": "Workspace-relativer Pfad zum Eingangsvideo (für extend_video Modus)"
+      },
+      "is_looping": {
+        "type": "boolean",
+        "required": false,
+        "description": "Wenn true, wird im frames_to_video Modus der Startframe auch als Endframe verwendet"
       }
     }
   },

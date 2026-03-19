@@ -12,8 +12,8 @@
     "parameters": {
       "prompt": {
         "type": "string",
-        "required": true,
-        "description": "Text-Prompt für die Bildgenerierung"
+        "required": false,
+        "description": "Text-Prompt für die Bildgenerierung. Optional, wenn reference_image_paths gesetzt ist."
       },
       "aspect_ratio": {
         "type": "string",
@@ -30,9 +30,14 @@
       },
       "model": {
         "type": "string",
-        "enum": ["gemini-3.1-flash-image-preview", "gemini-2.5-flash-image-preview"],
+        "enum": ["gemini-3.1-flash-image-preview", "gemini-2.5-flash-image"],
         "default": "gemini-3.1-flash-image-preview",
         "description": "Zu verwendendes Gemini-Modell"
+      },
+      "reference_image_paths": {
+        "type": "array",
+        "required": false,
+        "description": "Liste workspace-relativer Referenzbildpfade. Mindestens prompt oder ein Referenzbild ist erforderlich."
       }
     }
   },

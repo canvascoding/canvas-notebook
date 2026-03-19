@@ -47,6 +47,29 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
 
 type VideoAspectRatio = NonNullable<GenerateVideoRequestBody['aspectRatio']>;
 type VideoResolution = NonNullable<GenerateVideoRequestBody['resolution']>;
+type GenerateImagesFn = typeof generateImages;
+type GenerateVideoFn = typeof generateVideo;
+
+type ImageGenerationToolParams = {
+  prompt?: string;
+  count: number;
+  aspect_ratio?: string;
+  model?: string;
+  reference_image_paths?: string[];
+};
+
+type VideoGenerationToolParams = {
+  prompt?: string;
+  mode?: GenerationMode;
+  aspect_ratio?: VideoAspectRatio;
+  resolution?: VideoResolution;
+  model?: string;
+  start_frame_path?: string;
+  end_frame_path?: string;
+  reference_image_paths?: string[];
+  input_video_path?: string;
+  is_looping?: boolean;
+};
 
 const VIDEO_GENERATION_MODES: readonly GenerationMode[] = [
   'text_to_video',
@@ -121,6 +144,261 @@ function formatAdLocalizationText(data: AdLocalizationResultData): string {
     resultText += '\n';
   });
   return resultText;
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function normalizeWorkspaceRelativePath(value: string | undefined, fieldName: string): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const normalizedPath = path.posix.normalize(trimmed).replace(/^\.?\//, '');
+  if (
+    !normalizedPath ||
+    normalizedPath === '.' ||
+    normalizedPath.startsWith('/') ||
+    normalizedPath.startsWith('../') ||
+    normalizedPath.includes('/../')
+  ) {
+    throw new Error(`${fieldName} must be a workspace-relative path.`);
+  }
+
+  return normalizedPath;
+}
+
+function normalizeWorkspaceRelativePathList(values: string[] | undefined, fieldName: string): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const normalizedPath = normalizeWorkspaceRelativePath(value, fieldName);
+    if (!normalizedPath || seen.has(normalizedPath)) {
+      continue;
+    }
+
+    seen.add(normalizedPath);
+    normalized.push(normalizedPath);
+  }
+
+  return normalized;
+}
+
+export function createImageGenerationTool(
+  deps: { generateImagesFn?: GenerateImagesFn } = {},
+): AgentTool {
+  const generateImagesFn = deps.generateImagesFn ?? generateImages;
+
+  return {
+    name: 'image_generation',
+    label: 'Generating images',
+    description:
+      'Generates images using the local Canvas image-generation service. Use this direct PI tool for image creation, image variations from workspace-relative reference images, and style-guided image generation. Output: workspace/image-generation/generations/. After a successful result with mediaUrl, the assistant should also embed the generated image in the normal chat reply as Markdown `![generated image](URL)` and still include the URL or path in text.',
+    parameters: Type.Object({
+      prompt: Type.Optional(Type.String({ description: 'Text description of the image to generate. Optional when reference_image_paths is provided.' })),
+      count: Type.Number({ description: 'Number of images to generate (1-4)' }),
+      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9, 1:1, 9:16, 4:3, 3:4. Default: 1:1' })),
+      model: Type.Optional(Type.String({ description: 'Model: gemini-3.1-flash-image-preview (best quality, supports 14 reference images) or gemini-2.5-flash-image (faster, lower cost, supports 3 reference images)' })),
+      reference_image_paths: Type.Optional(
+        Type.Array(Type.String(), {
+          description: 'Workspace-relative reference image paths. Optional, but at least one prompt or reference_image_paths entry is required.',
+        }),
+      ),
+    }),
+    execute: async (toolCallId, params) => {
+      const { prompt, aspect_ratio, count, model, reference_image_paths } = params as ImageGenerationToolParams;
+      try {
+        const normalizedPrompt = normalizeOptionalString(prompt);
+        const referenceImagePaths = normalizeWorkspaceRelativePathList(
+          reference_image_paths,
+          'reference_image_paths',
+        );
+
+        if (!normalizedPrompt && referenceImagePaths.length === 0) {
+          throw new Error('Either prompt or reference_image_paths is required.');
+        }
+
+        const data = await generateImagesFn(
+          {
+            prompt: normalizedPrompt,
+            aspectRatio: aspect_ratio || '1:1',
+            imageCount: count,
+            model: model || 'gemini-3.1-flash-image-preview',
+            referenceImagePaths,
+          },
+          'pi-agent',
+        );
+
+        if (data.successCount === 0) {
+          return {
+            content: [{ type: 'text', text: `Error: ${IMAGE_GENERATION_ALL_FAILED_MESSAGE}` }],
+            details: { error: IMAGE_GENERATION_ALL_FAILED_MESSAGE, data },
+          };
+        }
+
+        return {
+          content: [{ type: 'text', text: formatImageGenerationText(data) }],
+          details: data,
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createVideoGenerationTool(
+  deps: { generateVideoFn?: GenerateVideoFn } = {},
+): AgentTool {
+  const generateVideoFn = deps.generateVideoFn ?? generateVideo;
+
+  return {
+    name: 'video_generation',
+    label: 'Generating videos',
+    description:
+      'Generates videos using the local Canvas video-generation service. Use this direct PI tool for text-to-video, frames-to-video with workspace-relative start/end frames, references-to-video with workspace-relative image references, and extend-video with a workspace-relative input video. Output: workspace/veo-studio/video-generation/. Note: Takes 3-10 minutes.',
+    parameters: Type.Object({
+      prompt: Type.Optional(Type.String({ description: 'Text description of the video to generate. Required for text_to_video and references_to_video.' })),
+      mode: Type.Optional(
+        Type.Union([
+          Type.Literal('text_to_video'),
+          Type.Literal('frames_to_video'),
+          Type.Literal('references_to_video'),
+          Type.Literal('extend_video'),
+        ], { description: 'Mode: text_to_video (default), frames_to_video, references_to_video, extend_video' }),
+      ),
+      aspect_ratio: Type.Optional(
+        Type.Union([
+          Type.Literal('16:9'),
+          Type.Literal('9:16'),
+        ], { description: 'Aspect ratio: 16:9 or 9:16. Default: 16:9' }),
+      ),
+      resolution: Type.Optional(
+        Type.Union([
+          Type.Literal('720p'),
+          Type.Literal('1080p'),
+          Type.Literal('4k'),
+        ], { description: 'Resolution: 720p (default), 1080p, 4k' }),
+      ),
+      model: Type.Optional(
+        Type.String({
+          description: 'Model: veo-3.1-fast-generate-preview (default) or veo-3.1-generate-preview.',
+        }),
+      ),
+      start_frame_path: Type.Optional(
+        Type.String({ description: 'Workspace-relative path to the start frame. Required for frames_to_video.' }),
+      ),
+      end_frame_path: Type.Optional(
+        Type.String({ description: 'Workspace-relative path to the end frame. Optional for frames_to_video.' }),
+      ),
+      reference_image_paths: Type.Optional(
+        Type.Array(Type.String(), {
+          description: 'Workspace-relative reference image paths for references_to_video mode.',
+        }),
+      ),
+      input_video_path: Type.Optional(
+        Type.String({ description: 'Workspace-relative path to the input video. Required for extend_video.' }),
+      ),
+      is_looping: Type.Optional(
+        Type.Boolean({ description: 'When true in frames_to_video mode, reuse start_frame_path as the last frame.' }),
+      ),
+    }),
+    execute: async (toolCallId, params) => {
+      const {
+        prompt,
+        mode,
+        aspect_ratio,
+        resolution,
+        model,
+        start_frame_path,
+        end_frame_path,
+        reference_image_paths,
+        input_video_path,
+        is_looping,
+      } = params as VideoGenerationToolParams;
+      try {
+        if (mode && !isGenerationMode(mode)) {
+          throw new Error(`Invalid mode "${mode}". Allowed values: ${VIDEO_GENERATION_MODES.join(', ')}`);
+        }
+        if (aspect_ratio && !isVideoAspectRatio(aspect_ratio)) {
+          throw new Error(`Invalid aspect ratio "${aspect_ratio}". Allowed values: ${VIDEO_ASPECT_RATIOS.join(', ')}`);
+        }
+        if (resolution && !isVideoResolution(resolution)) {
+          throw new Error(`Invalid resolution "${resolution}". Allowed values: ${VIDEO_RESOLUTIONS.join(', ')}`);
+        }
+
+        const normalizedPrompt = normalizeOptionalString(prompt);
+        const selectedMode = mode ?? 'text_to_video';
+        const startFramePath = normalizeWorkspaceRelativePath(start_frame_path, 'start_frame_path');
+        const endFramePath = normalizeWorkspaceRelativePath(end_frame_path, 'end_frame_path');
+        const referenceImagePaths = normalizeWorkspaceRelativePathList(
+          reference_image_paths,
+          'reference_image_paths',
+        );
+        const inputVideoPath = normalizeWorkspaceRelativePath(input_video_path, 'input_video_path');
+
+        if (selectedMode === 'text_to_video' && !normalizedPrompt) {
+          throw new Error('prompt is required for text_to_video mode.');
+        }
+        if (selectedMode === 'frames_to_video' && !startFramePath) {
+          throw new Error('start_frame_path is required for frames_to_video mode.');
+        }
+        if (selectedMode === 'references_to_video' && (!normalizedPrompt || referenceImagePaths.length === 0)) {
+          throw new Error('prompt and at least one reference_image_paths entry are required for references_to_video mode.');
+        }
+        if (selectedMode === 'extend_video' && !inputVideoPath) {
+          throw new Error('input_video_path is required for extend_video mode.');
+        }
+
+        const data = await generateVideoFn(
+          {
+            prompt: normalizedPrompt,
+            mode: selectedMode,
+            aspectRatio: aspect_ratio ?? '16:9',
+            resolution: resolution ?? '720p',
+            model: model ?? 'veo-3.1-fast-generate-preview',
+            startFramePath,
+            endFramePath,
+            referenceImagePaths,
+            inputVideoPath,
+            isLooping: is_looping ?? false,
+          },
+          'pi-agent',
+        );
+
+        let resultText = 'Video generation started! This may take 3-10 minutes.\n\n';
+        if (data.path) {
+          resultText += `Video will be saved to: ${data.path}\n`;
+        }
+        if (data.mediaUrl) {
+          resultText += `Media URL: ${data.mediaUrl}\n`;
+        }
+
+        return {
+          content: [{ type: 'text', text: resultText }],
+          details: data,
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
 }
 
 async function executeQmdCommand(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
@@ -443,133 +721,8 @@ export const piTools: AgentTool[] = [
     },
   },
   // Canvas Notebook Skills
-  {
-    name: 'image_generation',
-    label: 'Generating images',
-    description: 'Generates images using the local Canvas image-generation service. Use when user asks for: image creation, picture generation, "create an image of...", "generate a photo". Output: workspace/image-generation/generations/. After a successful result with mediaUrl, the assistant should also embed the generated image in the normal chat reply as Markdown `![generated image](URL)` and still include the URL or path in text. The agent should use this local tool directly; no internal API token or manual env loading is required.',
-    parameters: Type.Object({
-      prompt: Type.String({ description: 'Text description of the image to generate' }),
-      count: Type.Number({ description: 'Number of images to generate (1-4)' }),
-      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9, 1:1, 9:16, 4:3, 3:4. Default: 1:1' })),
-      model: Type.Optional(Type.String({ description: 'Model: gemini-3.1-flash-image-preview (best quality, supports 14 reference images) or gemini-2.5-flash-image (faster, lower cost, supports 3 reference images)' })),
-    }),
-    execute: async (toolCallId, params) => {
-      const { prompt, aspect_ratio, count, model } = params as {
-        prompt: string;
-        aspect_ratio?: string;
-        count: number;
-        model?: string;
-      };
-      try {
-        const data = await generateImages(
-          {
-            prompt,
-            aspectRatio: aspect_ratio || '1:1',
-            imageCount: count,
-            model: model || 'gemini-3.1-flash-image-preview',
-            referenceImagePaths: [],
-          },
-          'pi-agent',
-        );
-
-        if (data.successCount === 0) {
-          return {
-            content: [{ type: 'text', text: `Error: ${IMAGE_GENERATION_ALL_FAILED_MESSAGE}` }],
-            details: { error: IMAGE_GENERATION_ALL_FAILED_MESSAGE, data },
-          };
-        }
-
-        return {
-          content: [{ type: 'text', text: formatImageGenerationText(data) }],
-          details: data,
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
-  {
-    name: 'video_generation',
-    label: 'Generating videos',
-    description: 'Generates videos using the local Canvas video-generation service. Use when user asks for: video creation, "create a video of...", "generate a video". Output: workspace/veo-studio/video-generation/. The agent should use this local tool directly; no internal API token or manual env loading is required. Note: Takes 3-10 minutes.',
-    parameters: Type.Object({
-      prompt: Type.String({ description: 'Text description of the video to generate' }),
-      mode: Type.Optional(
-        Type.Union([
-          Type.Literal('text_to_video'),
-          Type.Literal('frames_to_video'),
-          Type.Literal('references_to_video'),
-          Type.Literal('extend_video'),
-        ], { description: 'Mode: text_to_video (default), frames_to_video, references_to_video, extend_video' }),
-      ),
-      aspect_ratio: Type.Optional(
-        Type.Union([
-          Type.Literal('16:9'),
-          Type.Literal('9:16'),
-        ], { description: 'Aspect ratio: 16:9 or 9:16. Default: 16:9' }),
-      ),
-      resolution: Type.Optional(
-        Type.Union([
-          Type.Literal('720p'),
-          Type.Literal('1080p'),
-          Type.Literal('4k'),
-        ], { description: 'Resolution: 720p (default), 1080p, 4k' }),
-      ),
-    }),
-    execute: async (toolCallId, params) => {
-      const { prompt, mode, aspect_ratio, resolution } = params as {
-        prompt: string;
-        mode?: GenerationMode;
-        aspect_ratio?: VideoAspectRatio;
-        resolution?: VideoResolution;
-      };
-      try {
-        if (mode && !isGenerationMode(mode)) {
-          throw new Error(`Invalid mode "${mode}". Allowed values: ${VIDEO_GENERATION_MODES.join(', ')}`);
-        }
-        if (aspect_ratio && !isVideoAspectRatio(aspect_ratio)) {
-          throw new Error(`Invalid aspect ratio "${aspect_ratio}". Allowed values: ${VIDEO_ASPECT_RATIOS.join(', ')}`);
-        }
-        if (resolution && !isVideoResolution(resolution)) {
-          throw new Error(`Invalid resolution "${resolution}". Allowed values: ${VIDEO_RESOLUTIONS.join(', ')}`);
-        }
-
-        const data = await generateVideo(
-          {
-            prompt,
-            mode: mode ?? 'text_to_video',
-            aspectRatio: aspect_ratio ?? '16:9',
-            resolution: resolution ?? '720p',
-            model: 'veo-3.1-fast-generate-preview',
-          },
-          'pi-agent',
-        );
-
-        let resultText = 'Video generation started! This may take 3-10 minutes.\n\n';
-        if (data.path) {
-          resultText += `Video will be saved to: ${data.path}\n`;
-        }
-        if (data.mediaUrl) {
-          resultText += `Media URL: ${data.mediaUrl}\n`;
-        }
-
-        return {
-          content: [{ type: 'text', text: resultText }],
-          details: data,
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
+  createImageGenerationTool(),
+  createVideoGenerationTool(),
   {
     name: 'ad_localization',
     label: 'Localizing ads',
