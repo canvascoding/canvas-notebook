@@ -1,11 +1,23 @@
 import { type AgentTool } from '@mariozechner/pi-agent-core';
 import { type ImageContent } from '@mariozechner/pi-ai';
 import { Type } from '@sinclair/typebox';
-import { listDirectory, readFile, readCanvasAgentFile, writeFile, createDirectory } from '../filesystem/workspace-files';
 import { exec, execFile } from 'child_process';
+import { promises as fsPromises } from 'fs';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
 import path from 'path';
+
+// NOTE: resolveAgentPath intentionally has NO sandbox restriction.
+// The agent must be able to access /data/canvas-agent (its own config/memory files)
+// in addition to /data/workspace. Relative paths still resolve from the workspace
+// root for convenience. The UI file browser (api/files/*) remains sandboxed via
+// workspace-files.ts — only agent tools use this unrestricted resolver.
+const AGENT_DATA = process.env.DATA || path.join(process.cwd(), 'data');
+const AGENT_WORKSPACE_ROOT = path.join(AGENT_DATA, 'workspace');
+
+function resolveAgentPath(p: string): string {
+  return path.isAbsolute(p) ? p : path.join(AGENT_WORKSPACE_ROOT, p);
+}
 import {
   IMAGE_GENERATION_ALL_FAILED_MESSAGE,
   generateImages,
@@ -542,14 +554,28 @@ export const piTools: AgentTool[] = [
   {
     name: 'ls',
     label: 'Listing directory',
-    description: 'Lists files and directories in the workspace.',
+    description: 'Lists files and directories. Use absolute paths (e.g. /data/canvas-agent) or relative paths from /data/workspace.',
     parameters: Type.Object({
-      path: Type.Optional(Type.String({ description: 'The path to list. Defaults to root.' })),
+      path: Type.Optional(Type.String({ description: 'The path to list. Absolute or workspace-relative. Defaults to /data/workspace.' })),
     }),
     execute: async (toolCallId, params) => {
       try {
         const { path: dirPath } = params as { path?: string };
-        const files = await listDirectory(dirPath || '.');
+        const fullPath = resolveAgentPath(dirPath || '.');
+        const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
+        const files = await Promise.all(
+          entries.map(async (entry) => {
+            const entryFullPath = path.join(fullPath, entry.name);
+            const stats = await fsPromises.stat(entryFullPath);
+            return {
+              name: entry.name,
+              path: path.join(dirPath || '.', entry.name),
+              type: entry.isDirectory() ? 'directory' : 'file',
+              size: stats.size,
+              modified: Math.floor(stats.mtimeMs / 1000),
+            };
+          })
+        );
         const content = files.map(f => `${f.type === 'directory' ? '[DIR] ' : ''}${f.path}`).join('\n');
         return {
           content: [{ type: 'text', text: content || '(empty)' }],
@@ -567,19 +593,14 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file in the workspace or from /data/canvas-agent (agent config, soul, tools, memory).',
+    description: 'Reads the content of a file. Use absolute paths (e.g. /data/canvas-agent/AGENTS.md) or relative paths from /data/workspace.',
     parameters: Type.Object({
-      path: Type.String({ description: 'Workspace-relative path, or absolute path under /data/canvas-agent.' }),
+      path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
     }),
     execute: async (toolCallId, params) => {
       const { path: filePath } = params as { path: string };
       try {
-        const isCanvasAgent =
-          filePath === '/data/canvas-agent' ||
-          filePath.startsWith('/data/canvas-agent/');
-        const buffer = isCanvasAgent
-          ? await readCanvasAgentFile(filePath)
-          : await readFile(filePath);
+        const buffer = await fsPromises.readFile(resolveAgentPath(filePath));
         const image = imageContentForBuffer(filePath, buffer);
         if (image) {
           return {
@@ -603,19 +624,18 @@ export const piTools: AgentTool[] = [
   {
     name: 'write',
     label: 'Writing file',
-    description: 'Writes content to a file in the workspace. Creates directories if they do not exist.',
+    description: 'Writes content to a file. Use absolute paths (e.g. /data/canvas-agent/memory.md) or relative paths from /data/workspace. Creates directories if needed.',
     parameters: Type.Object({
-      path: Type.String({ description: 'The path to the file to write.' }),
+      path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
     }),
     execute: async (toolCallId, params) => {
       const { path: filePath, content } = params as { path: string; content: string };
       try {
-        const dir = path.dirname(filePath);
-        if (dir !== '.') {
-          await createDirectory(dir);
-        }
-        await writeFile(filePath, content);
+        const fullPath = resolveAgentPath(filePath);
+        const dir = path.dirname(fullPath);
+        await fsPromises.mkdir(dir, { recursive: true });
+        await fsPromises.writeFile(fullPath, content, 'utf8');
         return {
           content: [{ type: 'text', text: `Successfully wrote ${content.length} bytes to ${filePath}` }],
           details: { filePath, size: content.length },
@@ -632,15 +652,16 @@ export const piTools: AgentTool[] = [
   {
     name: 'bash',
     label: 'Executing command',
-    description: 'Executes a bash command in the workspace.',
+    // NOTE: cwd is intentionally '/' (not restricted to workspace) so the agent
+    // can run commands in /data/canvas-agent or any other path it needs.
+    description: 'Executes a bash command. Not restricted to workspace — use cd or absolute paths as needed.',
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
     }),
     execute: async (toolCallId, params) => {
       const { command } = params as { command: string };
       try {
-        const workspacePath = getWorkspacePath();
-        const { stdout, stderr } = await execAsync(command, { cwd: workspacePath });
+        const { stdout, stderr } = await execAsync(command, { cwd: '/' });
         const output = [stdout, stderr].filter(Boolean).join('\n');
         return {
           content: [{ type: 'text', text: output || '(no output)' }],
@@ -659,19 +680,18 @@ export const piTools: AgentTool[] = [
   {
     name: 'grep',
     label: 'Searching files',
-    description: 'Searches for a pattern in files within the workspace.',
+    description: 'Searches for a pattern in files. Use absolute paths (e.g. /data/canvas-agent) or relative paths from /data/workspace.',
     parameters: Type.Object({
       pattern: Type.String({ description: 'The regex pattern to search for.' }),
-      path: Type.Optional(Type.String({ description: 'The directory or file to search in. Defaults to root.' })),
+      path: Type.Optional(Type.String({ description: 'The directory or file to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
     }),
     execute: async (toolCallId, params) => {
       const { pattern, path: searchPath } = params as { pattern: string; path?: string };
       try {
-        const workspacePath = getWorkspacePath();
-        const targetPath = searchPath || '.';
+        const targetPath = resolveAgentPath(searchPath || '.');
         // Use execFile to avoid shell injection via pattern or path
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('rg', ['-n', pattern, targetPath], { cwd: workspacePath }, (err, stdout, stderr) => {
+          execFile('rg', ['-n', pattern, targetPath], { cwd: '/' }, (err, stdout, stderr) => {
             if (err && (err as NodeJS.ErrnoException & { code?: number }).code === 1) {
               resolve({ stdout: '', stderr: '' }); // no matches
             } else if (err) {
@@ -698,17 +718,18 @@ export const piTools: AgentTool[] = [
   {
     name: 'glob',
     label: 'Finding files',
-    description: 'Finds files matching a glob pattern.',
+    description: 'Finds files matching a glob pattern. Searches in /data/workspace by default; use path to search elsewhere.',
     parameters: Type.Object({
       pattern: Type.String({ description: 'The glob pattern (e.g., "**/*.ts").' }),
+      path: Type.Optional(Type.String({ description: 'The directory to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
     }),
     execute: async (toolCallId, params) => {
-      const { pattern } = params as { pattern: string };
+      const { pattern, path: searchPath } = params as { pattern: string; path?: string };
       try {
-        const workspacePath = getWorkspacePath();
+        const searchRoot = resolveAgentPath(searchPath || '.');
         // Use execFile with argument array to avoid shell injection via pattern
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('find', ['.', '-name', pattern], { cwd: workspacePath }, (err, stdout, stderr) => {
+          execFile('find', [searchRoot, '-name', pattern], { cwd: '/' }, (err, stdout, stderr) => {
             if (err) reject(err); else resolve({ stdout, stderr });
           });
         });

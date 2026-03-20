@@ -1991,7 +1991,7 @@ export default function CanvasAgentChat({
                   {latestSession ? (
                     <div className="flex justify-center">
                       <Link
-                        href={`/chat?session=${encodeURIComponent(latestSession.sessionId)}`}
+                        href={`/notebook?session=${encodeURIComponent(latestSession.sessionId)}`}
                         className="inline-flex max-w-full items-center gap-2 border border-border bg-background/80 px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
                       >
                         <History className="h-3.5 w-3.5 text-primary" />
