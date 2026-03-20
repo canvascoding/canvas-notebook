@@ -125,6 +125,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
   useEffect(() => {
     const stored = window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY);
     if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatVisible(true);
     }
   }, []);
@@ -148,6 +149,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
 
     const sessionParam = searchParams.get('session');
     if (sessionParam) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatVisible(true);
     }
   }, [searchParams]);
