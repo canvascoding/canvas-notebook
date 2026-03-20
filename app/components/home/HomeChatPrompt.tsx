@@ -293,7 +293,7 @@ export function HomeChatPrompt() {
       console.error('Failed to persist initial Canvas Chat prompt.', error);
     }
 
-    router.push('/chat');
+    router.push('/notebook');
   };
 
   const applyStarterPrompt = useCallback((value: string) => {
@@ -312,13 +312,13 @@ export function HomeChatPrompt() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {latestSession ? (
               <Button asChild variant="outline" size="sm" className="flex-1 sm:flex-none">
-                <Link href={`/chat?session=${encodeURIComponent(latestSession.sessionId)}`}>
+                <Link href={`/notebook?session=${encodeURIComponent(latestSession.sessionId)}`}>
                   Letzte Session
                 </Link>
               </Button>
             ) : null}
             <Button asChild variant="default" size="sm" className="flex-1 sm:flex-none">
-              <Link href="/chat">
+              <Link href="/notebook">
                 Neuer Chat
               </Link>
             </Button>

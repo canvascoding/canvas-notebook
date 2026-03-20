@@ -1002,12 +1002,18 @@ export default function CanvasAgentChat({
     currentAssistantIdRef.current = null;
 
     try {
+      // Get user's timezone and current time from browser
+      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const currentTime = new Date().toISOString();
+
       const response = await fetch('/api/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: targetSessionId,
           ...(promptMessage ? { message: promptMessage, messages: [promptMessage] } : {}),
+          userTimeZone,
+          currentTime,
         }),
         signal: controller.signal,
       });

@@ -178,6 +178,7 @@ class LivePiRuntime {
   private lastCompactionAt: Date | null;
   private lastCompactionKind: 'manual' | 'automatic' | null;
   private lastCompactionOmittedCount: number;
+  private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
 
   constructor(init: RuntimeInit, agent: Agent) {
     this.sessionId = init.sessionId;
@@ -340,11 +341,48 @@ class LivePiRuntime {
     return this.getStatus();
   }
 
+  setTimeZoneContext(timeZone: string, currentTime: string) {
+    this.timeZoneContext = { timeZone, currentTime };
+  }
+
+  private getSystemPromptWithTimeZone(): string {
+    if (!this.timeZoneContext) {
+      return this.systemPrompt;
+    }
+
+    const { timeZone, currentTime } = this.timeZoneContext;
+    const localDate = new Date(currentTime);
+    
+    // Calculate UTC offset
+    const utcOffset = localDate.getTimezoneOffset();
+    const offsetHours = Math.abs(Math.floor(utcOffset / 60));
+    const offsetMinutes = Math.abs(utcOffset % 60);
+    const offsetSign = utcOffset <= 0 ? '+' : '-';
+    const offsetStr = `${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMinutes).padStart(2, '0')}`;
+    
+    // Format local time
+    const localTimeStr = localDate.toLocaleString('sv-SE'); // ISO-like format: YYYY-MM-DD HH:MM:SS
+    
+    const timeZoneBlock = `\n\nCurrent Date & Time: ${localTimeStr} (${timeZone}, UTC${offsetStr})`;
+    
+    return this.systemPrompt + timeZoneBlock;
+  }
+
+  private clearTimeZoneContext() {
+    this.timeZoneContext = null;
+  }
+
   startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
     const sanitized = sanitizeUserMessage(message, this.model);
     this.touch();
     this.abortRequested = false;
     this.publishStatus();
+
+    // Update agent system prompt with current timezone before starting
+    const systemPromptWithTimeZone = this.getSystemPromptWithTimeZone();
+    if (systemPromptWithTimeZone !== this.agent.state.systemPrompt) {
+      this.agent.state.systemPrompt = systemPromptWithTimeZone;
+    }
 
     void this.agent.prompt(sanitized).catch((error) => {
       this.publishError(error);

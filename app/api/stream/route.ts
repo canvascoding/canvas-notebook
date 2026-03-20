@@ -59,11 +59,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
     }
 
+    // Extract timezone info from client
+    const userTimeZone = typeof payload?.userTimeZone === 'string' ? payload.userTimeZone : undefined;
+    const currentTime = typeof payload?.currentTime === 'string' ? payload.currentTime : undefined;
+
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, session.user.id);
     const promptMessage = resolvePromptMessage(payload);
 
     if (!promptMessage && !runtimeInstance.getStatus().canAbort) {
       return NextResponse.json({ success: false, error: 'Prompt message required when no run is active.' }, { status: 400 });
+    }
+
+    // Set timezone context for this prompt
+    if (userTimeZone && currentTime) {
+      runtimeInstance.setTimeZoneContext(userTimeZone, currentTime);
     }
 
     const encoder = new TextEncoder();

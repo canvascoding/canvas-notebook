@@ -22,6 +22,7 @@ import { AppLayout } from '@/app/components/layout/AppLayout';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { useFileStore } from '@/app/store/file-store';
+import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 
 interface DashboardShellProps {
   username: string;
@@ -122,23 +123,33 @@ export function DashboardShell({ username }: DashboardShellProps) {
   }, [sidebarWidth]);
 
   useEffect(() => {
+    const stored = window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY);
+    if (stored) {
+      setChatVisible(true);
+    }
+  }, []);
+
+  useEffect(() => {
     const targetPath = searchParams.get('path');
-    if (!targetPath || openedPathRef.current === targetPath) {
-      return;
+    if (targetPath && openedPathRef.current !== targetPath) {
+      openedPathRef.current = targetPath;
+      const { loadFile, setCurrentDirectory } = useFileStore.getState();
+      const trimmed = targetPath.replace(/\/+$/, '');
+      const lastSlash = trimmed.lastIndexOf('/');
+      const parentDir = lastSlash > 0 ? trimmed.slice(0, lastSlash) : '.';
+      setCurrentDirectory(parentDir || '.');
+      void loadFile(targetPath, true);
+      window.dispatchEvent(
+        new CustomEvent('notebook-mobile-surface', {
+          detail: { surface: 'editor' satisfies MobileSurface },
+        })
+      );
     }
 
-    openedPathRef.current = targetPath;
-    const { loadFile, setCurrentDirectory } = useFileStore.getState();
-    const trimmed = targetPath.replace(/\/+$/, '');
-    const lastSlash = trimmed.lastIndexOf('/');
-    const parentDir = lastSlash > 0 ? trimmed.slice(0, lastSlash) : '.';
-    setCurrentDirectory(parentDir || '.');
-    void loadFile(targetPath, true);
-    window.dispatchEvent(
-      new CustomEvent('notebook-mobile-surface', {
-        detail: { surface: 'editor' satisfies MobileSurface },
-      })
-    );
+    const sessionParam = searchParams.get('session');
+    if (sessionParam) {
+      setChatVisible(true);
+    }
   }, [searchParams]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -502,7 +513,10 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     `}
                   >
                     <div className="flex flex-col w-full h-full relative">
-                      <CanvasAgentChat onClose={() => setChatVisible(false)} />
+                      <CanvasAgentChat
+                        onClose={() => setChatVisible(false)}
+                        initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
+                      />
                     </div>
                   </div>
                 </div>
