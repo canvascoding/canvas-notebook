@@ -1,7 +1,7 @@
 import { type AgentTool } from '@mariozechner/pi-agent-core';
 import { type ImageContent } from '@mariozechner/pi-ai';
 import { Type } from '@sinclair/typebox';
-import { listDirectory, readFile, writeFile, createDirectory } from '../filesystem/workspace-files';
+import { listDirectory, readFile, readCanvasAgentFile, writeFile, createDirectory } from '../filesystem/workspace-files';
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
@@ -567,14 +567,19 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file in the workspace.',
+    description: 'Reads the content of a file in the workspace or from /data/canvas-agent (agent config, soul, tools, memory).',
     parameters: Type.Object({
-      path: Type.String({ description: 'The path to the file to read.' }),
+      path: Type.String({ description: 'Workspace-relative path, or absolute path under /data/canvas-agent.' }),
     }),
     execute: async (toolCallId, params) => {
       const { path: filePath } = params as { path: string };
       try {
-        const buffer = await readFile(filePath);
+        const isCanvasAgent =
+          filePath === '/data/canvas-agent' ||
+          filePath.startsWith('/data/canvas-agent/');
+        const buffer = isCanvasAgent
+          ? await readCanvasAgentFile(filePath)
+          : await readFile(filePath);
         const image = imageContentForBuffer(filePath, buffer);
         if (image) {
           return {

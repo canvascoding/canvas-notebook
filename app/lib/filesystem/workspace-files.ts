@@ -14,6 +14,7 @@ export interface FileNode {
 
 const DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
+const CANVAS_AGENT_DIR = path.join(DATA, 'canvas-agent');
 const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 
@@ -77,6 +78,25 @@ export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> 
 
 export async function readFile(filePath: string): Promise<Buffer> {
   const fullPath = validatePath(filePath);
+  return fs.readFile(fullPath);
+}
+
+export function validateCanvasAgentPath(userPath: string): string {
+  const normalizedBase = path.normalize(CANVAS_AGENT_DIR);
+  // Accept both absolute paths (/data/canvas-agent/...) and bare relative names (agents.md)
+  const resolved = path.isAbsolute(userPath)
+    ? path.normalize(userPath)
+    : path.normalize(path.join(normalizedBase, userPath));
+
+  if (resolved !== normalizedBase && !resolved.startsWith(`${normalizedBase}${path.sep}`)) {
+    throw new Error('Invalid path: not within canvas-agent directory');
+  }
+
+  return resolved;
+}
+
+export async function readCanvasAgentFile(filePath: string): Promise<Buffer> {
+  const fullPath = validateCanvasAgentPath(filePath);
   return fs.readFile(fullPath);
 }
 
