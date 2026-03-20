@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { statSync } from 'node:fs';
 import path from 'node:path';
 import { loadAppEnv } from '../server/load-app-env';
+import { isOnboardingComplete } from '../app/lib/onboarding/status';
 
 // Database imports are optional - they may not be available in Docker container
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,186 +64,28 @@ const LEGACY_AGENT_STORAGE_DIR = '/home/node/canvas-agent';
 const LEGACY_INTEGRATIONS_ENV_PATH = '/home/node/Canvas-Integrations.env';
 const LEGACY_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
 
-const MANAGED_FILE_TEMPLATES: Record<string, string> = {
-  'AGENTS.md': `# AGENTS
+// Seed system prompts directory (relative to project root)
+const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
 
-You are an AI assistant operating within the Canvas Notebook environment.
+// All managed files (excluding BOOTSTRAP.md which is only for initial setup)
+const MANAGED_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
-## Workspace Location
+// Helper to read seed file content
+async function readSeedFile(fileName: string): Promise<string | null> {
+  const seedPath = path.join(SEED_SYS_PROMPTS_DIR, fileName);
+  try {
+    return await fs.readFile(seedPath, 'utf8');
+  } catch {
+    console.warn(`[bootstrap-agent-runtime] Seed file not found: ${seedPath}`);
+    return null;
+  }
+}
 
-All file operations (ls, read, write, glob, grep, bash) work within the workspace directory: /data/workspace
-
-- When using ls without a path, it lists the contents of /data/workspace
-- All relative paths are resolved from /data/workspace
-- Files outside this directory are not accessible
-- Use relative paths (e.g., "docs/file.md" not "/data/workspace/docs/file.md")
-
-## Default Output Format
-
-When no specific format is requested, create a Markdown document (.md) in the workspace. It's readable, performant, and native to Canvas Notebook.
-
-## File Types
-
-You can access ALL file types in the workspace:
-- Images: .png, .jpg, .jpeg, .gif, .webp, .svg
-- Documents: .docx, .md, .txt, .pdf
-- Data: .json, .csv, .xml
-- Code files: .ts, .js, .py, etc.
-
-## Image Analysis
-
-To analyze images, use the read tool with the image path. The image will be loaded and displayed to you for analysis.
-
-Example:
-- User: "What's in the image assets/chart.png?"
-- You: Use read tool with path="assets/chart.png" to load and analyze the image
-
-Note: Image analysis requires a vision-capable model.
-
-## Environment
-
-You are running in a Linux Docker container.
-You are running as user: "node". You have sudo rights and no password.
-`,
-  'TOOLS.md': `# TOOLS
-
-## Available Skills (Overview)
-
-You have the following specialized tools available:
-
-### python environment
-Python3 is installed - use it to help the user with custom requests where needed. 
-Use sudo -n apt-get update and sudo -n apt-get install -s jq should work as well. Without sudo it does not work.
-
-Rules:
-- For system packages, always use sudo apt-get update && sudo apt-get install -y <package>.
-- For Python packages, prefer a virtual environment:
-  python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
-- Do not use plain pip3 install <package> here, it will fail because of PEP 668.
-- Only if absolutely necessary, use: pip3 install --break-system-packages <package>.
-- Before assuming anything, quickly verify with: whoami, sudo -n true, python3 --version, pip3 --version.
-
-### image_generation
-Generates images with Gemini. Prefer this direct PI tool when the user says: "create an image", "generate a photo", "make a picture of...", or wants to use workspace reference images.
-Parameters: prompt (optional when reference_image_paths is provided), count, aspect_ratio, model, reference_image_paths.
-reference_image_paths must contain workspace-relative image paths.
-If the result includes a media URL, show the image in the normal chat reply as Markdown: \`![generated image](URL)\`. Still include the URL or path in text.
-
-### video_generation
-Generates videos with VEO. Prefer this direct PI tool when the user says: "create a video", "generate a video", "make a video of...", or wants start/end frames, reference images, or an input video.
-Parameters: prompt, mode, aspect_ratio, resolution, model, start_frame_path, end_frame_path, reference_image_paths, input_video_path, is_looping.
-All media paths must be workspace-relative.
-Mode rules:
-- text_to_video: prompt required
-- frames_to_video: start_frame_path required, end_frame_path optional, is_looping=true reuses the start frame
-- references_to_video: prompt plus at least one reference_image_paths entry required
-- extend_video: input_video_path required
-
-### ad_localization
-Localizes advertisements. Use when the user says: "localize this ad", "translate for market...", "adapt for country..."
-
-### qmd
-Searches the workspace via qmd. Use when the user says: "search...", "find...", "where is...", "search my workspace"
-
-## Important Notes
-
-- **Prerequisite:** GEMINI_API_KEY must be configured in /settings (except for qmd)
-- **Local Skills** (image_generation, video_generation, ad_localization): Return JSON with { "success": true, "data": { ... } }
-- **Workspace Search** (\`qmd\`): Use the PI tool \`qmd({ query, mode, limit, collection })\` for any file/content search
-- **Default qmd mode:** \`search\` for BM25 keyword search
-- **Fallback qmd mode:** \`vsearch\` only after weak or empty keyword results
-- **Not Standard:** \`query\` is expensive and intentionally disabled by default
-- **Do not read token/env files:** For Gemini skills, do not use internal API routes or env files directly. The wrappers resolve the central integration configuration themselves.
-- **Output directories:** All results are workspace-relative under /data/workspace
-
-## Detailed Documentation
-
-For complete documentation, parameter details, and examples:
-- /data/skills/image-generation/SKILL.md
-- /data/skills/video-generation/SKILL.md
-- /data/skills/ad-localization/SKILL.md
-- /data/skills/qmd/SKILL.md
-
-## Trigger Phrases (When to use which skill)
-
-**image_generation:**
-- "create an image"
-- "generate a photo"
-- "make a picture of..."
-- "erstelle ein Bild"
-- "generiere ein Foto"
-
-**video_generation:**
-- "create a video"
-- "generate a video"
-- "make a video of..."
-- "erstelle ein Video"
-- "generiere ein Video"
-
-**ad_localization:**
-- "localize this ad"
-- "translate for market..."
-- "adapt for country..."
-- "lokalisiere diese Anzeige"
-- "übersetze für Markt..."
-
-**qmd:**
-- "search for..."
-- "find..."
-- "where is..."
-- "suche nach..."
-- "finde..."
-
-## Skill Creator
-
-You can create new skills with the create_skill tool. A skill allows you to add new functionality to Canvas Notebook.
-
-### When to create a skill:
-- When the user wants to automate a recurring task
-- When a new integration is needed
-- When special processing for certain file types is required
-
-### Parameters for create_skill:
-- **name**: Unique name (kebab-case, e.g., "text-to-speech")
-- **title**: Human-readable title (e.g., "Text to Speech")
-- **description**: Description with trigger phrases
-- **type**: "cli" (local tool) or "api" (API integration)
-- **parameters**: JSON object with parameter definitions
-
-### Example:
-\`\`\`
-create_skill(
-  name="text-to-speech",
-  title="Text to Speech",
-  description="Converts text to spoken language...",
-  type="cli",
-  parameters='{"text": {"type": "string", "required": true}, "voice": {"type": "string", "enum": ["male", "female"], "default": "female"}}'
-)
-\`\`\`
-
-After creation:
-1. Validate the skill with validate_skill(name="skill-name")
-2. The Skill Gallery displays the new skill at /skills
-3. The skill is immediately available as a tool
-
-### Important:
-- CLI skills require an executable script under /data/skills/<name>/
-- API skills require an API integration (provided by the user)
-- The Skill Creator only creates the manifest and documentation
-`,
-
-  'SOUL.md': `# SOUL
-
-- you are friendly, courteous, and helpful
-- you also use reverse prompting to achieve the best possible results for the user
-- Your name is canvas-agent
-- you like to be interactive and energetic and you communicate with emojis if suiting the conversation.
-`,
-  'MEMORY.md': `# MEMORY
-
-- This file will be maintained constantly by yourself as you learn meore about the user.
-`,
-};
+// Check if content is effectively empty
+function isContentEmpty(content: string | null): boolean {
+  if (content === null) return true;
+  return content.trim().length === 0;
+}
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -250,6 +93,14 @@ async function fileExists(filePath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function readFileIfExists(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, 'utf8');
+  } catch {
+    return null;
   }
 }
 
@@ -269,7 +120,7 @@ async function migrateLegacyFiles(): Promise<void> {
     console.log(`[bootstrap-agent-runtime] Checking for legacy files in ${LEGACY_AGENT_STORAGE_DIR}...`);
     await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
     
-    for (const fileName of Object.keys(MANAGED_FILE_TEMPLATES)) {
+    for (const fileName of MANAGED_FILE_NAMES) {
       const legacyPath = path.join(LEGACY_AGENT_STORAGE_DIR, fileName);
       const newPath = path.join(AGENT_STORAGE_DIR, fileName);
       
@@ -398,13 +249,43 @@ async function writeJsonAtomic(filePath: string, payload: unknown): Promise<void
 async function ensureAgentStorageBootstrap(): Promise<void> {
   await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
 
-  for (const [fileName, template] of Object.entries(MANAGED_FILE_TEMPLATES)) {
+  // Check onboarding status for BOOTSTRAP.md handling
+  const onboardingComplete = await isOnboardingComplete().catch(() => false);
+
+  for (const fileName of MANAGED_FILE_NAMES) {
     const targetPath = path.join(AGENT_STORAGE_DIR, fileName);
-    if (await fileExists(targetPath)) {
+    const existingContent = await readFileIfExists(targetPath);
+
+    // Skip if file exists and has content
+    if (!isContentEmpty(existingContent)) {
       continue;
     }
-    await writeTextAtomic(targetPath, template);
-    console.log(`[bootstrap-agent-runtime] Created ${fileName} with default template.`);
+
+    // Read seed content
+    const seedContent = await readSeedFile(fileName);
+    if (seedContent === null) {
+      console.warn(`[bootstrap-agent-runtime] Seed content not found for ${fileName}, skipping.`);
+      continue;
+    }
+
+    await writeTextAtomic(targetPath, seedContent);
+    console.log(`[bootstrap-agent-runtime] Created ${fileName} with seed content.`);
+  }
+
+  // Handle BOOTSTRAP.md separately - only copy if onboarding not complete
+  if (!onboardingComplete) {
+    const bootstrapTargetPath = path.join(AGENT_STORAGE_DIR, 'BOOTSTRAP.md');
+    const existingBootstrap = await readFileIfExists(bootstrapTargetPath);
+
+    if (isContentEmpty(existingBootstrap)) {
+      const bootstrapSeed = await readSeedFile('BOOTSTRAP.md');
+      if (bootstrapSeed !== null) {
+        await writeTextAtomic(bootstrapTargetPath, bootstrapSeed);
+        console.log(`[bootstrap-agent-runtime] Created BOOTSTRAP.md with seed content.`);
+      }
+    }
+  } else {
+    console.log(`[bootstrap-agent-runtime] Skipping BOOTSTRAP.md (onboarding completed).`);
   }
 
   if (!(await fileExists(RUNTIME_CONFIG_PATH))) {

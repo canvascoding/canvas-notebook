@@ -9,111 +9,30 @@ import { resolveAgentStorageDir } from '../runtime-data-paths';
 export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
 export const PI_RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, PI_RUNTIME_CONFIG_FILE);
-export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentManagedFiles = Record<AgentManagedFileName, string>;
 
-const DEFAULT_AGENT_FILE_TEMPLATES: Record<AgentManagedFileName, string> = {
-  'AGENTS.md': `# AGENTS
+// Seed system prompts directory (relative to project root)
+const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
 
-- Main agent: canvas-main-agent
-- Scope: Canvas Notebook runtime behavior and guardrails
-`,
-  'MEMORY.md': `# MEMORY
+// Helper to read seed file content
+async function readSeedFile(fileName: string): Promise<string | null> {
+  const seedPath = path.join(SEED_SYS_PROMPTS_DIR, fileName);
+  try {
+    return await fs.readFile(seedPath, 'utf8');
+  } catch {
+    console.warn(`[storage] Seed file not found: ${seedPath}`);
+    return null;
+  }
+}
 
-- Persistent notes and long-lived decisions for the main agent.
-`,
-  'SOUL.md': `# SOUL
-
-- Tone and interaction style for the main agent in Canvas Notebook.
-- Address the user always with "du" (informal German) instead of "Sie".
-`,
-  'TOOLS.md': `# TOOLS
-
-## System Environment
-
-- **Python**: Use \`python3\` (installed) - NOT \`python\`
-
-## PI Media Tools
-
-Bevorzuge fuer Bild- und Video-Generierung immer die direkten PI-Tools. Nutze nicht \`bash\`, um die Skills CLI fuer normale Generierungen aufzurufen.
-
-**Voraussetzung:** GEMINI_API_KEY muss in /settings konfiguriert sein.
-**Wichtig:** Die Wrapper nutzen lokale Canvas-Services. Lies keine Env-Dateien, lade keine API-Keys manuell und rufe für diese drei Skills keine internen API-Routen direkt auf.
-
-### Image Generation
-\`\`\`bash
-image_generation({
-  prompt,
-  count,
-  aspect_ratio,
-  model,
-  reference_image_paths,
-})
-\`\`\`
-\`prompt\` ist optional, wenn \`reference_image_paths\` gesetzt ist.
-\`reference_image_paths\` muessen workspace-relative Bildpfade sein.
-Aspect ratios: 16:9, 1:1, 9:16, 4:3, 3:4. Count: 1–4.
-Output: workspace/image-generation/generations/
-Wenn ein generiertes Bild eine URL zurueckgibt, zeige es in der normalen Chat-Antwort auch direkt als Markdown-Bild: \`![generated image](URL)\`. URL oder Pfad trotzdem weiter als Text nennen.
-
-### Video Generation (VEO)
-\`\`\`bash
-video_generation({
-  prompt,
-  mode,
-  aspect_ratio,
-  resolution,
-  model,
-  start_frame_path,
-  end_frame_path,
-  reference_image_paths,
-  input_video_path,
-  is_looping,
-})
-\`\`\`
-Alle Pfade muessen workspace-relativ sein.
-Modes:
-- text_to_video: \`prompt\` erforderlich
-- frames_to_video: \`start_frame_path\` erforderlich, \`end_frame_path\` optional, \`is_looping=true\` nutzt den Startframe erneut
-- references_to_video: \`prompt\` plus mindestens ein Eintrag in \`reference_image_paths\`
-- extend_video: \`input_video_path\` erforderlich
-Output: workspace/veo-studio/video-generation/ — Dauer: 3–10 Minuten.
-
-### Ad Localization (Nano Banana)
-\`\`\`bash
-ad-localization --ref "nano-banana-ad-localizer/assets/ad.png" --market "Germany" --market "France"
-\`\`\`
-Referenzbild MUSS unter nano-banana-ad-localizer/ liegen. Bis zu 12 Märkte pro Aufruf.
-Output: workspace/nano-banana-ad-localizer/localizations/
-
-### qmd Workspace Search
-- Verwende das **PI-Tool \`qmd\`** für jede Workspace-Suche nach Dateien oder Inhalten.
-- Verwende **nicht** \`ls\`, um Dateien zu finden; \`ls\` ist nur für explizites Ordner-Listing.
-- Tool-Aufruf: \`qmd({ query, mode, limit, collection })\`
-- **Default**: \`mode="search"\` für schnelle BM25-Suche
-- **Fallback**: \`mode="vsearch"\` nur wenn Keyword-Suche keine brauchbaren Treffer liefert
-- **Nicht Standard**: \`mode="query"\` ist teuer und in Canvas Notebook absichtlich standardmäßig deaktiviert
-- Suchbasis: \`workspace-text\` für direkte Textdateien und \`workspace-derived\` für abgeleitete Dokumenttexte wie DOCX
-- Nach dem Finden eines Kandidaten öffnest du die konkrete Datei mit dem \`read\`-Tool
-
-### Antwortformat
-\`{ "success": true, "data": { ... } }\` oder \`{ "success": false, "error": "..." }\`
-"path"-Felder sind workspace-relativ und können mit dem read-Tool geöffnet werden.
-
-### Skill-Dokumentation
-- /data/skills/README.md
-- /data/skills/image-generation/SKILL.md
-- /data/skills/video-generation/SKILL.md
-- /data/skills/ad-localization/SKILL.md
-- /data/skills/qmd/SKILL.md
-
-## Skills CLI
-
-Die Skills CLI bleibt fuer manuelle Wrapper-Aufrufe verfuegbar, ist aber fuer Bild- und Video-Generierung nicht der bevorzugte Weg des PI-Agents.
-`,
-};
+// Check if content is effectively empty
+function isContentEmpty(content: string | null): boolean {
+  if (content === null) return true;
+  return content.trim().length === 0;
+}
 
 export type AgentConfigReadiness = {
   activeProviderId: string;
@@ -196,10 +115,17 @@ export async function ensureAgentManagedFilesExist(): Promise<void> {
   for (const fileName of AGENT_MANAGED_FILE_NAMES) {
     const filePath = resolveManagedFilePath(fileName);
     const existing = await readFileIfExists(filePath);
-    if (existing !== null) {
+    
+    // Skip if file exists and has content
+    if (!isContentEmpty(existing)) {
       continue;
     }
-    await writeTextAtomic(filePath, DEFAULT_AGENT_FILE_TEMPLATES[fileName]);
+    
+    // Read seed content and write if available
+    const seedContent = await readSeedFile(fileName);
+    if (seedContent !== null) {
+      await writeTextAtomic(filePath, seedContent);
+    }
   }
 }
 
@@ -207,7 +133,16 @@ export async function readManagedAgentFile(fileName: AgentManagedFileName): Prom
   await ensureAgentManagedFilesExist();
   const filePath = resolveManagedFilePath(fileName);
   const content = await readFileIfExists(filePath);
-  return content ?? DEFAULT_AGENT_FILE_TEMPLATES[fileName];
+  
+  // If file is empty, try to return seed content
+  if (isContentEmpty(content)) {
+    const seedContent = await readSeedFile(fileName);
+    if (seedContent !== null) {
+      return seedContent;
+    }
+  }
+  
+  return content ?? '';
 }
 
 export async function readManagedAgentFiles(): Promise<AgentManagedFiles> {

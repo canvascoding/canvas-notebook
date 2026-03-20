@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PiProviderSetupCard } from './PiProviderSetupCard';
 
-const MANAGED_FILES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
 type ManagedFileName = (typeof MANAGED_FILES)[number];
 
@@ -115,6 +115,8 @@ export function AgentSettingsPanel() {
   const [files, setFiles] = useState<Record<ManagedFileName, string> | null>(null);
   const [fileDrafts, setFileDrafts] = useState<Record<ManagedFileName, string>>({
     'AGENTS.md': '',
+    'IDENTITY.md': '',
+    'USER.md': '',
     'MEMORY.md': '',
     'SOUL.md': '',
     'TOOLS.md': '',

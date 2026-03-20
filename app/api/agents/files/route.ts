@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Invalid fileName. Allowed: AGENTS.md, MEMORY.md, SOUL.md, TOOLS.md',
+          error: 'Invalid fileName. Allowed: AGENTS.md, IDENTITY.md, USER.md, MEMORY.md, SOUL.md, TOOLS.md',
         },
         { status: 400 }
       );

@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-19T22:54:08+01:00",
+  "lastUpdatedAt": "2026-03-20T10:35:12.913Z",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -1258,7 +1258,7 @@
       "dependsOn": [
         "jspreadsheet-005"
       ],
-      "description": "Update file type detection: XLSX, XLS, CSV \u2192 SpreadsheetEditor, remove old @univerjs logic"
+      "description": "Update file type detection: XLSX, XLS, CSV → SpreadsheetEditor, remove old @univerjs logic"
     },
     {
       "id": "jspreadsheet-007",
@@ -2099,6 +2099,18 @@
         "pi-chat-media-preview-001"
       ],
       "description": "Expanded the static PI media tool contracts so image_generation accepts workspace-relative reference_image_paths and video_generation accepts direct model/frame/reference/input-video parameters with mode-specific validation, updated managed PI guidance plus skill metadata to match the direct-tool path, added a server-side registry test script, verified npm run build, and passed a focused Playwright PI chat test that renders the new direct media tool inputs."
+    },
+    {
+      "id": "seed-sys-prompts-001",
+      "order": 183,
+      "phase": "P33 Seed System Prompts",
+      "title": "Integrate seed_sys_prompts folder for agent file initialization",
+      "status": "completed",
+      "priority": "must",
+      "dependsOn": [
+        "pi-056"
+      ],
+      "description": "Replaced inline MANAGED_FILE_TEMPLATES with seed_sys_prompts/ folder containing AGENTS.md, BOOTSTRAP.md, IDENTITY.md, MEMORY.md, SOUL.md, TOOLS.md, USER.md. Updated bootstrap-agent-runtime.ts to read from seed files, check onboarding status before copying BOOTSTRAP.md, and fill empty files with seed content. Extended storage.ts, system-prompt-shared.ts, AgentSettingsPanel.tsx, and API route to support 6 managed files (all except BOOTSTRAP.md). Build passes with updated test expectations."
     }
   ]
 }
