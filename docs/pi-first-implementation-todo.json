@@ -2,7 +2,7 @@
   "title": "PI-first Agent Replacement Todo",
   "version": 1,
   "createdAt": "2026-03-06",
-  "lastUpdatedAt": "2026-03-20T10:35:12.913Z",
+  "lastUpdatedAt": "2026-03-20T13:55:00.000Z",
   "status": "completed",
   "decisions": {
     "engineStrategy": "pi-first",
@@ -2111,6 +2111,18 @@
         "pi-056"
       ],
       "description": "Replaced inline MANAGED_FILE_TEMPLATES with seed_sys_prompts/ folder containing AGENTS.md, BOOTSTRAP.md, IDENTITY.md, MEMORY.md, SOUL.md, TOOLS.md, USER.md. Updated bootstrap-agent-runtime.ts to read from seed files, check onboarding status before copying BOOTSTRAP.md, and fill empty files with seed content. Extended storage.ts, system-prompt-shared.ts, AgentSettingsPanel.tsx, and API route to support 6 managed files (all except BOOTSTRAP.md). Build passes with updated test expectations."
+    },
+    {
+      "id": "workspace-ux-002",
+      "order": 184,
+      "phase": "P24 Workspace UX",
+      "title": "Prioritize filename matches in chat file reference search",
+      "status": "done",
+      "priority": "should",
+      "dependsOn": [
+        "workspace-ux-001"
+      ],
+      "description": "Replaced the chat file-reference ranking with filename-first relevance in /api/files/list so exact and partial basename hits across the full workspace beat weaker folder-name path matches, added a direct ranking regression script plus a Playwright chat picker regression using real workspace fixture files, and verified the change with npm run build and a focused Playwright run against localhost:3000."
     }
   ]
 }

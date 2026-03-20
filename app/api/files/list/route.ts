@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { listDirectory } from '@/app/lib/filesystem/workspace-files';
+import { searchFileReferenceEntries, type FileReferenceEntry } from '@/app/lib/filesystem/file-reference-search';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-interface FileEntry {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  extension?: string;
-  isImage: boolean;
-}
-
-async function collectFilesRecursive(dirPath: string): Promise<FileEntry[]> {
+async function collectFilesRecursive(dirPath: string): Promise<FileReferenceEntry[]> {
   try {
     const entries = await listDirectory(dirPath);
-    const files: FileEntry[] = [];
+    const files: FileReferenceEntry[] = [];
 
     for (const entry of entries) {
       if (entry.type === 'directory') {
@@ -62,22 +55,8 @@ export async function GET(request: NextRequest) {
     
     // Get all files recursively
     const allFiles = await collectFilesRecursive('.');
-    
-    // Filter if query provided
-    let filteredFiles = allFiles;
-    if (query) {
-      filteredFiles = allFiles.filter(file => 
-        file.name.toLowerCase().includes(query) || 
-        file.path.toLowerCase().includes(query)
-      );
-    }
-    
-    // Sort: images first, then alphabetically
-    filteredFiles.sort((a, b) => {
-      if (a.isImage && !b.isImage) return -1;
-      if (!a.isImage && b.isImage) return 1;
-      return a.path.localeCompare(b.path);
-    });
+
+    const filteredFiles = searchFileReferenceEntries(allFiles, query);
     
     // Apply limit
     const limitedFiles = filteredFiles.slice(0, limit);
