@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PiProviderSetupCard } from './PiProviderSetupCard';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 
 const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
@@ -431,19 +432,20 @@ export function AgentSettingsPanel() {
                 </TabsList>
               </Tabs>
 
-              <textarea
+              <div
                 data-testid="agent-managed-file-editor"
-                className="min-h-[260px] w-full border border-input rounded-md bg-background p-3 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                value={fileDrafts[activeFile] ?? ''}
-                onChange={(event) =>
-                  setFileDrafts((current) => ({
-                    ...current,
-                    [activeFile]: event.target.value,
-                  }))
-                }
-                spellCheck={false}
-                disabled={filesSaving}
-              />
+                className="h-[400px] overflow-hidden rounded-md border border-input"
+              >
+                <MarkdownEditor
+                  value={fileDrafts[activeFile] ?? ''}
+                  onChange={(nextValue) =>
+                    setFileDrafts((current) => ({
+                      ...current,
+                      [activeFile]: nextValue,
+                    }))
+                  }
+                />
+              </div>
 
               {filesError && <p className="text-sm text-destructive">{filesError}</p>}
               {filesSuccess && <p className="text-sm text-primary">{filesSuccess}</p>}
