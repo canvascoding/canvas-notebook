@@ -511,6 +511,38 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
             </div>
           </div>
         )}
+        {!isMobile && !isMobileSheet && (
+          <div className="border-t border-border px-3 py-2">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => void handleGoRoot()}
+                aria-label="Jump to workspace root"
+              >
+                <House className="h-3.5 w-3.5" />
+                <span>Root</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={() => void handleGoUp()}
+                disabled={currentDirectory === '.'}
+                aria-label="Go up one folder"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                <span>Up</span>
+              </Button>
+              <div className="min-w-0 flex-1 truncate border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground">
+                {currentDirectoryLabel}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="border-t border-border px-3 py-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
