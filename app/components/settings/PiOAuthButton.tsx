@@ -135,10 +135,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
               timeoutId = null;
             }
             
-            // Auto-open the auth URL
-            if (!authUrl) {
-              window.open(data.authUrl, '_blank');
-            }
+
           }
 
           if (data.status === 'completed' && data.hasCredentials) {
@@ -251,7 +248,6 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
         setAuthUrl(data.authUrl);
         setInstructions(data.instructions || '');
         setIsPolling(false);
-        window.open(data.authUrl, '_blank');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -497,7 +493,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Step 1: Open Authorization URL</label>
                 <p className="text-xs text-muted-foreground">
-                  A new tab should have opened. If not, copy this URL:
+                  Click the button to open the authorization page:
                 </p>
                 <div className="flex gap-2">
                   <Input
