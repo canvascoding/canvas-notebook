@@ -65,7 +65,7 @@ function MobileNotebookEmptyState({
           </h2>
           <p className="text-sm leading-6 text-muted-foreground">
             Der mobile Notebook-Flow startet jetzt im Editor. Wähle eine Datei
-            über den Explorer oder springe direkt in den PI-Chat.
+            über den Explorer oder springe direkt in den Canvas Chat.
           </p>
         </div>
         <div className="mt-6 flex flex-col gap-3">
@@ -190,10 +190,17 @@ export function DashboardShell({ username }: DashboardShellProps) {
       setSidebarWidth((prev) => clampSidebarWidth(prev));
       if (isMobile) {
         setSidebarVisible(false);
-        setChatVisible(false);
         setTerminalVisible(false);
-        setMobileSurface('editor');
         setMobileExplorerOpen(false);
+        // Check if there's an initial prompt in sessionStorage - if so, open chat
+        const stored = window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY);
+        if (stored) {
+          setChatVisible(true);
+          setMobileSurface('chat');
+        } else {
+          setChatVisible(false);
+          setMobileSurface('editor');
+        }
       } else {
         setSidebarVisible(true);
         if (!desktopDefaultChatAppliedRef.current) {
