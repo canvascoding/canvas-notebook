@@ -32,6 +32,8 @@ ARG APP_USER=node
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 unzip zip git make python3 python3-pip python3-venv \
+     chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
+     libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
   && rm -rf /var/lib/apt/lists/* \
   && python3 --version
 
@@ -43,6 +45,7 @@ RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \
     CANVAS_RUNTIME_ENV=docker \
+    CHROMIUM_PATH=/usr/bin/chromium \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     DATA=/data \

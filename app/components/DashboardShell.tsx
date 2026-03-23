@@ -28,7 +28,7 @@ interface DashboardShellProps {
   username: string;
 }
 
-type MobileSurface = 'editor' | 'chat' | 'terminal';
+type MobileSurface = 'editor' | 'terminal';
 
 const LEFT_SIDEBAR_MIN = 220;
 const MIN_EDITOR_WIDTH = 360;
@@ -97,6 +97,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
   const [chatWidth, setChatWidth] = useState(420);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>('editor');
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const isResizing = useRef(false);
   const isSidebarResizing = useRef(false);
   const sidebarResizeRef = useRef<{
@@ -196,7 +197,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
         const stored = window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY);
         if (stored) {
           setChatVisible(true);
-          setMobileSurface('chat');
+          setMobileChatOpen(true);
         } else {
           setChatVisible(false);
           setMobileSurface('editor');
@@ -221,9 +222,12 @@ export function DashboardShell({ username }: DashboardShellProps) {
         return;
       }
       const nextSurface = event.detail?.surface;
-      if (
+      if (viewportMode === 'mobile' && nextSurface === 'chat') {
+        setMobileChatOpen(true);
+        setMobileExplorerOpen(false);
+      } else if (
         viewportMode === 'mobile' &&
-        (nextSurface === 'editor' || nextSurface === 'chat' || nextSurface === 'terminal')
+        (nextSurface === 'editor' || nextSurface === 'terminal')
       ) {
         setMobileSurface(nextSurface as MobileSurface);
         setMobileExplorerOpen(false);
@@ -342,32 +346,36 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 <Button
                   variant={mobileExplorerOpen ? 'default' : 'ghost'}
                   size="icon-sm"
-                  onClick={() => setMobileExplorerOpen(true)}
+                  onClick={() => {
+                    setMobileExplorerOpen(true);
+                    setMobileChatOpen(false);
+                  }}
                   aria-label="Open file explorer"
                 >
                   <Files className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={mobileSurface === 'chat' ? 'default' : 'ghost'}
-                  size="icon-sm"
-                  onClick={() => {
-                    setMobileExplorerOpen(false);
-                    setMobileSurface((current) => (current === 'chat' ? 'editor' : 'chat'));
-                  }}
-                  aria-label="Show chat"
-                >
-                  <MessageSquare className="h-4 w-4" />
                 </Button>
                 <Button
                   variant={mobileSurface === 'terminal' ? 'default' : 'ghost'}
                   size="icon-sm"
                   onClick={() => {
                     setMobileExplorerOpen(false);
+                    setMobileChatOpen(false);
                     setMobileSurface((current) => (current === 'terminal' ? 'editor' : 'terminal'));
                   }}
                   aria-label="Show terminal"
                 >
                   <TerminalIcon className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={mobileChatOpen ? 'default' : 'ghost'}
+                  size="icon-sm"
+                  onClick={() => {
+                    setMobileExplorerOpen(false);
+                    setMobileChatOpen((prev) => !prev);
+                  }}
+                  aria-label="Show chat"
+                >
+                  <MessageSquare className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -416,11 +424,10 @@ export function DashboardShell({ username }: DashboardShellProps) {
               ) : (
                 <MobileNotebookEmptyState
                   onOpenExplorer={() => setMobileExplorerOpen(true)}
-                  onOpenChat={() => setMobileSurface('chat')}
+                  onOpenChat={() => setMobileChatOpen(true)}
                 />
               )
             ) : null}
-            {mobileSurface === 'chat' ? <CanvasAgentChat /> : null}
             {mobileSurface === 'terminal' ? <TerminalPanel standalone /> : null}
           </div>
           <Sheet open={mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
@@ -451,6 +458,35 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 <SidebarProvider className="h-full min-h-0">
                   <FileBrowser variant="mobile-sheet" />
                 </SidebarProvider>
+              </div>
+            </SheetContent>
+          </Sheet>
+          <Sheet open={mobileChatOpen} onOpenChange={setMobileChatOpen}>
+            <SheetContent
+              side="right"
+              showCloseButton={false}
+              className="w-full max-w-none gap-0 border-l p-0 sm:max-w-none"
+            >
+              <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <SheetTitle className="text-base">AI Chat</SheetTitle>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setMobileChatOpen(false)}
+                    aria-label="Close chat"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </SheetHeader>
+              <div className="min-h-0 flex-1 overflow-hidden flex flex-col">
+                <CanvasAgentChat
+                  onClose={() => setMobileChatOpen(false)}
+                  initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
+                />
               </div>
             </SheetContent>
           </Sheet>

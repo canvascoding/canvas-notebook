@@ -1,0 +1,134 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - link "Suite" [ref=e6] [cursor=pointer]:
+            - /url: /
+            - img
+            - generic [ref=e7]: Suite
+          - img "Canvas Notebook logo" [ref=e8]
+          - heading "CANVAS CHAT" [level=1] [ref=e9]
+        - generic [ref=e10]:
+          - link "Notebook" [ref=e11] [cursor=pointer]:
+            - /url: /notebook
+            - img
+            - generic [ref=e12]: Notebook
+          - button "Switch to dark mode" [ref=e13]:
+            - img
+            - generic [ref=e14]: Dark
+          - link "Usage" [ref=e15] [cursor=pointer]:
+            - /url: /usage
+          - generic [ref=e16]:
+            - generic [ref=e17]: User
+            - generic [ref=e18]: Administrator
+          - button "Logout" [ref=e19]:
+            - img
+            - generic [ref=e20]: Logout
+    - main [ref=e21]:
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]:
+            - generic [ref=e25]:
+              - button "Open history" [active] [ref=e26]:
+                - img [ref=e27]
+              - generic [ref=e32]:
+                - generic "New chat" [ref=e33]:
+                  - generic [ref=e34]: Session
+                  - generic [ref=e35]: new chat
+                - 'generic "Model: gpt-5.4" [ref=e36]':
+                  - generic [ref=e37]: Model
+                  - generic [ref=e38]: gpt-5.4
+            - generic [ref=e39]:
+              - button "New chat" [ref=e40]:
+                - img [ref=e41]
+                - generic [ref=e42]: New
+              - link "View skills" [ref=e43] [cursor=pointer]:
+                - /url: /skills
+                - img [ref=e44]
+                - generic [ref=e46]: Skills
+          - generic [ref=e48]:
+            - generic [ref=e50]: Bereit
+            - generic [ref=e51]:
+              - generic [ref=e52]: Noch keine Session
+              - button "Stop" [disabled] [ref=e53]
+              - button "Compact" [disabled] [ref=e54]
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - generic [ref=e63]:
+              - img [ref=e64]
+              - text: Produktive Startpunkte
+            - link "Letzte Session öffnen Session title smoke 1774265759078 should beco..." [ref=e68] [cursor=pointer]:
+              - /url: /notebook?session=sess-1774265769181-vncb5w4c
+              - img [ref=e69]
+              - generic [ref=e73]: Letzte Session öffnen
+              - generic [ref=e74]: Session title smoke 1774265759078 should beco...
+            - generic [ref=e75]:
+              - heading "Was soll Canvas Chat für dich vorbereiten?" [level=2] [ref=e76]
+              - paragraph [ref=e77]: Starte mit einer Vorlage für Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.
+          - generic [ref=e78]:
+            - button "Beispiel Visuelle SM-Kampagne Idee, Kanalstruktur und Creative-Richtung für eine starke Social-Media-Kampagne ausarbeiten." [ref=e79]:
+              - generic [ref=e80]:
+                - img [ref=e81]
+                - text: Beispiel
+              - generic [ref=e84]:
+                - generic [ref=e85]: Visuelle SM-Kampagne
+                - paragraph [ref=e86]: Idee, Kanalstruktur und Creative-Richtung für eine starke Social-Media-Kampagne ausarbeiten.
+            - button "Beispiel Ad Creatives planen Werbeanzeigen als konkrete Bild- und Textideen für mehrere Formate vorbereiten." [ref=e87]:
+              - generic [ref=e88]:
+                - img [ref=e89]
+                - text: Beispiel
+              - generic [ref=e92]:
+                - generic [ref=e93]: Ad Creatives planen
+                - paragraph [ref=e94]: Werbeanzeigen als konkrete Bild- und Textideen für mehrere Formate vorbereiten.
+            - button "Beispiel Video-Ideen entwickeln Skript, Szenen und Produktionshinweise für Marketing- oder Produktvideos strukturieren." [ref=e95]:
+              - generic [ref=e96]:
+                - img [ref=e97]
+                - text: Beispiel
+              - generic [ref=e102]:
+                - generic [ref=e103]: Video-Ideen entwickeln
+                - paragraph [ref=e104]: Skript, Szenen und Produktionshinweise für Marketing- oder Produktvideos strukturieren.
+            - button "Beispiel Strategie ausarbeiten Ein Business- oder Marketing-Vorhaben in Ziele, Prioritäten und Maßnahmen zerlegen." [ref=e105]:
+              - generic [ref=e106]:
+                - img [ref=e107]
+                - text: Beispiel
+              - generic [ref=e111]:
+                - generic [ref=e112]: Strategie ausarbeiten
+                - paragraph [ref=e113]: Ein Business- oder Marketing-Vorhaben in Ziele, Prioritäten und Maßnahmen zerlegen.
+            - button "Beispiel Dokument entwerfen Ein sauberes Briefing, Angebot oder internes Dokument aufbauen und gliedern." [ref=e114]:
+              - generic [ref=e115]:
+                - img [ref=e116]
+                - text: Beispiel
+              - generic [ref=e119]:
+                - generic [ref=e120]: Dokument entwerfen
+                - paragraph [ref=e121]: Ein sauberes Briefing, Angebot oder internes Dokument aufbauen und gliedern.
+            - button "Beispiel Dateien organisieren Eine produktive Ordner- und Dateistruktur für Projekte, Kampagnen oder Kunden aufsetzen." [ref=e122]:
+              - generic [ref=e123]:
+                - img [ref=e124]
+                - text: Beispiel
+              - generic [ref=e129]:
+                - generic [ref=e130]: Dateien organisieren
+                - paragraph [ref=e131]: Eine produktive Ordner- und Dateistruktur für Projekte, Kampagnen oder Kunden aufsetzen.
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - button "Attach image" [ref=e134]:
+              - img [ref=e135]
+            - textbox "Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien." [ref=e138]
+            - button [disabled] [ref=e139]:
+              - img [ref=e140]
+          - generic [ref=e142]:
+            - button "Hinweis" [ref=e144]:
+              - img [ref=e145]
+              - text: Hinweis
+            - link "Open agent settings" [ref=e148] [cursor=pointer]:
+              - /url: /settings?tab=agent
+              - img [ref=e149]
+              - generic [ref=e152]: Einstellungen
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e158] [cursor=pointer]:
+    - img [ref=e159]
+  - alert [ref=e162]
+```

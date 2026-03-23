@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { FileText, X, Loader2, Eye, Printer } from 'lucide-react';
+import { FileText, X, Loader2, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -25,6 +25,7 @@ export function ShareMarkdownDialog({
   fileName,
 }: ShareMarkdownDialogProps) {
   const [loading, setLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [error, setError] = useState<string>('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -32,19 +33,19 @@ export function ShareMarkdownDialog({
   const loadHtmlExport = useCallback(async () => {
     setLoading(true);
     setError('');
-    
+
     try {
       const response = await fetch(
         `/api/files/markdown-export?path=${encodeURIComponent(filePath)}`
       );
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw new Error(
           errorData?.error || `Failed to export markdown: ${response.statusText}`
         );
       }
-      
+
       const html = await response.text();
       setHtmlContent(html);
     } catch (err) {
@@ -65,38 +66,31 @@ export function ShareMarkdownDialog({
     }
   }, [open, filePath, loadHtmlExport]);
 
-  const handleOpenPDF = () => {
-    if (!htmlContent) return;
+  const handleOpenPDF = async () => {
+    setPdfLoading(true);
+    try {
+      const response = await fetch('/api/files/markdown-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath }),
+      });
 
-    // Open a new window with the HTML content
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      toast.error('Could not open print window. Please allow popups.');
-      return;
-    }
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          errorData?.error || `PDF generation failed: ${response.statusText}`
+        );
+      }
 
-    // Write the HTML content
-    printWindow.document.open();
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-
-    // Wait for content to load then trigger print
-    const triggerPrint = () => {
-      printWindow.focus();
-      printWindow.print();
-    };
-
-    // Use onload event if supported, otherwise fallback to setTimeout
-    if (printWindow.document.readyState === 'complete') {
-      triggerPrint();
-    } else {
-      printWindow.onload = triggerPrint;
-      // Fallback: if onload doesn't fire within 1 second, print anyway
-      setTimeout(() => {
-        if (printWindow && !printWindow.closed) {
-          triggerPrint();
-        }
-      }, 1000);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate PDF';
+      toast.error(message);
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -157,7 +151,7 @@ export function ShareMarkdownDialog({
               </span>
             )}
           </div>
-          
+
           <div className="flex items-center justify-end gap-2 order-1 sm:order-2">
             <Button
               variant="outline"
@@ -168,15 +162,19 @@ export function ShareMarkdownDialog({
               <X className="h-4 w-4 mr-1 md:mr-2" />
               <span>Close</span>
             </Button>
-            
+
             <Button
               onClick={handleOpenPDF}
-              disabled={loading || !!error || !htmlContent}
+              disabled={loading || pdfLoading || !!error || !htmlContent}
               size="sm"
               className="md:size-default"
             >
-              <Printer className="h-4 w-4 mr-1 md:mr-2" />
-              <span>Save as PDF</span>
+              {pdfLoading ? (
+                <Loader2 className="h-4 w-4 mr-1 md:mr-2 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4 mr-1 md:mr-2" />
+              )}
+              <span>{pdfLoading ? 'Generating PDF...' : 'Open as PDF'}</span>
             </Button>
           </div>
         </div>

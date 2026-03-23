@@ -125,7 +125,6 @@ type AgentConfig = {
 };
 
 interface CanvasAgentChatProps {
-  onClose?: () => void;
   initialPrompt?: string | null;
   initialPromptStorageKey?: string;
   showSkillsLink?: boolean;
@@ -490,7 +489,6 @@ function StarterPromptButton({
 }
 
 export default function CanvasAgentChat({
-  onClose,
   initialPrompt,
   initialPromptStorageKey,
   showSkillsLink = false,
@@ -1772,17 +1770,6 @@ export default function CanvasAgentChat({
                 <span className="hidden text-[11px] font-bold sm:inline">Skills</span>
               </Link>
             )}
-            {onClose && (
-              <button
-                type="button"
-                aria-label="Close chat"
-                onClick={onClose}
-                className="border border-transparent p-1 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-                title="Close chat"
-              >
-                <X size={18} />
-              </button>
-            )}
           </div>
         </div>
 
@@ -1848,6 +1835,17 @@ export default function CanvasAgentChat({
                       Compact
                     </button>
                   </>
+                )}
+                {isMobile && (
+                  <button
+                    type="button"
+                    data-testid="chat-stop"
+                    onClick={() => void handleStop()}
+                    disabled={!runtimeStatus?.canAbort}
+                    className="border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Stop
+                  </button>
                 )}
                 {isMobile && (
                   <button
