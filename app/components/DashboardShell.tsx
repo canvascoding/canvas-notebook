@@ -92,7 +92,6 @@ function MobileNotebookEmptyState({
 export function DashboardShell({ username }: DashboardShellProps) {
   const tCommon = useTranslations('common');
   const tNav = useTranslations('navigation');
-  const tNotebook = useTranslations('notebook');
   const searchParams = useSearchParams();
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
