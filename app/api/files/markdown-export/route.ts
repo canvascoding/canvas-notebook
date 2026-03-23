@@ -5,6 +5,96 @@ import { marked } from 'marked';
 import path from 'path';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
+const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB - max size for inline base64 images
+
+// Map common image extensions to MIME types
+const MIME_TYPES: Record<string, string> = {
+  'png': 'image/png',
+  'jpg': 'image/jpeg',
+  'jpeg': 'image/jpeg',
+  'gif': 'image/gif',
+  'webp': 'image/webp',
+  'svg': 'image/svg+xml',
+  'bmp': 'image/bmp',
+  'ico': 'image/x-icon',
+};
+
+function getMimeType(ext: string): string {
+  return MIME_TYPES[ext.toLowerCase()] || 'image/png';
+}
+
+async function inlineImagesAsBase64(
+  htmlContent: string,
+  markdownDir: string
+): Promise<string> {
+  // Find all img tags with src attributes
+  const imgRegex = /<img([^>]*)src="([^"]+)"([^>]*)>/g;
+  const matches: Array<{ full: string; before: string; src: string; after: string }> = [];
+  
+  let match;
+  while ((match = imgRegex.exec(htmlContent)) !== null) {
+    matches.push({
+      full: match[0],
+      before: match[1],
+      src: match[2],
+      after: match[3],
+    });
+  }
+
+  // Process each image
+  let processedHtml = htmlContent;
+  
+  for (const { full, before, src, after } of matches) {
+    try {
+      // Skip if already a data URI or external URL
+      if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
+        continue;
+      }
+
+      // Resolve the image path
+      let imagePath: string;
+      if (src.startsWith('/')) {
+        // Absolute path from workspace root
+        imagePath = src.slice(1);
+      } else {
+        // Relative path
+        imagePath = path.join(markdownDir, src);
+      }
+
+      // Normalize path
+      imagePath = path.normalize(imagePath).replace(/\\/g, '/');
+      
+      // Read the image file
+      const imageBuffer = await readFile(imagePath);
+      
+      // Skip if image is too large
+      if (imageBuffer.length > MAX_IMAGE_SIZE) {
+        console.warn(`[Markdown Export] Image too large to inline: ${imagePath} (${(imageBuffer.length / 1024 / 1024).toFixed(2)}MB)`);
+        // Keep original src - will show as broken in preview but at least PDF export might work
+        continue;
+      }
+
+      // Get MIME type from extension
+      const ext = path.extname(imagePath).slice(1);
+      const mimeType = getMimeType(ext);
+
+      // Convert to base64
+      const base64 = imageBuffer.toString('base64');
+      const dataUri = `data:${mimeType};base64,${base64}`;
+
+      // Replace in HTML
+      processedHtml = processedHtml.replace(
+        full,
+        `<img${before}src="${dataUri}"${after}>`
+      );
+    } catch (err) {
+      console.warn(`[Markdown Export] Failed to inline image: ${src}`, err);
+      // Keep original src - image will show as broken
+    }
+  }
+
+  return processedHtml;
+}
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -57,35 +147,8 @@ export async function GET(request: NextRequest) {
     const fileDir = path.dirname(filePath);
     const fileName = path.basename(filePath, ext);
 
-    // Rewrite relative image paths to absolute /media/ URLs
-    // Matches: ![alt](./image.png) or ![alt](image.png) or ![alt](../image.png)
-    htmlContent = htmlContent.replace(
-      /<img([^>]*)src="([^"]+)"([^>]*)>/g,
-      (match, before, src, after) => {
-        // Skip if already absolute URL
-        if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/media/')) {
-          return match;
-        }
-        
-        // Resolve relative path to absolute workspace path
-        let resolvedPath: string;
-        if (src.startsWith('/')) {
-          // Absolute path from workspace root
-          resolvedPath = src.slice(1);
-        } else if (src.startsWith('./') || src.startsWith('../')) {
-          // Relative path
-          resolvedPath = path.join(fileDir, src);
-        } else {
-          // Simple relative path
-          resolvedPath = path.join(fileDir, src);
-        }
-        
-        // Normalize path (resolve .. and .)
-        resolvedPath = path.normalize(resolvedPath).replace(/\\/g, '/');
-        
-        return `<img${before}src="/media/${resolvedPath}"${after}>`;
-      }
-    );
+    // Convert all images to inline base64
+    htmlContent = await inlineImagesAsBase64(htmlContent, fileDir);
 
     // Generate complete HTML document with print-optimized CSS
     const htmlDocument = `<!DOCTYPE html>
@@ -237,7 +300,7 @@ export async function GET(request: NextRequest) {
       
       /* Don't show URLs for internal links */
       a[href^="#"]:after,
-      a[href^="/media/"]:after {
+      a[href^="data:"]:after {
         content: "";
       }
     }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { FileText, X, Download, MessageCircle, Loader2, Eye } from 'lucide-react';
+import { FileText, X, Download, Loader2, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -89,43 +89,6 @@ export function ShareMarkdownDialog({
     toast.success('PDF export dialog opened');
   };
 
-  const handleShareWhatsApp = async () => {
-    const shareText = `📄 ${fileName}\n\nShared from Canvas Notebook`;
-    const encodedText = encodeURIComponent(shareText);
-
-    // Check if Web Share API is available (mobile)
-    if (
-      typeof navigator !== 'undefined' &&
-      navigator.share &&
-      navigator.canShare
-    ) {
-      try {
-        const shareData = {
-          title: fileName,
-          text: shareText,
-        };
-
-        if (navigator.canShare(shareData)) {
-          await navigator.share(shareData);
-          toast.success('Shared successfully');
-          return;
-        }
-      } catch (err) {
-        // User cancelled or share failed, fall through to fallback
-        if ((err as Error).name !== 'AbortError') {
-          console.log('Web Share API failed, using fallback:', err);
-        }
-      }
-    }
-
-    // Fallback: Open WhatsApp Web with prefilled message
-    window.open(
-      `https://wa.me/?text=${encodedText}`,
-      '_blank',
-      'noopener,noreferrer'
-    );
-  };
-
   const getBlobUrl = () => {
     if (!htmlContent) return '';
     const blob = new Blob([htmlContent], { type: 'text/html' });
@@ -145,33 +108,35 @@ export function ShareMarkdownDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-2">
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Share: {fileName}
+      <DialogContent className="max-w-[95vw] md:max-w-4xl max-h-[95vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-4 md:px-6 pt-4 md:pt-6 pb-2 shrink-0">
+          <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
+            <FileText className="h-4 md:h-5 w-4 md:w-5 shrink-0" />
+            <span className="truncate min-w-0" title={fileName}>
+              Share: {fileName}
+            </span>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 px-6">
+        <div className="flex-1 min-h-0 px-4 md:px-6 overflow-hidden">
           {loading ? (
-            <div className="flex items-center justify-center h-96">
+            <div className="flex items-center justify-center h-64 md:h-96">
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">Loading preview...</p>
               </div>
             </div>
           ) : error ? (
-            <div className="flex items-center justify-center h-96">
-              <div className="text-center">
-                <p className="text-red-500 mb-2">{error}</p>
-                <Button variant="outline" onClick={loadHtmlExport}>
+            <div className="flex items-center justify-center h-64 md:h-96">
+              <div className="text-center px-4">
+                <p className="text-red-500 mb-2 text-sm md:text-base">{error}</p>
+                <Button variant="outline" onClick={loadHtmlExport} size="sm" className="md:size-default">
                   Try Again
                 </Button>
               </div>
             </div>
           ) : (
-            <div className="border rounded-lg overflow-hidden bg-white" style={{ height: '500px' }}>
+            <div className="border rounded-lg overflow-hidden bg-white h-64 md:h-[500px]">
               {blobUrl ? (
                 <iframe
                   ref={iframeRef}
@@ -189,41 +154,37 @@ export function ShareMarkdownDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t bg-muted/50">
-          <div className="text-sm text-muted-foreground">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 px-4 md:px-6 py-3 md:py-4 border-t bg-muted/50 shrink-0">
+          <div className="text-xs md:text-sm text-muted-foreground order-2 sm:order-1">
             {!loading && !error && (
               <span className="flex items-center gap-1">
-                <Eye className="h-4 w-4" />
+                <Eye className="h-3 md:h-4 w-3 md:w-4" />
                 Preview ready
               </span>
             )}
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2 order-1 sm:order-2">
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
+              size="sm"
+              className="md:size-default"
             >
-              <X className="h-4 w-4 mr-2" />
-              Close
-            </Button>
-            
-            <Button
-              variant="outline"
-              onClick={handleShareWhatsApp}
-              disabled={loading || !!error}
-              className="bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#128C7E] border-[#25D366]/30"
-            >
-              <MessageCircle className="h-4 w-4 mr-2" />
-              Share via WhatsApp
+              <X className="h-4 w-4 mr-1 md:mr-2" />
+              <span className="hidden sm:inline">Close</span>
+              <span className="sm:hidden">Close</span>
             </Button>
             
             <Button
               onClick={handleSaveAsPDF}
               disabled={loading || !!error || !htmlContent}
+              size="sm"
+              className="md:size-default"
             >
-              <Download className="h-4 w-4 mr-2" />
-              Save as PDF
+              <Download className="h-4 w-4 mr-1 md:mr-2" />
+              <span className="hidden sm:inline">Save as PDF</span>
+              <span className="sm:hidden">PDF</span>
             </Button>
           </div>
         </div>

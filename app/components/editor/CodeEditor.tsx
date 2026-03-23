@@ -14,6 +14,7 @@ import { rust } from '@codemirror/lang-rust';
 import { cpp } from '@codemirror/lang-cpp';
 import { java } from '@codemirror/lang-java';
 import { xml } from '@codemirror/lang-xml';
+import { EditorView } from '@codemirror/view';
 import { useFileStore } from '@/app/store/file-store';
 import { useTheme } from 'next-themes';
 
@@ -90,7 +91,9 @@ export function CodeEditor({ value, onChange, readOnly = false }: CodeEditorProp
   const { currentFile } = useFileStore();
   const { resolvedTheme } = useTheme();
 
-  const extensions = currentFile ? [getLanguageExtension(currentFile.path)] : [];
+  const extensions = currentFile
+    ? [getLanguageExtension(currentFile.path), EditorView.lineWrapping]
+    : [EditorView.lineWrapping];
 
   useEffect(() => {
     // Handle Cmd/Ctrl+S keyboard shortcut
@@ -152,7 +155,8 @@ export function CodeEditor({ value, onChange, readOnly = false }: CodeEditorProp
           height: 100%;
         }
         .codemirror-wrapper .cm-scroller {
-          overflow: auto;
+          overflow-y: auto;
+          overflow-x: hidden;
           font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
         }
         .codemirror-wrapper .cm-content {
