@@ -175,7 +175,7 @@ export async function GET(request: NextRequest) {
       color: #222;
       max-width: 100%;
       margin: 0;
-      padding: 0;
+      padding: 20px;
     }
     
     h1, h2, h3, h4, h5, h6 {
