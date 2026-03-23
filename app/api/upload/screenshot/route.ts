@@ -95,7 +95,8 @@ export async function POST(request: NextRequest) {
     const processed = await processImage(fileBuffer, file.type);
     
     // Create temp directory if it doesn't exist
-    const tempDir = path.join(process.cwd(), 'temp', 'screenshots');
+    const DATA = process.env.DATA || path.join(process.cwd(), 'data');
+    const tempDir = path.join(DATA, 'temp', 'screenshots');
     await fs.mkdir(tempDir, { recursive: true });
 
     // Use WebP extension for processed image

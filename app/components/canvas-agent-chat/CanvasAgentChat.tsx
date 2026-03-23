@@ -525,6 +525,10 @@ export default function CanvasAgentChat({
   const [showComposerHint, setShowComposerHint] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState(DESKTOP_TEXTAREA_BASE_HEIGHT_PX);
 
+  // Upload states
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const filePickerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1383,17 +1387,24 @@ export default function CanvasAgentChat({
   }, []);
 
   const handleFileUpload = useCallback(async (file: File) => {
+    setIsUploading(true);
+    setUploadError(null);
     const formData = new FormData();
     formData.append('file', file);
 
     try {
       const res = await fetch('/api/upload/screenshot', { method: 'POST', body: formData });
       const data = await res.json();
-      if (data.success) {
+      if (!res.ok || !data.success) {
+        setUploadError(data.error ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.');
+      } else {
         setAttachments((prev) => [...prev, { name: data.name, path: data.path, type: file.type }]);
       }
     } catch (err) {
       console.error('Upload failed', err);
+      setUploadError('Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
+    } finally {
+      setIsUploading(false);
     }
   }, []);
 
@@ -1406,14 +1417,22 @@ export default function CanvasAgentChat({
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
     if (!items) return;
+    let foundImage = false;
     for (let i = 0; i < items.length; i += 1) {
       if (items[i].type.indexOf('image') !== -1) {
+        foundImage = true;
         const file = items[i].getAsFile();
         if (file) {
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
           const renamedFile = new File([file], `screenshot-${timestamp}.png`, { type: file.type });
           handleFileUpload(renamedFile);
         }
+      }
+    }
+    if (!foundImage) {
+      const text = event.clipboardData?.getData('text') ?? '';
+      if (/\.(png|jpe?g|webp|gif)$/i.test(text.trim())) {
+        setUploadError('Tipp: Dateien aus dem Finder können nicht direkt eingefügt werden. Bitte nutze die Büroklammer zum Hochladen, oder kopiere das Bild direkt (z.B. Screenshot).');
       }
     }
   }, [handleFileUpload]);
@@ -2179,6 +2198,15 @@ export default function CanvasAgentChat({
           </div>
         )}
 
+        {uploadError && (
+          <div className="mb-2 flex items-center justify-between border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
+            <span>{uploadError}</span>
+            <button type="button" onClick={() => setUploadError(null)} className="ml-2 hover:opacity-70">
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
         {attachments.length > 0 && (
           <div
             className={`mb-2 gap-2 border border-border bg-muted/60 p-2 ${
@@ -2280,10 +2308,13 @@ export default function CanvasAgentChat({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
-            title="Attach image"
+            disabled={isUploading}
+            className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            title={isUploading ? 'Wird hochgeladen...' : 'Attach image'}
           >
-            <Paperclip className="h-5 w-5" />
+            {isUploading
+              ? <Loader2 className="h-5 w-5 animate-spin" />
+              : <Paperclip className="h-5 w-5" />}
           </button>
           <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*" />
           <div className="relative flex-1">
