@@ -260,7 +260,7 @@ export function FileEditor() {
   }
 
   return (
-    <div className="flex flex-1 min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-nowrap items-center justify-between border-b border-border px-3 sm:px-4 py-2 text-sm text-muted-foreground gap-2">
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground overflow-hidden">
           {!isMobile ? (
