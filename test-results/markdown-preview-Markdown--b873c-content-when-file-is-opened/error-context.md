@@ -3,23 +3,233 @@
 ```yaml
 - generic [active] [ref=e1]:
   - generic [ref=e3]:
-    - generic [ref=e4]:
-      - img "Canvas Logo" [ref=e5]
-      - heading "Canvas Notebook" [level=1] [ref=e6]
-    - generic [ref=e7]:
-      - generic [ref=e8]:
-        - generic [ref=e9]: Email
-        - textbox "Email" [ref=e10]:
-          - /placeholder: Enter email
-          - text: admin@example.com
-      - generic [ref=e11]:
-        - generic [ref=e12]: Password
-        - textbox "Password" [ref=e13]:
-          - /placeholder: Enter password
-          - text: change-me
-      - button "Login" [ref=e14]
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - img "Canvas Notebook logo" [ref=e7]
+          - generic [ref=e8]:
+            - generic [ref=e9]: Canvas Notebook
+            - generic [ref=e10]: Software Suite
+        - generic [ref=e11]:
+          - generic [ref=e12]:
+            - generic [ref=e13]: User
+            - generic [ref=e14]: Administrator
+          - link "Notebook" [ref=e15] [cursor=pointer]:
+            - /url: /notebook
+            - img
+            - generic [ref=e16]: Notebook
+          - button "Switch theme" [ref=e17]:
+            - img
+            - generic [ref=e18]: Theme
+          - button "Logout" [ref=e19]:
+            - img
+            - generic [ref=e20]: Logout
+    - main [ref=e21]:
+      - generic [ref=e22]:
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - paragraph [ref=e28]: Canvas Software Suite
+            - heading "Wähle eine App und arbeite im gleichen Workspace weiter." [level=2] [ref=e29]
+            - paragraph [ref=e30]: Alle Apps greifen auf denselben Workspace zu. Neue Bilder, Videos und Inhalte sind dadurch sofort für weitere Schritte verfügbar.
+          - generic [ref=e32]:
+            - generic [ref=e34]:
+              - generic [ref=e35]:
+                - img [ref=e36]
+                - text: Canvas Chat
+              - link "Neuer Chat" [ref=e39] [cursor=pointer]:
+                - /url: /notebook
+            - generic [ref=e41]:
+              - generic [ref=e42]:
+                - paragraph [ref=e43]: Produktive Prompt-Vorlagen
+                - generic [ref=e44]:
+                  - button "Vorlage Visuelle SM-Kampagne Idee, Kanalstruktur und Creative-Richtung für eine starke Social-Media-Kampagne ausarbeiten." [ref=e45]:
+                    - generic [ref=e46]:
+                      - img [ref=e47]
+                      - text: Vorlage
+                    - generic [ref=e50]:
+                      - generic [ref=e51]: Visuelle SM-Kampagne
+                      - paragraph [ref=e52]: Idee, Kanalstruktur und Creative-Richtung für eine starke Social-Media-Kampagne ausarbeiten.
+                  - button "Vorlage Ad Creatives planen Werbeanzeigen als konkrete Bild- und Textideen für mehrere Formate vorbereiten." [ref=e53]:
+                    - generic [ref=e54]:
+                      - img [ref=e55]
+                      - text: Vorlage
+                    - generic [ref=e58]:
+                      - generic [ref=e59]: Ad Creatives planen
+                      - paragraph [ref=e60]: Werbeanzeigen als konkrete Bild- und Textideen für mehrere Formate vorbereiten.
+                  - button "Vorlage Video-Ideen entwickeln Skript, Szenen und Produktionshinweise für Marketing- oder Produktvideos strukturieren." [ref=e61]:
+                    - generic [ref=e62]:
+                      - img [ref=e63]
+                      - text: Vorlage
+                    - generic [ref=e68]:
+                      - generic [ref=e69]: Video-Ideen entwickeln
+                      - paragraph [ref=e70]: Skript, Szenen und Produktionshinweise für Marketing- oder Produktvideos strukturieren.
+                  - button "Vorlage Strategie ausarbeiten Ein Business- oder Marketing-Vorhaben in Ziele, Prioritäten und Maßnahmen zerlegen." [ref=e71]:
+                    - generic [ref=e72]:
+                      - img [ref=e73]
+                      - text: Vorlage
+                    - generic [ref=e77]:
+                      - generic [ref=e78]: Strategie ausarbeiten
+                      - paragraph [ref=e79]: Ein Business- oder Marketing-Vorhaben in Ziele, Prioritäten und Maßnahmen zerlegen.
+                  - button "Vorlage Dokument entwerfen Ein sauberes Briefing, Angebot oder internes Dokument aufbauen und gliedern." [ref=e80]:
+                    - generic [ref=e81]:
+                      - img [ref=e82]
+                      - text: Vorlage
+                    - generic [ref=e85]:
+                      - generic [ref=e86]: Dokument entwerfen
+                      - paragraph [ref=e87]: Ein sauberes Briefing, Angebot oder internes Dokument aufbauen und gliedern.
+                  - button "Vorlage Dateien organisieren Eine produktive Ordner- und Dateistruktur für Projekte, Kampagnen oder Kunden aufsetzen." [ref=e88]:
+                    - generic [ref=e89]:
+                      - img [ref=e90]
+                      - text: Vorlage
+                    - generic [ref=e95]:
+                      - generic [ref=e96]: Dateien organisieren
+                      - paragraph [ref=e97]: Eine produktive Ordner- und Dateistruktur für Projekte, Kampagnen oder Kunden aufsetzen.
+              - textbox "Starte mit einem Business-Use-Case oder passe eine Vorlage an. Enter sendet, @ referenziert Dateien." [ref=e99]
+              - generic [ref=e100]:
+                - button "Bild anhängen" [ref=e102]:
+                  - img [ref=e103]
+                - button "In Canvas Chat öffnen" [disabled]:
+                  - img
+                  - text: In Canvas Chat öffnen
+          - generic [ref=e105]:
+            - link "Live Canvas Notebook Dateien, Chat, Editor und Terminal im Workspace verwalten. App öffnen" [ref=e106] [cursor=pointer]:
+              - /url: /notebook
+              - generic [ref=e108]:
+                - generic [ref=e109]:
+                  - img [ref=e111]
+                  - generic [ref=e114]: Live
+                - generic [ref=e115]:
+                  - heading "Canvas Notebook" [level=3] [ref=e116]
+                  - paragraph [ref=e117]: Dateien, Chat, Editor und Terminal im Workspace verwalten.
+                - generic [ref=e118]:
+                  - button "App öffnen":
+                    - text: App öffnen
+                    - img
+            - link "Live Usage Analytics Token- und Kostenverbrauch nach Zeitraum, Modell, Session und Nutzer auswerten. App öffnen" [ref=e119] [cursor=pointer]:
+              - /url: /usage
+              - generic [ref=e121]:
+                - generic [ref=e122]:
+                  - img [ref=e124]
+                  - generic [ref=e126]: Live
+                - generic [ref=e127]:
+                  - heading "Usage Analytics" [level=3] [ref=e128]
+                  - paragraph [ref=e129]: Token- und Kostenverbrauch nach Zeitraum, Modell, Session und Nutzer auswerten.
+                - generic [ref=e130]:
+                  - button "App öffnen":
+                    - text: App öffnen
+                    - img
+            - link "Live Image Generation Bilder erzeugen und direkt im Workspace speichern. App öffnen" [ref=e131] [cursor=pointer]:
+              - /url: /image-generation
+              - generic [ref=e133]:
+                - generic [ref=e134]:
+                  - img [ref=e136]
+                  - generic [ref=e140]: Live
+                - generic [ref=e141]:
+                  - heading "Image Generation" [level=3] [ref=e142]
+                  - paragraph [ref=e143]: Bilder erzeugen und direkt im Workspace speichern.
+                - generic [ref=e144]:
+                  - button "App öffnen":
+                    - text: App öffnen
+                    - img
+            - link "Live VEO Studio Video-Generierung mit Workspace-basierter Ausgabe. App öffnen" [ref=e145] [cursor=pointer]:
+              - /url: /veo
+              - generic [ref=e147]:
+                - generic [ref=e148]:
+                  - img [ref=e150]
+                  - generic [ref=e155]: Live
+                - generic [ref=e156]:
+                  - heading "VEO Studio" [level=3] [ref=e157]
+                  - paragraph [ref=e158]: Video-Generierung mit Workspace-basierter Ausgabe.
+                - generic [ref=e159]:
+                  - button "App öffnen":
+                    - text: App öffnen
+                    - img
+            - link "Live Nano Banana Localizer Bestehende Ads pro Zielmarkt sprachlich lokalisieren. App öffnen" [ref=e160] [cursor=pointer]:
+              - /url: /nano-banana-localizer
+              - generic [ref=e162]:
+                - generic [ref=e163]:
+                  - img [ref=e165]
+                  - generic [ref=e168]: Live
+                - generic [ref=e169]:
+                  - heading "Nano Banana Localizer" [level=3] [ref=e170]
+                  - paragraph [ref=e171]: Bestehende Ads pro Zielmarkt sprachlich lokalisieren.
+                - generic [ref=e172]:
+                  - button "App öffnen":
+                    - text: App öffnen
+                    - img
+            - link "Live Automationen Wiederkehrende Agent-Aufträge für den gemeinsamen Workspace planen. App öffnen" [ref=e173] [cursor=pointer]:
+              - /url: /automationen
+              - generic [ref=e175]:
+                - generic [ref=e176]:
+                  - img [ref=e178]
+                  - generic [ref=e182]: Live
+                - generic [ref=e183]:
+                  - heading "Automationen" [level=3] [ref=e184]
+                  - paragraph [ref=e185]: Wiederkehrende Agent-Aufträge für den gemeinsamen Workspace planen.
+                - generic [ref=e186]:
+                  - button "App öffnen":
+                    - text: App öffnen
+                    - img
+            - link "Live Skill Gallery Skills erstellen, verwalten und im Chat nutzen. App öffnen" [ref=e187] [cursor=pointer]:
+              - /url: /skills
+              - generic [ref=e189]:
+                - generic [ref=e190]:
+                  - img [ref=e192]
+                  - generic [ref=e194]: Live
+                - generic [ref=e195]:
+                  - heading "Skill Gallery" [level=3] [ref=e196]
+                  - paragraph [ref=e197]: Skills erstellen, verwalten und im Chat nutzen.
+                - generic [ref=e198]:
+                  - button "App öffnen":
+                    - text: App öffnen
+                    - img
+            - link "Live Terminal Workspace Terminal für echte Nerds. Keine GUI, nur pure Kommandozeilen-Magie. App öffnen" [ref=e199] [cursor=pointer]:
+              - /url: /terminal
+              - generic [ref=e201]:
+                - generic [ref=e202]:
+                  - img [ref=e204]
+                  - generic [ref=e206]: Live
+                - generic [ref=e207]:
+                  - heading "Terminal" [level=3] [ref=e208]
+                  - paragraph [ref=e209]: Workspace Terminal für echte Nerds. Keine GUI, nur pure Kommandozeilen-Magie.
+                - generic [ref=e210]:
+                  - button "App öffnen":
+                    - text: App öffnen
+                    - img
+        - generic [ref=e211]:
+          - generic [ref=e212]:
+            - generic [ref=e214]: Agent Setup
+            - generic [ref=e215]:
+              - generic [ref=e216]:
+                - paragraph [ref=e217]: Provider Status
+                - paragraph [ref=e218]: Ready (openai-codex)
+                - paragraph [ref=e219]: "Model: gpt-5.4"
+              - generic [ref=e220]:
+                - paragraph [ref=e221]: Doctor Status
+                - paragraph [ref=e222]: Ready
+              - generic [ref=e223]:
+                - link "Agent Settings" [ref=e224] [cursor=pointer]:
+                  - /url: /settings?tab=agent-settings
+                - link "Open Doctor" [ref=e225] [cursor=pointer]:
+                  - /url: /settings?tab=agent-settings&panel=doctor
+          - generic [ref=e226]:
+            - generic [ref=e228]: Hilfe & Tutorials
+            - generic [ref=e229]:
+              - generic [ref=e230]:
+                - paragraph [ref=e231]: Dokumentation
+                - paragraph [ref=e232]: Tutorials, Anleitungen und Hilfe zur Einrichtung der Canvas Software Suite.
+              - link "Hilfe öffnen" [ref=e234] [cursor=pointer]:
+                - /url: /help
+    - contentinfo [ref=e235]:
+      - generic [ref=e236]:
+        - link "Made with by Canvas Coding" [ref=e237] [cursor=pointer]:
+          - /url: https://agency.canvas.holdings
+          - generic [ref=e238]: Made with
+          - img [ref=e239]
+          - generic [ref=e241]: by Canvas Coding
+        - link "canvascoding/canvas-notebook" [ref=e242] [cursor=pointer]:
+          - /url: https://github.com/canvascoding/canvas-notebook
+          - img [ref=e243]
+          - generic [ref=e246]: canvascoding/canvas-notebook
   - region "Notifications alt+T"
-  - button "Open Next.js Dev Tools" [ref=e20] [cursor=pointer]:
-    - img [ref=e21]
-  - alert [ref=e24]
 ```

@@ -65,34 +65,19 @@ export function ShareMarkdownDialog({
     }
   }, [open, filePath, loadHtmlExport]);
 
-  const handlePrintPDF = () => {
+  const handleOpenPDF = () => {
     if (!htmlContent) return;
 
-    // Open a new window with the HTML content for printing
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      toast.error('Could not open print window. Please allow popups.');
+    // Open HTML in new tab - user can then use Ctrl+P or browser print
+    const newTab = window.open('', '_blank');
+    if (!newTab) {
+      toast.error('Could not open new tab. Please allow popups.');
       return;
     }
 
-    // Write the HTML content to the new window
-    printWindow.document.open();
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-
-    // Wait for content to load, then trigger print
-    printWindow.onload = () => {
-      printWindow.focus();
-      printWindow.print();
-    };
-
-    // Fallback in case onload doesn't fire
-    setTimeout(() => {
-      if (printWindow) {
-        printWindow.focus();
-        printWindow.print();
-      }
-    }, 500);
+    newTab.document.open();
+    newTab.document.write(htmlContent);
+    newTab.document.close();
   };
 
   return (
@@ -165,13 +150,13 @@ export function ShareMarkdownDialog({
             </Button>
             
             <Button
-              onClick={handlePrintPDF}
+              onClick={handleOpenPDF}
               disabled={loading || !!error || !htmlContent}
               size="sm"
               className="md:size-default"
             >
               <Printer className="h-4 w-4 mr-1 md:mr-2" />
-              <span>Save as PDF</span>
+              <span>Open as PDF</span>
             </Button>
           </div>
         </div>
