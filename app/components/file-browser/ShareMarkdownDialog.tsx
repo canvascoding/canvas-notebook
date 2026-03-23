@@ -66,21 +66,33 @@ export function ShareMarkdownDialog({
   }, [open, filePath, loadHtmlExport]);
 
   const handlePrintPDF = () => {
-    if (!htmlContent || !iframeRef.current) return;
+    if (!htmlContent) return;
 
-    const iframe = iframeRef.current;
-    const iframeWindow = iframe.contentWindow;
-    
-    if (!iframeWindow) {
-      toast.error('Could not access preview');
+    // Open a new window with the HTML content for printing
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Could not open print window. Please allow popups.');
       return;
     }
 
-    // Trigger print directly in the iframe
-    iframeWindow.focus();
-    iframeWindow.print();
-    
-    toast.success('Print dialog opened - select "Save as PDF" to download');
+    // Write the HTML content to the new window
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+
+    // Wait for content to load, then trigger print
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+
+    // Fallback in case onload doesn't fire
+    setTimeout(() => {
+      if (printWindow) {
+        printWindow.focus();
+        printWindow.print();
+      }
+    }, 500);
   };
 
   return (
