@@ -80,7 +80,6 @@
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
-    "html2pdf.js": "^0.14.0",
     "iron-session": "^8.0.4",
     "jspreadsheet-ce": "^5.0.4",
     "jsuites": "^6.3.1",

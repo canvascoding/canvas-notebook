@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { FileText, X, Loader2, Eye, FileDown } from 'lucide-react';
+import { FileText, X, Loader2, Eye, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,7 +27,6 @@ export function ShareMarkdownDialog({
   const [loading, setLoading] = useState(false);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [error, setError] = useState<string>('');
-  const [generatingPDF, setGeneratingPDF] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const loadHtmlExport = useCallback(async () => {
@@ -66,54 +65,22 @@ export function ShareMarkdownDialog({
     }
   }, [open, filePath, loadHtmlExport]);
 
-  const handleDownloadPDF = async () => {
+  const handlePrintPDF = () => {
     if (!htmlContent || !iframeRef.current) return;
 
-    setGeneratingPDF(true);
+    const iframe = iframeRef.current;
+    const iframeWindow = iframe.contentWindow;
     
-    try {
-      // Dynamically import html2pdf.js to avoid SSR issues
-      const html2pdf = (await import('html2pdf.js')).default;
-      
-      // Get the iframe document
-      const iframe = iframeRef.current;
-      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-      
-      if (!iframeDoc || !iframeDoc.body) {
-        throw new Error('Could not access preview content');
-      }
-
-      // Configure html2pdf options
-      const opt = {
-        margin: [10, 10, 10, 10] as [number, number, number, number],
-        filename: fileName.replace(/\.md$/i, '.pdf'),
-        image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { 
-          scale: 2,
-          useCORS: true,
-          letterRendering: true,
-          backgroundColor: '#ffffff',
-          removeContainer: true,
-          logging: false,
-        },
-        jsPDF: { 
-          unit: 'mm', 
-          format: 'a4', 
-          orientation: 'portrait' as const,
-        },
-      };
-
-      // Generate PDF from the iframe content
-      await html2pdf().set(opt).from(iframeDoc.body).save();
-      
-      toast.success('PDF downloaded successfully');
-    } catch (err) {
-      console.error('PDF generation error:', err);
-      const message = err instanceof Error ? err.message : 'Failed to generate PDF';
-      toast.error(message);
-    } finally {
-      setGeneratingPDF(false);
+    if (!iframeWindow) {
+      toast.error('Could not access preview');
+      return;
     }
+
+    // Trigger print directly in the iframe
+    iframeWindow.focus();
+    iframeWindow.print();
+    
+    toast.success('Print dialog opened - select "Save as PDF" to download');
   };
 
   return (
@@ -186,17 +153,13 @@ export function ShareMarkdownDialog({
             </Button>
             
             <Button
-              onClick={handleDownloadPDF}
-              disabled={loading || !!error || !htmlContent || generatingPDF}
+              onClick={handlePrintPDF}
+              disabled={loading || !!error || !htmlContent}
               size="sm"
               className="md:size-default"
             >
-              {generatingPDF ? (
-                <Loader2 className="h-4 w-4 mr-1 md:mr-2 animate-spin" />
-              ) : (
-                <FileDown className="h-4 w-4 mr-1 md:mr-2" />
-              )}
-              <span>{generatingPDF ? 'Generating...' : 'Download PDF'}</span>
+              <Printer className="h-4 w-4 mr-1 md:mr-2" />
+              <span>Save as PDF</span>
             </Button>
           </div>
         </div>
