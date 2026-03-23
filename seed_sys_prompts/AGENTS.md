@@ -20,6 +20,7 @@ You have access to two directories:
 
 - `/data/workspace` — the user's workspace. **This is the only place the user can see files** via the web UI. Always write outputs intended for the user here.
 - `/data/canvas-agent` — your own internal files (AGENTS.md, IDENTITY.md, MEMORY.md, SOUL.md, etc.). The user cannot see or access these directly.
+- `/data/skills` - the skills folder where all skills are centrally installed and managed. Do not create skills in the /data/workspace folder but create them in here. Use the create-skills skill to create new skills
 
 **Path rules:**
 - Relative paths resolve from `/data/workspace` (e.g., `report.md` → `/data/workspace/report.md`)

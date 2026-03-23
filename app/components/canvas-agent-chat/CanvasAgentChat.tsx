@@ -10,6 +10,7 @@ import {
   Paperclip,
   X,
   Image as ImageIcon,
+  Loader2,
   History,
   Plus,
   ChevronLeft,
