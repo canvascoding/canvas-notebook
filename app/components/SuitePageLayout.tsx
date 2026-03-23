@@ -1,12 +1,14 @@
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import type { ReactNode } from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { cn } from '@/lib/utils';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { Button } from '@/components/ui/button';
 
 type SuitePageLayoutProps = {
@@ -26,6 +28,8 @@ export function SuitePageLayout({
   showLogo = false,
   titleClassName,
 }: SuitePageLayoutProps) {
+  const t = useTranslations('common');
+
   return (
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="flex h-full flex-col">
@@ -35,7 +39,7 @@ export function SuitePageLayout({
               <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
                 <Link href="/">
                   <ArrowLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">Suite</span>
+                  <span className="hidden sm:inline">{t('suite')}</span>
                 </Link>
               </Button>
               {showLogo ? (
@@ -54,10 +58,11 @@ export function SuitePageLayout({
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
               <div className="hidden min-[480px]:flex flex-col items-end">
-                <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">User</span>
+                <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{t('user')}</span>
                 <span className="max-w-[140px] truncate text-xs">{username}</span>
               </div>
               <NotebookNavButton />
+              <LanguageSwitcher />
               <ThemeToggle />
               <LogoutButton />
             </div>

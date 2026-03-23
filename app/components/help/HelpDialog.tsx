@@ -2,7 +2,7 @@
 
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { X } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import remarkGfm from 'remark-gfm';

@@ -2,9 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect, type CSSProperties } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, Files, MessageSquare, PanelLeft, Terminal as TerminalIcon, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -21,6 +22,7 @@ import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { AppLayout } from '@/app/components/layout/AppLayout';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { useFileStore } from '@/app/store/file-store';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 
@@ -52,6 +54,7 @@ function MobileNotebookEmptyState({
   onOpenExplorer: () => void;
   onOpenChat: () => void;
 }) {
+  const t = useTranslations('notebook');
   return (
     <div className="flex h-full items-center justify-center overflow-auto bg-[radial-gradient(circle_at_top,_hsl(var(--primary)/0.14),_transparent_48%),linear-gradient(180deg,_hsl(var(--muted)/0.36),_transparent_52%)] px-4 py-8">
       <div className="w-full max-w-sm rounded-[28px] border border-border/80 bg-background/95 p-6 shadow-[0_24px_80px_-32px_hsl(var(--foreground)/0.45)] backdrop-blur">
@@ -61,17 +64,16 @@ function MobileNotebookEmptyState({
         </div>
         <div className="mt-5 space-y-3">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            Öffne eine Datei oder starte direkt im Chat.
+            {t('emptyStateTitle')}
           </h2>
           <p className="text-sm leading-6 text-muted-foreground">
-            Der mobile Notebook-Flow startet jetzt im Editor. Wähle eine Datei
-            über den Explorer oder springe direkt in den Canvas Chat.
+            {t('emptyStateDescription')}
           </p>
         </div>
         <div className="mt-6 flex flex-col gap-3">
           <Button className="h-12 justify-center gap-2 rounded-2xl text-sm" onClick={onOpenExplorer}>
             <Files className="h-4 w-4" />
-            Datei auswählen
+            {t('selectFile')}
           </Button>
           <Button
             variant="outline"
@@ -79,7 +81,7 @@ function MobileNotebookEmptyState({
             onClick={onOpenChat}
           >
             <MessageSquare className="h-4 w-4" />
-            Chat öffnen
+            {t('openChat')}
           </Button>
         </div>
       </div>
@@ -88,6 +90,9 @@ function MobileNotebookEmptyState({
 }
 
 export function DashboardShell({ username }: DashboardShellProps) {
+  const tCommon = useTranslations('common');
+  const tNav = useTranslations('navigation');
+  const tNotebook = useTranslations('notebook');
   const searchParams = useSearchParams();
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -322,7 +327,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
             <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
               <Link href="/" target="_blank" rel="noopener noreferrer">
                 <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">Suite</span>
+                <span className="hidden sm:inline">{tCommon('suite')}</span>
               </Link>
             </Button>
             {!showMobileChrome ? (
@@ -331,12 +336,12 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   variant={sidebarVisible ? "default" : "ghost"}
                   size="icon-sm"
                   onClick={() => setSidebarVisible((prev) => !prev)}
-                  aria-label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
+                  aria-label={sidebarVisible ? tNav('hideSidebar') : tNav('showSidebar')}
                 >
                   <PanelLeft className="h-4 w-4" />
                 </Button>
                 <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="shrink-0 border border-border" />
-                <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">CANVAS NOTEBOOK</h1>
+                <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{tNav('canvasNotebook')}</h1>
               </>
             ) : null}
           </div>
@@ -350,7 +355,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     setMobileExplorerOpen(true);
                     setMobileChatOpen(false);
                   }}
-                  aria-label="Open file explorer"
+                  aria-label={tNav('openFileExplorer')}
                 >
                   <Files className="h-4 w-4" />
                 </Button>
@@ -362,7 +367,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     setMobileChatOpen(false);
                     setMobileSurface((current) => (current === 'terminal' ? 'editor' : 'terminal'));
                   }}
-                  aria-label="Show terminal"
+                  aria-label={tNav('showTerminal')}
                 >
                   <TerminalIcon className="h-4 w-4" />
                 </Button>
@@ -373,7 +378,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     setMobileExplorerOpen(false);
                     setMobileChatOpen((prev) => !prev);
                   }}
-                  aria-label="Show chat"
+                  aria-label={tNav('showChat')}
                 >
                   <MessageSquare className="h-4 w-4" />
                 </Button>
@@ -381,6 +386,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
             </div>
           ) : null}
           <div className="flex items-center gap-1.5 md:gap-4">
+            <LanguageSwitcher />
             <ThemeToggle />
             {isDesktopViewport ? (
               <>
@@ -391,7 +397,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   className="gap-2 px-2 sm:px-3"
                 >
                   <TerminalIcon className="h-4 w-4" />
-                  <span className="hidden sm:inline">Terminal</span>
+                  <span className="hidden sm:inline">{tCommon('terminal')}</span>
                 </Button>
                 <Button
                   variant={chatVisible ? "default" : "ghost"}
@@ -400,10 +406,10 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   className="gap-2 px-2 sm:px-3"
                 >
                   <MessageSquare className="h-4 w-4" />
-                  <span className="hidden sm:inline">AI Chat</span>
+                  <span className="hidden sm:inline">{tCommon('aiChat')}</span>
                 </Button>
                 <div className="hidden lg:flex flex-col items-end shrink-0">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">User</span>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{tCommon('user')}</span>
                     <span className="text-xs text-foreground/90">{username}</span>
                 </div>
               </>
@@ -439,7 +445,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
               <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <SheetTitle className="text-base">Explorer</SheetTitle>
+                    <SheetTitle className="text-base">{tCommon('explorer')}</SheetTitle>
                     <SheetDescription className="truncate text-xs">
                       {currentDirectoryLabel}
                     </SheetDescription>
@@ -448,7 +454,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => setMobileExplorerOpen(false)}
-                    aria-label="Close explorer"
+                    aria-label={tNav('closeExplorer')}
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -470,13 +476,13 @@ export function DashboardShell({ username }: DashboardShellProps) {
               <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <SheetTitle className="text-base">AI Chat</SheetTitle>
+                    <SheetTitle className="text-base">{tCommon('aiChat')}</SheetTitle>
                   </div>
                   <Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => setMobileChatOpen(false)}
-                    aria-label="Close chat"
+                    aria-label={tNav('closeChat')}
                   >
                     <X className="h-4 w-4" />
                   </Button>

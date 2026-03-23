@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookie } from "better-auth/cookies";
+import createIntlMiddleware from 'next-intl/middleware';
+import { routing } from './i18n/routing';
+
+// Initialize the next-intl middleware
+const handleI18nRouting = createIntlMiddleware(routing);
 
 // Public routes that don't require authentication
 const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/automations/execute', '/api/automations/scheduler'];
@@ -31,28 +36,42 @@ function setCommonHeaders(response: NextResponse) {
   response.headers.set('Content-Security-Policy', cspHeader);
 }
 
-export async function proxy(request: NextRequest) {
+function isPublicRoute(pathname: string) {
+  // Strip locale prefix if present for checking public routes
+  const locales = routing.locales;
+  let pathWithoutLocale = pathname;
+  
+  for (const locale of locales) {
+    if (pathname === `/${locale}` || pathname.startsWith(`/${locale}/`)) {
+      pathWithoutLocale = pathname.replace(`/${locale}`, '') || '/';
+      break;
+    }
+  }
+
+  return (
+    PUBLIC_EXACT_ROUTES.includes(pathWithoutLocale) ||
+    PUBLIC_PREFIX_ROUTES.some((route) => pathWithoutLocale.startsWith(route)) ||
+    pathname.includes('/api/auth/')
+  );
+}
+
+export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public routes and auth API routes
-  if (
-    PUBLIC_EXACT_ROUTES.includes(pathname) ||
-    PUBLIC_PREFIX_ROUTES.some((route) => pathname.startsWith(route)) ||
-    pathname.includes('/api/auth/')
-  ) {
-    const response = NextResponse.next();
-    setCommonHeaders(response);
+  // 1. Handle i18n routing first
+  const response = handleI18nRouting(request);
+  
+  // Set security headers on the i18n response
+  setCommonHeaders(response);
+
+  // 2. Allow public routes and auth API routes
+  if (isPublicRoute(pathname)) {
     return response;
   }
 
-  // Check for session cookie using Better Auth utility
+  // 3. Check for session cookie using Better Auth utility
   const sessionCookie = getSessionCookie(request);
   
-  // Debug logging disabled for cleaner output
-  // console.log('[Middleware] Request URL:', request.url);
-  // console.log('[Middleware] Cookies:', request.cookies.getAll().map(c => `${c.name}=${c.value.substring(0, 10)}...`));
-  // console.log('[Middleware] Session Cookie Detected:', !!sessionCookie);
-
   const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
   if (!sessionCookie && logMissingSession) {
     console.log(`[Middleware] No session cookie for ${pathname}. Redirecting/denying.`);
@@ -63,34 +82,26 @@ export async function proxy(request: NextRequest) {
     if (!pathname.startsWith('/api/')) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('from', pathname);
-      const response = NextResponse.redirect(loginUrl);
-      setCommonHeaders(response);
-      return response;
+      const redirectResponse = NextResponse.redirect(loginUrl);
+      setCommonHeaders(redirectResponse);
+      return redirectResponse;
     }
 
     // Return 401 for API requests
-    const response = NextResponse.json(
+    const errorResponse = NextResponse.json(
       { success: false, error: 'Unauthorized' },
       { status: 401 }
     );
-    setCommonHeaders(response);
-    return response;
+    setCommonHeaders(errorResponse);
+    return errorResponse;
   }
 
-  const response = NextResponse.next();
-  setCommonHeaders(response);
   return response;
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public files (images, etc)
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // Skip all internal paths and static files
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)',
   ],
 };

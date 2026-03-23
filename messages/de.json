@@ -1,0 +1,65 @@
+{
+  "common": {
+    "suite": "Suite",
+    "terminal": "Terminal",
+    "aiChat": "AI Chat",
+    "user": "Benutzer",
+    "explorer": "Explorer",
+    "logout": "Abmelden",
+    "retry": "Wiederholen",
+    "reload": "Neu laden",
+    "somethingWentWrong": "Etwas ist schiefgelaufen",
+    "pleaseTryAgain": "Bitte versuche es erneut.",
+    "unexpectedError": "Unerwarteter Fehler",
+    "tryReloading": "Versuche die Seite neu zu laden.",
+    "loading": "Lade..."
+  },
+  "navigation": {
+    "hideSidebar": "Sidebar ausblenden",
+    "showSidebar": "Sidebar einblenden",
+    "openFileExplorer": "Datei-Explorer öffnen",
+    "showTerminal": "Terminal anzeigen",
+    "showChat": "Chat anzeigen",
+    "closeExplorer": "Explorer schließen",
+    "closeChat": "Chat schließen",
+    "canvasNotebook": "CANVAS NOTEBOOK",
+    "notebook": "Notebook"
+  },
+  "login": {
+    "title": "Canvas Notebook",
+    "email": "E-Mail",
+    "password": "Passwort",
+    "emailPlaceholder": "E-Mail eingeben",
+    "passwordPlaceholder": "Passwort eingeben",
+    "loginButton": "Anmelden",
+    "loggingIn": "Wird angemeldet...",
+    "loginFailed": "Anmeldung fehlgeschlagen",
+    "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
+    "loginSuccessful": "Anmeldung erfolgreich"
+  },
+  "signIn": {
+    "title": "Anmelden",
+    "redirecting": "Weiterleitung zum Login..."
+  },
+  "signUp": {
+    "title": "Registrieren",
+    "redirecting": "Weiterleitung zum Login..."
+  },
+  "onboarding": {},
+  "notebook": {
+    "emptyStateTitle": "Öffne eine Datei oder starte direkt im Chat.",
+    "emptyStateDescription": "Der mobile Notebook-Flow startet jetzt im Editor. Wähle eine Datei über den Explorer oder springe direkt in den Canvas Chat.",
+    "selectFile": "Datei auswählen",
+    "openChat": "Chat öffnen"
+  },
+  "chat": {},
+  "terminal": {},
+  "settings": {},
+  "skills": {},
+  "automationen": {},
+  "imageGeneration": {},
+  "veo": {},
+  "nanoBanana": {},
+  "usage": {},
+  "help": {}
+}

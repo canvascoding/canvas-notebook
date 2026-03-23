@@ -1,0 +1,65 @@
+{
+  "common": {
+    "suite": "Suite",
+    "terminal": "Terminal",
+    "aiChat": "AI Chat",
+    "user": "User",
+    "explorer": "Explorer",
+    "logout": "Logout",
+    "retry": "Retry",
+    "reload": "Reload",
+    "somethingWentWrong": "Something went wrong",
+    "pleaseTryAgain": "Please try again.",
+    "unexpectedError": "Unexpected error",
+    "tryReloading": "Try reloading the page.",
+    "loading": "Loading..."
+  },
+  "navigation": {
+    "hideSidebar": "Hide sidebar",
+    "showSidebar": "Show sidebar",
+    "openFileExplorer": "Open file explorer",
+    "showTerminal": "Show terminal",
+    "showChat": "Show chat",
+    "closeExplorer": "Close explorer",
+    "closeChat": "Close chat",
+    "canvasNotebook": "CANVAS NOTEBOOK",
+    "notebook": "Notebook"
+  },
+  "login": {
+    "title": "Canvas Notebook",
+    "email": "Email",
+    "password": "Password",
+    "emailPlaceholder": "Enter email",
+    "passwordPlaceholder": "Enter password",
+    "loginButton": "Login",
+    "loggingIn": "Logging in...",
+    "loginFailed": "Login failed",
+    "unexpectedError": "An unexpected error occurred",
+    "loginSuccessful": "Login successful"
+  },
+  "signIn": {
+    "title": "Sign In",
+    "redirecting": "Redirecting to login..."
+  },
+  "signUp": {
+    "title": "Sign Up",
+    "redirecting": "Redirecting to login..."
+  },
+  "onboarding": {},
+  "notebook": {
+    "emptyStateTitle": "Open a file or start directly in chat.",
+    "emptyStateDescription": "The mobile notebook flow now starts in the editor. Select a file from the explorer or jump directly into the Canvas Chat.",
+    "selectFile": "Select file",
+    "openChat": "Open chat"
+  },
+  "chat": {},
+  "terminal": {},
+  "settings": {},
+  "skills": {},
+  "automationen": {},
+  "imageGeneration": {},
+  "veo": {},
+  "nanoBanana": {},
+  "usage": {},
+  "help": {}
+}

@@ -1,8 +1,7 @@
 'use client';
 
 import React, { FormEvent, useState, useRef, useCallback, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { Link, useRouter } from '@/i18n/navigation';
 import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
