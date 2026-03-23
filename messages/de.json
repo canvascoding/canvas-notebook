@@ -68,12 +68,12 @@
   },
   "chat": {},
   "terminal": {},
-  "settings": {},
-  "skills": {},
-  "automationen": {},
-  "imageGeneration": {},
-  "veo": {},
-  "nanoBanana": {},
-  "usage": {},
-  "help": {}
+  "settings": { "title": "Einstellungen" },
+  "skills": { "title": "Skills" },
+  "automationen": { "title": "Automationen" },
+  "imageGeneration": { "title": "Image Generation" },
+  "veo": { "title": "VEO Studio" },
+  "nanoBanana": { "title": "Nano Banana Localizer" },
+  "usage": { "title": "Nutzung" },
+  "help": { "title": "Hilfe & Tutorials" }
 }
