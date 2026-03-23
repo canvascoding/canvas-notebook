@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { FileText, X, Download, Loader2, Eye } from 'lucide-react';
+import { FileText, X, Loader2, Eye, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,6 +27,7 @@ export function ShareMarkdownDialog({
   const [loading, setLoading] = useState(false);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [generatingPDF, setGeneratingPDF] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const loadHtmlExport = useCallback(async () => {
@@ -60,51 +61,57 @@ export function ShareMarkdownDialog({
     if (open && filePath) {
       loadHtmlExport();
     } else {
-      // Reset state when dialog closes
       setHtmlContent('');
       setError('');
     }
   }, [open, filePath, loadHtmlExport]);
 
-  const handleSaveAsPDF = () => {
-    if (!htmlContent) return;
+  const handleDownloadPDF = async () => {
+    if (!htmlContent || !iframeRef.current) return;
 
-    // Create a new window with the HTML content
-    const printWindow = window.open('', '_blank', 'width=800,height=600');
-    if (!printWindow) {
-      toast.error('Could not open print window. Please allow popups.');
-      return;
-    }
-
-    // Write the HTML content
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-
-    // Wait for images to load, then trigger print
-    setTimeout(() => {
-      printWindow.focus();
-      printWindow.print();
-    }, 500);
-
-    toast.success('PDF export dialog opened');
-  };
-
-  const getBlobUrl = () => {
-    if (!htmlContent) return '';
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    return URL.createObjectURL(blob);
-  };
-
-  const blobUrl = htmlContent ? getBlobUrl() : '';
-
-  // Cleanup blob URL when component unmounts
-  useEffect(() => {
-    return () => {
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
+    setGeneratingPDF(true);
+    
+    try {
+      // Dynamically import html2pdf.js to avoid SSR issues
+      const html2pdf = (await import('html2pdf.js')).default;
+      
+      // Get the iframe document
+      const iframe = iframeRef.current;
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      
+      if (!iframeDoc || !iframeDoc.body) {
+        throw new Error('Could not access preview content');
       }
-    };
-  }, [blobUrl]);
+
+      // Configure html2pdf options
+      const opt = {
+        margin: [10, 10, 10, 10] as [number, number, number, number],
+        filename: fileName.replace(/\.md$/i, '.pdf'),
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { 
+          scale: 2,
+          useCORS: true,
+          letterRendering: true,
+        },
+        jsPDF: { 
+          unit: 'mm', 
+          format: 'a4', 
+          orientation: 'portrait' as const,
+        },
+      };
+
+      // Generate PDF from the iframe content
+      await html2pdf().set(opt).from(iframeDoc.body).save();
+      
+      toast.success('PDF downloaded successfully');
+    } catch (err) {
+      console.error('PDF generation error:', err);
+      const message = err instanceof Error ? err.message : 'Failed to generate PDF';
+      toast.error(message);
+    } finally {
+      setGeneratingPDF(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -137,10 +144,10 @@ export function ShareMarkdownDialog({
             </div>
           ) : (
             <div className="border rounded-lg overflow-hidden bg-white h-64 md:h-[500px]">
-              {blobUrl ? (
+              {htmlContent ? (
                 <iframe
                   ref={iframeRef}
-                  src={blobUrl}
+                  srcDoc={htmlContent}
                   className="w-full h-full"
                   sandbox="allow-same-origin"
                   title={`Preview of ${fileName}`}
@@ -172,19 +179,21 @@ export function ShareMarkdownDialog({
               className="md:size-default"
             >
               <X className="h-4 w-4 mr-1 md:mr-2" />
-              <span className="hidden sm:inline">Close</span>
-              <span className="sm:hidden">Close</span>
+              <span>Close</span>
             </Button>
             
             <Button
-              onClick={handleSaveAsPDF}
-              disabled={loading || !!error || !htmlContent}
+              onClick={handleDownloadPDF}
+              disabled={loading || !!error || !htmlContent || generatingPDF}
               size="sm"
               className="md:size-default"
             >
-              <Download className="h-4 w-4 mr-1 md:mr-2" />
-              <span className="hidden sm:inline">Save as PDF</span>
-              <span className="sm:hidden">PDF</span>
+              {generatingPDF ? (
+                <Loader2 className="h-4 w-4 mr-1 md:mr-2 animate-spin" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-1 md:mr-2" />
+              )}
+              <span>{generatingPDF ? 'Generating...' : 'Download PDF'}</span>
             </Button>
           </div>
         </div>
