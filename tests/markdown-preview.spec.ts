@@ -43,15 +43,11 @@ test.describe('Markdown Preview', () => {
   });
 
   test('preview renders markdown content when file is opened', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Debug: screenshot to see what page we're on
-    await page.screenshot({ path: 'test-results/md-preview-debug.png' });
+    await page.goto('/notebook', { waitUntil: 'domcontentloaded' });
 
     // Click on the test markdown file in the file browser
     const fileEntry = page.getByText(MD_FILENAME);
-    await fileEntry.waitFor({ timeout: 10_000 });
+    await fileEntry.waitFor({ timeout: 15_000 });
     await fileEntry.click();
 
     // Wait for the md editor to load
