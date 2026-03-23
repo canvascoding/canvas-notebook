@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
+import { useTranslations } from 'next-intl';
 
 import { PiProviderSetupCard } from '@/app/components/settings/PiProviderSetupCard';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -13,6 +14,7 @@ type Step = 'provider' | 'done';
 const STEPS: Step[] = ['provider', 'done'];
 
 export default function OnboardingWizard() {
+  const t = useTranslations('onboarding');
   const [step, setStep] = useState<Step>('provider');
   const [completeLoading, setCompleteLoading] = useState(false);
 
@@ -25,13 +27,13 @@ export default function OnboardingWizard() {
 
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
-        toast.error(data.error || 'Onboarding konnte nicht abgeschlossen werden');
+        toast.error(data.error || t('completionError'));
         return;
       }
 
       window.location.href = '/';
     } catch {
-      toast.error('Unerwarteter Fehler beim Abschließen des Onboardings');
+      toast.error(t('unexpectedError'));
     } finally {
       setCompleteLoading(false);
     }
@@ -77,27 +79,26 @@ export default function OnboardingWizard() {
               {step === 'provider' && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="mb-1 text-xl font-semibold">Willkommen!</h2>
+                    <h2 className="mb-1 text-xl font-semibold">{t('welcome')}</h2>
                     <p className="text-sm text-muted-foreground">
-                      Du bist mit dem per Environment konfigurierten Admin bereits angemeldet. Richte jetzt deinen
-                      KI-Provider ein. Benutzerverwaltung erfolgt ausschließlich über die Container-Environment.
+                      {t('description')}
                     </p>
                   </div>
 
                   <PiProviderSetupCard
-                    title="Provider & Modell"
-                    description="Wähle deinen Provider, richte Authentifizierung ein und speichere dieselbe PI-Konfiguration wie später unter Settings."
-                    saveButtonLabel="Provider speichern & weiter"
+                    title={t('providerTitle')}
+                    description={t('providerDescription')}
+                    saveButtonLabel={t('saveProvider')}
                     saveSuccessMessage="Provider-Konfiguration gespeichert."
                     onSaved={() => {
-                      toast.success('Provider eingerichtet!');
+                      toast.success(t('providerSaved'));
                       setStep('done');
                     }}
                   />
 
                   <div className="flex justify-end">
                     <Button variant="outline" onClick={() => setStep('done')}>
-                      Später einrichten
+                      {t('skipSetup')}
                     </Button>
                   </div>
                 </div>
@@ -106,12 +107,12 @@ export default function OnboardingWizard() {
               {step === 'done' && (
                 <div className="text-center">
                   <div className="mb-4 text-4xl">✓</div>
-                  <h2 className="mb-2 text-xl font-semibold">Einrichtung abgeschlossen</h2>
+                  <h2 className="mb-2 text-xl font-semibold">{t('setupComplete')}</h2>
                   <p className="mb-8 text-sm text-muted-foreground">
-                    Provider, Modelle und weitere Agent-Einstellungen kannst du jederzeit unter Settings anpassen.
+                    {t('setupCompleteDescription')}
                   </p>
                   <Button onClick={handleDone} className="w-full" disabled={completeLoading}>
-                    {completeLoading ? 'Wird abgeschlossen...' : 'Zur App'}
+                    {completeLoading ? t('completing') : t('toApp')}
                   </Button>
                 </div>
               )}

@@ -45,7 +45,21 @@
     "title": "Registrieren",
     "redirecting": "Weiterleitung zum Login..."
   },
-  "onboarding": {},
+  "onboarding": {
+    "welcome": "Willkommen!",
+    "description": "Du bist mit dem per Environment konfigurierten Admin bereits angemeldet. Richte jetzt deinen KI-Provider ein. Benutzerverwaltung erfolgt ausschließlich über die Container-Environment.",
+    "providerTitle": "Provider & Modell",
+    "providerDescription": "Wähle deinen Provider, richte Authentifizierung ein und speichere dieselbe PI-Konfiguration wie später unter Settings.",
+    "saveProvider": "Provider speichern & weiter",
+    "providerSaved": "Provider eingerichtet!",
+    "skipSetup": "Später einrichten",
+    "setupComplete": "Einrichtung abgeschlossen",
+    "setupCompleteDescription": "Provider, Modelle und weitere Agent-Einstellungen kannst du jederzeit unter Settings anpassen.",
+    "toApp": "Zur App",
+    "completing": "Wird abgeschlossen...",
+    "completionError": "Onboarding konnte nicht abgeschlossen werden",
+    "unexpectedError": "Unerwarteter Fehler beim Abschließen des Onboardings"
+  },
   "notebook": {
     "emptyStateTitle": "Öffne eine Datei oder starte direkt im Chat.",
     "emptyStateDescription": "Der mobile Notebook-Flow startet jetzt im Editor. Wähle eine Datei über den Explorer oder springe direkt in den Canvas Chat.",
