@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { ChevronRight, Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Folder } from 'lucide-react';
+import { ChevronRight, Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Folder, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
@@ -23,6 +23,7 @@ import {
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
+import { ShareMarkdownDialog } from './ShareMarkdownDialog';
 
 interface FileContextMenuProps {
   node: {
@@ -63,8 +64,15 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   // State for Rename Dialog
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  
+  // State for Share Dialog (Markdown only)
+  const [shareOpen, setShareOpen] = useState(false);
+  
   const isProtectedOutputFolder =
     node.type === 'directory' && isProtectedAppOutputFolder(node.path);
+  
+  // Check if file is a markdown file
+  const isMarkdown = node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name);
 
   const { createPath, deletePath, renamePath, downloadFile, fileTree } =
     useFileStore();
@@ -138,6 +146,11 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     } catch (err) {
       console.error('Failed to copy path:', err);
     }
+  };
+
+  const handleShare = () => {
+    setOpen(false);
+    setShareOpen(true);
   };
 
   const toggleMoveDir = (path: string) => {
@@ -257,6 +270,12 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             <Download className="h-4 w-4" />
             Download
           </DropdownMenuItem>
+          {isMarkdown && (
+            <DropdownMenuItem onSelect={handleShare}>
+              <Share2 className="h-4 w-4" />
+              Share
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
@@ -349,6 +368,15 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {isMarkdown && (
+        <ShareMarkdownDialog
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          filePath={node.path}
+          fileName={node.name}
+        />
+      )}
     </>
   );
 }

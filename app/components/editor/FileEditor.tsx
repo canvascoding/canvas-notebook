@@ -260,11 +260,11 @@ export function FileEditor() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-sm text-muted-foreground">
-        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex flex-1 min-h-0 flex-col">
+      <div className="flex flex-nowrap items-center justify-between border-b border-border px-3 sm:px-4 py-2 text-sm text-muted-foreground gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground overflow-hidden">
           {!isMobile ? (
-            <div className="mr-1 flex items-center gap-1.5">
+            <div className="mr-1 flex items-center gap-1.5 shrink-0">
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -285,37 +285,37 @@ export function FileEditor() {
               </Button>
             </div>
           ) : null}
-          <span className="text-foreground">File</span>
-          <div className="flex min-w-0 items-center gap-1 truncate">
+          <span className="text-foreground shrink-0">File</span>
+          <div className="flex min-w-0 items-center overflow-hidden">
             {breadcrumbs.map((segment, index) => (
-              <span key={`${segment}-${index}`} className="truncate">
+              <span key={`segment-${segment}-${index}`} className="truncate">
+                {index > 0 && <span className="mx-0.5 text-muted-foreground/50">/</span>}
                 {segment}
-                {index < breadcrumbs.length - 1 ? ' / ' : ''}
               </span>
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {isImage && <span className="bg-muted px-2 py-0.5 text-foreground">Read-only</span>}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
+          {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">Read-only</span>}
           {saveError ? (
-            <span className="flex items-center gap-1 text-destructive">
+            <span className="flex items-center gap-1 text-destructive shrink-0" title={saveError}>
               <AlertCircle className="h-3.5 w-3.5" />
-              {saveError}
+              <span className="hidden sm:inline">{saveError}</span>
             </span>
           ) : isSaving ? (
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 shrink-0" title="Saving...">
               <Save className="h-3.5 w-3.5" />
-              Saving...
+              <span className="hidden sm:inline">Saving...</span>
             </span>
           ) : isDirty ? (
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 shrink-0" title="Unsaved changes">
               <Save className="h-3.5 w-3.5" />
-              Unsaved changes
+              <span className="hidden sm:inline">Unsaved changes</span>
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-primary">
+            <span className="flex items-center gap-1 text-primary shrink-0" title={savedTime ? `Saved ${savedTime}` : 'Saved'}>
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {savedTime ? `Saved ${savedTime}` : 'Saved'}
+              <span className="hidden sm:inline">{savedTime ? `Saved ${savedTime}` : 'Saved'}</span>
             </span>
           )}
         </div>

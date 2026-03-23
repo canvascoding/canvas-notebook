@@ -11,7 +11,7 @@ const MAX_TOTAL_SIZE = 500 * 1024 * 1024; // 500MB total per request
 const MAX_FILES_PER_REQUEST = 100;
 
 // Valid filename pattern - only allow safe characters
-const VALID_FILENAME_REGEX = /^[a-zA-Z0-9._\-\s\/]+$/;
+const VALID_FILENAME_REGEX = /^[a-zA-Z0-9._\-\s\/\(\)]+$/;
 const INVALID_PATH_PATTERNS = ['..', '~', '//', '\\\\', ':', '*', '?', '"', '<', '>', '|'];
 
 function isValidFilename(filename: string): boolean {
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
       
       if (!isValidFilename(sanitizedName)) {
         return NextResponse.json(
-          { success: false, error: `Invalid filename: "${file.name}". Only alphanumeric characters, dots, dashes, underscores, and spaces are allowed.` },
+          { success: false, error: `Invalid filename: "${file.name}". Only alphanumeric characters, dots, dashes, underscores, spaces, and parentheses are allowed.` },
           { status: 400 }
         );
       }

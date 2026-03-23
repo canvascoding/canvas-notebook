@@ -105,3 +105,24 @@
 .spreadsheet-editor-shell .jtabs .jtabs-border {
   background: var(--primary) !important;
 }
+
+/* Mobile responsive styles */
+@media (max-width: 640px) {
+  .spreadsheet-editor-shell {
+    min-height: 300px;
+  }
+  
+  .spreadsheet-editor-shell .jss_worksheet {
+    font-size: 12px;
+  }
+  
+  .spreadsheet-editor-shell .jss_worksheet > tbody > tr > td {
+    padding: 2px 4px;
+    min-width: 40px;
+  }
+  
+  .spreadsheet-editor-shell .jtabs .jtabs-headers > div {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+}

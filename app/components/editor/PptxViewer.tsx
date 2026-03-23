@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { init } from 'pptx-preview';
 
 interface PptxViewerProps {
@@ -16,6 +17,7 @@ export function PptxViewer({ path }: PptxViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [totalSlides, setTotalSlides] = useState(0);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const loadPptx = async () => {
@@ -32,10 +34,17 @@ export function PptxViewer({ path }: PptxViewerProps) {
         const arrayBuffer = await response.arrayBuffer();
 
         if (containerRef.current) {
+          // Calculate responsive dimensions
+          const containerWidth = containerRef.current.clientWidth - 32; // padding
+          const isMobileDevice = window.innerWidth < 768;
+          const baseWidth = isMobileDevice ? Math.min(containerWidth, 640) : 960;
+          const aspectRatio = 16 / 9;
+          const height = Math.floor(baseWidth / aspectRatio);
+
           // Initialize pptx-preview
           const previewer = init(containerRef.current, {
-            width: 960,
-            height: 540,
+            width: baseWidth,
+            height: height,
             mode: 'slide',
           });
 
@@ -65,7 +74,7 @@ export function PptxViewer({ path }: PptxViewerProps) {
         previewerRef.current = null;
       }
     };
-  }, [path]);
+  }, [path, isMobile]);
 
   const goToSlide = (index: number) => {
     if (containerRef.current && index >= 0 && index < totalSlides) {
@@ -112,23 +121,24 @@ export function PptxViewer({ path }: PptxViewerProps) {
       
       <div 
         ref={containerRef} 
-        className="flex-1 overflow-auto p-4"
-        style={{ minHeight: '400px' }}
+        className="flex-1 overflow-auto p-2 sm:p-4"
+        style={{ minHeight: '300px' }}
       />
       
       {!isLoading && totalSlides > 0 && (
-        <div className="flex items-center justify-center gap-4 p-4 border-t border-border">
+        <div className="flex items-center justify-center gap-2 sm:gap-4 p-2 sm:p-4 border-t border-border">
           <Button
             variant="outline"
             size="sm"
             onClick={prevSlide}
             disabled={currentSlide === 0}
+            className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           
-          <span className="text-sm text-muted-foreground">
-            Slide {currentSlide + 1} of {totalSlides}
+          <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
+            {currentSlide + 1}/{totalSlides}
           </span>
           
           <Button
@@ -136,6 +146,7 @@ export function PptxViewer({ path }: PptxViewerProps) {
             size="sm"
             onClick={nextSlide}
             disabled={currentSlide >= totalSlides - 1}
+            className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
