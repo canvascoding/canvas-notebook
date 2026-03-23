@@ -179,6 +179,7 @@ class LivePiRuntime {
   private lastCompactionKind: 'manual' | 'automatic' | null;
   private lastCompactionOmittedCount: number;
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
+  private activeFileContext: string | null = null;
 
   constructor(init: RuntimeInit, agent: Agent) {
     this.sessionId = init.sessionId;
@@ -345,27 +346,35 @@ class LivePiRuntime {
     this.timeZoneContext = { timeZone, currentTime };
   }
 
+  setActiveFileContext(path: string | null) {
+    this.activeFileContext = path;
+  }
+
   private getSystemPromptWithTimeZone(): string {
-    if (!this.timeZoneContext) {
-      return this.systemPrompt;
+    let prompt = this.systemPrompt;
+
+    if (this.timeZoneContext) {
+      const { timeZone, currentTime } = this.timeZoneContext;
+      const localDate = new Date(currentTime);
+
+      // Calculate UTC offset
+      const utcOffset = localDate.getTimezoneOffset();
+      const offsetHours = Math.abs(Math.floor(utcOffset / 60));
+      const offsetMinutes = Math.abs(utcOffset % 60);
+      const offsetSign = utcOffset <= 0 ? '+' : '-';
+      const offsetStr = `${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMinutes).padStart(2, '0')}`;
+
+      // Format local time
+      const localTimeStr = localDate.toLocaleString('sv-SE'); // ISO-like format: YYYY-MM-DD HH:MM:SS
+
+      prompt += `\n\nCurrent Date & Time: ${localTimeStr} (${timeZone}, UTC${offsetStr})`;
     }
 
-    const { timeZone, currentTime } = this.timeZoneContext;
-    const localDate = new Date(currentTime);
-    
-    // Calculate UTC offset
-    const utcOffset = localDate.getTimezoneOffset();
-    const offsetHours = Math.abs(Math.floor(utcOffset / 60));
-    const offsetMinutes = Math.abs(utcOffset % 60);
-    const offsetSign = utcOffset <= 0 ? '+' : '-';
-    const offsetStr = `${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMinutes).padStart(2, '0')}`;
-    
-    // Format local time
-    const localTimeStr = localDate.toLocaleString('sv-SE'); // ISO-like format: YYYY-MM-DD HH:MM:SS
-    
-    const timeZoneBlock = `\n\nCurrent Date & Time: ${localTimeStr} (${timeZone}, UTC${offsetStr})`;
-    
-    return this.systemPrompt + timeZoneBlock;
+    if (this.activeFileContext) {
+      prompt += `\n\nCurrently open file in editor: ${this.activeFileContext}`;
+    }
+
+    return prompt;
   }
 
   private clearTimeZoneContext() {

@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
     // Extract timezone info from client
     const userTimeZone = typeof payload?.userTimeZone === 'string' ? payload.userTimeZone : undefined;
     const currentTime = typeof payload?.currentTime === 'string' ? payload.currentTime : undefined;
+    const activeFilePath = typeof payload?.activeFilePath === 'string' ? payload.activeFilePath : null;
 
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, session.user.id);
     const promptMessage = resolvePromptMessage(payload);
@@ -74,6 +75,9 @@ export async function POST(request: NextRequest) {
     if (userTimeZone && currentTime) {
       runtimeInstance.setTimeZoneContext(userTimeZone, currentTime);
     }
+
+    // Set active file context for this prompt
+    runtimeInstance.setActiveFileContext(activeFilePath);
 
     const encoder = new TextEncoder();
 

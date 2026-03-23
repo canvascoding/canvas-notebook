@@ -31,6 +31,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { useFileStore } from '@/app/store/file-store';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
@@ -496,6 +497,7 @@ export default function CanvasAgentChat({
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
   const isMobile = useIsMobile();
+  const currentFile = useFileStore((s) => s.currentFile);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -1004,6 +1006,8 @@ export default function CanvasAgentChat({
       const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const currentTime = new Date().toISOString();
 
+      const activeFilePath = currentFile?.path ?? null;
+
       const response = await fetch('/api/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1012,6 +1016,7 @@ export default function CanvasAgentChat({
           ...(promptMessage ? { message: promptMessage, messages: [promptMessage] } : {}),
           userTimeZone,
           currentTime,
+          ...(activeFilePath ? { activeFilePath } : {}),
         }),
         signal: controller.signal,
       });
@@ -1057,7 +1062,7 @@ export default function CanvasAgentChat({
         void refreshRuntimeStatus(targetSessionId);
       }
     }
-  }, [appendSystemMessage, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection]);
+  }, [appendSystemMessage, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection]);
 
   const postControl = useCallback(async (
     targetSessionId: string,
