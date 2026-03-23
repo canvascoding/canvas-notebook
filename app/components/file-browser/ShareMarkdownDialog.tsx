@@ -96,8 +96,8 @@ export function ShareMarkdownDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] md:max-w-4xl max-h-[95vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-4 md:px-6 pt-4 md:pt-6 pb-2 shrink-0">
+      <DialogContent layout="viewport" showCloseButton={false} className="flex flex-col sm:max-w-4xl">
+        <DialogHeader className="px-4 md:px-6 pt-4 md:pt-5 pb-2 shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
             <FileText className="h-4 md:h-5 w-4 md:w-5 shrink-0" />
             <span className="truncate min-w-0" title={fileName}>
@@ -108,23 +108,23 @@ export function ShareMarkdownDialog({
 
         <div className="flex-1 min-h-0 px-4 md:px-6 overflow-hidden">
           {loading ? (
-            <div className="flex items-center justify-center h-64 md:h-96">
+            <div className="flex items-center justify-center h-full">
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">Loading preview...</p>
               </div>
             </div>
           ) : error ? (
-            <div className="flex items-center justify-center h-64 md:h-96">
+            <div className="flex items-center justify-center h-full">
               <div className="text-center px-4">
                 <p className="text-red-500 mb-2 text-sm md:text-base">{error}</p>
-                <Button variant="outline" onClick={loadHtmlExport} size="sm" className="md:size-default">
+                <Button variant="outline" onClick={loadHtmlExport} size="sm">
                   Try Again
                 </Button>
               </div>
             </div>
           ) : (
-            <div className="border rounded-lg overflow-hidden bg-white h-64 md:h-[500px]">
+            <div className="border rounded-lg overflow-hidden bg-white h-full">
               {htmlContent ? (
                 <iframe
                   ref={iframeRef}

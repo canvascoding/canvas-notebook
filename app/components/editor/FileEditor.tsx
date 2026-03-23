@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
-import { AlertCircle, CheckCircle2, Download, FileText, Loader2, MessageSquare, PanelLeft, Save } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, FileText, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { MarkdownEditor } from './MarkdownEditor';
 import { CodeEditor } from './CodeEditor';
 import { ImageViewer } from './ImageViewer';
@@ -100,7 +99,6 @@ function formatTimestamp(timestamp: number | null) {
 
 export function FileEditor() {
   const { currentFile, isLoadingFile, fileError, saveFile, downloadFile } = useFileStore();
-  const isMobile = useIsMobile();
   const {
     activePath,
     draft,
@@ -263,28 +261,6 @@ export function FileEditor() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-nowrap items-center justify-between border-b border-border px-3 sm:px-4 py-2 text-sm text-muted-foreground gap-2">
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground overflow-hidden">
-          {!isMobile ? (
-            <div className="mr-1 flex items-center gap-1.5 shrink-0">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="h-8 w-8"
-                onClick={() => window.dispatchEvent(new Event('notebook-desktop-toggle-sidebar'))}
-                aria-label="Toggle file tree"
-              >
-                <PanelLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="h-8 w-8"
-                onClick={() => window.dispatchEvent(new Event('notebook-desktop-toggle-chat'))}
-                aria-label="Toggle chat panel"
-              >
-                <MessageSquare className="h-4 w-4" />
-              </Button>
-            </div>
-          ) : null}
           <span className="text-foreground shrink-0">File</span>
           <div className="flex min-w-0 items-center overflow-hidden">
             {breadcrumbs.map((segment, index) => (
