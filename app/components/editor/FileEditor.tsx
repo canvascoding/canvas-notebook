@@ -320,7 +320,7 @@ export function FileEditor() {
           )}
         </div>
       </div>
-      <div className={isVideo ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
+      <div className={isVideo || isMarkdown ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText className="h-8 w-8" />

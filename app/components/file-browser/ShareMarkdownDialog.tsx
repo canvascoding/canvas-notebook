@@ -92,6 +92,9 @@ export function ShareMarkdownDialog({
           scale: 2,
           useCORS: true,
           letterRendering: true,
+          backgroundColor: '#ffffff',
+          removeContainer: true,
+          logging: false,
         },
         jsPDF: { 
           unit: 'mm', 
