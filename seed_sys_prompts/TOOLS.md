@@ -37,6 +37,7 @@ Localizes advertisements. Use when the user says: "localize this ad", "translate
 
 ### qmd
 Searches the workspace via qmd. Use when the user says: "search...", "find...", "where is...", "search my workspace"
+Use the search tool but do not use the vsearch tool, except the user explicitly asks for it. the container you run in does not have enough power to run vector searches and could break.
 
 ## Important Notes
 

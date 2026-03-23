@@ -26,21 +26,11 @@ Canvas Notebook is a modern Next.js-based web application designed as an interac
 
 ---
 
-## 🤖 MANDATE: PI Agent von Mariozechner integrieren
+## explicitly for i18n task:
 
-These rules are **non-negotiable** for all work on the new agent logic:
-
-1.  **Strict Sequencing:** Follow the sequence in `docs/pi-first-implementation-todo.json` exactly. Do not proceed to the next task until the current one is finished and verified.
-2.  **Testing Protocol:** 
-    - Perform UI and E2E checks with Playwright or Chrome DevTools.
-    - **Container Usage:** Always use a single container on port `3000` for manual tests.
-    - **Isolate Environments:** Ensure no multiple test containers run in parallel.
-    - **Clean Slate:** Rebuild/recreate (`--force-recreate`) the container for every new test run; do not reuse old containers.
-3.  **Authentication:** Use `TEST_LOGIN_EMAIL` / `TEST_LOGIN_PASSWORD` or the locally configured bootstrap admin credentials for testing.
-4.  **Documentation Sync:** Always update `/Users/frankalexanderweber/.openclaw/workspace-mango-jerry/canvasstudios-notebook/docs/pi-first-implementation-todo.json` to keep status current.
-5.  **Proactive Workflow:** Work proactively, make frequent commits for completed sub-tasks, and **never push** unless explicitly instructed.
-6.  **UI Verification:** Always test the UI when integrating backend components.
-7.  **Reference:** The full plan is in `docs/pi-first-migration-plan.md`.
+- make sure to not proceed with another task when the previous task in `docs/i18n-migration-todo.json`is not done yet.
+- always mark the current state of the task you work on in `docs/i18n-migration-todo.json` 
+- the dev server is running separately. use any browser mcp to test the site or wright tests with playwrigt. keep in mind that due to middleware, the page is only availabe at the local dev server at localhost:3000 with login. otherwise error "invalid origin" will appear.
 
 ---
 
