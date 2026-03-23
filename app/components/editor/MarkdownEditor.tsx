@@ -22,7 +22,7 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
       <MDEditor
         value={value}
         onChange={(nextValue) => onChange(nextValue ?? '')}
-        preview="live"
+        preview="preview"
         visibleDragbar={false}
         height="100%"
         style={{ height: '100%' }}
