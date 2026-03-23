@@ -468,7 +468,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
               className="w-full max-w-none gap-0 border-l p-0 sm:max-w-none"
             >
               <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <SheetTitle className="text-base">AI Chat</SheetTitle>
                   </div>
@@ -484,7 +484,6 @@ export function DashboardShell({ username }: DashboardShellProps) {
               </SheetHeader>
               <div className="min-h-0 flex-1 overflow-hidden flex flex-col">
                 <CanvasAgentChat
-                  onClose={() => setMobileChatOpen(false)}
                   initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                 />
               </div>
@@ -559,7 +558,6 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   >
                     <div className="flex flex-col w-full h-full relative">
                       <CanvasAgentChat
-                        onClose={() => setChatVisible(false)}
                         initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                       />
                     </div>
