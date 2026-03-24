@@ -45,6 +45,11 @@ Full shell access in the browser — run commands, manage files, execute scripts
 ### Spreadsheet Viewer
 View Excel and CSV files directly, no downloads needed.
 
+### Language Support
+The interface is fully translated — switch languages from the header or the onboarding wizard. Currently supported:
+- **English**
+- **German** (Deutsch)
+
 ### Authentication
 - Login-protected by default
 - No public signup or in-app user management
