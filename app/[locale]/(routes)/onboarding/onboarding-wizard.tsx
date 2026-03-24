@@ -55,7 +55,7 @@ export default function OnboardingWizard() {
               <div className="mb-2 flex items-center justify-center">
                 <Image
                   src="/logo.jpg"
-                  alt="Canvas Logo"
+                  alt={t('logoAlt')}
                   width={48}
                   height={48}
                   className="mr-3 border border-border"
@@ -89,7 +89,7 @@ export default function OnboardingWizard() {
                     title={t('providerTitle')}
                     description={t('providerDescription')}
                     saveButtonLabel={t('saveProvider')}
-                    saveSuccessMessage="Provider-Konfiguration gespeichert."
+                    saveSuccessMessage={t('saveSuccessMessage')}
                     onSaved={() => {
                       toast.success(t('providerSaved'));
                       setStep('done');

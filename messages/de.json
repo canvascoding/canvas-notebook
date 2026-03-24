@@ -62,11 +62,13 @@
     "redirecting": "Weiterleitung zum Login..."
   },
   "onboarding": {
+    "logoAlt": "Canvas Logo",
     "welcome": "Willkommen!",
     "description": "Du bist mit dem per Environment konfigurierten Admin bereits angemeldet. Richte jetzt deinen KI-Provider ein. Benutzerverwaltung erfolgt ausschließlich über die Container-Environment.",
     "providerTitle": "Provider & Modell",
     "providerDescription": "Wähle deinen Provider, richte Authentifizierung ein und speichere dieselbe PI-Konfiguration wie später unter Settings.",
     "saveProvider": "Provider speichern & weiter",
+    "saveSuccessMessage": "Provider-Konfiguration gespeichert.",
     "providerSaved": "Provider eingerichtet!",
     "skipSetup": "Später einrichten",
     "setupComplete": "Einrichtung abgeschlossen",

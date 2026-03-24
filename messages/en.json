@@ -62,11 +62,13 @@
     "redirecting": "Redirecting to login..."
   },
   "onboarding": {
+    "logoAlt": "Canvas logo",
     "welcome": "Welcome!",
     "description": "You are already logged in as the admin configured via environment. Set up your AI provider now. User management is handled exclusively through container environment variables.",
     "providerTitle": "Provider & Model",
     "providerDescription": "Choose your provider, set up authentication, and save the same PI configuration as you would later in Settings.",
     "saveProvider": "Save provider & continue",
+    "saveSuccessMessage": "Provider configuration saved.",
     "providerSaved": "Provider set up!",
     "skipSetup": "Set up later",
     "setupComplete": "Setup complete",
