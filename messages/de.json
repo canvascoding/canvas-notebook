@@ -27,6 +27,7 @@
   },
   "login": {
     "title": "Canvas Notebook",
+    "logoAlt": "Canvas Logo",
     "email": "E-Mail",
     "password": "Passwort",
     "emailPlaceholder": "E-Mail eingeben",
@@ -42,7 +43,22 @@
     "redirecting": "Weiterleitung zum Login..."
   },
   "signUp": {
-    "title": "Registrieren",
+    "title": "Konto erstellen",
+    "logoAlt": "Canvas Logo",
+    "name": "Name",
+    "namePlaceholder": "Dein Name",
+    "email": "E-Mail",
+    "emailPlaceholder": "du@example.com",
+    "password": "Passwort",
+    "passwordPlaceholder": "Mindestens 8 Zeichen",
+    "confirmPassword": "Passwort bestätigen",
+    "confirmPasswordPlaceholder": "Passwort wiederholen",
+    "passwordMismatch": "Die Passwörter stimmen nicht überein",
+    "signUpFailed": "Registrierung fehlgeschlagen",
+    "signUpSuccessful": "Konto erfolgreich erstellt",
+    "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
+    "createAccountButton": "Konto erstellen",
+    "creatingAccount": "Konto wird erstellt...",
     "redirecting": "Weiterleitung zum Login..."
   },
   "onboarding": {

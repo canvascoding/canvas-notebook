@@ -1,0 +1,619 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "meta": {
+    "title": "i18n Migration Plan – Canvas Notebook",
+    "description": "Vollständige Migrationsanleitung für next-intl i18n-Integration inkl. (routes)-Umstrukturierung und Anti-SEO-Absicherung.",
+    "library": "next-intl",
+    "nextjsVersion": "16.1.1",
+    "createdAt": "2026-03-23",
+    "defaultLocale": "de",
+    "supportedLocales": ["de", "en"],
+    "localePrefixStrategy": "as-needed",
+    "notes": [
+      "localePrefix: 'as-needed' → Default-Locale (de) bekommt KEIN Prefix (z.B. /notebook), alle anderen Locales bekommen Prefix (z.B. /en/notebook)",
+      "API-Routen (/api/*) bleiben komplett außerhalb der Locale-Struktur",
+      "better-auth /api/auth/* wird vom Middleware-Matcher explizit ausgeschlossen",
+      "Keine SEO-Optimierung – robots.txt blockiert alles, noindex-Header bleiben aktiv",
+      "sentry-example-page bleibt technische Hilfsseite, wird migriert aber nicht ins Hauptmenü"
+    ]
+  },
+  "phases": [
+    {
+      "id": "phase-1",
+      "title": "Vorbereitung & Abhängigkeiten",
+      "description": "Pakete installieren und Grundkonfiguration anlegen",
+      "tasks": [
+        {
+          "id": "1.1",
+          "title": "next-intl installieren",
+          "status": "done",
+          "command": "npm install next-intl",
+          "notes": "Aktuelle stabile Version verwenden. Keine anderen i18n-Libs nötig."
+        },
+        {
+          "id": "1.2",
+          "title": "i18n/routing.ts anlegen",
+          "status": "done",
+          "targetFile": "i18n/routing.ts",
+          "description": "Zentrale Routing-Konfiguration mit defineRouting. Locales: ['de', 'en'], defaultLocale: 'de', localePrefix: 'as-needed'.",
+          "codeTemplate": "import {defineRouting} from 'next-intl/routing';\n\nexport const routing = defineRouting({\n  locales: ['de', 'en'],\n  defaultLocale: 'de',\n  localePrefix: 'as-needed'\n});"
+        },
+        {
+          "id": "1.3",
+          "title": "i18n/request.ts anlegen",
+          "status": "done",
+          "targetFile": "i18n/request.ts",
+          "description": "Server-seitige Locale-Auflösung für getRequestConfig. Lädt Messages aus /messages/[locale].json.",
+          "codeTemplate": "import {getRequestConfig} from 'next-intl/server';\nimport {routing} from './routing';\n\nexport default getRequestConfig(async ({requestLocale}) => {\n  let locale = await requestLocale;\n  if (!locale || !routing.locales.includes(locale as any)) {\n    locale = routing.defaultLocale;\n  }\n  return {\n    locale,\n    messages: (await import(`../messages/${locale}.json`)).default\n  };\n});"
+        },
+        {
+          "id": "1.4",
+          "title": "messages/de.json anlegen",
+          "status": "done",
+          "targetFile": "messages/de.json",
+          "description": "Leere Basis-Struktur mit Namespace-Platzhaltern für alle Seiten. Wird in Phase 5 befüllt.",
+          "codeTemplate": "{\n  \"common\": {},\n  \"navigation\": {},\n  \"login\": {},\n  \"signIn\": {},\n  \"signUp\": {},\n  \"onboarding\": {},\n  \"notebook\": {},\n  \"chat\": {},\n  \"terminal\": {},\n  \"settings\": {},\n  \"skills\": {},\n  \"automationen\": {},\n  \"imageGeneration\": {},\n  \"veo\": {},\n  \"nanoBanana\": {},\n  \"usage\": {},\n  \"help\": {}\n}"
+        },
+        {
+          "id": "1.5",
+          "title": "messages/en.json anlegen",
+          "status": "done",
+          "targetFile": "messages/en.json",
+          "description": "Gleiche Struktur wie de.json. Wird in Phase 5 befüllt."
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "title": "Middleware",
+      "description": "Next.js Middleware für Locale-Routing erstellen – mit korrekter better-auth-Kompatibilität",
+      "tasks": [
+        {
+          "id": "2.1",
+          "title": "middleware.ts erstellen",
+          "status": "done",
+          "targetFile": "middleware.ts",
+          "description": "next-intl Middleware mit Matcher, der API-Routen, _next, statische Dateien und better-auth ausschließt.",
+          "codeTemplate": "import createMiddleware from 'next-intl/middleware';\nimport {routing} from './i18n/routing';\n\nexport default createMiddleware(routing);\n\nexport const config = {\n  matcher: [\n    // Alle Pfade außer: /api/*, /_next/*, /_vercel/*, Dateien mit Endung\n    '/((?!api|_next|_vercel|.*\\\\..*).*)',\n  ]\n};",
+          "notes": [
+            "better-auth läuft auf /api/auth/[...all] – durch den api-Ausschluss automatisch ausgenommen",
+            "Matcher bewusst einfach halten – keine Auth-Logik in der Middleware",
+            "Falls später Auth-Schutz per Middleware gewünscht: next-intl middleware composition nutzen (createMiddleware + eigene Auth-Checks, Response zusammenführen)",
+            "Referenz: next-intl Starter 'app-router-auth' mit better-auth (learn.next-intl.dev)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "title": "Ordnerstruktur umbauen",
+      "description": "Alle Seiten in app/[locale]/(routes)/ verschieben, Root-Layout anpassen",
+      "tasks": [
+        {
+          "id": "3.1",
+          "title": "app/[locale]/ Verzeichnis anlegen",
+          "status": "done",
+          "description": "Dynamisches [locale]-Segment als übergeordnetes Verzeichnis für alle Seiten."
+        },
+        {
+          "id": "3.2",
+          "title": "app/layout.tsx → app/[locale]/layout.tsx verschieben und anpassen",
+          "status": "done",
+          "sourceFile": "app/layout.tsx",
+          "targetFile": "app/[locale]/layout.tsx",
+          "description": "Root-Layout wird locale-aware. Muss NextIntlClientProvider einbinden und locale aus params lesen. html lang-Attribut dynamisch setzen.",
+          "codeTemplate": "import {NextIntlClientProvider} from 'next-intl';\nimport {getMessages} from 'next-intl/server';\nimport {routing} from '@/i18n/routing';\nimport {notFound} from 'next/navigation';\n\nexport default async function LocaleLayout({\n  children,\n  params\n}: {\n  children: React.ReactNode;\n  params: Promise<{locale: string}>;\n}) {\n  const {locale} = await params;\n  if (!routing.locales.includes(locale as any)) notFound();\n  const messages = await getMessages();\n  return (\n    <html lang={locale}>\n      <body>\n        <NextIntlClientProvider messages={messages}>\n          {children}\n        </NextIntlClientProvider>\n      </body>\n    </html>\n  );\n}",
+          "notes": [
+            "Alle bestehenden Providers (Zustand, Toaster, etc.) aus dem alten layout.tsx hierher übernehmen",
+            "generateStaticParams für alle Locales exportieren: locales.map(locale => ({locale}))"
+          ]
+        },
+        {
+          "id": "3.3",
+          "title": "app/[locale]/(routes)/ Verzeichnis anlegen",
+          "status": "done",
+          "description": "Route Group (routes) innerhalb von [locale] – kein URL-Einfluss, nur Organisationszweck."
+        },
+        {
+          "id": "3.4",
+          "title": "app/page.tsx → app/[locale]/(routes)/page.tsx",
+          "status": "done",
+          "sourceFile": "app/page.tsx",
+          "targetFile": "app/[locale]/(routes)/page.tsx"
+        },
+        {
+          "id": "3.5",
+          "title": "app/automationen/ → app/[locale]/(routes)/automationen/",
+          "status": "done",
+          "sourceFile": "app/automationen/page.tsx",
+          "targetFile": "app/[locale]/(routes)/automationen/page.tsx"
+        },
+        {
+          "id": "3.6",
+          "title": "app/chat/ → app/[locale]/(routes)/chat/",
+          "status": "done",
+          "sourceFile": "app/chat/page.tsx",
+          "targetFile": "app/[locale]/(routes)/chat/page.tsx"
+        },
+        {
+          "id": "3.7",
+          "title": "app/help/ → app/[locale]/(routes)/help/",
+          "status": "done",
+          "sourceFile": "app/help/page.tsx",
+          "targetFile": "app/[locale]/(routes)/help/page.tsx"
+        },
+        {
+          "id": "3.8",
+          "title": "app/image-generation/ → app/[locale]/(routes)/image-generation/",
+          "status": "done",
+          "sourceFile": "app/image-generation/page.tsx",
+          "targetFile": "app/[locale]/(routes)/image-generation/page.tsx"
+        },
+        {
+          "id": "3.9",
+          "title": "app/login/ → app/[locale]/(routes)/login/",
+          "status": "done",
+          "sourceFile": "app/login/page.tsx",
+          "targetFile": "app/[locale]/(routes)/login/page.tsx"
+        },
+        {
+          "id": "3.10",
+          "title": "app/nano-banana-localizer/ → app/[locale]/(routes)/nano-banana-localizer/",
+          "status": "done",
+          "sourceFile": "app/nano-banana-localizer/page.tsx",
+          "targetFile": "app/[locale]/(routes)/nano-banana-localizer/page.tsx"
+        },
+        {
+          "id": "3.11",
+          "title": "app/notebook/ → app/[locale]/(routes)/notebook/",
+          "status": "done",
+          "sourceFile": "app/notebook/page.tsx",
+          "targetFile": "app/[locale]/(routes)/notebook/page.tsx"
+        },
+        {
+          "id": "3.12",
+          "title": "app/onboarding/ → app/[locale]/(routes)/onboarding/",
+          "status": "done",
+          "sourceFile": "app/onboarding/page.tsx",
+          "targetFile": "app/[locale]/(routes)/onboarding/page.tsx"
+        },
+        {
+          "id": "3.13",
+          "title": "app/sentry-example-page/ → app/[locale]/(routes)/sentry-example-page/",
+          "status": "done",
+          "sourceFile": "app/sentry-example-page/page.tsx",
+          "targetFile": "app/[locale]/(routes)/sentry-example-page/page.tsx"
+        },
+        {
+          "id": "3.14",
+          "title": "app/settings/ → app/[locale]/(routes)/settings/",
+          "status": "done",
+          "sourceFile": "app/settings/page.tsx",
+          "targetFile": "app/[locale]/(routes)/settings/page.tsx"
+        },
+        {
+          "id": "3.15",
+          "title": "app/sign-in/ → app/[locale]/(routes)/sign-in/",
+          "status": "done",
+          "sourceFile": "app/sign-in/page.tsx",
+          "targetFile": "app/[locale]/(routes)/sign-in/page.tsx"
+        },
+        {
+          "id": "3.16",
+          "title": "app/sign-up/ → app/[locale]/(routes)/sign-up/",
+          "status": "done",
+          "sourceFile": "app/sign-up/page.tsx",
+          "targetFile": "app/[locale]/(routes)/sign-up/page.tsx"
+        },
+        {
+          "id": "3.17",
+          "title": "app/skills/ → app/[locale]/(routes)/skills/",
+          "status": "done",
+          "sourceFile": "app/skills/page.tsx",
+          "targetFile": "app/[locale]/(routes)/skills/page.tsx"
+        },
+        {
+          "id": "3.18",
+          "title": "app/terminal/ → app/[locale]/(routes)/terminal/",
+          "status": "done",
+          "sourceFile": "app/terminal/page.tsx",
+          "targetFile": "app/[locale]/(routes)/terminal/page.tsx"
+        },
+        {
+          "id": "3.19",
+          "title": "app/usage/ → app/[locale]/(routes)/usage/",
+          "status": "done",
+          "sourceFile": "app/usage/page.tsx",
+          "targetFile": "app/[locale]/(routes)/usage/page.tsx"
+        },
+        {
+          "id": "3.20",
+          "title": "app/veo/ → app/[locale]/(routes)/veo/",
+          "status": "done",
+          "sourceFile": "app/veo/page.tsx",
+          "targetFile": "app/[locale]/(routes)/veo/page.tsx"
+        },
+        {
+          "id": "3.21",
+          "title": "app/error.tsx und app/global-error.tsx prüfen und ggf. anpassen",
+          "status": "done",
+          "description": "global-error.tsx bleibt im Root (außerhalb [locale]). app/[locale]/error.tsx für locale-spezifische Fehler anlegen falls benötigt.",
+          "notes": [
+            "global-error.tsx MUSS im Root (app/) bleiben – es umhüllt das Root-Layout",
+            "error.tsx kann optional in app/[locale]/ dupliziert werden für locale-aware Fehlermeldungen"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "title": "next.config.ts & Build-Konfiguration",
+      "description": "next-intl Plugin einbinden, bestehende Konfiguration beibehalten",
+      "tasks": [
+        {
+          "id": "4.1",
+          "title": "next-intl Plugin in next.config.ts einbinden",
+          "status": "done",
+          "targetFile": "next.config.ts",
+          "description": "withNextIntl() als äußerster Wrapper um die bestehende Konfiguration. Muss außerhalb von withSentryConfig liegen (oder Sentry innen).",
+          "codeTemplate": "import createNextIntlPlugin from 'next-intl/plugin';\nconst withNextIntl = createNextIntlPlugin('./i18n/request.ts');\n\n// bestehende nextConfig...\nexport default withSentryConfig(withNextIntl(nextConfig), sentryOptions);",
+          "notes": [
+            "Reihenfolge: withNextIntl als innerster Wrapper, withSentryConfig außen – oder andersrum testen",
+            "serverExternalPackages und webpack-Konfiguration bleiben unverändert",
+            "Die X-Robots-Tag noindex-Header in den Security Headers bleiben aktiv"
+          ]
+        },
+        {
+          "id": "4.2",
+          "title": "Rewrites für /media/ prüfen",
+          "status": "done",
+          "targetFile": "next.config.ts",
+          "description": "Bestehende Rewrite-Regel '/media/:path*' → '/api/media/:path*' muss weiterhin funktionieren. next-intl Middleware darf diese Pfade nicht abfangen.",
+          "notes": [
+            "Media-Pfade haben Datei-Endungen (.jpg, .mp4 etc.) → werden vom Middleware-Matcher automatisch ausgeschlossen durch '.*\\\\..*)'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "title": "Übersetzungen extrahieren",
+      "description": "Alle hardcodierten Strings aus Komponenten und Seiten in Übersetzungsdateien auslagern",
+      "tasks": [
+        {
+          "id": "5.1",
+          "title": "Navigation & gemeinsame Komponenten übersetzen",
+          "status": "done",
+          "description": "Sidebar, Header, Navigation, gemeinsame Buttons und Labels. Namespaces: 'common', 'navigation'."
+        },
+        {
+          "id": "5.2",
+          "title": "Auth-Seiten übersetzen (login, sign-in, sign-up)",
+          "status": "done",
+          "description": "Formular-Labels, Fehlermeldungen, Buttons, Links. Namespaces: 'login', 'signIn', 'signUp'."
+        },
+        {
+          "id": "5.3",
+          "title": "Onboarding-Seite übersetzen",
+          "status": "open",
+          "description": "Namespace: 'onboarding'."
+        },
+        {
+          "id": "5.4",
+          "title": "Notebook/Editor-Seite übersetzen",
+          "status": "open",
+          "description": "Toolbar-Labels, Kontextmenüs, Statusanzeigen. Namespace: 'notebook'."
+        },
+        {
+          "id": "5.5",
+          "title": "Chat-Seite übersetzen",
+          "status": "open",
+          "description": "Namespace: 'chat'."
+        },
+        {
+          "id": "5.6",
+          "title": "Terminal-Seite übersetzen",
+          "status": "open",
+          "description": "Namespace: 'terminal'."
+        },
+        {
+          "id": "5.7",
+          "title": "Settings-Seite übersetzen",
+          "status": "open",
+          "description": "Namespace: 'settings'."
+        },
+        {
+          "id": "5.8",
+          "title": "Skills-Seite übersetzen",
+          "status": "open",
+          "description": "Namespace: 'skills'."
+        },
+        {
+          "id": "5.9",
+          "title": "Automationen-Seite übersetzen",
+          "status": "open",
+          "description": "Namespace: 'automationen'."
+        },
+        {
+          "id": "5.10",
+          "title": "Image Generation, Veo, Nano-Banana übersetzen",
+          "status": "open",
+          "description": "Namespaces: 'imageGeneration', 'veo', 'nanoBanana'."
+        },
+        {
+          "id": "5.11",
+          "title": "Usage & Help übersetzen",
+          "status": "open",
+          "description": "Namespaces: 'usage', 'help'."
+        }
+      ]
+    },
+    {
+      "id": "phase-6",
+      "title": "Language Switcher Komponente",
+      "description": "UI-Komponente zum Wechseln der Sprache",
+      "tasks": [
+        {
+          "id": "6.1",
+          "title": "LanguageSwitcher Komponente erstellen",
+          "status": "done",
+          "targetFile": "app/components/language-switcher.tsx",
+          "description": "Verwendet useRouter und usePathname von next-intl/navigation. Zeigt verfügbare Locales als Buttons/Dropdown. Client Component.",
+          "codeTemplate": "'use client';\nimport {usePathname, useRouter} from '@/i18n/navigation';\nimport {routing} from '@/i18n/routing';\n\nexport function LanguageSwitcher({currentLocale}: {currentLocale: string}) {\n  const router = useRouter();\n  const pathname = usePathname();\n  return (\n    <div>\n      {routing.locales.map((locale) => (\n        <button\n          key={locale}\n          onClick={() => router.replace(pathname, {locale})}\n          disabled={locale === currentLocale}\n        >\n          {locale.toUpperCase()}\n        </button>\n      ))}\n    </div>\n  );\n}",
+          "notes": [
+            "i18n/navigation.ts muss angelegt werden mit createNavigation(routing) – exportiert locale-aware Link, useRouter, usePathname, redirect"
+          ]
+        },
+        {
+          "id": "6.2",
+          "title": "i18n/navigation.ts anlegen",
+          "status": "done",
+          "targetFile": "i18n/navigation.ts",
+          "description": "Exportiert locale-aware Navigations-Utilities.",
+          "codeTemplate": "import {createNavigation} from 'next-intl/navigation';\nimport {routing} from './routing';\n\nexport const {Link, redirect, usePathname, useRouter, getPathname} = createNavigation(routing);"
+        },
+        {
+          "id": "6.3",
+          "title": "LanguageSwitcher in Layout integrieren",
+          "status": "done",
+          "description": "In app/[locale]/layout.tsx oder gemeinsame Navigation-Komponente einbinden."
+        }
+      ]
+    },
+    {
+      "id": "phase-7",
+      "title": "Robots & Anti-SEO Absicherung",
+      "description": "robots.ts anpassen für locale-Routen, Sitemap explizit deaktivieren",
+      "tasks": [
+        {
+          "id": "7.1",
+          "title": "app/robots.ts aktualisieren",
+          "status": "done",
+          "targetFile": "app/robots.ts",
+          "description": "Bereits blockiert alle Pfade. Sicherstellen dass auch /en/* und alle Locale-Varianten blockiert sind. Explizit keinen Sitemap-Link setzen.",
+          "codeTemplate": "import type {MetadataRoute} from 'next';\n\nexport default function robots(): MetadataRoute.Robots {\n  return {\n    rules: [\n      {\n        userAgent: '*',\n        disallow: '/'\n      }\n    ]\n    // Kein sitemap-Link – App soll nicht indexiert werden\n  };\n}",
+          "notes": [
+            "X-Robots-Tag: noindex ist bereits in next.config.ts Security Headers gesetzt – bleibt unverändert",
+            "Keine Sitemap anlegen oder generieren",
+            "Kein hreflang in Metadata – würde SEO-Crawler anlocken"
+          ]
+        },
+        {
+          "id": "7.2",
+          "title": "Metadata in Layouts prüfen – kein canonical, kein hreflang",
+          "status": "done",
+          "description": "In app/[locale]/layout.tsx generateMetadata sicherstellen: robots: 'noindex, nofollow' in Metadata, kein alternates/canonical gesetzt."
+        }
+      ]
+    },
+    {
+      "id": "phase-8",
+      "title": "better-auth Kompatibilität sicherstellen",
+      "description": "better-auth läuft unverändert auf /api/auth/, aber Redirect-URLs und Base-URL müssen locale-aware sein",
+      "tasks": [
+        {
+          "id": "8.1",
+          "title": "BETTER_AUTH_BASE_URL prüfen",
+          "status": "open",
+          "description": "BETTER_AUTH_BASE_URL bleibt ohne Locale-Prefix (z.B. https://app.example.com). better-auth selbst hat keine Locale-Awareness – das ist korrekt.",
+          "notes": [
+            "Nach Login-Redirect: better-auth redirectet auf callbackURL – diese muss locale-prefixed sein wenn nötig",
+            "Sign-in/Sign-up Seiten auf /sign-in und /en/sign-in prüfen – localePrefix 'as-needed' sorgt dafür dass Default-Locale (de) kein Prefix braucht"
+          ]
+        },
+        {
+          "id": "8.2",
+          "title": "Auth-Redirect nach Login testen",
+          "status": "open",
+          "description": "Nach erfolgreichem Login soll auf die locale-korrekte Startseite weitergeleitet werden. callbackURL in better-auth client-Aufruf ggf. mit Locale prefixen.",
+          "notes": [
+            "Verwendung von redirect() aus i18n/navigation.ts statt next/navigation in Auth-Callbacks"
+          ]
+        },
+        {
+          "id": "8.3",
+          "title": "Middleware-Matcher und better-auth Cookie-Handling testen",
+          "status": "open",
+          "description": "Sicherstellen dass next-intl Middleware keine /api/auth/-Requests verändert. Cookies von better-auth müssen unberührt bleiben.",
+          "notes": [
+            "better-auth nutzt sameSite=lax Cookies – locale-Wechsel (redirect) kann Cookies invalidieren wenn Origin sich ändert – bei as-needed Prefix kein Problem da gleiche Origin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-9",
+      "title": "Interne Links & Navigation aktualisieren",
+      "description": "Alle next/link und next/navigation Imports auf locale-aware Varianten umstellen",
+      "tasks": [
+        {
+          "id": "9.1",
+          "title": "Alle 'next/link' Imports auf '@/i18n/navigation' umstellen",
+          "status": "done",
+          "description": "In allen Client-Komponenten, die interne Links haben: import {Link} from '@/i18n/navigation' statt 'next/link'.",
+          "notes": [
+            "Betrifft: Sidebar-Navigation, alle internen Verlinkungen in Seiten-Komponenten",
+            "API-Aufrufe (fetch('/api/...')) sind nicht betroffen"
+          ]
+        },
+        {
+          "id": "9.2",
+          "title": "useRouter und usePathname aus '@/i18n/navigation' verwenden",
+          "status": "done",
+          "description": "Alle Client-Komponenten die useRouter/usePathname aus 'next/navigation' importieren auf @/i18n/navigation umstellen."
+        },
+        {
+          "id": "9.3",
+          "title": "Server-seitige redirects aus 'next/navigation' durch '@/i18n/navigation' ersetzen",
+          "status": "done",
+          "description": "In Server Components und Route Handlers: redirect() aus @/i18n/navigation statt next/navigation."
+        }
+      ]
+    },
+    {
+      "id": "phase-10",
+      "title": "Testing & Verifikation",
+      "description": "Sicherstellen dass alle Routen, Auth-Flows und i18n-Features korrekt funktionieren",
+      "tasks": [
+        {
+          "id": "10.1",
+          "title": "Build testen (npm run build)",
+          "status": "done",
+          "description": "Vollständiger Production-Build muss fehlerfrei durchlaufen."
+        },
+        {
+          "id": "10.2",
+          "title": "Smoke Tests ausführen (npm run test:smoke)",
+          "status": "open"
+        },
+        {
+          "id": "10.3",
+          "title": "Alle Seiten manuell auf Default-Locale (de, ohne Prefix) testen",
+          "status": "open",
+          "description": "/, /notebook, /chat, /terminal, /settings, /skills, /automationen, /image-generation, /veo, /nano-banana-localizer, /usage, /help, /sign-in, /sign-up, /onboarding"
+        },
+        {
+          "id": "10.4",
+          "title": "Alle Seiten auf English-Locale (/en/...) testen",
+          "status": "open",
+          "description": "/en, /en/notebook, /en/chat, /en/terminal, /en/settings, /en/skills, /en/automationen, /en/image-generation, /en/veo, /en/nano-banana-localizer, /en/usage, /en/help, /en/sign-in, /en/sign-up, /en/onboarding"
+        },
+        {
+          "id": "10.5",
+          "title": "Auth-Flow testen: Login → Redirect → geschützte Seite",
+          "status": "open",
+          "description": "Auf beiden Locales testen. Redirect nach Login muss auf korrekte locale-URL zeigen."
+        },
+        {
+          "id": "10.6",
+          "title": "API-Routen testen: /api/* muss weiterhin ohne Locale-Prefix funktionieren",
+          "status": "open",
+          "description": "Stichproben: /api/health, /api/files/list, /api/stream, /api/auth/[...all]"
+        },
+        {
+          "id": "10.7",
+          "title": "robots.txt prüfen (/robots.txt)",
+          "status": "open",
+          "description": "Muss 'Disallow: /' für alle User-Agents enthalten. Kein Sitemap-Link."
+        },
+        {
+          "id": "10.8",
+          "title": "Media-Serving prüfen (/media/* und /api/media/*)",
+          "status": "open",
+          "description": "Middleware darf Media-Requests nicht abfangen. Range-Requests müssen weiterhin funktionieren."
+        },
+        {
+          "id": "10.9",
+          "title": "Terminal WebSocket testen",
+          "status": "open",
+          "description": "WebSocket-Verbindung für Terminal-Sessions muss nach Umstrukturierung weiterhin funktionieren."
+        },
+        {
+          "id": "10.10",
+          "title": "Language Switcher testen",
+          "status": "open",
+          "description": "Sprachenwechsel auf jeder Seite testen. Aktueller Pfad muss erhalten bleiben (z.B. /notebook → /en/notebook)."
+        }
+      ]
+    }
+  ],
+  "finalFolderStructure": {
+    "description": "Ziel-Ordnerstruktur nach vollständiger Migration",
+    "structure": {
+      "app/": {
+        "[locale]/": {
+          "layout.tsx": "Locale-aware Root-Layout mit NextIntlClientProvider",
+          "error.tsx": "Locale-aware Error Boundary",
+          "(routes)/": {
+            "page.tsx": "Home",
+            "automationen/page.tsx": "",
+            "chat/page.tsx": "",
+            "help/page.tsx": "",
+            "image-generation/page.tsx": "",
+            "login/page.tsx": "",
+            "nano-banana-localizer/page.tsx": "",
+            "notebook/page.tsx": "",
+            "onboarding/page.tsx": "",
+            "sentry-example-page/page.tsx": "",
+            "settings/page.tsx": "",
+            "sign-in/page.tsx": "",
+            "sign-up/page.tsx": "",
+            "skills/page.tsx": "",
+            "terminal/page.tsx": "",
+            "usage/page.tsx": "",
+            "veo/page.tsx": ""
+          }
+        },
+        "api/": "UNVERÄNDERT – keine Locale-Prefix",
+        "components/": "UNVERÄNDERT",
+        "hooks/": "UNVERÄNDERT",
+        "lib/": "UNVERÄNDERT",
+        "store/": "UNVERÄNDERT",
+        "apps/": "UNVERÄNDERT",
+        "global-error.tsx": "BLEIBT IM ROOT (umhüllt Root-Layout)",
+        "manifest.ts": "BLEIBT IM ROOT",
+        "robots.ts": "BLEIBT IM ROOT (aktualisiert)"
+      },
+      "i18n/": {
+        "routing.ts": "defineRouting Konfiguration",
+        "request.ts": "getRequestConfig für Server",
+        "navigation.ts": "createNavigation – locale-aware Link/useRouter/usePathname"
+      },
+      "messages/": {
+        "de.json": "Deutsche Übersetzungen",
+        "en.json": "Englische Übersetzungen"
+      },
+      "middleware.ts": "next-intl Middleware (Root-Level)"
+    }
+  },
+  "keyDecisions": [
+    {
+      "decision": "next-intl als i18n-Bibliothek",
+      "reason": "Beste Next.js App Router Integration, offizielle better-auth Starter-Templates verfügbar, type-safe, aktiv maintained"
+    },
+    {
+      "decision": "localePrefix: 'as-needed'",
+      "reason": "Default-Locale (de) ohne URL-Prefix → bestehende Bookmarks/Links bleiben funktionsfähig. Englisch unter /en/*."
+    },
+    {
+      "decision": "Default-Locale: Deutsch (de)",
+      "reason": "App ist primär deutschsprachig (User-Kontext)"
+    },
+    {
+      "decision": "Route Group (routes) innerhalb [locale]",
+      "reason": "Sauberere Repository-Struktur, alle Seiten in einem Ordner, kein URL-Einfluss durch die Klammern"
+    },
+    {
+      "decision": "API-Routen unverändert (kein Locale-Prefix)",
+      "reason": "API-Konsumenten (AI-Agents, externe Integrationen) sollen keine locale-aware URLs brauchen"
+    },
+    {
+      "decision": "Keine Sitemap, noindex überall",
+      "reason": "Self-hosted App – soll NICHT von Suchmaschinen gefunden werden. X-Robots-Tag Header + robots.txt disallow all"
+    },
+    {
+      "decision": "Kein hreflang in Metadata",
+      "reason": "Würde Suchmaschinen-Crawler anlocken – widerspricht dem Anti-SEO-Ziel"
+    }
+  ]
+}

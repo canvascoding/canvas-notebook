@@ -1,0 +1,11 @@
+{
+  "updatedAt": "2026-03-24",
+  "items": [
+    {
+      "id": "i18n-5.2",
+      "title": "Auth-Seiten übersetzen (login, sign-in, sign-up)",
+      "status": "done",
+      "source": "docs/i18n-migration-todo.json"
+    }
+  ]
+}
