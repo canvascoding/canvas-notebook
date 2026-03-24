@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
+import { LanguageSwitcher } from '@/app/components/language-switcher';
 
 type AgentSetupCardState = {
   providerLabel: string;
@@ -69,6 +70,7 @@ export default async function Home() {
                 <span className="max-w-[140px] truncate text-xs">{username}</span>
               </div>
               <NotebookNavButton />
+              <LanguageSwitcher />
               <ThemeToggle />
               <LogoutButton />
             </div>
