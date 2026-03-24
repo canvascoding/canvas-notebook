@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -66,6 +67,7 @@ function getTerminalTheme(isDark: boolean) {
 }
 
 export function XTerminal({ sessionId }: XTerminalProps) {
+  const t = useTranslations('terminal');
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -195,7 +197,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
         if (!createResponse.ok) {
           const error = await createResponse.json();
-          throw new Error(error.error || 'Failed to create session');
+          throw new Error(error.error || t('failedToCreateSession'));
         }
 
         // Then connect to SSE stream
@@ -220,10 +222,10 @@ export function XTerminal({ sessionId }: XTerminalProps) {
               isReady.current = true;
               scheduleResizeSync([0, 80, 220, 500]);
             } else if (payload.type === 'exit') {
-              term.write(`\r\n\x1b[31m[Process exited with code ${payload.exitCode}]\x1b[0m\r\n`);
+              term.write(`\r\n\x1b[31m[${t('processExitedWithCode', { code: payload.exitCode })}]\x1b[0m\r\n`);
               isReady.current = false;
             } else if (payload.type === 'error') {
-              term.write(`\r\n\x1b[31m[Error: ${payload.error}]\x1b[0m\r\n`);
+              term.write(`\r\n\x1b[31m[${t('terminalError', { error: payload.error })}]\x1b[0m\r\n`);
             }
           } catch {
             // ignore malformed payloads
@@ -259,8 +261,8 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
       } catch (err: unknown) {
         console.error('[Terminal] Connection error:', err);
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        term.write(`\r\n\x1b[31m[Connection failed: ${errorMessage}]\x1b[0m\r\n`);
+        const errorMessage = err instanceof Error ? err.message : t('failedToCreateSession');
+        term.write(`\r\n\x1b[31m[${t('connectionFailed', { error: errorMessage })}]\x1b[0m\r\n`);
         
         // Retry with backoff
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
@@ -467,7 +469,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       }
       term.dispose();
     };
-  }, [sessionId]);
+  }, [sessionId, t]);
 
   useEffect(() => {
     const terminal = terminalRef.current;

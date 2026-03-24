@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { useTranslations } from 'next-intl';
 import {
   Bot,
   Clipboard,
@@ -34,11 +35,7 @@ const SAFE_MAX_TERMINAL_SESSIONS =
 // Dynamic import to prevent SSR issues with xterm.js
 const XTerminal = dynamic(() => import('./XTerminal').then(mod => ({ default: mod.XTerminal })), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Loading terminal...
-    </div>
-  ),
+  loading: () => null,
 });
 
 interface TerminalPanelProps {
@@ -47,6 +44,7 @@ interface TerminalPanelProps {
 }
 
 export function TerminalPanel({ standalone = false, className }: TerminalPanelProps = {}) {
+  const t = useTranslations('terminal');
   const {
     sessions,
     activeSessionId,
@@ -92,11 +90,11 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
 
   const handleCreateSession = useCallback(() => {
     if (sessions.length >= SAFE_MAX_TERMINAL_SESSIONS) {
-      toast.error(`Maximale Anzahl erreicht (${SAFE_MAX_TERMINAL_SESSIONS} Terminals)`);
+      toast.error(t('maxSessionsReached', { count: SAFE_MAX_TERMINAL_SESSIONS }));
       return;
     }
     createSession();
-  }, [sessions.length, createSession]);
+  }, [createSession, sessions.length, t]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -146,22 +144,26 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
 
   const handleKillAll = async () => {
     if (isKilling) return;
-    const confirmed = window.confirm('Kill all terminal sessions?');
+    const confirmed = window.confirm(t('killAllConfirm'));
     if (!confirmed) return;
     setIsKilling(true);
     try {
       const response = await fetch('/api/terminal/kill', { method: 'POST' });
       if (!response.ok) {
-        throw new Error('Failed to reset terminals');
+        throw new Error(t('failedToResetTerminals'));
       }
       const result = await response.json() as { closed?: number };
       clearSessions();
       setSelectMode(false);
       const closed = typeof result.closed === 'number' ? result.closed : 0;
-      toast.success(closed > 0 ? `${closed} terminal session${closed === 1 ? '' : 's'} reset` : 'Terminal sessions reset');
+      toast.success(
+        closed > 0
+          ? t('sessionsResetCount', { count: closed, suffix: closed === 1 ? '' : 's' })
+          : t('sessionsResetZero')
+      );
     } catch (error) {
       console.error('[Terminal] Failed to reset sessions', error);
-      toast.error('Failed to reset terminals');
+      toast.error(t('failedToResetTerminals'));
     } finally {
       setIsKilling(false);
     }
@@ -177,7 +179,7 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 min-h-[44px]">
         <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground font-bold uppercase tracking-widest shrink-0">
-          Terminal
+          {t('title')}
         </div>
         <TooltipProvider delayDuration={300}>
           <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 max-w-full">
@@ -193,7 +195,7 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                           new CustomEvent('terminal-resize', { detail: { action: 'fullscreen' } })
                         );
                       }}
-                      aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen terminal'}
+                      aria-label={isFullscreen ? t('exitFullscreen') : t('fullscreenTerminal')}
                     >
                       {isFullscreen ? (
                         <Minimize2 className="h-4 w-4" />
@@ -203,7 +205,7 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {isFullscreen ? 'Exit fullscreen' : 'Fullscreen terminal'}
+                    {isFullscreen ? t('exitFullscreen') : t('fullscreenTerminal')}
                   </TooltipContent>
                 </Tooltip>
               )}
@@ -222,13 +224,13 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                         })
                       );
                     }}
-                    aria-label="Toggle selection mode"
+                    aria-label={t('toggleSelectionMode')}
                     disabled={!activeSessionId}
                   >
                     <TextSelect className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Select text (touch)</TooltipContent>
+                <TooltipContent>{t('selectTextTouch')}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -243,13 +245,13 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                         })
                       );
                     }}
-                    aria-label="Copy terminal text"
+                    aria-label={t('copyTerminalText')}
                     disabled={!activeSessionId}
                   >
                     <Clipboard className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Copy selection (or all)</TooltipContent>
+                <TooltipContent>{t('copySelectionOrAll')}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -264,13 +266,13 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                         })
                       );
                     }}
-                    aria-label="Paste into terminal"
+                    aria-label={t('pasteIntoTerminal')}
                     disabled={!activeSessionId}
                   >
                     <Clipboard className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Paste into terminal</TooltipContent>
+                <TooltipContent>{t('pasteIntoTerminal')}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -285,13 +287,13 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                         })
                       );
                     }}
-                    aria-label="Stop process"
+                    aria-label={t('stopProcess')}
                     disabled={!activeSessionId}
                   >
                     <OctagonX className="h-4 w-4 text-destructive" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Stop running process</TooltipContent>
+                <TooltipContent>{t('stopRunningProcess')}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -309,13 +311,13 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                         })
                       );
                     }}
-                    aria-label="Run Claude"
+                    aria-label={t('runClaude')}
                     disabled={!activeSessionId}
                   >
                     <Bot className="h-4 w-4 text-chart-2" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Run Claude</TooltipContent>
+                <TooltipContent>{t('runClaude')}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -333,13 +335,13 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                         })
                       );
                     }}
-                    aria-label="Run Codex"
+                    aria-label={t('runCodex')}
                     disabled={!activeSessionId}
                   >
                     <Code className="h-4 w-4 text-primary" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Run Codex</TooltipContent>
+                <TooltipContent>{t('runCodex')}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -357,13 +359,13 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                         })
                       );
                     }}
-                    aria-label="Run Gemini"
+                    aria-label={t('runGemini')}
                     disabled={!activeSessionId}
                   >
                     <Bot className="h-4 w-4 text-chart-3" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Run Gemini</TooltipContent>
+                <TooltipContent>{t('runGemini')}</TooltipContent>
               </Tooltip>
               <div className="w-px h-4 bg-border mx-1" />
               <Tooltip>
@@ -372,12 +374,12 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                     variant="ghost"
                     size="icon-sm"
                     onClick={handleCreateSession}
-                    aria-label="New terminal"
+                    aria-label={t('newTerminal')}
                   >
                     <Plus className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>New terminal</TooltipContent>
+                <TooltipContent>{t('newTerminal')}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -385,13 +387,13 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                     variant="ghost"
                     size="icon-sm"
                     onClick={handleKillAll}
-                    aria-label="Kill all terminals"
+                    aria-label={t('killAllTerminals')}
                     disabled={sessions.length === 0 || isKilling}
                   >
                     <Skull className="h-4 w-4 transition-colors hover:text-destructive" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Kill all terminals</TooltipContent>
+                <TooltipContent>{t('killAllTerminals')}</TooltipContent>
               </Tooltip>
             </div>
           </div>
@@ -419,8 +421,8 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 role="button"
-                aria-label={`Close ${session.title}`}
-                title="Close terminal"
+                aria-label={t('closeTerminalLabel', { title: session.title })}
+                title={t('closeTerminal')}
               >
                 <X className="h-3 w-3" />
               </span>
@@ -438,7 +440,7 @@ export function TerminalPanel({ standalone = false, className }: TerminalPanelPr
               className="h-14 px-8 text-base font-semibold"
             >
               <Plus className="h-5 w-5 mr-2" />
-              Neues Terminalfenster öffnen
+              {t('openNewTerminalWindow')}
             </Button>
           </div>
         ) : (
