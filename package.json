@@ -1,6 +1,6 @@
 {
   "name": "canvas-notebook",
-  "version": "1.0.13",
+  "version": "2026.1.14",
   "private": true,
   "scripts": {
     "todos:sync:agent": "node scripts/sync-agent-todos.mjs",

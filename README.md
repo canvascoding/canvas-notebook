@@ -1,8 +1,15 @@
-# Canvas Notebook
+# 📓 Canvas Notebook — Self-Hosted AI Workspace
 
-**A self-hosted, container-first workspace with an AI agent at its core.**
+<p align="center">
+  <strong>A self-hosted, container-first workspace with an AI agent at its core.</strong>
+</p>
 
-Built by [canvascoding](https://github.com/canvascoding) — runs entirely in Docker, no setup beyond a single config file.
+<p align="center">
+  <a href="https://github.com/canvascoding/canvas-notebook/releases"><img src="https://img.shields.io/github/v/release/canvascoding/canvas-notebook?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/Next.js-black?style=for-the-badge&logo=next.js&logoColor=white" alt="Next.js">
+  <a href="https://hub.docker.com/r/canvascoding/canvas-notebook"><img src="https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
+</p>
 
 ---
 
@@ -213,4 +220,4 @@ Use `canvascoding/canvas-notebook:latest` as the image source and set the enviro
 
 ## License
 
-Private project — Canvas Notebook. All rights reserved.
+MIT © [Frank Alexander Weber](https://github.com/canvascoding)
