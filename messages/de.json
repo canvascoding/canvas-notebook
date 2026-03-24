@@ -174,7 +174,7 @@
   },
   "chat": {
     "metadataTitle": "Canvas Chat | Canvas Notebook",
-    "metadataDescription": "Vollbild-Chat-App fuer den Canvas-Notebook-Workspace.",
+    "metadataDescription": "Vollbild-Chat-App für den Canvas-Notebook-Workspace.",
     "logoAlt": "Canvas Notebook Logo",
     "title": "CANVAS CHAT",
     "usage": "Nutzung",
@@ -182,20 +182,20 @@
     "working": "In Arbeit",
     "ready": "Bereit",
     "noOutputYet": "Noch keine Ausgabe",
-    "toolStatusRunning": "Laeuft",
+    "toolStatusRunning": "Läuft",
     "toolStatusAborting": "Wird gestoppt",
     "toolStatusError": "Fehler",
     "toolStatusDone": "Fertig",
     "compactManual": "Canvas-Kontext verdichtet",
     "compactAutomatic": "Kontext automatisch verdichtet",
-    "compactWithCount": "{label} · {count} aeltere Nachrichten komprimiert",
+    "compactWithCount": "{label} · {count} ältere Nachrichten komprimiert",
     "assistantStreamingAria": "Assistant-Antwort wird noch gestreamt",
     "assistantStreamingSr": "Assistant-Antwort wird noch gestreamt",
     "example": "Beispiel",
     "errorMessage": "Fehler: {message}",
     "unknownError": "Unbekannter Fehler",
     "failedToLoadMessageHistory": "Nachrichtenverlauf konnte nicht geladen werden.",
-    "deleteSessionConfirm": "Moechtest du diese Session wirklich loeschen?",
+    "deleteSessionConfirm": "Möchtest du diese Session wirklich löschen?",
     "renameSessionPrompt": "Session umbenennen",
     "history": "Verlauf",
     "canvasChatLabel": "Canvas Chat",
@@ -212,8 +212,8 @@
     "details": "Details",
     "contextLabel": "{percent}% · {used}/{available} Budget · {window} Fenster",
     "noSessionYet": "Noch keine Session",
-    "backToChat": "Zurueck zum Chat",
-    "openHistory": "Verlauf oeffnen",
+    "backToChat": "Zurück zum Chat",
+    "openHistory": "Verlauf öffnen",
     "queue": "Queue",
     "steer": "Steer",
     "tool": "Tool",
@@ -223,20 +223,20 @@
     "queuedAfterCurrentRun": "Wird nach dem aktuellen Lauf eingereiht.",
     "queuedAsSteeringMessage": "Wird als Steuer-Nachricht eingereiht.",
     "willSendAfterStop": "Wird gesendet, sobald die aktuelle Kette stoppt.",
-    "runningTool": "Tool laeuft...",
+    "runningTool": "Tool läuft...",
     "agentWorking": "Agent arbeitet...",
     "auto": "Auto",
     "toolInput": "Input",
     "scrollToBottom": "Nach unten scrollen",
     "imageModelWarningTitle": "Achtung:",
-    "imageModelWarningBody": "Das aktuelle Modell unterstuetzt keine Bilder. Die angehaengten Bilder werden ignoriert.",
+    "imageModelWarningBody": "Das aktuelle Modell unterstützt keine Bilder. Die angehängten Bilder werden ignoriert.",
     "activeToolPrefix": "Aktiv:",
     "imageMessage": "Bildnachricht",
     "steerAction": "Steuern",
     "sendNow": "Jetzt senden",
     "compactCanvas": "Canvas compact",
     "close": "Schliessen",
-    "attachImage": "Bild anhaengen",
+    "attachImage": "Bild anhängen",
     "uploading": "Wird hochgeladen...",
     "loadingFiles": "Dateien werden geladen...",
     "filesFound": "{count} Dateien gefunden",
@@ -244,73 +244,73 @@
     "noFilesInWorkspace": "Keine Dateien im Workspace",
     "quickActions": "Schnellaktionen",
     "hint": "Hinweis",
-    "openAgentSettings": "Agent-Einstellungen oeffnen",
+    "openAgentSettings": "Agent-Einstellungen öffnen",
     "settings": "Einstellungen",
     "productivityBadge": "Produktive Startpunkte",
-    "openLatestSession": "Letzte Session oeffnen",
-    "starterTitle": "Was soll Canvas Chat fuer dich vorbereiten?",
-    "starterDescription": "Starte mit einer Vorlage fuer Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.",
+    "openLatestSession": "Letzte Session öffnen",
+    "starterTitle": "Was soll Canvas Chat für dich vorbereiten?",
+    "starterDescription": "Starte mit einer Vorlage für Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.",
     "sessions": "Sessions",
     "noRecentSessions": "Keine letzten Sessions",
     "renameSession": "Session umbenennen",
-    "deleteSession": "Session loeschen",
+    "deleteSession": "Session löschen",
     "currentModelLabel": "Modell: {model}",
     "composerPlaceholderMobile": "Frag nach Kampagnen oder Dateien...",
     "composerPlaceholderCompact": "Frag nach Projekt oder Dateien. @ referenziert.",
     "composerPlaceholderDefault": "Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien.",
-    "composerHintBusyMobile": "Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenue.",
+    "composerHintBusyMobile": "Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenü.",
     "composerHintBusyDesktop": "Senden reiht die Nachricht als Folgeaktion ein. Nutze Steuern, um nach dem aktuellen Tool-Schritt zu unterbrechen, oder Jetzt senden, um die laufende Kette zuerst zu stoppen.",
-    "composerHintIdle": "Tippe @ fuer Dateien oder waehle unten eine schnelle Aktion.",
+    "composerHintIdle": "Tippe @ für Dateien oder wähle unten eine schnelle Aktion.",
     "starterPrompts": {
       "sm-campaign": {
         "title": "Visuelle SM-Kampagne",
-        "description": "Idee, Kanalstruktur und Creative-Richtung fuer eine starke Social-Media-Kampagne ausarbeiten.",
-        "prompt": "Hilf mir, eine visuelle Social-Media-Kampagne fuer mein Business zu entwickeln. Erstelle ein Konzept mit Leitidee, plattformspezifischen Formaten, Bildsprache, Hook-Varianten, CTA-Ansaetzen und einem kompakten Redaktionsplan fuer die ersten zwei Wochen."
+        "description": "Idee, Kanalstruktur und Creative-Richtung für eine starke Social-Media-Kampagne ausarbeiten.",
+        "prompt": "Hilf mir, eine visuelle Social-Media-Kampagne für mein Business zu entwickeln. Erstelle ein Konzept mit Leitidee, plattformspezifischen Formaten, Bildsprache, Hook-Varianten, CTA-Ansätzen und einem kompakten Redaktionsplan für die ersten zwei Wochen."
       },
       "ad-creatives": {
         "title": "Ad Creatives planen",
-        "description": "Werbeanzeigen als konkrete Bild- und Textideen fuer mehrere Formate vorbereiten.",
-        "prompt": "Erstelle fuer mein Angebot mehrere starke Werbe-Creatives. Ich brauche unterschiedliche Angles, Visual-Ideen, Headline-Optionen, CTA-Varianten und klare Vorschlaege fuer statische Ads, Carousel-Ads und Short-Video-Anzeigen."
+        "description": "Werbeanzeigen als konkrete Bild- und Textideen für mehrere Formate vorbereiten.",
+        "prompt": "Erstelle für mein Angebot mehrere starke Werbe-Creatives. Ich brauche unterschiedliche Angles, Visual-Ideen, Headline-Optionen, CTA-Varianten und klare Vorschläge für statische Ads, Carousel-Ads und Short-Video-Anzeigen."
       },
       "video-production": {
         "title": "Video-Ideen entwickeln",
-        "description": "Skript, Szenen und Produktionshinweise fuer Marketing- oder Produktvideos strukturieren.",
-        "prompt": "Hilf mir, ein kurzes Marketing- oder Produktvideo zu entwickeln. Ich moechte ein Konzept mit Ziel, Zielgruppe, Storyline, Shot-Liste, Sprechertext, On-Screen-Text und einem klaren Produktionsablauf fuer ein Video unter 45 Sekunden."
+        "description": "Skript, Szenen und Produktionshinweise für Marketing- oder Produktvideos strukturieren.",
+        "prompt": "Hilf mir, ein kurzes Marketing- oder Produktvideo zu entwickeln. Ich möchte ein Konzept mit Ziel, Zielgruppe, Storyline, Shot-Liste, Sprechertext, On-Screen-Text und einem klaren Produktionsablauf für ein Video unter 45 Sekunden."
       },
       "business-strategy": {
         "title": "Strategie ausarbeiten",
-        "description": "Ein Business- oder Marketing-Vorhaben in Ziele, Prioritaeten und Massnahmen zerlegen.",
-        "prompt": "Arbeite mit mir eine umsetzbare Business- oder Marketing-Strategie aus. Ich brauche eine klare Struktur mit Zielbild, Positionierung, Zielgruppe, Prioritaeten, Risiken, Massnahmen fuer die naechsten 30 Tage und konkreten naechsten Schritten."
+        "description": "Ein Business- oder Marketing-Vorhaben in Ziele, Prioritäten und Maßnahmen zerlegen.",
+        "prompt": "Arbeite mit mir eine umsetzbare Business- oder Marketing-Strategie aus. Ich brauche eine klare Struktur mit Zielbild, Positionierung, Zielgruppe, Prioritäten, Risiken, Maßnahmen für die nächsten 30 Tage und konkreten nächsten Schritten."
       },
       "document-draft": {
         "title": "Dokument entwerfen",
         "description": "Ein sauberes Briefing, Angebot oder internes Dokument aufbauen und gliedern.",
-        "prompt": "Hilf mir, ein professionelles Dokument zu erstellen. Ich brauche eine sinnvolle Gliederung, klare Kapitel, Formulierungsentwuerfe und Hinweise, welche Informationen noch fehlen, damit daraus z. B. ein Briefing, Angebot oder Konzeptpapier werden kann."
+        "prompt": "Hilf mir, ein professionelles Dokument zu erstellen. Ich brauche eine sinnvolle Gliederung, klare Kapitel, Formulierungsentwürfe und Hinweise, welche Informationen noch fehlen, damit daraus z. B. ein Briefing, Angebot oder Konzeptpapier werden kann."
       },
       "workspace-organization": {
         "title": "Dateien organisieren",
-        "description": "Eine produktive Ordner- und Dateistruktur fuer Projekte, Kampagnen oder Kunden aufsetzen.",
-        "prompt": "Hilf mir, meine Dateien und Projektunterlagen besser zu organisieren. Erstelle eine sinnvolle Workspace-Struktur mit Ordnerlogik, Dateibenennung, Ablage fuer Assets und Dokumente sowie einfachen Regeln, damit mein Team schneller arbeitet und weniger sucht."
+        "description": "Eine produktive Ordner- und Dateistruktur für Projekte, Kampagnen oder Kunden aufsetzen.",
+        "prompt": "Hilf mir, meine Dateien und Projektunterlagen besser zu organisieren. Erstelle eine sinnvolle Workspace-Struktur mit Ordnerlogik, Dateibenennung, Ablage für Assets und Dokumente sowie einfachen Regeln, damit mein Team schneller arbeitet und weniger sucht."
       }
     }
   },
   "terminal": {
     "metadataTitle": "Terminal | Canvas Notebook",
-    "metadataDescription": "Vollbild-Terminal-App fuer den Canvas-Notebook-Workspace.",
+    "metadataDescription": "Vollbild-Terminal-App für den Canvas-Notebook-Workspace.",
     "title": "Terminal",
     "loadingTerminal": "Terminal wird geladen...",
     "maxSessionsReached": "Maximale Anzahl erreicht ({count} Terminals)",
     "killAllConfirm": "Alle Terminal-Sessions beenden?",
-    "failedToResetTerminals": "Terminals konnten nicht zurueckgesetzt werden",
-    "sessionsResetZero": "Terminal-Sessions zurueckgesetzt",
-    "sessionsResetCount": "{count} Terminal-Session{suffix} zurueckgesetzt",
+    "failedToResetTerminals": "Terminals konnten nicht zurückgesetzt werden",
+    "sessionsResetZero": "Terminal-Sessions zurückgesetzt",
+    "sessionsResetCount": "{count} Terminal-Session{suffix} zurückgesetzt",
     "exitFullscreen": "Vollbild verlassen",
     "fullscreenTerminal": "Terminal im Vollbild",
     "toggleSelectionMode": "Auswahlmodus umschalten",
-    "selectTextTouch": "Text auswaehlen (Touch)",
+    "selectTextTouch": "Text auswählen (Touch)",
     "copyTerminalText": "Terminaltext kopieren",
     "copySelectionOrAll": "Auswahl oder alles kopieren",
-    "pasteIntoTerminal": "In Terminal einfuegen",
+    "pasteIntoTerminal": "In Terminal einfügen",
     "stopProcess": "Prozess stoppen",
     "stopRunningProcess": "Laufenden Prozess stoppen",
     "runClaude": "Claude starten",
@@ -320,7 +320,7 @@
     "killAllTerminals": "Alle Terminals beenden",
     "closeTerminal": "Terminal schliessen",
     "closeTerminalLabel": "{title} schliessen",
-    "openNewTerminalWindow": "Neues Terminalfenster oeffnen",
+    "openNewTerminalWindow": "Neues Terminalfenster öffnen",
     "failedToCreateSession": "Session konnte nicht erstellt werden",
     "processExitedWithCode": "Prozess mit Code {code} beendet",
     "terminalError": "Fehler: {error}",
@@ -335,11 +335,11 @@
     "scopes": {
       "integrations": {
         "title": "Micro-SaaS Integrationen",
-        "description": "Keys fuer VEO, Nano Banana und weitere Micro-SaaS-Apps. Gemini-basierte Apps koennen hier denselben GEMINI_API_KEY teilen."
+        "description": "Keys für VEO, Nano Banana und weitere Micro-SaaS-Apps. Gemini-basierte Apps können hier denselben GEMINI_API_KEY teilen."
       },
       "agents": {
         "title": "Agent-Umgebung",
-        "description": "Keys und Agent-Env-Werte fuer OpenRouter, Ollama und die Agent-Runtime."
+        "description": "Keys und Agent-Env-Werte für OpenRouter, Ollama und die Agent-Runtime."
       }
     },
     "envCard": {
@@ -348,20 +348,20 @@
       "fileLabel": "Datei",
       "formatLabel": "Format",
       "permissionsLabel": "Berechtigung",
-      "encryptionActive": "Verschluesselung aktiv",
-      "encryptionInactive": "Verschluesselung inaktiv",
+      "encryptionActive": "Verschlüsselung aktiv",
+      "encryptionInactive": "Verschlüsselung inaktiv",
       "tabKeyValue": "Key / Value",
       "tabRaw": "Raw .env",
       "columnKey": "Key",
       "columnValue": "Value",
       "columnAction": "Aktion",
       "placeholderKeyName": "KEY_NAME",
-      "placeholderEncryptedValue": "Verschluesselter Wert",
+      "placeholderEncryptedValue": "Verschlüsselter Wert",
       "placeholderValue": "Wert",
       "showSecret": "Secret einblenden",
       "hideSecret": "Secret ausblenden",
-      "deleteRow": "Zeile loeschen",
-      "addRow": "Zeile hinzufuegen",
+      "deleteRow": "Zeile löschen",
+      "addRow": "Zeile hinzufügen",
       "save": "Speichern",
       "saveRaw": "Raw speichern",
       "reload": "Neu laden",
@@ -375,14 +375,14 @@
     "agentPanel": {
       "doctor": {
         "title": "Doctor",
-        "description": "System-Check fuer Provider und Konnektivitaet.",
-        "run": "Doctor ausfuehren",
+        "description": "System-Check für Provider und Konnektivität.",
+        "run": "Doctor ausführen",
         "statusLabel": "Status:",
         "ready": "Bereit",
         "issuesDetected": "Probleme erkannt",
         "errorsLabel": "Fehler:",
         "warningsLabel": "Warnungen:",
-        "checkedLabel": "Geprueft:",
+        "checkedLabel": "Geprüft:",
         "promptFilesLoaded": "Geladene Prompt-Dateien:",
         "promptFilesIncluded": "Eingebundene Prompt-Dateien:",
         "promptFilesEmpty": "Leere Prompt-Dateien:",
@@ -391,7 +391,7 @@
         "promptFallbackInactive": "Inaktiv",
         "qmdLabel": "qmd:",
         "needsAttention": "Benötigt Aufmerksamkeit",
-        "available": "verfuegbar",
+        "available": "verfügbar",
         "missing": "fehlt",
         "defaultMode": "Standardmodus:",
         "expensiveQueryMode": "Expensive Query Mode:",
@@ -415,12 +415,12 @@
         "unknown": "unbekannt",
         "qmdBinary": "qmd Binary:",
         "errors": {
-          "run": "Doctor-Pruefung fehlgeschlagen."
+          "run": "Doctor-Prüfung fehlgeschlagen."
         }
       },
       "files": {
         "title": "Agent-Dateien",
-        "description": "System-relevante Markdown-Dateien fuer das Agent-Verhalten.",
+        "description": "System-relevante Markdown-Dateien für das Agent-Verhalten.",
         "loading": "Lade Dateien...",
         "save": "Speichern",
         "reload": "Neu laden",
@@ -435,20 +435,20 @@
         "description": "Chat-Historie verwalten.",
         "newSessionPlaceholder": "Neue Session (Titel optional)",
         "new": "Neu",
-        "deleteAll": "Alle loeschen",
+        "deleteAll": "Alle löschen",
         "loading": "Lade...",
         "empty": "Kein Verlauf vorhanden.",
         "unknownUser": "Unbekannt",
         "modelLabel": "Modell:",
         "userLabel": "Benutzer:",
-        "confirmDeleteOne": "Session wirklich loeschen?",
-        "confirmDeleteAll": "Wirklich alle Sessions inklusive Verlauf loeschen?",
+        "confirmDeleteOne": "Session wirklich löschen?",
+        "confirmDeleteAll": "Wirklich alle Sessions inklusive Verlauf löschen?",
         "errors": {
           "load": "Sessions konnten nicht geladen werden.",
           "create": "Session konnte nicht erstellt werden.",
           "rename": "Session konnte nicht umbenannt werden.",
-          "delete": "Session konnte nicht geloescht werden.",
-          "deleteAll": "Alle Sessions konnten nicht geloescht werden."
+          "delete": "Session konnte nicht gelöscht werden.",
+          "deleteAll": "Alle Sessions konnten nicht gelöscht werden."
         }
       }
     },
@@ -460,13 +460,13 @@
       "loadingConfig": "Lade Agent-Konfiguration...",
       "loadConfigFailed": "Agent-Konfiguration konnte nicht geladen werden.",
       "activeProvider": "Aktiver Provider",
-      "modelFor": "Modell fuer {provider}",
-      "selectModel": "-- Modell waehlen --",
+      "modelFor": "Modell für {provider}",
+      "selectModel": "-- Modell wählen --",
       "customModelOption": "➕ Custom Model...",
       "customModelPlaceholder": "z.B. mein-custom-model:latest",
       "customModelHelp": "Gib den Namen deines Custom Models ein. Beispiel: mein-modell:latest oder llama3.1:8b",
-      "visionLegend": "👁️ = Vision-faehig (unterstuetzt Bilder)",
-      "visionLegendWithCustom": "👁️ = Vision-faehig (unterstuetzt Bilder) | Waehle \"Custom Model\", um ein nicht gelistetes Modell zu verwenden",
+      "visionLegend": "👁️ = Vision-fähig (unterstützt Bilder)",
+      "visionLegendWithCustom": "👁️ = Vision-fähig (unterstützt Bilder) | Wähle \"Custom Model\", um ein nicht gelistetes Modell zu verwenden",
       "manualModelSuffix": "(Manuell)",
       "ollamaConfiguration": "Ollama Konfiguration",
       "remoteServer": "Remote Server",
@@ -474,14 +474,14 @@
       "ollamaServer": "Ollama Server",
       "standardLocalOption": "Standard (Lokal) - localhost:11434",
       "remoteServerOption": "Remote Server - Eigene URL",
-      "standardLocalHelp": "Standard (Lokal): Ollama laeuft auf deinem Computer unter localhost:11434.",
+      "standardLocalHelp": "Standard (Lokal): Ollama läuft auf deinem Computer unter localhost:11434.",
       "remoteServerHelp": "Remote Server: Verbindung zu einem externen Ollama Server im Netzwerk oder in der Cloud.",
       "remoteServerUrl": "Remote Server URL",
       "remoteServerUrlPlaceholder": "http://192.168.1.100:11434 oder https://ollama.example.com",
       "remoteServerUrlHelp": "Gib die URL deines Ollama Servers ein. Beispiele: http://192.168.1.100:11434 oder https://ollama.dein-server.de",
       "terminalConfigTitle": "Ollama im Terminal konfigurieren",
-      "terminalConfigDescription": "Oeffne das Terminal, um Modelle zu pullen und den Server zu starten.",
-      "openTerminal": "Terminal oeffnen",
+      "terminalConfigDescription": "Öffne das Terminal, um Modelle zu pullen und den Server zu starten.",
+      "openTerminal": "Terminal öffnen",
       "thinkingLevel": "Denkstufe",
       "thinkingLevels": {
         "none": "Keine (Standard)",
@@ -490,11 +490,11 @@
         "high": "Hoch / Reasoning"
       },
       "providerStatus": "Provider-Status",
-      "checking": "Pruefe...",
+      "checking": "Prüfe...",
       "providerReady": "Bereit",
       "providerNotReady": "Nicht bereit",
       "authenticationMethod": "Authentifizierungsmethode",
-      "authenticationMethodDescription": "Waehle, wie du dich bei diesem Provider authentifizieren moechtest:",
+      "authenticationMethodDescription": "Wähle, wie du dich bei diesem Provider authentifizieren möchtest:",
       "apiKey": "API-Key",
       "oauthCli": "OAuth / CLI",
       "apiKeySetupTitle": "API-Key-Setup:",
@@ -505,12 +505,12 @@
       "oauthAuthentication": "OAuth-Authentifizierung",
       "oauthAuthenticationDescription": "Verbinde dein Konto, um diesen Provider zu nutzen. Deine Zugangsdaten werden sicher gespeichert.",
       "systemInfo": "System Info",
-      "systemInfoDescription": "Die Engine nutzt API-Keys aus den Integrations-Einstellungen. Modell-Discovery erfolgt ueber die PI-Registry.",
+      "systemInfoDescription": "Die Engine nutzt API-Keys aus den Integrations-Einstellungen. Modell-Discovery erfolgt über die PI-Registry.",
       "reload": "Neu laden",
       "errors": {
-        "selectModel": "Bitte waehle ein Modell fuer \"{provider}\".",
-        "customModelName": "Bitte trage einen Namen fuer das Custom Ollama Model ein.",
-        "remoteUrl": "Bitte trage eine Remote Server URL fuer Ollama ein.",
+        "selectModel": "Bitte wähle ein Modell für \"{provider}\".",
+        "customModelName": "Bitte trage einen Namen für das Custom Ollama Model ein.",
+        "remoteUrl": "Bitte trage eine Remote Server URL für Ollama ein.",
         "failedToLoadConfig": "Agent-Konfiguration konnte nicht geladen werden.",
         "failedToSaveConfig": "Agent-Konfiguration konnte nicht gespeichert werden."
       }
@@ -522,7 +522,7 @@
       "configureApiKeys": "API-Keys konfigurieren:",
       "cliCommands": "CLI-Befehle:",
       "notes": "Hinweise:",
-      "openDocs": "Offizielle Dokumentation oeffnen",
+      "openDocs": "Offizielle Dokumentation öffnen",
       "categoryLabels": {
         "apiKey": "API-Key",
         "oauthCli": "OAuth/CLI-Login",
@@ -536,14 +536,14 @@
     "providerEnv": {
       "placeholderOllama": "Beliebigen Wert eingeben oder leer lassen...",
       "placeholderGeneric": "API Key eingeben...",
-      "helperOllama": "Pflichtfeld fuer Ollama. Wenn du nichts eintraegst, wird im Hintergrund automatisch eine zufaellige Zahlenkette gesetzt.",
-      "noEnvVars": "Dieser Provider benoetigt keine Umgebungsvariablen.",
-      "confirmDelete": "Moechtest du den Wert fuer {name} wirklich loeschen?",
-      "deletedSuccess": "{name} erfolgreich geloescht",
-      "fillRequired": "Bitte fuelle die Pflichtfelder aus: {names}",
+      "helperOllama": "Pflichtfeld für Ollama. Wenn du nichts einträgst, wird im Hintergrund automatisch eine zufällige Zahlenkette gesetzt.",
+      "noEnvVars": "Dieser Provider benötigt keine Umgebungsvariablen.",
+      "confirmDelete": "Möchtest du den Wert für {name} wirklich löschen?",
+      "deletedSuccess": "{name} erfolgreich gelöscht",
+      "fillRequired": "Bitte fülle die Pflichtfelder aus: {names}",
       "saved": "API Key und Provider erfolgreich gespeichert",
-      "savedOllama": "Ollama-Konfiguration gespeichert. Fuer OLLAMA_API_KEY wurde automatisch eine zufaellige Zahlenkette hinterlegt.",
-      "unsavedChanges": "Ungespeicherte Aenderungen vorhanden",
+      "savedOllama": "Ollama-Konfiguration gespeichert. Für OLLAMA_API_KEY wurde automatisch eine zufällige Zahlenkette hinterlegt.",
+      "unsavedChanges": "Ungespeicherte Änderungen vorhanden",
       "loading": "Lade Umgebungsvariablen...",
       "scopeAgentEnvironment": "Agent-Umgebung",
       "scopeIntegrations": "Integrationen",
@@ -556,9 +556,9 @@
       "reload": "Neu laden",
       "errors": {
         "load": "Fehler beim Laden der Umgebungsvariablen",
-        "loadCurrentEntries": "Aktuelle Eintraege konnten nicht geladen werden.",
-        "delete": "Fehler beim Loeschen",
-        "loadEntriesForScope": "Eintraege fuer {scope} konnten nicht geladen werden.",
+        "loadCurrentEntries": "Aktuelle Einträge konnten nicht geladen werden.",
+        "delete": "Fehler beim Löschen",
+        "loadEntriesForScope": "Einträge für {scope} konnten nicht geladen werden.",
         "saveScope": "{scope} konnte nicht gespeichert werden.",
         "save": "Fehler beim Speichern"
       }
@@ -573,25 +573,25 @@
         "activeCount": "{count} aktiv",
         "connectedAndReady": "Verbunden und bereit",
         "disconnect": "Trennen",
-        "addAnotherAccount": "Weiteres Konto hinzufuegen",
+        "addAnotherAccount": "Weiteres Konto hinzufügen",
         "connectAccount": "Konto verbinden",
-        "selectProvider": "Provider auswaehlen...",
+        "selectProvider": "Provider auswählen...",
         "connect": "Verbinden",
-        "noProvidersAvailable": "Keine OAuth-Provider verfuegbar"
+        "noProvidersAvailable": "Keine OAuth-Provider verfügbar"
       },
       "dialog": {
         "title": "OAuth-Konto verbinden",
         "description": "Schliesse die Authentifizierung ab, um dein Konto zu verbinden.",
         "waitingForUrlTitle": "Warte auf Autorisierungs-URL...",
         "waitingForUrlDescription": "Das kann ein paar Sekunden dauern",
-        "step1Label": "Schritt 1: Autorisierungs-URL oeffnen",
-        "step1Description": "Klicke auf den Button, um die Autorisierungsseite zu oeffnen:",
+        "step1Label": "Schritt 1: Autorisierungs-URL öffnen",
+        "step1Description": "Klicke auf den Button, um die Autorisierungsseite zu öffnen:",
         "copyUrl": "URL kopieren",
-        "openInNewTab": "In neuem Tab oeffnen",
+        "openInNewTab": "In neuem Tab öffnen",
         "instructions": "Anleitung:",
         "step2Label": "Schritt 2: Autorisierungscode eingeben",
-        "step2Description": "Fuege nach der Authentifizierung im Browser hier den Autorisierungscode oder die Callback-URL ein:",
-        "codePlaceholder": "Autorisierungscode oder Callback-URL einfuegen...",
+        "step2Description": "Füge nach der Authentifizierung im Browser hier den Autorisierungscode oder die Callback-URL ein:",
+        "codePlaceholder": "Autorisierungscode oder Callback-URL einfügen...",
         "completeConnection": "Verbindung abschliessen"
       },
       "errors": {
@@ -599,7 +599,7 @@
         "unknown": "Unbekannter Fehler",
         "flowFailed": "OAuth-Flow fehlgeschlagen",
         "timeoutWaitingForUrl": "Timeout beim Warten auf die Autorisierungs-URL",
-        "selectProvider": "Bitte waehle einen Provider",
+        "selectProvider": "Bitte wähle einen Provider",
         "initiate": "OAuth konnte nicht gestartet werden.",
         "enterCode": "Bitte gib den Autorisierungscode oder die Callback-URL ein",
         "missingFlowInfo": "Flow-Informationen fehlen",
@@ -622,12 +622,12 @@
     },
     "integrationsHint": {
       "label": "Hinweis:",
-      "body": "Wenn Skills Env-Variablen benoetigen, muessen diese im Integrations-Tab gespeichert werden.",
-      "openSettings": "Integrationen oeffnen"
+      "body": "Wenn Skills Env-Variablen benötigen, müssen diese im Integrations-Tab gespeichert werden.",
+      "openSettings": "Integrationen öffnen"
     },
     "creationHint": {
       "label": "Neuen Skill erstellen:",
-      "bodyBefore": "Sag dem Agenten, dass du einen neuen Skill erstellen moechtest. Du kannst dann gemeinsam ausarbeiten, was der Skill genau machen soll. Verwende dafuer den",
+      "bodyBefore": "Sag dem Agenten, dass du einen neuen Skill erstellen möchtest. Du kannst dann gemeinsam ausarbeiten, was der Skill genau machen soll. Verwende dafür den",
       "creatorSkill": "Creator Skill",
       "bodyAfter": "."
     },
@@ -636,10 +636,10 @@
     "docsButton": "Doku",
     "emptyState": {
       "title": "Keine Skills gefunden",
-      "description": "Skills erscheinen hier, sobald sie dem Verzeichnis /data/skills/ hinzugefuegt wurden."
+      "description": "Skills erscheinen hier, sobald sie dem Verzeichnis /data/skills/ hinzugefügt wurden."
     },
     "detail": {
-      "srDescription": "Details und Dokumentation fuer den ausgewaehlten Skill.",
+      "srDescription": "Details und Dokumentation für den ausgewählten Skill.",
       "enabled": "Aktiviert",
       "disabled": "Deaktiviert",
       "close": "Skill-Details schliessen",
@@ -648,7 +648,7 @@
       "skillName": "Skill-Name:",
       "status": "Status:",
       "license": "Lizenz:",
-      "compatibility": "Kompatibilitaet:",
+      "compatibility": "Kompatibilität:",
       "errors": {
         "loadContent": "Skill-Inhalt konnte nicht geladen werden"
       }
