@@ -57,7 +57,7 @@ export function ShareMarkdownDialog({
     } finally {
       setLoading(false);
     }
-  }, [filePath]);
+  }, [filePath, t]);
 
   useEffect(() => {
     if (open && filePath) {

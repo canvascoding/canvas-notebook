@@ -175,7 +175,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [queryString]);
+  }, [queryString, t]);
 
   const setPresetRange = (days: number) => {
     const now = new Date();

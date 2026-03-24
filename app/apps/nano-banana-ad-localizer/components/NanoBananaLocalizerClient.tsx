@@ -135,6 +135,7 @@ export function NanoBananaLocalizerClient() {
 
   useEffect(() => {
     void loadOutputs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; loadOutputs is a plain function
   }, []);
 
   const addMarket = (raw: string) => {

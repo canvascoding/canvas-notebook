@@ -39,6 +39,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
     if (open && skill) {
       loadSkillContent(skill.name);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSkillContent takes skill.name as argument; skill is in deps
   }, [open, skill]);
 
   async function loadSkillContent(skillName: string) {

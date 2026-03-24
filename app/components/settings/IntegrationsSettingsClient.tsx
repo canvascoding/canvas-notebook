@@ -359,7 +359,7 @@ export function IntegrationsSettingsClient() {
         },
       }));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void Promise.all(SCOPE_CARDS.map((card) => loadState(card.scope)));

@@ -141,6 +141,7 @@ export function WorkspaceDirectoryPickerDialog({
 
     setExpandedPaths(collectAncestorPaths(selectedPath));
     void loadDirectories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDirectories is a plain function, no stale closure risk
   }, [open, selectedPath]);
 
   const filteredDirectories = useMemo(() => {

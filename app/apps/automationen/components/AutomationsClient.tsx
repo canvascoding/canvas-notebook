@@ -335,6 +335,7 @@ export function AutomationsClient() {
       return;
     }
     void loadRuns(selectedJobId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadRuns takes selectedJobId as argument
   }, [selectedJobId]);
 
   useEffect(() => {
@@ -343,6 +344,7 @@ export function AutomationsClient() {
       return;
     }
     void loadLogs(selectedRunId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadLogs takes selectedRunId as argument
   }, [selectedRunId]);
 
   useEffect(() => {
@@ -353,6 +355,7 @@ export function AutomationsClient() {
       void loadRuns(selectedJobId, selectedRunId);
     }, 10_000);
     return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load fns are plain functions; ids cover the data deps
   }, [selectedJobId, selectedRunId]);
 
   async function handleSave() {

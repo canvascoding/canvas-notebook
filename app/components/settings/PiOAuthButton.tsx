@@ -178,6 +178,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
         clearTimeout(timeoutId);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- completeOAuthFlow is a plain function; t is stable
   }, [flowId, isOpen, selectedProvider, authUrl]);
 
   useEffect(() => {
