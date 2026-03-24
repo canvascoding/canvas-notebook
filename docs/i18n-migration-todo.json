@@ -414,7 +414,7 @@
         {
           "id": "8.1",
           "title": "BETTER_AUTH_BASE_URL prüfen",
-          "status": "in_progress",
+          "status": "done",
           "description": "BETTER_AUTH_BASE_URL bleibt ohne Locale-Prefix (z.B. https://app.example.com). better-auth selbst hat keine Locale-Awareness – das ist korrekt.",
           "notes": [
             "Nach Login-Redirect: better-auth redirectet auf callbackURL – diese muss locale-prefixed sein wenn nötig",
@@ -424,7 +424,7 @@
         {
           "id": "8.2",
           "title": "Auth-Redirect nach Login testen",
-          "status": "open",
+          "status": "in_progress",
           "description": "Nach erfolgreichem Login soll auf die locale-korrekte Startseite weitergeleitet werden. callbackURL in better-auth client-Aufruf ggf. mit Locale prefixen.",
           "notes": [
             "Verwendung von redirect() aus i18n/navigation.ts statt next/navigation in Auth-Callbacks"
