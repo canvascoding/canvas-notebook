@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { PiProviderSetupCard } from '@/app/components/settings/PiProviderSetupCard';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
@@ -45,7 +46,8 @@ export default function OnboardingWizard() {
       className="fixed inset-0 overflow-y-auto overscroll-contain bg-background text-foreground"
     >
       <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 py-4 sm:px-6">
-        <div className="mb-4 flex justify-end">
+        <div className="mb-4 flex justify-end gap-2">
+          <LanguageSwitcher />
           <ThemeToggle />
         </div>
 
