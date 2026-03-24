@@ -136,6 +136,7 @@ if [ "$qmd_auto_install" = "true" ]; then
   QMD_DERIVED_DOCX_ROOT="/data/cache/qmd/derived/docx"
   QMD_RUNTIME_STATUS_PATH="/data/cache/qmd/runtime-status.json"
   QMD_DERIVED_STATUS_PATH="/data/cache/qmd/derived/status.json"
+  QMD_BUILD_LOG_PATH="/data/cache/qmd/qmd-build.log"
 
   write_qmd_runtime_status() {
     last_update_at="${1:-null}"
@@ -231,10 +232,18 @@ EOF
     if bun install -g @tobilu/qmd; then
       echo "[entrypoint] qmd package installed, building from source..."
       if [ -d "$qmd_install_path" ]; then
-        (cd "$qmd_install_path" && bun install && bun run build) >/dev/null 2>&1
+        mkdir -p /data/cache/qmd
+        echo "[entrypoint] Capturing qmd build output in ${QMD_BUILD_LOG_PATH}..."
+        if ! (cd "$qmd_install_path" && bun install && bun run build) >"$QMD_BUILD_LOG_PATH" 2>&1; then
+          echo "[entrypoint] ERROR: qmd build failed. Last 200 log lines:"
+          tail -n 200 "$QMD_BUILD_LOG_PATH" 2>/dev/null || cat "$QMD_BUILD_LOG_PATH" 2>/dev/null || true
+          fatal_startup "qmd build failed. Full log: ${QMD_BUILD_LOG_PATH}"
+        fi
         if qmd_cli_ready; then
           echo "[entrypoint] qmd built and working successfully."
         else
+          echo "[entrypoint] ERROR: qmd CLI still not working after build. Last 200 log lines:"
+          tail -n 200 "$QMD_BUILD_LOG_PATH" 2>/dev/null || cat "$QMD_BUILD_LOG_PATH" 2>/dev/null || true
           fatal_startup "qmd build finished but the CLI is still not working."
         fi
       else

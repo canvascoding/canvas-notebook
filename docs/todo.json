@@ -1,4 +1,11 @@
 {
-  "updatedAt": "2026-03-24",
-  "items": []
+  "updatedAt": "2026-03-24T23:59:00+01:00",
+  "items": [
+    {
+      "id": "debug-qmd-entrypoint-failure",
+      "title": "Entrypoint-Logging fuer qmd-Rebuild verbessern",
+      "status": "done",
+      "notes": "Der qmd-Build im Docker-Entrypoint schreibt jetzt nach /data/cache/qmd/qmd-build.log und gibt bei Fehlern die letzten 200 Zeilen direkt ins Container-Log aus."
+    }
+  ]
 }
