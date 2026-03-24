@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Eye, EyeOff, Loader2, Save, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -25,23 +26,24 @@ interface ProviderEnvEditorProps {
   onProviderActivate?: () => Promise<void>;
 }
 
-function getEnvPlaceholder(providerId: string, state: EnvVarState): string {
+function getEnvPlaceholder(providerId: string, state: EnvVarState, t: ReturnType<typeof useTranslations>): string {
   if (providerId === 'ollama' && state.name === 'OLLAMA_API_KEY') {
-    return 'Beliebigen Wert eingeben oder leer lassen...';
+    return t('providerEnv.placeholderOllama');
   }
 
-  return 'API Key eingeben...';
+  return t('providerEnv.placeholderGeneric');
 }
 
-function getEnvHelperText(providerId: string, state: EnvVarState): string | null {
+function getEnvHelperText(providerId: string, state: EnvVarState, t: ReturnType<typeof useTranslations>): string | null {
   if (providerId === 'ollama' && state.name === 'OLLAMA_API_KEY') {
-    return 'Pflichtfeld für Ollama. Wenn du nichts einträgst, wird im Hintergrund automatisch eine zufällige Zahlenkette gesetzt.';
+    return t('providerEnv.helperOllama');
   }
 
   return null;
 }
 
 export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProviderActivate }: ProviderEnvEditorProps) {
+  const t = useTranslations('settings');
   const [envStates, setEnvStates] = useState<EnvVarState[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -98,11 +100,11 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       setHasChanges(false);
     } catch (error) {
       console.error('Failed to load env values:', error);
-      setMessage({ type: 'error', text: 'Fehler beim Laden der Umgebungsvariablen' });
+      setMessage({ type: 'error', text: t('providerEnv.errors.load') });
     } finally {
       setLoading(false);
     }
-  }, [envVars]);
+  }, [envVars, t]);
 
   useEffect(() => {
     loadEnvValues();
@@ -136,7 +138,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       return;
     }
 
-    if (!confirm(`Möchten Sie den Wert für ${state.name} wirklich löschen?`)) {
+    if (!confirm(t('providerEnv.confirmDelete', { name: state.name }))) {
       return;
     }
 
@@ -149,7 +151,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       const data = await response.json();
 
       if (!data.success) {
-        throw new Error(data.error || 'Failed to load current entries');
+        throw new Error(data.error || t('providerEnv.errors.loadCurrentEntries'));
       }
 
       // Filter out the entry to delete
@@ -175,7 +177,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       const saveData = await saveResponse.json();
 
       if (!saveData.success) {
-        throw new Error(saveData.error || 'Failed to delete value');
+        throw new Error(saveData.error || t('providerEnv.errors.delete'));
       }
 
       setEnvStates((current) =>
@@ -184,14 +186,14 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
         )
       );
 
-      setMessage({ type: 'success', text: `${state.name} erfolgreich gelöscht` });
+      setMessage({ type: 'success', text: t('providerEnv.deletedSuccess', { name: state.name }) });
       setHasChanges(false);
       onSaveComplete?.();
     } catch (error) {
       console.error('Failed to delete env value:', error);
       setMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Fehler beim Löschen',
+        text: error instanceof Error ? error.message : t('providerEnv.errors.delete'),
       });
     } finally {
       setSaving(false);
@@ -210,7 +212,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       const names = missingRequired.map((state) => state.name).join(', ');
       setMessage({
         type: 'error',
-        text: `Bitte fülle die Pflichtfelder aus: ${names}`,
+        text: t('providerEnv.fillRequired', { names }),
       });
       return;
     }
@@ -246,7 +248,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
         const data = await response.json();
 
         if (!data.success) {
-          throw new Error(data.error || `Failed to load entries for ${scope}`);
+          throw new Error(data.error || t('providerEnv.errors.loadEntriesForScope', { scope }));
         }
 
         // Build updated entries map
@@ -283,7 +285,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
         const saveData = await saveResponse.json();
 
         if (!saveData.success) {
-          throw new Error(saveData.error || `Failed to save ${scope}`);
+          throw new Error(saveData.error || t('providerEnv.errors.saveScope', { scope }));
         }
       }
 
@@ -303,8 +305,8 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       setMessage({
         type: 'success',
         text: ollamaFallbackGenerated
-          ? 'Ollama-Konfiguration gespeichert. Für OLLAMA_API_KEY wurde automatisch eine zufällige Zahlenkette hinterlegt.'
-          : 'API Key und Provider erfolgreich gespeichert',
+          ? t('providerEnv.savedOllama')
+          : t('providerEnv.saved'),
       });
       setHasChanges(false);
       onSaveComplete?.();
@@ -312,7 +314,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       console.error('Failed to save env values:', error);
       setMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Fehler beim Speichern',
+        text: error instanceof Error ? error.message : t('providerEnv.errors.save'),
       });
     } finally {
       setSaving(false);
@@ -323,7 +325,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
     return (
       <div className="rounded border border-border bg-muted/30 p-4">
         <p className="text-sm text-muted-foreground">
-          Dieser Provider benötigt keine Umgebungsvariablen.
+          {t('providerEnv.noEnvVars')}
         </p>
       </div>
     );
@@ -353,7 +355,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       {hasChanges && (
         <div className="flex items-center gap-2 rounded border border-yellow-500/30 bg-yellow-50 p-3 text-sm text-yellow-700 dark:border-yellow-500/30 dark:bg-yellow-950/30 dark:text-yellow-400">
           <AlertCircle className="h-4 w-4" />
-          Ungespeicherte Änderungen vorhanden
+          {t('providerEnv.unsavedChanges')}
         </div>
       )}
 
@@ -361,7 +363,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Lade Umgebungsvariablen...
+          {t('providerEnv.loading')}
         </div>
       ) : (
         <div className="space-y-4">
@@ -380,10 +382,10 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
                   )}
                 </code>
                 <span className="text-xs text-muted-foreground">
-                  {state.scope === 'agents' ? 'Agent Environment' : 'Integrations'}
+                  {state.scope === 'agents' ? t('providerEnv.scopeAgentEnvironment') : t('providerEnv.scopeIntegrations')}
                   {state.exists && !state.isDirty && (
                     <span className="ml-2 text-xs text-green-600 dark:text-green-400">
-                      ✓ Gespeichert
+                      ✓ {t('providerEnv.savedIndicator')}
                     </span>
                   )}
                 </span>
@@ -399,7 +401,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
                     type={state.isVisible ? 'text' : 'password'}
                     value={state.value}
                     onChange={(e) => updateValue(index, e.target.value)}
-                    placeholder={getEnvPlaceholder(providerId, state)}
+                    placeholder={getEnvPlaceholder(providerId, state, t)}
                     disabled={saving}
                     className={state.isDirty ? 'border-yellow-500' : ''}
                   />
@@ -435,15 +437,15 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
               {!state.value && !state.exists && (
                 <p className="text-xs text-muted-foreground">
                   {providerId === 'ollama' && state.name === 'OLLAMA_API_KEY'
-                    ? 'Pflichtfeld noch nicht konfiguriert. Beim Speichern wird automatisch ein Fallback erzeugt.'
+                    ? t('providerEnv.ollamaNotConfigured')
                     : state.required
-                      ? 'Pflichtfeld noch nicht konfiguriert'
-                      : 'Noch nicht konfiguriert'}
+                      ? t('providerEnv.requiredNotConfigured')
+                      : t('providerEnv.notConfigured')}
                 </p>
               )}
 
-              {getEnvHelperText(providerId, state) && (
-                <p className="text-xs text-muted-foreground">{getEnvHelperText(providerId, state)}</p>
+              {getEnvHelperText(providerId, state, t) && (
+                <p className="text-xs text-muted-foreground">{getEnvHelperText(providerId, state, t)}</p>
               )}
             </div>
           ))}
@@ -454,12 +456,12 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Speichern...
+                  {t('providerEnv.saving')}
                 </>
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
-                  Alle speichern
+                  {t('providerEnv.saveAll')}
                 </>
               )}
             </Button>
@@ -468,7 +470,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
               onClick={loadEnvValues}
               disabled={saving}
             >
-              Neu laden
+              {t('providerEnv.reload')}
             </Button>
           </div>
         </div>

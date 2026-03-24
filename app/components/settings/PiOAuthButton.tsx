@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -30,6 +31,7 @@ interface PiOAuthButtonProps {
 }
 
 export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
+  const t = useTranslations('settings');
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
@@ -66,7 +68,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
   const handleConnected = async (provider: OAuthStatus, message?: string) => {
     setIsOpen(false);
     resetDialogState();
-    setSuccessMessage(message || `Successfully connected to ${provider.displayName}`);
+    setSuccessMessage(message || t('oauth.successConnected', { provider: provider.displayName }));
     await loadStatus();
     onStatusChange?.();
   };
@@ -78,7 +80,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
     completedFlowRef.current = currentFlowId;
     setIsFinalizing(true);
-    setPendingMessage('Finishing provider connection...');
+    setPendingMessage(t('oauth.finishingProviderConnection'));
     setError(null);
 
     try {
@@ -95,13 +97,13 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to complete OAuth flow');
+        throw new Error(data.error || t('oauth.errors.completeFlow'));
       }
 
       await handleConnected(provider, data.message);
     } catch (err) {
       completedFlowRef.current = null;
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : t('oauth.errors.unknown'));
     } finally {
       setIsFinalizing(false);
     }
@@ -144,7 +146,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
           }
           
           if (data.status === 'failed' || data.error) {
-            setError(data.error || 'OAuth flow failed');
+            setError(data.error || t('oauth.errors.flowFailed'));
             setIsPolling(false);
             setPendingMessage(null);
           }
@@ -164,7 +166,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     if (!authUrlResolved) {
       timeoutId = setTimeout(() => {
         if (!authUrlResolved) {
-          setError('Timeout waiting for authorization URL');
+          setError(t('oauth.errors.timeoutWaitingForUrl'));
           setIsPolling(false);
         }
       }, 60000);
@@ -211,7 +213,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
   const initiateAuth = async () => {
     if (!selectedProvider) {
-      setError('Please select a provider');
+      setError(t('oauth.errors.selectProvider'));
       return;
     }
 
@@ -237,7 +239,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to initiate OAuth');
+        throw new Error(data.error || t('oauth.errors.initiate'));
       }
 
       setFlowId(data.flowId);
@@ -250,7 +252,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
         setIsPolling(false);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : t('oauth.errors.unknown'));
       setIsPolling(false);
     } finally {
       setIsLoading(false);
@@ -259,12 +261,12 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
 
   const exchangeCode = async () => {
     if (!code.trim()) {
-      setError('Please enter the authorization code or callback URL');
+      setError(t('oauth.errors.enterCode'));
       return;
     }
 
     if (!flowId || !selectedProvider) {
-      setError('Missing flow information');
+      setError(t('oauth.errors.missingFlowInfo'));
       return;
     }
 
@@ -287,18 +289,18 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to exchange code');
+        throw new Error(data.error || t('oauth.errors.exchangeCode'));
       }
 
       if (data.pending) {
-        setPendingMessage(data.message || 'Authorization code received. Waiting for provider completion...');
+        setPendingMessage(data.message || t('oauth.pendingDefault'));
         setIsPolling(true);
         return;
       }
 
       await handleConnected(selectedProvider, data.message);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : t('oauth.errors.unknown'));
     } finally {
       setIsLoading(false);
     }
@@ -315,7 +317,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       });
 
       if (response.ok) {
-        setSuccessMessage(`Disconnected from ${provider.displayName}`);
+        setSuccessMessage(t('oauth.disconnected', { provider: provider.displayName }));
         await loadStatus();
         onStatusChange?.();
       }
@@ -356,9 +358,9 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       {connectedProviders.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-foreground">Connected Accounts</h4>
+            <h4 className="text-sm font-semibold text-foreground">{t('oauth.sections.connectedAccounts')}</h4>
             <span className="text-xs text-muted-foreground bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-              {connectedProviders.length} active
+              {t('oauth.sections.activeCount', { count: connectedProviders.length })}
             </span>
           </div>
           
@@ -374,7 +376,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                   </div>
                   <div>
                     <span className="text-sm font-semibold text-foreground">{provider.displayName}</span>
-                    <p className="text-xs text-green-600">Connected and ready</p>
+                    <p className="text-xs text-green-600">{t('oauth.sections.connectedAndReady')}</p>
                   </div>
                 </div>
                 <Button
@@ -389,7 +391,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                   ) : (
                     <Unlink className="h-4 w-4 mr-1" />
                   )}
-                  Disconnect
+                  {t('oauth.sections.disconnect')}
                 </Button>
               </div>
             ))}
@@ -404,7 +406,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
             <div className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center">
-            <span className="bg-background px-2 text-xs text-muted-foreground">Add another account</span>
+            <span className="bg-background px-2 text-xs text-muted-foreground">{t('oauth.sections.addAnotherAccount')}</span>
           </div>
         </div>
       )}
@@ -412,7 +414,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       {/* Connect New Account Section */}
       {availableProviders.length > 0 ? (
         <div className="space-y-3">
-          <h4 className="text-sm font-semibold text-foreground">Connect Account</h4>
+          <h4 className="text-sm font-semibold text-foreground">{t('oauth.sections.connectAccount')}</h4>
           <div className="flex gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -425,7 +427,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                   {selectedProvider ? (
                     <span className="font-medium">{selectedProvider.displayName}</span>
                   ) : (
-                    <span className="text-muted-foreground">Select provider...</span>
+                    <span className="text-muted-foreground">{t('oauth.sections.selectProvider')}</span>
                   )}
                   <ChevronDown className="h-4 w-4 ml-2 text-muted-foreground" />
                 </Button>
@@ -453,14 +455,14 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
               ) : (
                 <Link2 className="mr-2 h-4 w-4" />
               )}
-              Connect
+              {t('oauth.sections.connect')}
             </Button>
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
       ) : connectedProviders.length === 0 ? (
         <div className="text-sm text-muted-foreground text-center py-4">
-          No OAuth providers available
+          {t('oauth.sections.noProvidersAvailable')}
         </div>
       ) : null}
 
@@ -468,9 +470,9 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Connect OAuth Account</DialogTitle>
+            <DialogTitle>{t('oauth.dialog.title')}</DialogTitle>
             <DialogDescription>
-              Complete the authentication to connect your account.
+              {t('oauth.dialog.description')}
             </DialogDescription>
           </DialogHeader>
 
@@ -480,9 +482,9 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
               <div className="flex flex-col items-center gap-3 py-8">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 <div className="text-center">
-                  <p className="text-sm font-medium">Waiting for authorization URL...</p>
+                  <p className="text-sm font-medium">{t('oauth.dialog.waitingForUrlTitle')}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    This may take a few seconds
+                    {t('oauth.dialog.waitingForUrlDescription')}
                   </p>
                 </div>
               </div>
@@ -491,9 +493,9 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
             {/* Auth URL */}
             {authUrl && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Step 1: Open Authorization URL</label>
+                <label className="text-sm font-medium">{t('oauth.dialog.step1Label')}</label>
                 <p className="text-xs text-muted-foreground">
-                  Click the button to open the authorization page:
+                  {t('oauth.dialog.step1Description')}
                 </p>
                 <div className="flex gap-2">
                   <Input
@@ -506,7 +508,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                     variant="outline"
                     size="icon"
                     onClick={() => void copyAuthUrl()}
-                    title="Copy URL"
+                    title={t('oauth.dialog.copyUrl')}
                   >
                     {copied ? (
                       <Check className="h-4 w-4 text-green-600" />
@@ -518,7 +520,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
                     variant="outline"
                     size="icon"
                     onClick={openAuthUrl}
-                    title="Open in new tab"
+                    title={t('oauth.dialog.openInNewTab')}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>
@@ -529,7 +531,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
             {/* Instructions */}
             {instructions && (
               <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 text-sm">
-                <p className="font-medium text-blue-900 mb-2">Instructions:</p>
+                <p className="font-medium text-blue-900 mb-2">{t('oauth.dialog.instructions')}</p>
                 <div className="text-blue-800 whitespace-pre-line">{instructions}</div>
               </div>
             )}
@@ -537,14 +539,14 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
             {/* Code Input - Always show when authUrl is available */}
             {authUrl && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Step 2: Enter Authorization Code</label>
+                <label className="text-sm font-medium">{t('oauth.dialog.step2Label')}</label>
                 <p className="text-xs text-muted-foreground">
-                  After authenticating in the browser, paste the authorization code or callback URL here:
+                  {t('oauth.dialog.step2Description')}
                 </p>
                 <Input
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="Paste authorization code or callback URL..."
+                  placeholder={t('oauth.dialog.codePlaceholder')}
                   className="font-mono text-sm"
                   data-testid="pi-oauth-code-input"
                 />
@@ -574,7 +576,7 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
               ) : (
                 <Link2 className="mr-2 h-4 w-4" />
               )}
-              Complete Connection
+              {t('oauth.dialog.completeConnection')}
             </Button>
           </div>
         </DialogContent>

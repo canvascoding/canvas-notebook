@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { Eye, EyeOff, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
@@ -48,8 +49,6 @@ type ScopeEditorState = {
 
 type ScopeCardConfig = {
   scope: EnvScope;
-  title: string;
-  description: string;
   emptyPath: string;
   keyHint: string;
 };
@@ -74,16 +73,11 @@ const INITIAL_SCOPE_STATE = (scope: EnvScope): ScopeEditorState => ({
 const SCOPE_CARDS: ScopeCardConfig[] = [
   {
     scope: 'integrations',
-    title: 'Micro-SaaS Integrations',
-    description:
-      'Keys fuer VEO, Nano Banana und weitere Micro-SaaS-Apps. Gemini-basierte Apps koennen hier denselben GEMINI_API_KEY teilen.',
     emptyPath: '/data/secrets/Canvas-Integrations.env',
     keyHint: 'Canvas-Integrations.env',
   },
   {
     scope: 'agents',
-    title: 'Agent Environment',
-    description: 'Keys und Agent-Env-Werte fuer OpenRouter, Ollama und die Agent-Runtime.',
     emptyPath: '/data/secrets/Canvas-Agents.env',
     keyHint: 'Canvas-Agents.env',
   },
@@ -151,6 +145,7 @@ function EnvEditorCard(props: {
   onSaveKeyValue: (scope: EnvScope) => Promise<void>;
   onSaveRaw: (scope: EnvScope) => Promise<void>;
 }) {
+  const t = useTranslations('settings');
   const {
     card,
     editor,
@@ -168,27 +163,28 @@ function EnvEditorCard(props: {
   return (
     <Card>
       <CardHeader className="px-4 sm:px-6">
-        <CardTitle>{card.title}</CardTitle>
+        <CardTitle>{t(`scopes.${card.scope}.title`)}</CardTitle>
         <CardDescription>
-          {card.description} Datei liegt unter <span className="break-all font-mono">{editor.state?.path || card.emptyPath}</span>.
+          {t(`scopes.${card.scope}.description`)} {t('envCard.fileLocatedAt')}{' '}
+          <span className="break-all font-mono">{editor.state?.path || card.emptyPath}</span>.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
         {editor.isLoading ? (
           <div className="flex items-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Lade Konfiguration...
+            {t('envCard.loadingConfig')}
           </div>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>Datei: {card.keyHint}</span>
+              <span>{t('envCard.fileLabel')}: {card.keyHint}</span>
               <span>•</span>
-              <span>Format: .env</span>
+              <span>{t('envCard.formatLabel')}: .env</span>
               <span>•</span>
-              <span>Berechtigung: 0600</span>
+              <span>{t('envCard.permissionsLabel')}: 0600</span>
               <span>•</span>
-              <span>{editor.state?.encryptionEnabled ? 'Verschluesselung aktiv' : 'Verschluesselung inaktiv'}</span>
+              <span>{editor.state?.encryptionEnabled ? t('envCard.encryptionActive') : t('envCard.encryptionInactive')}</span>
             </div>
 
             {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
@@ -199,15 +195,15 @@ function EnvEditorCard(props: {
               onValueChange={(value) => onActiveTabChange(card.scope, value as 'kv' | 'raw')}
             >
               <TabsList className="grid h-auto w-full grid-cols-2">
-                <TabsTrigger value="kv">Key / Value</TabsTrigger>
-                <TabsTrigger value="raw">Raw .env</TabsTrigger>
+                <TabsTrigger value="kv">{t('envCard.tabKeyValue')}</TabsTrigger>
+                <TabsTrigger value="raw">{t('envCard.tabRaw')}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="kv" className="space-y-3">
                 <div className="hidden grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] gap-3 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase md:grid">
-                  <span>Key</span>
-                  <span>Value</span>
-                  <span className="text-right">Aktion</span>
+                  <span>{t('envCard.columnKey')}</span>
+                  <span>{t('envCard.columnValue')}</span>
+                  <span className="text-right">{t('envCard.columnAction')}</span>
                 </div>
 
                 <div className="space-y-3">
@@ -221,7 +217,7 @@ function EnvEditorCard(props: {
                         className="grid gap-2 md:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] md:items-center"
                       >
                         <Input
-                          placeholder="KEY_NAME"
+                          placeholder={t('envCard.placeholderKeyName')}
                           value={entry.key}
                           onChange={(event) => onUpdateEntry(card.scope, index, { key: event.target.value })}
                           disabled={editor.isSaving}
@@ -229,7 +225,7 @@ function EnvEditorCard(props: {
                         <div className="relative min-w-0">
                           <Input
                             type={secret && !visible ? 'password' : 'text'}
-                            placeholder={entry.encrypted ? 'Encrypted value' : 'value'}
+                            placeholder={entry.encrypted ? t('envCard.placeholderEncryptedValue') : t('envCard.placeholderValue')}
                             value={entry.value}
                             onChange={(event) => onUpdateEntry(card.scope, index, { value: event.target.value })}
                             disabled={editor.isSaving}
@@ -241,7 +237,7 @@ function EnvEditorCard(props: {
                               variant="ghost"
                               size="icon-sm"
                               className="absolute right-1 top-1/2 -translate-y-1/2"
-                              aria-label={visible ? 'Secret ausblenden' : 'Secret einblenden'}
+                              aria-label={visible ? t('envCard.hideSecret') : t('envCard.showSecret')}
                               onClick={() => onToggleSecret(card.scope, entry.id)}
                               disabled={editor.isSaving}
                             >
@@ -252,7 +248,7 @@ function EnvEditorCard(props: {
                         <Button
                           variant="outline"
                           size="icon-sm"
-                          aria-label="Delete row"
+                          aria-label={t('envCard.deleteRow')}
                           onClick={() => onRemoveEntry(card.scope, index)}
                           disabled={editor.isSaving}
                           className="justify-self-start md:justify-self-end"
@@ -267,15 +263,15 @@ function EnvEditorCard(props: {
                 <div className="flex flex-wrap items-center gap-2">
                   <Button type="button" variant="outline" onClick={() => onAddEntry(card.scope)} disabled={editor.isSaving}>
                     <Plus className="mr-1 h-4 w-4" />
-                    Zeile hinzufuegen
+                    {t('envCard.addRow')}
                   </Button>
                   <Button type="button" onClick={() => void onSaveKeyValue(card.scope)} disabled={editor.isSaving || editor.isLoading}>
                     {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Speichern
+                    {t('envCard.save')}
                   </Button>
                   <Button type="button" variant="outline" onClick={() => void onLoad(card.scope)} disabled={editor.isSaving}>
                     <RefreshCw className="mr-2 h-4 w-4" />
-                    Neu laden
+                    {t('envCard.reload')}
                   </Button>
                 </div>
               </TabsContent>
@@ -291,11 +287,11 @@ function EnvEditorCard(props: {
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" onClick={() => void onSaveRaw(card.scope)} disabled={editor.isSaving || editor.isLoading}>
                     {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Raw speichern
+                    {t('envCard.saveRaw')}
                   </Button>
                   <Button type="button" variant="outline" onClick={() => void onLoad(card.scope)} disabled={editor.isSaving}>
                     <RefreshCw className="mr-2 h-4 w-4" />
-                    Neu laden
+                    {t('envCard.reload')}
                   </Button>
                 </div>
               </TabsContent>
@@ -308,6 +304,7 @@ function EnvEditorCard(props: {
 }
 
 export function IntegrationsSettingsClient() {
+  const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
   const [settingsTab, setSettingsTab] = useState<'integrations' | 'agent-settings'>('integrations');
@@ -333,7 +330,7 @@ export function IntegrationsSettingsClient() {
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Failed to load env file');
+        throw new Error(payload.error || t('envCard.errors.loadEnvFile'));
       }
 
       const nextState: EnvState = payload.data;
@@ -352,7 +349,7 @@ export function IntegrationsSettingsClient() {
         },
       }));
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : 'Failed to load env file';
+      const message = loadError instanceof Error ? loadError.message : t('envCard.errors.loadEnvFile');
       setEditors((current) => ({
         ...current,
         [scope]: {
@@ -397,7 +394,7 @@ export function IntegrationsSettingsClient() {
       });
       const result = await response.json();
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to save env file');
+        throw new Error(result.error || t('envCard.errors.saveEnvFile'));
       }
 
       const nextState: EnvState = result.data;
@@ -411,12 +408,12 @@ export function IntegrationsSettingsClient() {
           rawContent: nextState.rawContent,
           isSaving: false,
           error: null,
-          success: payload.mode === 'raw' ? 'Raw-Env gespeichert.' : 'Einstellungen gespeichert.',
+          success: payload.mode === 'raw' ? t('envCard.rawSaved') : t('envCard.saved'),
           secretVisibilityById: buildHiddenState(nextDraftEntries),
         },
       }));
     } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : 'Failed to save env file';
+      const message = saveError instanceof Error ? saveError.message : t('envCard.errors.saveEnvFile');
       setEditors((current) => ({
         ...current,
         [scope]: {
@@ -546,10 +543,10 @@ export function IntegrationsSettingsClient() {
       >
         <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-2">
           <TabsTrigger value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            Integrations
+            {t('tabs.integrations')}
           </TabsTrigger>
           <TabsTrigger value="agent-settings" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            Agent Settings
+            {t('tabs.agentSettings')}
           </TabsTrigger>
         </TabsList>
 
