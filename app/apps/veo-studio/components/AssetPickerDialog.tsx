@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Loader2, Upload, RefreshCw } from 'lucide-react';
 import {
   Dialog,
@@ -56,6 +57,7 @@ export function AssetPickerDialog({
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'workspace' | 'upload'>('workspace');
+  const t = useTranslations('common.assetPicker');
 
   const acceptType = useMemo(() => (kind === 'image' ? 'image/*' : 'video/mp4,video/quicktime'), [kind]);
 
@@ -68,11 +70,11 @@ export function AssetPickerDialog({
       const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Failed to load assets');
+        throw new Error(payload.error || t('errors.loadFailed'));
       }
       setAssets(payload.data || []);
     } catch (fetchError) {
-      const message = fetchError instanceof Error ? fetchError.message : 'Failed to load assets';
+      const message = fetchError instanceof Error ? fetchError.message : t('errors.loadFailed');
       setError(message);
       setAssets([]);
     } finally {
@@ -130,13 +132,13 @@ export function AssetPickerDialog({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Upload failed');
+        throw new Error(payload.error || t('errors.uploadFailed'));
       }
 
       setTab('workspace');
       await loadAssets();
     } catch (uploadError) {
-      const message = uploadError instanceof Error ? uploadError.message : 'Upload failed';
+      const message = uploadError instanceof Error ? uploadError.message : t('errors.uploadFailed');
       setError(message);
     } finally {
       setIsUploading(false);
@@ -147,22 +149,20 @@ export function AssetPickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] max-w-4xl border border-border bg-card max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>{kind === 'image' ? 'Bild auswählen' : 'Video auswählen'}</DialogTitle>
-          <DialogDescription>
-            Wähle Assets aus dem Workspace oder lade neue Dateien hoch.
-          </DialogDescription>
+          <DialogTitle>{kind === 'image' ? t('imageTitle') : t('videoTitle')}</DialogTitle>
+          <DialogDescription>{t('description')}</DialogDescription>
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={(value) => setTab(value as 'workspace' | 'upload')}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="workspace">Workspace</TabsTrigger>
-            <TabsTrigger value="upload">Upload</TabsTrigger>
+            <TabsTrigger value="workspace">{t('workspaceTab')}</TabsTrigger>
+            <TabsTrigger value="upload">{t('uploadTab')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="workspace" className="space-y-3">
             <div className="flex gap-2">
               <Input
-                placeholder="Suche nach Dateiname oder Pfad"
+                placeholder={t('searchPlaceholder')}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
@@ -176,7 +176,7 @@ export function AssetPickerDialog({
                 disabled={isLoading}
               >
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-                Aktualisieren
+                {t('refresh')}
               </Button>
             </div>
 
@@ -186,11 +186,11 @@ export function AssetPickerDialog({
               {isLoading ? (
                 <div className="flex h-40 items-center justify-center text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Lade Assets...
+                  {t('loading')}
                 </div>
               ) : assets.length === 0 ? (
                 <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                  Keine passenden Assets gefunden.
+                  {t('empty')}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
@@ -236,7 +236,7 @@ export function AssetPickerDialog({
           <TabsContent value="upload" className="space-y-3">
             <div className="border border-dashed border-border bg-background p-6">
               <p className="mb-3 text-sm text-muted-foreground">
-                Upload-Ziel: <span className="font-mono">{uploadPath}</span>
+                {t('uploadTarget')} <span className="font-mono">{uploadPath}</span>
               </p>
               <Button
                 type="button"
@@ -246,7 +246,7 @@ export function AssetPickerDialog({
                 disabled={isUploading}
               >
                 {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                Dateien hochladen
+                {t('uploadFiles')}
               </Button>
               <input
                 ref={fileInputRef}
@@ -266,14 +266,14 @@ export function AssetPickerDialog({
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           <p className="text-xs text-muted-foreground">
             {multiple
-              ? `${selectedPaths.length}/${maxSelection} ausgewählt`
+              ? t('selection.multiple', { selected: selectedPaths.length, max: maxSelection })
               : selectedPaths.length > 0
-                ? '1 ausgewählt'
-                : 'Nichts ausgewählt'}
+                ? t('selection.one')
+                : t('selection.none')}
           </p>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Abbrechen
+              {t('cancel')}
             </Button>
             <Button
               onClick={() => {
@@ -282,7 +282,7 @@ export function AssetPickerDialog({
               }}
               disabled={selectedPaths.length === 0}
             >
-              Übernehmen
+              {t('confirm')}
             </Button>
           </div>
         </DialogFooter>

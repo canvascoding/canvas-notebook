@@ -337,13 +337,13 @@
         {
           "id": "5.10",
           "title": "Image Generation, Veo, Nano-Banana übersetzen",
-          "status": "in_progress",
+          "status": "done",
           "description": "Namespaces: 'imageGeneration', 'veo', 'nanoBanana'."
         },
         {
           "id": "5.11",
           "title": "Usage & Help übersetzen",
-          "status": "open",
+          "status": "in_progress",
           "description": "Namespaces: 'usage', 'help'."
         }
       ]

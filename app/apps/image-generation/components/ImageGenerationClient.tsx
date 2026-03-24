@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Loader2, RefreshCw, WandSparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,39 +37,6 @@ interface GenerateResponseData {
   outputDir: string;
 }
 
-const SAMPLE_PROMPTS = [
-  {
-    prompt: 'Premium product shot of a minimalist skincare bottle on a marble pedestal, soft studio lighting, clean luxury branding',
-    image: '/images/examples/aura_serum_produktfoto.png',
-    label: 'Skincare Produktfoto',
-  },
-  {
-    prompt: 'Instagram ad creative for a summer travel campaign, bold typography, vibrant tropical colors, modern marketing style',
-    image: '/images/examples/reise_banner_find_your_paradise.png',
-    label: 'Reise-Kampagne',
-  },
-  {
-    prompt: 'Hero banner scene for a SaaS landing page, abstract 3D shapes, professional corporate palette, high-end tech aesthetic',
-    image: '/images/examples/tech_banner_future_of_innovation.png',
-    label: 'Tech Hero Banner',
-  },
-  {
-    prompt: 'Food campaign visual with dramatic lighting, gourmet burger and fries, high contrast commercial photography look',
-    image: '/images/examples/burger_fries_food_foto.png',
-    label: 'Food Kampagne',
-  },
-  {
-    prompt: 'Fashion e-commerce editorial: streetwear model in urban setting, cinematic lighting, high-detail fabric textures',
-    image: '/images/examples/streetwear_model_neon_gasse.png',
-    label: 'Fashion Editorial',
-  },
-  {
-    prompt: 'Before-and-after style concept image for a home cleaning brand, split composition, bright and trustworthy tone',
-    image: '/images/examples/wohnzimmer_before_after.png',
-    label: 'Before & After',
-  },
-] as const;
-
 const MAX_IMAGE_COUNT = 4;
 const MAX_REFERENCE_IMAGES = 10;
 
@@ -79,25 +47,37 @@ interface ModelOption {
   shortLabel: string;
 }
 
-const MODEL_OPTIONS: ModelOption[] = [
-  {
-    label: '🎨 Best Quality & Features',
-    value: 'gemini-3.1-flash-image-preview',
-    shortLabel: 'Gemini 3.1 Flash Image',
-    description: 'Latest model with highest quality and more capabilities. Supports up to 14 reference images and advanced features like grounding. Best for professional results.',
-  },
-  {
-    label: '⚡ Fast & Affordable',
-    value: 'gemini-2.5-flash-image',
-    shortLabel: 'Gemini 2.5 Flash Image',
-    description: 'Fast generation at lower cost. Supports up to 3 reference images. Perfect for quick drafts, simple images, and when speed matters.',
-  },
+const SAMPLE_PROMPT_META = [
+  { id: 'skincareProductShot', image: '/images/examples/aura_serum_produktfoto.png' },
+  { id: 'travelCampaign', image: '/images/examples/reise_banner_find_your_paradise.png' },
+  { id: 'techHeroBanner', image: '/images/examples/tech_banner_future_of_innovation.png' },
+  { id: 'foodCampaign', image: '/images/examples/burger_fries_food_foto.png' },
+  { id: 'fashionEditorial', image: '/images/examples/streetwear_model_neon_gasse.png' },
+  { id: 'beforeAfter', image: '/images/examples/wohnzimmer_before_after.png' },
 ] as const;
+
+const MODEL_OPTION_META = [
+  { id: 'bestQuality', value: 'gemini-3.1-flash-image-preview' },
+  { id: 'fastAffordable', value: 'gemini-2.5-flash-image' },
+] as const;
+
 const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
 
 export function ImageGenerationClient() {
+  const t = useTranslations('imageGeneration');
+  const modelOptions: ModelOption[] = MODEL_OPTION_META.map((option) => ({
+    label: t(`modelOptions.${option.id}.label`),
+    value: option.value,
+    shortLabel: t(`modelOptions.${option.id}.shortLabel`),
+    description: t(`modelOptions.${option.id}.description`),
+  }));
+  const samplePrompts = SAMPLE_PROMPT_META.map((item) => ({
+    image: item.image,
+    label: t(`samplePrompts.${item.id}.label`),
+    prompt: t(`samplePrompts.${item.id}.prompt`),
+  }));
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState<string>(MODEL_OPTIONS[0].value);
+  const [model, setModel] = useState<string>(MODEL_OPTION_META[0].value);
   const [aspectRatio, setAspectRatio] = useState<(typeof ASPECT_RATIOS)[number]>('1:1');
   const [imageCount, setImageCount] = useState(1);
   const [referenceImagePaths, setReferenceImagePaths] = useState<string[]>([]);
@@ -124,7 +104,7 @@ export function ImageGenerationClient() {
       );
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Failed to load image generation outputs');
+        throw new Error(payload.error || t('errors.loadOutputs'));
       }
 
       const items: OutputItem[] = (payload.data || []).map(
@@ -170,17 +150,17 @@ export function ImageGenerationClient() {
 
       if (!response.ok || !payload.success) {
         setResults(data?.results || []);
-        throw new Error(payload.error || 'Image generation failed');
+        throw new Error(payload.error || t('errors.generate'));
       }
 
       setResults(data?.results || []);
       if ((data?.failureCount || 0) > 0) {
-        setError(`${data?.failureCount} Variation(en) konnten nicht erzeugt werden.`);
+        setError(t('errors.partialFailure', { count: data?.failureCount || 0 }));
       }
 
       await loadOutputs();
     } catch (generateError) {
-      const message = generateError instanceof Error ? generateError.message : 'Image generation failed';
+      const message = generateError instanceof Error ? generateError.message : t('errors.generate');
       setError(message);
     } finally {
       setIsGenerating(false);
@@ -195,9 +175,9 @@ export function ImageGenerationClient() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 md:px-6">
       <Card>
         <CardHeader>
-          <CardTitle>AI Studio Image Generator</CardTitle>
+          <CardTitle>{t('cardTitle')}</CardTitle>
           <CardDescription>
-            Generiere bis zu {MAX_IMAGE_COUNT} Bildvariationen mit Prompt und optionalen Referenzbildern. Ausgabe im Workspace unter{' '}
+            {t('cardDescription', { count: MAX_IMAGE_COUNT })}{' '}
             <span className="font-mono">image-generation/generations</span>.
           </CardDescription>
         </CardHeader>
@@ -205,13 +185,13 @@ export function ImageGenerationClient() {
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <div className="flex flex-col gap-2">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">Model</span>
+                <span className="text-xs text-muted-foreground">{t('fields.model')}</span>
                 <select
                   className="h-9 border border-input bg-background px-2 text-sm"
                   value={model}
                   onChange={(event) => setModel(event.target.value)}
                 >
-                  {MODEL_OPTIONS.map((option) => (
+                  {modelOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -219,7 +199,7 @@ export function ImageGenerationClient() {
                 </select>
               </label>
               {(() => {
-                const selectedModel = MODEL_OPTIONS.find((m) => m.value === model);
+                const selectedModel = modelOptions.find((m) => m.value === model);
                 return selectedModel ? (
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     <span className="font-medium text-foreground">{selectedModel.shortLabel}:</span>{' '}
@@ -230,7 +210,7 @@ export function ImageGenerationClient() {
             </div>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Aspect Ratio</span>
+              <span className="text-xs text-muted-foreground">{t('fields.aspectRatio')}</span>
               <select
                 className="h-9 border border-input bg-background px-2 text-sm"
                 value={aspectRatio}
@@ -245,7 +225,7 @@ export function ImageGenerationClient() {
             </label>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Anzahl Variationen</span>
+              <span className="text-xs text-muted-foreground">{t('fields.imageCount')}</span>
               <select
                 className="h-9 border border-input bg-background px-2 text-sm"
                 value={imageCount}
@@ -260,27 +240,27 @@ export function ImageGenerationClient() {
             </label>
 
             <div className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Reference Images</span>
+              <span className="text-xs text-muted-foreground">{t('fields.referenceImages')}</span>
               <Button variant="outline" onClick={() => setPickerOpen(true)}>
-                Referenzen wählen
+                {t('actions.selectReferences')}
               </Button>
             </div>
           </div>
 
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs text-muted-foreground">Prompt</span>
+            <span className="text-xs text-muted-foreground">{t('fields.prompt')}</span>
             <textarea
               className="min-h-[110px] border border-input bg-background px-3 py-2 text-sm"
-              placeholder="Beschreibe das gewünschte Bild..."
+              placeholder={t('promptPlaceholder')}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
             />
           </label>
 
           <div className="space-y-2 border border-border bg-background p-3">
-            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Prompt Ideen</p>
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('promptIdeas')}</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-              {SAMPLE_PROMPTS.map((item) => (
+              {samplePrompts.map((item) => (
                 <button
                   key={item.image}
                   type="button"
@@ -303,7 +283,7 @@ export function ImageGenerationClient() {
 
           <div className="space-y-2 border border-border bg-background p-3">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Reference Images</p>
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('referenceSection.title')}</p>
               <p className="text-xs text-muted-foreground">
                 {referenceImagePaths.length}/{MAX_REFERENCE_IMAGES}
               </p>
@@ -325,7 +305,7 @@ export function ImageGenerationClient() {
                           type="button"
                         onClick={() => removeReference(path)}
                         className="absolute right-1 top-1 border border-border bg-background p-1.5 sm:p-1 min-w-[28px] min-h-[28px] sm:min-w-[24px] sm:min-h-[24px] flex items-center justify-center"
-                        aria-label="Referenz entfernen"
+                        aria-label={t('referenceSection.removeReference')}
                       >
                         <X className="h-4 w-4 sm:h-3 sm:w-3" />
                       </button>
@@ -337,7 +317,7 @@ export function ImageGenerationClient() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Noch keine Referenzbilder ausgewählt.</p>
+              <p className="text-sm text-muted-foreground">{t('referenceSection.empty')}</p>
             )}
           </div>
 
@@ -346,11 +326,11 @@ export function ImageGenerationClient() {
           <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
             <Button className="gap-2 w-full sm:w-auto" onClick={handleGenerate} disabled={!canGenerate}>
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
-              {isGenerating ? 'Generiere...' : `Generieren (${imageCount})`}
+              {isGenerating ? t('actions.generating') : t('actions.generateWithCount', { count: imageCount })}
             </Button>
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => void loadOutputs()} disabled={isLoadingOutputs}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingOutputs ? 'animate-spin' : ''}`} />
-              Aktualisieren
+              {t('actions.refresh')}
             </Button>
           </div>
         </CardContent>
@@ -358,30 +338,30 @@ export function ImageGenerationClient() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Aktuelle Ergebnisse</CardTitle>
-          <CardDescription>Ergebnisse aus dem letzten Generierungslauf.</CardDescription>
+          <CardTitle>{t('currentResults.title')}</CardTitle>
+          <CardDescription>{t('currentResults.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           {results.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Noch keine Generierung in dieser Session.</p>
+            <p className="text-sm text-muted-foreground">{t('currentResults.empty')}</p>
           ) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
               {results.map((result) => (
                 <div key={result.index} className="border border-border bg-background p-2">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold">Variation {result.index + 1}</p>
+                    <p className="text-xs font-semibold">{t('currentResults.variation', { index: result.index + 1 })}</p>
                     {result.path ? (
                       <a href={`/api/files/download?path=${encodeURIComponent(result.path)}`} download className="text-xs text-primary hover:underline">
-                        Download
+                        {t('actions.download')}
                       </a>
                     ) : null}
                   </div>
                   {result.error ? (
                     <p className="text-sm text-destructive">{result.error}</p>
                   ) : result.previewUrl ?? result.mediaUrl ? (
-                    <img src={result.previewUrl ?? result.mediaUrl} alt={`Variation ${result.index + 1}`} className="w-full h-auto border border-border bg-muted object-contain" />
+                    <img src={result.previewUrl ?? result.mediaUrl} alt={t('currentResults.variation', { index: result.index + 1 })} className="w-full h-auto border border-border bg-muted object-contain" />
                   ) : (
-                    <p className="text-sm text-muted-foreground">Kein Bild zurückgegeben.</p>
+                    <p className="text-sm text-muted-foreground">{t('currentResults.noImage')}</p>
                   )}
                   {result.path ? <p className="mt-2 truncate text-xs text-muted-foreground">{result.path}</p> : null}
                 </div>
@@ -393,12 +373,12 @@ export function ImageGenerationClient() {
 
       <Card>
         <CardHeader>
-          <CardTitle>generations</CardTitle>
-          <CardDescription>Zuletzt gespeicherte Bilder aus dem Workspace.</CardDescription>
+          <CardTitle>{t('savedOutputs.title')}</CardTitle>
+          <CardDescription>{t('savedOutputs.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           {outputItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Noch keine Bilder im Output-Ordner gefunden.</p>
+            <p className="text-sm text-muted-foreground">{t('savedOutputs.empty')}</p>
           ) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {outputItems.map((item) => (

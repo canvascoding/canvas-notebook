@@ -2,8 +2,8 @@
   "updatedAt": "2026-03-24",
   "items": [
     {
-      "id": "i18n-5.10",
-      "title": "Image Generation, Veo, Nano-Banana übersetzen",
+      "id": "i18n-5.11",
+      "title": "Usage & Help übersetzen",
       "status": "in_progress",
       "source": "docs/i18n-migration-todo.json"
     }

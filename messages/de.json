@@ -12,7 +12,34 @@
     "pleaseTryAgain": "Bitte versuche es erneut.",
     "unexpectedError": "Unerwarteter Fehler",
     "tryReloading": "Versuche die Seite neu zu laden.",
-    "loading": "Lade..."
+    "loading": "Lade...",
+    "apiKeyRequired": "API-Key erforderlich",
+    "geminiApiKeyRequired": "Diese App benötigt einen GEMINI_API_KEY. Bitte konfiguriere ihn im Integrations-Tab.",
+    "goToIntegrations": "Zu Integrations",
+    "assetPicker": {
+      "imageTitle": "Bild auswählen",
+      "videoTitle": "Video auswählen",
+      "description": "Wähle Assets aus dem Workspace oder lade neue Dateien hoch.",
+      "workspaceTab": "Workspace",
+      "uploadTab": "Upload",
+      "searchPlaceholder": "Nach Dateiname oder Pfad suchen",
+      "refresh": "Aktualisieren",
+      "loading": "Lade Assets...",
+      "empty": "Keine passenden Assets gefunden.",
+      "uploadTarget": "Upload-Ziel:",
+      "uploadFiles": "Dateien hochladen",
+      "cancel": "Abbrechen",
+      "confirm": "Übernehmen",
+      "selection": {
+        "none": "Nichts ausgewählt",
+        "one": "1 ausgewählt",
+        "multiple": "{selected}/{max} ausgewählt"
+      },
+      "errors": {
+        "loadFailed": "Assets konnten nicht geladen werden.",
+        "uploadFailed": "Upload fehlgeschlagen."
+      }
+    }
   },
   "navigation": {
     "hideSidebar": "Sidebar ausblenden",
@@ -928,9 +955,232 @@
     "confirmDelete": "Diese Automation wirklich löschen?",
     "noneYet": "Noch keiner vorhanden."
   },
-  "imageGeneration": { "title": "Image Generation" },
-  "veo": { "title": "VEO Studio" },
-  "nanoBanana": { "title": "Nano Banana Localizer" },
+  "imageGeneration": {
+    "title": "Bildgenerierung",
+    "cardTitle": "AI Studio Bildgenerator",
+    "cardDescription": "Erzeuge bis zu {count} Bildvariationen mit Prompt und optionalen Referenzbildern. Ausgabe im Workspace unter",
+    "fields": {
+      "model": "Modell",
+      "aspectRatio": "Seitenverhältnis",
+      "imageCount": "Anzahl Variationen",
+      "referenceImages": "Referenzbilder",
+      "prompt": "Prompt"
+    },
+    "promptPlaceholder": "Beschreibe das gewünschte Bild...",
+    "promptIdeas": "Prompt-Ideen",
+    "referenceSection": {
+      "title": "Referenzbilder",
+      "empty": "Noch keine Referenzbilder ausgewählt.",
+      "removeReference": "Referenz entfernen"
+    },
+    "actions": {
+      "selectReferences": "Referenzen wählen",
+      "generating": "Generiere...",
+      "generateWithCount": "Generieren ({count})",
+      "refresh": "Aktualisieren",
+      "download": "Download"
+    },
+    "currentResults": {
+      "title": "Aktuelle Ergebnisse",
+      "description": "Ergebnisse aus dem letzten Generierungslauf.",
+      "empty": "Noch keine Generierung in dieser Session.",
+      "variation": "Variation {index}",
+      "noImage": "Kein Bild zurückgegeben."
+    },
+    "savedOutputs": {
+      "title": "generations",
+      "description": "Zuletzt gespeicherte Bilder aus dem Workspace.",
+      "empty": "Noch keine Bilder im Output-Ordner gefunden."
+    },
+    "errors": {
+      "loadOutputs": "Gespeicherte Bilder konnten nicht geladen werden.",
+      "generate": "Bildgenerierung fehlgeschlagen.",
+      "partialFailure": "{count, plural, one {# Variation konnte nicht erzeugt werden.} other {# Variationen konnten nicht erzeugt werden.}}"
+    },
+    "modelOptions": {
+      "bestQuality": {
+        "label": "🎨 Beste Qualität & Funktionen",
+        "shortLabel": "Gemini 3.1 Flash Image",
+        "description": "Aktuellstes Modell mit höchster Qualität und erweiterten Funktionen. Unterstützt bis zu 14 Referenzbilder und Features wie Grounding. Ideal für professionelle Ergebnisse."
+      },
+      "fastAffordable": {
+        "label": "⚡ Schnell & günstig",
+        "shortLabel": "Gemini 2.5 Flash Image",
+        "description": "Schnelle Generierung zu geringeren Kosten. Unterstützt bis zu 3 Referenzbilder. Ideal für schnelle Entwürfe, einfache Motive und kurze Iterationen."
+      }
+    },
+    "samplePrompts": {
+      "skincareProductShot": {
+        "label": "Skincare-Produktfoto",
+        "prompt": "Premium-Produktfoto einer minimalistischen Skincare-Flasche auf einem Marmorsockel, weiches Studio-Licht, sauberes Luxus-Branding"
+      },
+      "travelCampaign": {
+        "label": "Reise-Kampagne",
+        "prompt": "Instagram-Ad-Creative für eine Sommer-Reisekampagne, markante Typografie, tropische Farben, moderner Marketing-Look"
+      },
+      "techHeroBanner": {
+        "label": "Tech-Hero-Banner",
+        "prompt": "Hero-Banner-Szene für eine SaaS-Landingpage, abstrakte 3D-Formen, professionelle Corporate-Farbpalette, hochwertige Tech-Ästhetik"
+      },
+      "foodCampaign": {
+        "label": "Food-Kampagne",
+        "prompt": "Key Visual für eine Food-Kampagne mit dramatischem Licht, Gourmet-Burger und Pommes, kontrastreicher Werbefotografie-Look"
+      },
+      "fashionEditorial": {
+        "label": "Fashion-Editorial",
+        "prompt": "Fashion-E-Commerce-Editorial: Streetwear-Model in urbaner Umgebung, cineastisches Licht, detaillierte Stofftexturen"
+      },
+      "beforeAfter": {
+        "label": "Vorher / Nachher",
+        "prompt": "Vorher-Nachher-Konzeptbild für eine Home-Cleaning-Marke, geteilte Komposition, heller und vertrauenswürdiger Ton"
+      }
+    }
+  },
+  "veo": {
+    "title": "VEO Studio",
+    "cardTitle": "VEO Studio",
+    "cardDescription": "Workspace-basierte Video-Generierung mit lokalen Referenzen und Ausgabe nach",
+    "fields": {
+      "mode": "Modus",
+      "model": "Modell",
+      "aspectRatio": "Seitenverhältnis",
+      "resolution": "Auflösung",
+      "prompt": "Prompt"
+    },
+    "promptPlaceholder": "Beschreibe das gewünschte Video...",
+    "sections": {
+      "frames": {
+        "title": "Frames",
+        "startFrame": "Start-Frame",
+        "endFrame": "End-Frame",
+        "loopVideo": "Loop-Video"
+      },
+      "references": {
+        "title": "Referenzbilder",
+        "select": "Referenzen auswählen",
+        "empty": "Noch keine Referenzen ausgewählt."
+      },
+      "inputVideo": {
+        "title": "Input-Video",
+        "select": "Input-Video auswählen",
+        "empty": "Noch kein Input-Video ausgewählt."
+      }
+    },
+    "actions": {
+      "generate": "Generieren",
+      "generating": "Generiere...",
+      "refresh": "Aktualisieren"
+    },
+    "currentResult": {
+      "title": "Aktuelles Ergebnis",
+      "description": "Letzte Generierung und gespeicherter Workspace-Pfad.",
+      "videoLabel": "Video:",
+      "metadataLabel": "Metadaten:",
+      "empty": "Noch keine Generierung in dieser Session."
+    },
+    "savedOutputs": {
+      "title": "video-generation",
+      "description": "Zuletzt gespeicherte Videos aus dem Workspace.",
+      "empty": "Noch keine Videos im Output-Ordner gefunden."
+    },
+    "modes": {
+      "textToVideo": "Text zu Video",
+      "framesToVideo": "Frames zu Video",
+      "referencesToVideo": "Referenzen zu Video",
+      "extendVideo": "Video verlängern"
+    },
+    "models": {
+      "fast": "Veo 3.1 Fast",
+      "highQuality": "Veo 3.1 Hohe Qualität"
+    },
+    "errors": {
+      "loadOutputs": "Gespeicherte Videos konnten nicht geladen werden.",
+      "generate": "Video-Generierung fehlgeschlagen."
+    }
+  },
+  "nanoBanana": {
+    "title": "Nano Banana Localizer",
+    "cardTitle": "Nano Banana Ad Localizer",
+    "cardDescription": "Referenziere eine bestehende Ad, lokalisiere die Texte für Zielmärkte und speichere Ergebnisse im Workspace unter",
+    "fields": {
+      "model": "Modell",
+      "aspectRatio": "Seitenverhältnis",
+      "referenceAd": "Referenz-Ad",
+      "targetMarkets": "Zielmärkte",
+      "customInstructions": "Zusätzliche Hinweise (optional)"
+    },
+    "selectedReference": "Ausgewähltes Referenzbild",
+    "referenceEmpty": "Noch kein Referenzbild ausgewählt.",
+    "targetMarketsPlaceholder": "Markt/Land hinzufügen (z. B. {example})",
+    "targetMarketsEmpty": "Noch keine Zielmärkte ausgewählt.",
+    "customInstructionsPlaceholder": "Optional: Tonalität, Terminologie oder Brand-Vorgaben...",
+    "actions": {
+      "selectReference": "Referenzbild wählen",
+      "addMarket": "Hinzufügen",
+      "localize": "Lokalisieren",
+      "localizing": "Lokalisiere...",
+      "refresh": "Aktualisieren",
+      "download": "Download"
+    },
+    "currentResults": {
+      "title": "Aktuelle Ergebnisse",
+      "description": "Ergebnisse aus dem letzten Lauf je Zielmarkt.",
+      "empty": "Noch keine Lokalisierung in dieser Session.",
+      "noImage": "Kein Bild zurückgegeben."
+    },
+    "savedOutputs": {
+      "title": "localizations",
+      "description": "Zuletzt gespeicherte Bilder aus dem Workspace.",
+      "empty": "Noch keine lokalisierten Ads im Output-Ordner gefunden."
+    },
+    "errors": {
+      "loadOutputs": "Gespeicherte Lokalisierungen konnten nicht geladen werden.",
+      "localize": "Lokalisierung fehlgeschlagen.",
+      "partialFailure": "{count, plural, one {# Markt konnte nicht lokalisiert werden.} other {# Märkte konnten nicht lokalisiert werden.}}"
+    },
+    "modelOptions": {
+      "bestQuality": {
+        "label": "🎨 Beste Qualität & Funktionen",
+        "shortLabel": "Gemini 3.1 Flash Image",
+        "description": "Aktuellstes Modell mit höchster Qualität und erweiterten Funktionen. Unterstützt bis zu 14 Referenzbilder und Features wie Grounding. Ideal für professionelle Ergebnisse."
+      },
+      "fastAffordable": {
+        "label": "⚡ Schnell & günstig",
+        "shortLabel": "Gemini 2.5 Flash Image",
+        "description": "Schnelle Generierung zu geringeren Kosten. Unterstützt bis zu 3 Referenzbilder. Ideal für schnelle Entwürfe, einfache Motive und kurze Iterationen."
+      }
+    },
+    "markets": {
+      "unitedStates": "Vereinigte Staaten",
+      "unitedKingdom": "Vereinigtes Königreich",
+      "germany": "Deutschland",
+      "france": "Frankreich",
+      "spain": "Spanien",
+      "italy": "Italien",
+      "portugal": "Portugal",
+      "netherlands": "Niederlande",
+      "belgium": "Belgien",
+      "poland": "Polen",
+      "sweden": "Schweden",
+      "norway": "Norwegen",
+      "denmark": "Dänemark",
+      "czechRepublic": "Tschechien",
+      "turkey": "Türkei",
+      "unitedArabEmirates": "Vereinigte Arabische Emirate",
+      "saudiArabia": "Saudi-Arabien",
+      "india": "Indien",
+      "japan": "Japan",
+      "southKorea": "Südkorea",
+      "thailand": "Thailand",
+      "vietnam": "Vietnam",
+      "indonesia": "Indonesien",
+      "mexico": "Mexiko",
+      "brazil": "Brasilien",
+      "argentina": "Argentinien",
+      "canada": "Kanada",
+      "australia": "Australien"
+    }
+  },
   "usage": { "title": "Nutzung" },
   "help": { "title": "Hilfe & Tutorials" }
 }

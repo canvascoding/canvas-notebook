@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Loader2, RefreshCw, WandSparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -28,12 +29,10 @@ interface GenerateResponseData {
   mediaUrl: string;
 }
 
-const MODE_LABELS: Record<GenerationMode, string> = {
-  text_to_video: 'Text to Video',
-  frames_to_video: 'Frames to Video',
-  references_to_video: 'References to Video',
-  extend_video: 'Extend Video',
-};
+const MODEL_OPTIONS = [
+  { value: 'veo-3.1-fast-generate-preview', key: 'fast' },
+  { value: 'veo-3.1-generate-preview', key: 'highQuality' },
+] as const;
 
 function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) {
   const name = path.split('/').pop() || path;
@@ -62,6 +61,13 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
 }
 
 export function VeoStudioClient() {
+  const t = useTranslations('veo');
+  const modeLabels: Record<GenerationMode, string> = {
+    text_to_video: t('modes.textToVideo'),
+    frames_to_video: t('modes.framesToVideo'),
+    references_to_video: t('modes.referencesToVideo'),
+    extend_video: t('modes.extendVideo'),
+  };
   const [mode, setMode] = useState<GenerationMode>('text_to_video');
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState('veo-3.1-fast-generate-preview');
@@ -112,7 +118,7 @@ export function VeoStudioClient() {
       );
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Failed to load generated videos');
+        throw new Error(payload.error || t('errors.loadOutputs'));
       }
       const items: OutputItem[] = (payload.data || []).map((item: { path: string; mediaUrl: string; previewUrl: string }) => ({
         path: item.path,
@@ -184,12 +190,12 @@ export function VeoStudioClient() {
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Video generation failed');
+        throw new Error(payload.error || t('errors.generate'));
       }
       setGenerated(payload.data);
       await loadOutputs();
     } catch (generateError) {
-      const message = generateError instanceof Error ? generateError.message : 'Video generation failed';
+      const message = generateError instanceof Error ? generateError.message : t('errors.generate');
       setError(message);
     } finally {
       setIsGenerating(false);
@@ -200,22 +206,22 @@ export function VeoStudioClient() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 md:px-6">
       <Card>
         <CardHeader>
-          <CardTitle>VEO Studio</CardTitle>
+          <CardTitle>{t('cardTitle')}</CardTitle>
           <CardDescription>
-            Workspace-basierte Video-Generierung mit lokalen Referenzen und Ausgabe nach{' '}
+            {t('cardDescription')}{' '}
             <span className="font-mono">veo-studio/video-generation</span>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Mode</span>
+              <span className="text-xs text-muted-foreground">{t('fields.mode')}</span>
               <select
                 className="h-9 border border-input bg-background px-2 text-sm"
                 value={mode}
                 onChange={(event) => setMode(event.target.value as GenerationMode)}
               >
-                {Object.entries(MODE_LABELS).map(([value, label]) => (
+                {Object.entries(modeLabels).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
@@ -223,18 +229,21 @@ export function VeoStudioClient() {
               </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Model</span>
+              <span className="text-xs text-muted-foreground">{t('fields.model')}</span>
               <select
                 className="h-9 border border-input bg-background px-2 text-sm"
                 value={model}
                 onChange={(event) => setModel(event.target.value)}
               >
-                <option value="veo-3.1-fast-generate-preview">Veo 3.1 Fast</option>
-                <option value="veo-3.1-generate-preview">Veo 3.1 High Quality</option>
+                {MODEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(`models.${option.key}`)}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Aspect Ratio</span>
+              <span className="text-xs text-muted-foreground">{t('fields.aspectRatio')}</span>
               <select
                 className="h-9 border border-input bg-background px-2 text-sm"
                 value={aspectRatio}
@@ -245,7 +254,7 @@ export function VeoStudioClient() {
               </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Resolution</span>
+              <span className="text-xs text-muted-foreground">{t('fields.resolution')}</span>
               <select
                 className="h-9 border border-input bg-background px-2 text-sm"
                 value={resolution}
@@ -260,10 +269,10 @@ export function VeoStudioClient() {
 
           {mode !== 'extend_video' && (
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Prompt</span>
+              <span className="text-xs text-muted-foreground">{t('fields.prompt')}</span>
               <textarea
                 className="min-h-[92px] border border-input bg-background px-3 py-2 text-sm"
-                placeholder="Beschreibe das gewünschte Video..."
+                placeholder={t('promptPlaceholder')}
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
               />
@@ -272,14 +281,14 @@ export function VeoStudioClient() {
 
           {mode === 'frames_to_video' && (
             <div className="space-y-2 border border-border bg-background p-3">
-              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Frames</p>
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.frames.title')}</p>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('start', 'image')}>
-                  Start Frame
+                  {t('sections.frames.startFrame')}
                 </Button>
                 {!isLooping && (
                   <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('end', 'image')}>
-                    End Frame
+                    {t('sections.frames.endFrame')}
                   </Button>
                 )}
               </div>
@@ -294,7 +303,7 @@ export function VeoStudioClient() {
                     }
                   }}
                 />
-                Loop-Video
+                {t('sections.frames.loopVideo')}
               </label>
               <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
                 {startFramePath && <PreviewChip path={startFramePath} kind="image" />}
@@ -306,9 +315,9 @@ export function VeoStudioClient() {
           {mode === 'references_to_video' && (
             <div className="space-y-2 border border-border bg-background p-3">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Reference Images</p>
+                <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.references.title')}</p>
                 <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => openPicker('references', 'image', true, 3)}>
-                  Referenzen auswählen
+                  {t('sections.references.select')}
                 </Button>
               </div>
               {referenceImagePaths.length > 0 ? (
@@ -318,21 +327,21 @@ export function VeoStudioClient() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">Noch keine Referenzen ausgewählt.</p>
+                <p className="text-sm text-muted-foreground">{t('sections.references.empty')}</p>
               )}
             </div>
           )}
 
           {mode === 'extend_video' && (
             <div className="space-y-2 border border-border bg-background p-3">
-              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Input Video</p>
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.inputVideo.title')}</p>
               <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('input', 'video')}>
-                Input Video auswählen
+                {t('sections.inputVideo.select')}
               </Button>
               {inputVideoPath ? (
                 <PreviewChip path={inputVideoPath} kind="video" />
               ) : (
-                <p className="text-sm text-muted-foreground">Noch kein Input-Video ausgewählt.</p>
+                <p className="text-sm text-muted-foreground">{t('sections.inputVideo.empty')}</p>
               )}
             </div>
           )}
@@ -342,11 +351,11 @@ export function VeoStudioClient() {
           <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
             <Button className="gap-2 w-full sm:w-auto" onClick={handleGenerate} disabled={!canGenerate}>
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
-              {isGenerating ? 'Generiere...' : 'Generieren'}
+              {isGenerating ? t('actions.generating') : t('actions.generate')}
             </Button>
             <Button variant="outline" className="w-full sm:w-auto" onClick={() => void loadOutputs()} disabled={isLoadingOutputs}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingOutputs ? 'animate-spin' : ''}`} />
-              Aktualisieren
+              {t('actions.refresh')}
             </Button>
           </div>
         </CardContent>
@@ -354,34 +363,34 @@ export function VeoStudioClient() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Aktuelles Ergebnis</CardTitle>
-          <CardDescription>Letzte Generierung und gespeicherter Workspace-Pfad.</CardDescription>
+          <CardTitle>{t('currentResult.title')}</CardTitle>
+          <CardDescription>{t('currentResult.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {generated ? (
             <>
               <video src={generated.mediaUrl} controls className="aspect-video w-full border border-border bg-muted max-h-[300px] sm:max-h-[400px]" />
               <p className="text-xs text-muted-foreground truncate">
-                Video: <span className="font-mono">{generated.path}</span>
+                {t('currentResult.videoLabel')} <span className="font-mono">{generated.path}</span>
               </p>
               <p className="text-xs text-muted-foreground truncate">
-                Metadaten: <span className="font-mono">{generated.metadataPath}</span>
+                {t('currentResult.metadataLabel')} <span className="font-mono">{generated.metadataPath}</span>
               </p>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">Noch keine Generierung in dieser Session.</p>
+            <p className="text-sm text-muted-foreground">{t('currentResult.empty')}</p>
           )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>video-generation</CardTitle>
-          <CardDescription>Zuletzt gespeicherte Videos aus dem Workspace.</CardDescription>
+          <CardTitle>{t('savedOutputs.title')}</CardTitle>
+          <CardDescription>{t('savedOutputs.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           {outputItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Noch keine Videos im Output-Ordner gefunden.</p>
+            <p className="text-sm text-muted-foreground">{t('savedOutputs.empty')}</p>
           ) : (
             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
               {outputItems.map((item) => (
