@@ -294,6 +294,97 @@
       }
     }
   },
+  "home": {
+    "header": {
+      "logoAlt": "Canvas Notebook logo",
+      "productName": "Canvas Notebook",
+      "productLabel": "Software Suite"
+    },
+    "hero": {
+      "eyebrow": "Canvas Software Suite",
+      "title": "Choose an app and continue in the same workspace.",
+      "description": "All apps use the same workspace. New images, videos, and content are immediately available for the next step."
+    },
+    "status": {
+      "live": "Live",
+      "planned": "Planned"
+    },
+    "cta": {
+      "openApp": "Open app",
+      "loginRequired": "Login required",
+      "comingSoon": "Coming soon",
+      "openAgentSettings": "Agent Settings",
+      "openDoctor": "Open Doctor",
+      "openHelp": "Open help"
+    },
+    "agentSetup": {
+      "title": "Agent Setup",
+      "providerStatus": "Provider Status",
+      "ready": "Ready",
+      "notReady": "Not ready",
+      "model": "Model",
+      "doctorStatus": "Doctor Status",
+      "needsAttention": "Needs attention",
+      "unknown": "Unknown",
+      "runtimeUnavailable": "Agent runtime config is currently unavailable."
+    },
+    "help": {
+      "title": "Help & tutorials",
+      "documentationLabel": "Documentation",
+      "description": "Tutorials, guides, and help for setting up the Canvas Software Suite."
+    },
+    "chatPrompt": {
+      "title": "Canvas Chat",
+      "latestSessionButton": "Latest session",
+      "newChatButton": "New chat",
+      "latestSessionFallback": "Latest session",
+      "latestSessionQuicklink": "Quick link to latest session: {title}",
+      "templatesTitle": "Productive prompt templates",
+      "templateBadge": "Template",
+      "placeholder": "Start with a business use case or adapt a template. Enter sends, @ references files.",
+      "directoryBadge": "(folder)",
+      "attachmentsHint": "Attach images via upload or paste.",
+      "openCanvasChat": "Open in Canvas Chat"
+    },
+    "apps": {
+      "notebook": {
+        "title": "Canvas Notebook",
+        "description": "Manage files, chat, editor, and terminal in the workspace."
+      },
+      "usage": {
+        "title": "Usage Analytics",
+        "description": "Analyze token and cost usage by time range, model, session, and user."
+      },
+      "imageGeneration": {
+        "title": "Image Generation",
+        "description": "Generate images and save them directly in the workspace."
+      },
+      "veo": {
+        "title": "VEO Studio",
+        "description": "Video generation with workspace-based output."
+      },
+      "nanoBanana": {
+        "title": "Nano Banana Localizer",
+        "description": "Localize existing ads linguistically for each target market."
+      },
+      "automations": {
+        "title": "Automations",
+        "description": "Plan recurring agent jobs for the shared workspace."
+      },
+      "skills": {
+        "title": "Skill Gallery",
+        "description": "Create, manage, and use skills in chat."
+      },
+      "terminal": {
+        "title": "Terminal",
+        "description": "Workspace terminal for real nerds. No GUI, just pure command-line magic."
+      }
+    },
+    "footer": {
+      "madeWith": "Made with",
+      "byCanvasCoding": "by Canvas Coding"
+    }
+  },
   "terminal": {
     "metadataTitle": "Terminal | Canvas Notebook",
     "metadataDescription": "Fullscreen terminal app for the Canvas Notebook workspace.",

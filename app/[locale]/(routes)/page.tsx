@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import { Link } from '@/i18n/navigation';
 import { Github, Heart } from 'lucide-react';
+import { getTranslations } from 'next-intl/server';
 
 import { buildAgentConfigReadiness } from '@/app/lib/agents/storage';
 import { requirePageSession } from '@/app/lib/auth-guards';
@@ -20,7 +21,7 @@ type AgentSetupCardState = {
   model: string;
 };
 
-async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
+async function loadAgentSetupCardState(runtimeUnavailableMessage: string): Promise<AgentSetupCardState> {
   try {
     const readiness = await buildAgentConfigReadiness();
     
@@ -38,7 +39,7 @@ async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
     return {
       providerLabel: 'unknown',
       providerReady: false,
-      providerIssues: ['Agent runtime config currently unavailable.'],
+      providerIssues: [runtimeUnavailableMessage],
       doctorStatus: 'unknown',
       model: 'unknown',
     };
@@ -46,10 +47,12 @@ async function loadAgentSetupCardState(): Promise<AgentSetupCardState> {
 }
 
 export default async function Home() {
+  const tHome = await getTranslations('home');
+  const tCommon = await getTranslations('common');
   const session = await requirePageSession();
 
-  const username = session?.user?.name || session?.user?.email || 'User';
-  const setupCardState = await loadAgentSetupCardState();
+  const username = session?.user?.name || session?.user?.email || tCommon('user');
+  const setupCardState = await loadAgentSetupCardState(tHome('agentSetup.runtimeUnavailable'));
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
@@ -57,16 +60,16 @@ export default async function Home() {
         <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
             <div className="min-w-0 flex items-center gap-3">
-            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="border border-border" />
+            <Image src="/logo.jpg" alt={tHome('header.logoAlt')} width={32} height={32} className="border border-border" />
               <div className="min-w-0 flex flex-col">
-              <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">Canvas Notebook</span>
-                <span className="truncate text-sm font-semibold">Software Suite</span>
+              <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{tHome('header.productName')}</span>
+                <span className="truncate text-sm font-semibold">{tHome('header.productLabel')}</span>
               </div>
             </div>
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
               <div className="hidden min-[480px]:flex flex-col items-end">
-                <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">User</span>
+                <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{tCommon('user')}</span>
                 <span className="max-w-[140px] truncate text-xs">{username}</span>
               </div>
               <NotebookNavButton />
@@ -86,16 +89,16 @@ export default async function Home() {
             <div className="space-y-4">
               <Card className="h-fit border border-border bg-card">
                 <CardHeader className="px-4 pb-3 sm:px-6">
-                  <CardTitle className="text-base">Agent Setup</CardTitle>
+                  <CardTitle className="text-base">{tHome('agentSetup.title')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 px-4 text-sm sm:px-6">
                   <div className="space-y-2">
-                    <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Provider Status</p>
+                    <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">{tHome('agentSetup.providerStatus')}</p>
                     <p className={setupCardState.providerReady ? 'break-words text-primary' : 'break-words text-destructive'}>
-                      {setupCardState.providerReady ? 'Ready' : 'Not ready'} ({setupCardState.providerLabel})
+                      {setupCardState.providerReady ? tHome('agentSetup.ready') : tHome('agentSetup.notReady')} ({setupCardState.providerLabel})
                     </p>
                     <p className="break-all text-xs text-muted-foreground">
-                      Model: {setupCardState.model}
+                      {tHome('agentSetup.model')}: {setupCardState.model}
                     </p>
                     {setupCardState.providerIssues.length > 0 && (
                       <p className="text-xs text-muted-foreground">{setupCardState.providerIssues[0]}</p>
@@ -103,22 +106,22 @@ export default async function Home() {
                   </div>
 
                   <div className="space-y-2 border-t border-border pt-3">
-                    <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Doctor Status</p>
+                    <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">{tHome('agentSetup.doctorStatus')}</p>
                     <p>
                       {setupCardState.doctorStatus === 'ready'
-                        ? 'Ready'
+                        ? tHome('agentSetup.ready')
                         : setupCardState.doctorStatus === 'needs-attention'
-                          ? 'Needs attention'
-                          : 'Unknown'}
+                          ? tHome('agentSetup.needsAttention')
+                          : tHome('agentSetup.unknown')}
                     </p>
                   </div>
 
                   <div className="flex flex-col gap-2 border-t border-border pt-3">
                     <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
-                      <Link href="/settings?tab=agent-settings">Agent Settings</Link>
+                      <Link href="/settings?tab=agent-settings">{tHome('cta.openAgentSettings')}</Link>
                     </Button>
                     <Button asChild variant="secondary" size="sm" className="w-full sm:w-auto">
-                      <Link href="/settings?tab=agent-settings&panel=doctor">Open Doctor</Link>
+                      <Link href="/settings?tab=agent-settings&panel=doctor">{tHome('cta.openDoctor')}</Link>
                     </Button>
                   </div>
                 </CardContent>
@@ -126,19 +129,19 @@ export default async function Home() {
 
               <Card className="h-fit border border-border bg-card">
                 <CardHeader className="px-4 pb-3 sm:px-6">
-                  <CardTitle className="text-base">Hilfe & Tutorials</CardTitle>
+                  <CardTitle className="text-base">{tHome('help.title')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 px-4 text-sm sm:px-6">
                   <div className="space-y-2">
-                    <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Dokumentation</p>
+                    <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">{tHome('help.documentationLabel')}</p>
                     <p className="text-muted-foreground">
-                      Tutorials, Anleitungen und Hilfe zur Einrichtung der Canvas Software Suite.
+                      {tHome('help.description')}
                     </p>
                   </div>
 
                   <div className="flex flex-col gap-2 border-t border-border pt-3">
                     <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
-                      <Link href="/help">Hilfe öffnen</Link>
+                      <Link href="/help">{tHome('cta.openHelp')}</Link>
                     </Button>
                   </div>
                 </CardContent>
@@ -155,9 +158,9 @@ export default async function Home() {
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
             >
-              <span>Made with</span>
+              <span>{tHome('footer.madeWith')}</span>
               <Heart className="h-3 w-3 fill-current text-red-500" />
-              <span>by Canvas Coding</span>
+              <span>{tHome('footer.byCanvasCoding')}</span>
             </a>
             <a
               href="https://github.com/canvascoding/canvas-notebook"

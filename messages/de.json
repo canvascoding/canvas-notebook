@@ -294,6 +294,97 @@
       }
     }
   },
+  "home": {
+    "header": {
+      "logoAlt": "Canvas Notebook Logo",
+      "productName": "Canvas Notebook",
+      "productLabel": "Software Suite"
+    },
+    "hero": {
+      "eyebrow": "Canvas Software Suite",
+      "title": "Wähle eine App und arbeite im gleichen Workspace weiter.",
+      "description": "Alle Apps greifen auf denselben Workspace zu. Neue Bilder, Videos und Inhalte sind dadurch sofort für weitere Schritte verfügbar."
+    },
+    "status": {
+      "live": "Live",
+      "planned": "Geplant"
+    },
+    "cta": {
+      "openApp": "App öffnen",
+      "loginRequired": "Login erforderlich",
+      "comingSoon": "Bald verfügbar",
+      "openAgentSettings": "Agent-Einstellungen",
+      "openDoctor": "Doctor öffnen",
+      "openHelp": "Hilfe öffnen"
+    },
+    "agentSetup": {
+      "title": "Agent-Setup",
+      "providerStatus": "Provider-Status",
+      "ready": "Bereit",
+      "notReady": "Nicht bereit",
+      "model": "Modell",
+      "doctorStatus": "Doctor-Status",
+      "needsAttention": "Benötigt Aufmerksamkeit",
+      "unknown": "Unbekannt",
+      "runtimeUnavailable": "Agent-Runtime-Konfiguration ist aktuell nicht verfügbar."
+    },
+    "help": {
+      "title": "Hilfe & Tutorials",
+      "documentationLabel": "Dokumentation",
+      "description": "Tutorials, Anleitungen und Hilfe zur Einrichtung der Canvas Software Suite."
+    },
+    "chatPrompt": {
+      "title": "Canvas Chat",
+      "latestSessionButton": "Letzte Session",
+      "newChatButton": "Neuer Chat",
+      "latestSessionFallback": "Letzte Session",
+      "latestSessionQuicklink": "Quicklink zur letzten Session: {title}",
+      "templatesTitle": "Produktive Prompt-Vorlagen",
+      "templateBadge": "Vorlage",
+      "placeholder": "Starte mit einem Business-Use-Case oder passe eine Vorlage an. Enter sendet, @ referenziert Dateien.",
+      "directoryBadge": "(Ordner)",
+      "attachmentsHint": "Bilder per Upload oder Paste anhängen.",
+      "openCanvasChat": "In Canvas Chat öffnen"
+    },
+    "apps": {
+      "notebook": {
+        "title": "Canvas Notebook",
+        "description": "Dateien, Chat, Editor und Terminal im Workspace verwalten."
+      },
+      "usage": {
+        "title": "Usage Analytics",
+        "description": "Token- und Kostenverbrauch nach Zeitraum, Modell, Session und Nutzer auswerten."
+      },
+      "imageGeneration": {
+        "title": "Image Generation",
+        "description": "Bilder erzeugen und direkt im Workspace speichern."
+      },
+      "veo": {
+        "title": "VEO Studio",
+        "description": "Video-Generierung mit Workspace-basierter Ausgabe."
+      },
+      "nanoBanana": {
+        "title": "Nano Banana Localizer",
+        "description": "Bestehende Ads pro Zielmarkt sprachlich lokalisieren."
+      },
+      "automations": {
+        "title": "Automationen",
+        "description": "Wiederkehrende Agent-Aufträge für den gemeinsamen Workspace planen."
+      },
+      "skills": {
+        "title": "Skill Gallery",
+        "description": "Skills erstellen, verwalten und im Chat nutzen."
+      },
+      "terminal": {
+        "title": "Terminal",
+        "description": "Workspace Terminal für echte Nerds. Keine GUI, nur pure Kommandozeilen-Magie."
+      }
+    },
+    "footer": {
+      "madeWith": "Made with",
+      "byCanvasCoding": "by Canvas Coding"
+    }
+  },
   "terminal": {
     "metadataTitle": "Terminal | Canvas Notebook",
     "metadataDescription": "Vollbild-Terminal-App für den Canvas-Notebook-Workspace.",

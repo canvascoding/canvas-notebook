@@ -2,6 +2,7 @@
 
 import React, { FormEvent, useState, useRef, useCallback, useEffect } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
@@ -41,9 +42,11 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
 function HomeStarterPromptButton({
   prompt,
   onSelect,
+  templateLabel,
 }: {
   prompt: StarterPromptDefinition;
   onSelect: (value: string) => void;
+  templateLabel: string;
 }) {
   const Icon = STARTER_PROMPT_ICONS[prompt.icon];
 
@@ -55,7 +58,7 @@ function HomeStarterPromptButton({
     >
       <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         <Icon className="h-4 w-4 text-primary" />
-        Vorlage
+        {templateLabel}
       </span>
       <div className="space-y-1">
         <div className="text-sm font-semibold tracking-tight text-foreground">{prompt.title}</div>
@@ -67,6 +70,8 @@ function HomeStarterPromptButton({
 
 export function HomeChatPrompt() {
   const router = useRouter();
+  const tHome = useTranslations('home');
+  const tChat = useTranslations('chat');
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -81,6 +86,12 @@ export function HomeChatPrompt() {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [latestSession, setLatestSession] = useState<RecentSession | null>(null);
   const filePickerRef = useRef<HTMLDivElement>(null);
+  const localizedStarterPrompts = BUSINESS_STARTER_PROMPTS.map((starterPrompt) => ({
+    ...starterPrompt,
+    title: tChat(`starterPrompts.${starterPrompt.id}.title`),
+    description: tChat(`starterPrompts.${starterPrompt.id}.description`),
+    prompt: tChat(`starterPrompts.${starterPrompt.id}.prompt`),
+  }));
 
   useEffect(() => {
     let isActive = true;
@@ -95,7 +106,7 @@ export function HomeChatPrompt() {
           const latest = data.sessions[0] as RecentSession;
           setLatestSession({
             sessionId: latest.sessionId,
-            title: latest.title || 'Letzte Session',
+            title: latest.title || tHome('chatPrompt.latestSessionFallback'),
             createdAt: latest.createdAt,
           });
           return;
@@ -115,7 +126,7 @@ export function HomeChatPrompt() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [tHome]);
 
   const handleFileUpload = useCallback(async (file: File) => {
     const formData = new FormData();
@@ -306,36 +317,41 @@ export function HomeChatPrompt() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <MessageSquare className="h-4 w-4" />
-            Canvas Chat
+            {tHome('chatPrompt.title')}
           </CardTitle>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {latestSession ? (
               <Button asChild variant="outline" size="sm" className="flex-1 sm:flex-none">
                 <Link href={`/notebook?session=${encodeURIComponent(latestSession.sessionId)}`}>
-                  Letzte Session
+                  {tHome('chatPrompt.latestSessionButton')}
                 </Link>
               </Button>
             ) : null}
             <Button asChild variant="default" size="sm" className="flex-1 sm:flex-none">
               <Link href="/notebook">
-                Neuer Chat
+                {tHome('chatPrompt.newChatButton')}
               </Link>
             </Button>
           </div>
         </div>
         {latestSession ? (
           <p className="line-clamp-2 text-xs text-muted-foreground">
-            Quicklink zur letzten Session: {latestSession.title}
+            {tHome('chatPrompt.latestSessionQuicklink', { title: latestSession.title })}
           </p>
         ) : null}
       </CardHeader>
       <CardContent className="px-4 pb-6 sm:px-6">
         <form className="space-y-3" onSubmit={handleSubmit}>
           <div className="space-y-2">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Produktive Prompt-Vorlagen</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{tHome('chatPrompt.templatesTitle')}</p>
             <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 pr-4 no-scrollbar">
-              {BUSINESS_STARTER_PROMPTS.map((starterPrompt) => (
-                <HomeStarterPromptButton key={starterPrompt.id} prompt={starterPrompt} onSelect={applyStarterPrompt} />
+              {localizedStarterPrompts.map((starterPrompt) => (
+                <HomeStarterPromptButton
+                  key={starterPrompt.id}
+                  prompt={starterPrompt}
+                  onSelect={applyStarterPrompt}
+                  templateLabel={tHome('chatPrompt.templateBadge')}
+                />
               ))}
             </div>
           </div>
@@ -365,7 +381,7 @@ export function HomeChatPrompt() {
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder="Starte mit einem Business-Use-Case oder passe eine Vorlage an. Enter sendet, @ referenziert Dateien."
+              placeholder={tHome('chatPrompt.placeholder')}
               className="min-h-24 w-full resize-y border border-border bg-background p-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm"
             />
             
@@ -376,7 +392,7 @@ export function HomeChatPrompt() {
                 className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto border border-border bg-background shadow-lg z-50"
               >
                 <div className="p-2 text-xs text-muted-foreground border-b border-border">
-                  {isLoadingFiles ? 'Loading files...' : `${filePickerFiles.length} files found`}
+                  {isLoadingFiles ? tChat('loadingFiles') : tChat('filesFound', { count: filePickerFiles.length })}
                 </div>
                 {filePickerFiles.map((file, index) => (
                   <button
@@ -394,7 +410,7 @@ export function HomeChatPrompt() {
                     })}
                     <span className="truncate">{file.name}</span>
                     {file.type === 'directory' && (
-                      <span className="text-xs text-muted-foreground ml-auto">(dir)</span>
+                      <span className="text-xs text-muted-foreground ml-auto">{tHome('chatPrompt.directoryBadge')}</span>
                     )}
                   </button>
                 ))}
@@ -405,12 +421,12 @@ export function HomeChatPrompt() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             {/* Upload Button */}
             <div className="flex items-center justify-between gap-3 sm:justify-start">
-              <p className="text-xs text-muted-foreground sm:hidden">Bilder per Upload oder Paste anhängen.</p>
+              <p className="text-xs text-muted-foreground sm:hidden">{tHome('chatPrompt.attachmentsHint')}</p>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-accent rounded-md"
-                title="Bild anhängen"
+                title={tChat('attachImage')}
               >
                 <Paperclip className="h-5 w-5" />
               </button>
@@ -431,7 +447,7 @@ export function HomeChatPrompt() {
               disabled={isSubmitting || (!prompt.trim() && attachments.length === 0)}
             >
               <Send className="h-4 w-4" />
-              In Canvas Chat öffnen
+              {tHome('chatPrompt.openCanvasChat')}
             </Button>
           </div>
         </form>

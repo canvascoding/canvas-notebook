@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Link } from '@/i18n/navigation';
+import { getTranslations } from 'next-intl/server';
 import { BarChart3, ChevronRight, Clapperboard, Globe, ImageIcon, NotebookPen, Terminal, Workflow, Wrench } from 'lucide-react';
 
 import { HomeChatPrompt } from '@/app/components/home/HomeChatPrompt';
@@ -7,66 +8,70 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
 type SuiteApp = {
-  title: string;
-  description: string;
+  id: 'notebook' | 'usage' | 'imageGeneration' | 'veo' | 'nanoBanana' | 'automations' | 'skills' | 'terminal';
   status: 'ready' | 'planned';
   href?: string;
   icon: React.ComponentType<{ className?: string }>;
 };
 
+type LocalizedSuiteApp = SuiteApp & {
+  title: string;
+  description: string;
+};
+
+type IntegrationCardLabels = {
+  live: string;
+  planned: string;
+  openApp: string;
+  loginRequired: string;
+  comingSoon: string;
+};
+
 const suiteApps: SuiteApp[] = [
   {
-    title: 'Canvas Notebook',
-    description: 'Dateien, Chat, Editor und Terminal im Workspace verwalten.',
+    id: 'notebook',
     status: 'ready',
     href: '/notebook',
     icon: NotebookPen,
   },
   {
-    title: 'Usage Analytics',
-    description: 'Token- und Kostenverbrauch nach Zeitraum, Modell, Session und Nutzer auswerten.',
+    id: 'usage',
     status: 'ready',
     href: '/usage',
     icon: BarChart3,
   },
   {
-    title: 'Image Generation',
-    description: 'Bilder erzeugen und direkt im Workspace speichern.',
+    id: 'imageGeneration',
     status: 'ready',
     href: '/image-generation',
     icon: ImageIcon,
   },
   {
-    title: 'VEO Studio',
-    description: 'Video-Generierung mit Workspace-basierter Ausgabe.',
+    id: 'veo',
     status: 'ready',
     href: '/veo',
     icon: Clapperboard,
   },
   {
-    title: 'Nano Banana Localizer',
-    description: 'Bestehende Ads pro Zielmarkt sprachlich lokalisieren.',
+    id: 'nanoBanana',
     status: 'ready',
     href: '/nano-banana-localizer',
     icon: Globe,
   },
   {
-    title: 'Automationen',
-    description: 'Wiederkehrende Agent-Aufträge für den gemeinsamen Workspace planen.',
+    id: 'automations',
     status: 'ready',
     href: '/automationen',
     icon: Workflow,
   },
   {
-    title: 'Skill Gallery',
-    description: 'Skills erstellen, verwalten und im Chat nutzen.',
+    id: 'skills',
     status: 'ready',
     href: '/skills',
     icon: Wrench,
   },
   {
-    title: 'Terminal',
-    description: 'Workspace Terminal für echte Nerds. Keine GUI, nur pure Kommandozeilen-Magie.',
+    id: 'terminal',
     status: 'ready',
     href: '/terminal',
     icon: Terminal,
@@ -77,18 +82,29 @@ interface IntegrationsSectionProps {
   isAuthenticated: boolean;
 }
 
-export default function SuiteAppSelector({ isAuthenticated }: IntegrationsSectionProps) {
+export default async function SuiteAppSelector({ isAuthenticated }: IntegrationsSectionProps) {
+  const t = await getTranslations('home');
+  const localizedApps: LocalizedSuiteApp[] = suiteApps.map((app) => ({
+    ...app,
+    title: t(`apps.${app.id}.title`),
+    description: t(`apps.${app.id}.description`),
+  }));
+  const labels: IntegrationCardLabels = {
+    live: t('status.live'),
+    planned: t('status.planned'),
+    openApp: t('cta.openApp'),
+    loginRequired: t('cta.loginRequired'),
+    comingSoon: t('cta.comingSoon'),
+  };
+
   return (
     <section>
       <div className="py-6 md:py-16">
         <div className="mx-auto max-w-6xl">
           <div className="max-w-2xl space-y-3 md:space-y-4">
-            <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">Canvas Software Suite</p>
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl md:text-4xl">Wähle eine App und arbeite im gleichen Workspace weiter.</h2>
-            <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
-              Alle Apps greifen auf denselben Workspace zu. Neue Bilder, Videos und Inhalte sind dadurch sofort für weitere Schritte
-              verfügbar.
-            </p>
+            <p className="text-xs font-bold tracking-widest text-muted-foreground uppercase">{t('hero.eyebrow')}</p>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl md:text-4xl">{t('hero.title')}</h2>
+            <p className="max-w-xl text-sm text-muted-foreground sm:text-base">{t('hero.description')}</p>
           </div>
 
           <div className="mt-6 max-w-2xl md:mt-8">
@@ -96,8 +112,8 @@ export default function SuiteAppSelector({ isAuthenticated }: IntegrationsSectio
           </div>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {suiteApps.map((app) => (
-              <IntegrationCard key={app.title} app={app} isAuthenticated={isAuthenticated} />
+            {localizedApps.map((app) => (
+              <IntegrationCard key={app.id} app={app} isAuthenticated={isAuthenticated} labels={labels} />
             ))}
           </div>
         </div>
@@ -106,7 +122,15 @@ export default function SuiteAppSelector({ isAuthenticated }: IntegrationsSectio
   );
 }
 
-function IntegrationCard({ app, isAuthenticated }: { app: SuiteApp; isAuthenticated: boolean }) {
+function IntegrationCard({
+  app,
+  isAuthenticated,
+  labels,
+}: {
+  app: LocalizedSuiteApp;
+  isAuthenticated: boolean;
+  labels: IntegrationCardLabels;
+}) {
   const Icon = app.icon;
   const isReady = app.status === 'ready';
   const canOpen = isReady && isAuthenticated && app.href;
@@ -125,7 +149,7 @@ function IntegrationCard({ app, isAuthenticated }: { app: SuiteApp; isAuthentica
                 : 'border border-border bg-muted text-muted-foreground'
             }`}
           >
-            {isReady ? 'Live' : 'Planned'}
+            {isReady ? labels.live : labels.planned}
           </span>
         </div>
 
@@ -137,17 +161,17 @@ function IntegrationCard({ app, isAuthenticated }: { app: SuiteApp; isAuthentica
         <div className="border-t border-dashed border-border pt-4">
           {canOpen ? (
             <Button variant="secondary" size="sm" className="w-full justify-between gap-1 pr-2 shadow-none pointer-events-none sm:w-auto sm:justify-center">
-              App öffnen
+              {labels.openApp}
               <ChevronRight className="size-3.5 opacity-60" />
             </Button>
           ) : isReady ? (
             <Button variant="outline" size="sm" className="w-full justify-between gap-1 pr-2 pointer-events-none sm:w-auto sm:justify-center">
-              Login erforderlich
+              {labels.loginRequired}
               <ChevronRight className="size-3.5 opacity-60" />
             </Button>
           ) : (
             <Button variant="outline" size="sm" className="w-full sm:w-auto" disabled>
-              Bald verfügbar
+              {labels.comingSoon}
             </Button>
           )}
         </div>
