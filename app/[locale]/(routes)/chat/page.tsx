@@ -5,6 +5,7 @@ import { ArrowLeft } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
+import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -44,6 +45,7 @@ export default async function ChatPage() {
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
             <NotebookNavButton />
+            <LanguageSwitcher />
             <ThemeToggle />
             <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
               <Link href="/usage">{t('usage')}</Link>

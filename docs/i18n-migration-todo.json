@@ -484,54 +484,54 @@
         {
           "id": "10.2",
           "title": "Smoke Tests ausführen (npm run test:smoke)",
-          "status": "in_progress"
+          "status": "done"
         },
         {
           "id": "10.3",
           "title": "Alle Seiten manuell auf Default-Locale (de, ohne Prefix) testen",
-          "status": "open",
+          "status": "done",
           "description": "/, /notebook, /chat, /terminal, /settings, /skills, /automationen, /image-generation, /veo, /nano-banana-localizer, /usage, /help, /sign-in, /sign-up, /onboarding"
         },
         {
           "id": "10.4",
           "title": "Alle Seiten auf English-Locale (/en/...) testen",
-          "status": "open",
+          "status": "done",
           "description": "/en, /en/notebook, /en/chat, /en/terminal, /en/settings, /en/skills, /en/automationen, /en/image-generation, /en/veo, /en/nano-banana-localizer, /en/usage, /en/help, /en/sign-in, /en/sign-up, /en/onboarding"
         },
         {
           "id": "10.5",
           "title": "Auth-Flow testen: Login → Redirect → geschützte Seite",
-          "status": "open",
+          "status": "done",
           "description": "Auf beiden Locales testen. Redirect nach Login muss auf korrekte locale-URL zeigen."
         },
         {
           "id": "10.6",
           "title": "API-Routen testen: /api/* muss weiterhin ohne Locale-Prefix funktionieren",
-          "status": "open",
+          "status": "done",
           "description": "Stichproben: /api/health, /api/files/list, /api/stream, /api/auth/[...all]"
         },
         {
           "id": "10.7",
           "title": "robots.txt prüfen (/robots.txt)",
-          "status": "open",
+          "status": "done",
           "description": "Muss 'Disallow: /' für alle User-Agents enthalten. Kein Sitemap-Link."
         },
         {
           "id": "10.8",
           "title": "Media-Serving prüfen (/media/* und /api/media/*)",
-          "status": "open",
+          "status": "done",
           "description": "Middleware darf Media-Requests nicht abfangen. Range-Requests müssen weiterhin funktionieren."
         },
         {
           "id": "10.9",
           "title": "Terminal WebSocket testen",
-          "status": "open",
+          "status": "done",
           "description": "WebSocket-Verbindung für Terminal-Sessions muss nach Umstrukturierung weiterhin funktionieren."
         },
         {
           "id": "10.10",
           "title": "Language Switcher testen",
-          "status": "open",
+          "status": "done",
           "description": "Sprachenwechsel auf jeder Seite testen. Aktueller Pfad muss erhalten bleiben (z.B. /notebook → /en/notebook)."
         }
       ]

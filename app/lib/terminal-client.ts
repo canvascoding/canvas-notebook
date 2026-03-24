@@ -29,14 +29,18 @@ class TerminalClient {
   private buffer = '';
   private authenticated = false;
   private messageId = 0;
+  private connectPromise: Promise<void> | null = null;
 
   async connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.socket && !this.socket.destroyed && this.authenticated) {
-        resolve();
-        return;
-      }
+    if (this.socket && !this.socket.destroyed && this.authenticated) {
+      return;
+    }
 
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+
+    this.connectPromise = new Promise<void>((resolve, reject) => {
       if (this.socket) {
         this.disconnect();
       }
@@ -59,16 +63,22 @@ class TerminalClient {
         this.authenticated = false;
       });
 
+      const onConnect = () => {
+        this.authenticate()
+          .then(() => resolve())
+          .catch(reject);
+      };
+
       if (transport.useUnixSocket) {
-        this.socket.connect(transport.socketPath, () => {
-          this.authenticate().then(() => resolve()).catch(reject);
-        });
+        this.socket.connect(transport.socketPath, onConnect);
       } else {
-        this.socket.connect(transport.tcpPort, transport.tcpHost, () => {
-          this.authenticate().then(() => resolve()).catch(reject);
-        });
+        this.socket.connect(transport.tcpPort, transport.tcpHost, onConnect);
       }
+    }).finally(() => {
+      this.connectPromise = null;
     });
+
+    return this.connectPromise;
   }
 
   private async authenticate(): Promise<void> {
@@ -177,6 +187,7 @@ class TerminalClient {
       this.socket = null;
     }
     this.authenticated = false;
+    this.connectPromise = null;
   }
 }
 

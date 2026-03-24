@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/app/lib/auth-client';
+import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import { routing } from '@/i18n/routing';
@@ -77,6 +78,9 @@ export default function SignUpForm() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="absolute right-4 top-4">
+        <LanguageSwitcher />
+      </div>
       <div className="w-full max-w-md border border-border bg-card p-8 shadow-sm">
         <div className="flex items-center justify-center mb-8">
           <Image src="/logo.jpg" alt={t('logoAlt')} width={48} height={48} className="mr-3 border border-border" />

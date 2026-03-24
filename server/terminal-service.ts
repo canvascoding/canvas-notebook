@@ -8,16 +8,26 @@
 import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn } from 'node-pty';
+import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn as spawnPty } from 'node-pty';
 import { randomBytes } from 'crypto';
 
 // Types
 import type { IPty } from 'node-pty';
 
+interface TerminalProcess {
+  pid: number;
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  kill(): void;
+  onData(callback: (data: string) => void): void;
+  onExit(callback: (event: { exitCode: number }) => void): void;
+}
+
 interface TerminalSession {
   id: string;
   ownerId: string;
-  pty: IPty;
+  pty: TerminalProcess;
   clients: Set<net.Socket>;
   outputBuffer: string;
   idleTimer: NodeJS.Timeout | null;
@@ -45,7 +55,7 @@ const SOCKET_PATH = process.env.CANVAS_TERMINAL_SOCKET || '/tmp/canvas-terminal.
 const TCP_PORT = parseInt(process.env.CANVAS_TERMINAL_PORT || '3457', 10);
 const AUTH_TOKEN = process.env.CANVAS_TERMINAL_TOKEN || generateToken();
 const USE_UNIX_SOCKET = process.env.CANVAS_TERMINAL_USE_UNIX_SOCKET !== 'false';
-const DATA = process.env.DATA || path.resolve(process.cwd(), 'data');
+const DATA = path.resolve(process.cwd(), process.env.DATA || 'data');
 const WORKSPACE_DIR = path.join(DATA, 'workspace');
 
 // State
@@ -140,20 +150,9 @@ function createSession(sessionId: string, ownerId: string, cwd: string): Termina
   
   log(`Creating session ${sessionId} for ${normalizedOwnerId} in ${finalCwd}`);
 
-  let ptyProcess: IPty;
+  let ptyProcess: TerminalProcess;
   try {
-    ptyProcess = spawn(shell, [], {
-      name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
-      cwd: finalCwd,
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        LANG: 'en_US.UTF-8',
-      },
-    });
+    ptyProcess = createTerminalProcess(shell, finalCwd);
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown spawn error';
     throw new Error(`Failed to spawn terminal shell "${shell}" in "${finalCwd}": ${errorMessage}`);
@@ -233,6 +232,86 @@ function resolveShell(): string {
   }
 
   return '/bin/sh';
+}
+
+function createPtyShell(shell: string, cwd: string): TerminalProcess {
+  const ptyProcess: IPty = spawnPty(shell, [], {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd,
+    env: {
+      ...process.env,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      LANG: 'en_US.UTF-8',
+    },
+  });
+
+  return {
+    pid: ptyProcess.pid,
+    write(data: string) {
+      ptyProcess.write(data);
+    },
+    resize(cols: number, rows: number) {
+      ptyProcess.resize(cols, rows);
+    },
+    kill() {
+      ptyProcess.kill();
+    },
+    onData(callback: (data: string) => void) {
+      ptyProcess.onData(callback);
+    },
+    onExit(callback: (event: { exitCode: number }) => void) {
+      ptyProcess.onExit(({ exitCode }) => callback({ exitCode }));
+    },
+  };
+}
+
+function createPipeShell(shell: string, cwd: string): TerminalProcess {
+  const child: ChildProcessWithoutNullStreams = spawnProcess(shell, [], {
+    cwd,
+    env: {
+      ...process.env,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      LANG: 'en_US.UTF-8',
+    },
+    stdio: 'pipe',
+  });
+
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+
+  return {
+    pid: child.pid ?? -1,
+    write(data: string) {
+      child.stdin.write(data);
+    },
+    resize() {
+      // Pipe fallback has no PTY-backed resize support.
+    },
+    kill() {
+      child.kill();
+    },
+    onData(callback: (data: string) => void) {
+      child.stdout.on('data', callback);
+      child.stderr.on('data', callback);
+    },
+    onExit(callback: (event: { exitCode: number }) => void) {
+      child.on('exit', (exitCode) => callback({ exitCode: exitCode ?? 0 }));
+    },
+  };
+}
+
+function createTerminalProcess(shell: string, cwd: string): TerminalProcess {
+  try {
+    return createPtyShell(shell, cwd);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.warn(`[Terminal Service] PTY spawn failed for ${shell}. Falling back to pipe shell.`, errorMessage);
+    return createPipeShell(shell, cwd);
+  }
 }
 
 function attachClient(sessionId: string, client: net.Socket): void {
