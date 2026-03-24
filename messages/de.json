@@ -607,7 +607,53 @@
       }
     }
   },
-  "skills": { "title": "Skills" },
+  "skills": {
+    "title": "Skill-Galerie",
+    "metadataTitle": "Skill-Galerie | Canvas Notebook",
+    "metadataDescription": "Canvas-Notebook-Skills durchsuchen und verwalten.",
+    "stats": {
+      "total": "Skills gesamt",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert"
+    },
+    "actions": {
+      "enableAll": "Alle aktivieren",
+      "disableAll": "Alle deaktivieren"
+    },
+    "integrationsHint": {
+      "label": "Hinweis:",
+      "body": "Wenn Skills Env-Variablen benoetigen, muessen diese im Integrations-Tab gespeichert werden.",
+      "openSettings": "Integrationen oeffnen"
+    },
+    "creationHint": {
+      "label": "Neuen Skill erstellen:",
+      "bodyBefore": "Sag dem Agenten, dass du einen neuen Skill erstellen moechtest. Du kannst dann gemeinsam ausarbeiten, was der Skill genau machen soll. Verwende dafuer den",
+      "creatorSkill": "Creator Skill",
+      "bodyAfter": "."
+    },
+    "toggleSkill": "{name} umschalten",
+    "licenseLabel": "Lizenz:",
+    "docsButton": "Doku",
+    "emptyState": {
+      "title": "Keine Skills gefunden",
+      "description": "Skills erscheinen hier, sobald sie dem Verzeichnis /data/skills/ hinzugefuegt wurden."
+    },
+    "detail": {
+      "srDescription": "Details und Dokumentation fuer den ausgewaehlten Skill.",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
+      "close": "Skill-Details schliessen",
+      "description": "Beschreibung",
+      "documentation": "Dokumentation",
+      "skillName": "Skill-Name:",
+      "status": "Status:",
+      "license": "Lizenz:",
+      "compatibility": "Kompatibilitaet:",
+      "errors": {
+        "loadContent": "Skill-Inhalt konnte nicht geladen werden"
+      }
+    }
+  },
   "automationen": { "title": "Automationen" },
   "imageGeneration": { "title": "Image Generation" },
   "veo": { "title": "VEO Studio" },

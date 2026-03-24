@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { Wrench, BookOpen, Power, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -20,6 +21,7 @@ interface SkillsPageProps {
 }
 
 export default function SkillsPageClient({ skills: initialSkills, stats: initialStats }: SkillsPageProps) {
+  const t = useTranslations('skills');
   const [skills, setSkills] = useState<AnthropicSkill[]>(initialSkills);
   const [stats, setStats] = useState(initialStats);
   const [selectedSkill, setSelectedSkill] = useState<AnthropicSkill | null>(null);
@@ -165,19 +167,19 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
           <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-3">
             <Card>
               <CardHeader className="px-4 pb-2 sm:px-6">
-                <CardDescription>Total Skills</CardDescription>
+                <CardDescription>{t('stats.total')}</CardDescription>
                 <CardTitle className="text-3xl">{stats.total}</CardTitle>
               </CardHeader>
             </Card>
             <Card>
               <CardHeader className="px-4 pb-2 sm:px-6">
-                <CardDescription>Enabled</CardDescription>
+                <CardDescription>{t('stats.enabled')}</CardDescription>
                 <CardTitle className="text-3xl text-green-600">{stats.enabled}</CardTitle>
               </CardHeader>
             </Card>
             <Card>
               <CardHeader className="px-4 pb-2 sm:px-6">
-                <CardDescription>Disabled</CardDescription>
+                <CardDescription>{t('stats.disabled')}</CardDescription>
                 <CardTitle className="text-3xl text-muted-foreground">{stats.disabled}</CardTitle>
               </CardHeader>
             </Card>
@@ -193,7 +195,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
               className="w-full gap-2 sm:w-auto"
             >
               <CheckCircle2 className="h-4 w-4 text-green-600" />
-              Enable All
+              {t('actions.enableAll')}
             </Button>
             <Button
               variant="outline"
@@ -203,7 +205,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
               className="w-full gap-2 sm:w-auto"
             >
               <XCircle className="h-4 w-4 text-muted-foreground" />
-              Disable All
+              {t('actions.disableAll')}
             </Button>
           </div>
 
@@ -214,10 +216,10 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
               <CardContent className="px-4 py-4 sm:px-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-muted-foreground">
-                    <span className="font-medium">Hinweis:</span> Wenn Skills Env-Variablen benötigen, müssen diese im Integrations-Tab gespeichert werden.
+                    <span className="font-medium">{t('integrationsHint.label')}</span> {t('integrationsHint.body')}
                   </p>
                   <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
-                    <Link href="/settings?tab=integrations">Integrations öffnen</Link>
+                    <Link href="/settings?tab=integrations">{t('integrationsHint.openSettings')}</Link>
                   </Button>
                 </div>
               </CardContent>
@@ -229,7 +231,9 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
                 <div className="flex items-start gap-3">
                   <div className="flex-1">
                     <p className="text-sm text-foreground">
-                      <span className="font-medium">Neuen Skill erstellen:</span> Sag dem Agenten, dass du einen neuen Skill erstellen möchtest. Du kannst dann gemeinsam ausarbeiten, was der Skill genau machen soll. Verwende dafür den <span className="font-semibold text-blue-600 dark:text-blue-400">Creator Skill</span>.
+                      <span className="font-medium">{t('creationHint.label')}</span> {t('creationHint.bodyBefore')}{' '}
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">{t('creationHint.creatorSkill')}</span>
+                      {t('creationHint.bodyAfter')}
                     </p>
                   </div>
                 </div>
@@ -251,7 +255,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
                       <Switch
                         checked={skill.enabled}
                         onCheckedChange={(checked) => toggleSkill(skill.name, checked)}
-                        aria-label={`Toggle ${skill.name}`}
+                        aria-label={t('toggleSkill', { name: skill.name })}
                       />
                     </div>
                   </div>
@@ -262,7 +266,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
                 <CardContent className="flex flex-1 flex-col justify-end space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
                   {skill.license && (
                     <div className="text-sm text-muted-foreground">
-                      <span className="font-medium">License:</span> {skill.license}
+                      <span className="font-medium">{t('licenseLabel')}</span> {skill.license}
                     </div>
                   )}
                   <div className="flex gap-2 pt-2">
@@ -273,7 +277,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
                       onClick={() => handleOpenSkill(skill)}
                     >
                       <BookOpen className="h-4 w-4 mr-1" />
-                      Docs
+                      {t('docsButton')}
                     </Button>
                   </div>
                 </CardContent>
@@ -284,9 +288,9 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
           {skills.length === 0 && (
             <div className="py-12 text-center">
               <Wrench className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-              <h3 className="mb-2 text-lg font-semibold">No Skills Found</h3>
+              <h3 className="mb-2 text-lg font-semibold">{t('emptyState.title')}</h3>
               <p className="mx-auto max-w-md text-sm text-muted-foreground sm:text-base">
-                Skills will appear here once they are added to the /data/skills/ directory.
+                {t('emptyState.description')}
               </p>
             </div>
           )}

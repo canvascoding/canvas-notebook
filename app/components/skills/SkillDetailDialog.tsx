@@ -2,6 +2,7 @@
 
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,7 @@ type MarkdownCodeProps = ComponentPropsWithoutRef<'code'> & {
 };
 
 export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDialogProps) {
+  const t = useTranslations('skills');
   const [skillContent, setSkillContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,10 +50,10 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
       if (data.success) {
         setSkillContent(data.content);
       } else {
-        setError(data.error || 'Failed to load skill content');
+        setError(data.error || t('detail.errors.loadContent'));
       }
     } catch {
-      setError('Failed to load skill content');
+      setError(t('detail.errors.loadContent'));
     } finally {
       setLoading(false);
     }
@@ -70,7 +72,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
         {/* Header */}
         <DialogHeader className="flex-shrink-0 border-b bg-muted/50 px-4 py-4 text-left sm:px-6">
           <DialogDescription className="sr-only">
-            Details and documentation for the selected skill.
+            {t('detail.srDescription')}
           </DialogDescription>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -80,7 +82,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="text-sm text-muted-foreground font-medium">{skill.name}</span>
                   <Badge variant={skill.enabled ? 'default' : 'secondary'} className="text-xs">
-                    {skill.enabled ? 'Enabled' : 'Disabled'}
+                    {skill.enabled ? t('detail.enabled') : t('detail.disabled')}
                   </Badge>
                   {skill.license && (
                     <Badge variant="outline" className="text-xs">
@@ -93,7 +95,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
             <button
               onClick={() => onOpenChange(false)}
               type="button"
-              aria-label="Close skill details"
+              aria-label={t('detail.close')}
               data-testid="skill-detail-close"
               className="p-2 hover:bg-accent rounded-md transition-colors"
             >
@@ -110,7 +112,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8">
             {/* Description */}
             <div className="bg-muted/30 rounded-lg p-6">
-              <h2 className="text-lg font-semibold mb-3">Description</h2>
+              <h2 className="text-lg font-semibold mb-3">{t('detail.description')}</h2>
               <p className="text-base text-muted-foreground whitespace-pre-wrap leading-relaxed">
                 {skill.description}
               </p>
@@ -118,7 +120,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
 
             {/* SKILL.md Content */}
             <div>
-              <h2 className="text-lg font-semibold mb-4">Documentation</h2>
+              <h2 className="text-lg font-semibold mb-4">{t('detail.documentation')}</h2>
               {loading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -165,22 +167,22 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
             <div className="border-t pt-6 mt-8">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-muted-foreground">
                 <div>
-                  <span className="font-medium text-foreground">Skill Name:</span>
+                  <span className="font-medium text-foreground">{t('detail.skillName')}</span>
                   <div className="font-mono mt-1">{skill.name}</div>
                 </div>
                 <div>
-                  <span className="font-medium text-foreground">Status:</span>
-                  <div className="mt-1">{skill.enabled ? 'Enabled' : 'Disabled'}</div>
+                  <span className="font-medium text-foreground">{t('detail.status')}</span>
+                  <div className="mt-1">{skill.enabled ? t('detail.enabled') : t('detail.disabled')}</div>
                 </div>
                 {skill.license && (
                   <div>
-                    <span className="font-medium text-foreground">License:</span>
+                    <span className="font-medium text-foreground">{t('detail.license')}</span>
                     <div className="mt-1">{skill.license}</div>
                   </div>
                 )}
                 {skill.compatibility && (
                   <div>
-                    <span className="font-medium text-foreground">Compatibility:</span>
+                    <span className="font-medium text-foreground">{t('detail.compatibility')}</span>
                     <div className="mt-1">{skill.compatibility}</div>
                   </div>
                 )}

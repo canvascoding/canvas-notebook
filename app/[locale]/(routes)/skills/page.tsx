@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { getTranslations } from 'next-intl/server';
 
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { requirePageSession } from '@/app/lib/auth-guards';
@@ -7,13 +8,18 @@ import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import SkillsPageClient from './SkillsPageClient';
 
-export const metadata: Metadata = {
-  title: 'Skill Gallery | Canvas Notebook',
-  description: 'Browse and manage Canvas Notebook skills.',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations('skills');
+
+  return {
+    title: t('metadataTitle'),
+    description: t('metadataDescription'),
+  };
+}
 
 export default async function SkillsPage() {
   const session = await requirePageSession();
+  const t = await getTranslations('skills');
 
   const username = session?.user?.name || session?.user?.email || 'User';
   
@@ -33,7 +39,7 @@ export default async function SkillsPage() {
   };
 
   return (
-    <SuitePageLayout title="Skill Gallery" username={username} showLogo>
+    <SuitePageLayout title={t('title')} username={username} showLogo>
       <SkillsPageClient
         skills={skills}
         stats={stats}

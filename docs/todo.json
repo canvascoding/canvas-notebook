@@ -2,8 +2,8 @@
   "updatedAt": "2026-03-24",
   "items": [
     {
-      "id": "i18n-5.7",
-      "title": "Settings-Seite übersetzen",
+      "id": "i18n-5.8",
+      "title": "Skills-Seite übersetzen",
       "status": "done",
       "source": "docs/i18n-migration-todo.json"
     }
