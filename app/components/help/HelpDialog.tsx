@@ -1,6 +1,7 @@
 'use client';
 
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 import { X } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import ReactMarkdown from 'react-markdown';
@@ -29,6 +30,7 @@ type MarkdownCodeProps = ComponentPropsWithoutRef<'code'> & {
 };
 
 export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
+  const t = useTranslations('help');
   if (!tutorial) return null;
 
   return (
@@ -38,10 +40,9 @@ export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
         showCloseButton={false}
         className="flex h-full min-h-0 flex-col overflow-hidden border-0 p-0 sm:border"
       >
-        {/* Header */}
         <DialogHeader className="flex-shrink-0 border-b bg-muted/50 px-4 py-4 text-left sm:px-6">
           <DialogDescription className="sr-only">
-            Tutorial Details für {tutorial.title}
+            {t('dialog.description', { title: tutorial.title })}
           </DialogDescription>
           <div className="flex items-center justify-between">
             <div>
@@ -53,7 +54,7 @@ export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
             <button
               onClick={() => onOpenChange(false)}
               type="button"
-              aria-label="Schließen"
+              aria-label={t('dialog.close')}
               className="p-2 hover:bg-accent rounded-md transition-colors"
             >
               <X className="h-5 w-5" />
@@ -61,15 +62,13 @@ export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
           </div>
         </DialogHeader>
 
-        {/* Content */}
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8">
-            {/* Video */}
             {tutorial.videoUrl && (
               <div className="aspect-video w-full overflow-hidden rounded-lg bg-muted shadow-sm">
                 <iframe
                   src={tutorial.videoUrl}
-                  title={`${tutorial.title} Video`}
+                  title={t('dialog.videoTitle', { title: tutorial.title })}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                   className="h-full w-full border-0"
@@ -77,7 +76,6 @@ export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
               </div>
             )}
 
-            {/* Content */}
             <div className="prose prose-lg max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-3xl prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-4 prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-3 prose-p:leading-relaxed prose-p:mb-4 prose-li:mb-2 prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:p-4 prose-pre:my-4 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-sm">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -111,11 +109,10 @@ export function HelpDialog({ tutorial, open, onOpenChange }: HelpDialogProps) {
               </ReactMarkdown>
             </div>
 
-            {/* Links */}
             {tutorial.links.length > 0 && (
               <div className="border-t pt-6 mt-4">
                 <p className="text-sm font-medium text-muted-foreground mb-3">
-                  Weitere Aktionen
+                  {t('dialog.moreActions')}
                 </p>
                 <div className="flex flex-wrap gap-3">
                   {tutorial.links.map((link, index) => (

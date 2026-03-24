@@ -1181,6 +1181,131 @@
       "australia": "Australien"
     }
   },
-  "usage": { "title": "Nutzung" },
-  "help": { "title": "Hilfe & Tutorials" }
+  "usage": {
+    "title": "Nutzung",
+    "header": {
+      "title": "Nutzungsanalyse",
+      "description": "Tokens und Kosten auf Basis der PI-Usage-Events seit Rollout des Ledgers."
+    },
+    "presets": {
+      "lastDays": "Letzte {days} T"
+    },
+    "filters": {
+      "from": "Von",
+      "to": "Bis",
+      "provider": "Provider",
+      "providerPlaceholder": "openai, anthropic, ollama",
+      "model": "Modell",
+      "modelPlaceholder": "gpt-4o, claude-sonnet-4",
+      "session": "Session",
+      "sessionPlaceholder": "Session-Titel oder ID",
+      "stopReason": "Stop-Grund",
+      "groupBy": "Gruppieren nach",
+      "userId": "User-ID",
+      "userIdPlaceholder": "Optionaler Admin-Filter"
+    },
+    "actions": {
+      "applyFilters": "Filter anwenden",
+      "reset": "Zurücksetzen"
+    },
+    "scope": {
+      "title": "Aktiver Scope",
+      "range": "{from} bis {to}",
+      "provider": "Provider: {value}",
+      "model": "Modell: {value}",
+      "session": "Session: {value}",
+      "stopReason": "Stop-Grund: {value}",
+      "groupedBy": "Gruppiert nach: {value}",
+      "userScope": "User-Scope: {value}",
+      "all": "alle",
+      "allUsers": "alle User",
+      "currentUser": "aktueller User"
+    },
+    "stats": {
+      "totalCost": {
+        "title": "Gesamtkosten",
+        "subtitle": "Basierend auf PI-Pricing"
+      },
+      "totalTokens": {
+        "title": "Gesamttokens",
+        "subtitle": "Über alle gefilterten Usage-Events"
+      },
+      "input": {
+        "title": "Input",
+        "subtitle": "Prompt- und Kontext-Tokens"
+      },
+      "output": {
+        "title": "Output",
+        "subtitle": "Tokens der Assistant-Antwort"
+      },
+      "cache": {
+        "title": "Cache",
+        "subtitle": "Read- und Write-Cache-Tokens"
+      },
+      "sessions": {
+        "title": "Sessions",
+        "subtitle": "{count} Usage-Events"
+      }
+    },
+    "summary": {
+      "title": "Gruppierte Zusammenfassung",
+      "columns": {
+        "group": "Gruppe",
+        "cost": "Kosten",
+        "tokens": "Tokens",
+        "sessions": "Sessions",
+        "events": "Events"
+      },
+      "breakdown": "{input} in / {output} out / {cache} cache",
+      "loading": "Zusammenfassung wird geladen...",
+      "empty": "Für die aktuellen Filter wurden keine Usage-Events gefunden."
+    },
+    "events": {
+      "title": "Letzte Usage-Events",
+      "previous": "Zurück",
+      "next": "Weiter",
+      "page": "Seite {page}",
+      "tokens": "{count} tok",
+      "inputOutput": "{input} in / {output} out",
+      "cache": "{count} cache",
+      "loading": "Events werden geladen...",
+      "empty": "Für die aktuellen Filter wurden keine Usage-Events gefunden."
+    },
+    "stopReasons": {
+      "all": "Alle Status",
+      "stop": "stop",
+      "toolUse": "toolUse",
+      "length": "length",
+      "aborted": "aborted",
+      "error": "error"
+    },
+    "groupBy": {
+      "day": "Tag",
+      "provider": "Provider",
+      "model": "Modell",
+      "session": "Session",
+      "user": "User"
+    },
+    "errors": {
+      "loadSummary": "Zusammenfassung konnte nicht geladen werden ({status}).",
+      "loadEvents": "Events konnten nicht geladen werden ({status})."
+    }
+  },
+  "help": {
+    "title": "Hilfe & Tutorials",
+    "intro": {
+      "title": "Willkommen in der Hilfe",
+      "description": "Hier findest du Tutorials und Anleitungen für Canvas Notebook. Klicke auf eine Karte, um mehr zu erfahren."
+    },
+    "empty": {
+      "title": "Keine Tutorials verfügbar",
+      "description": "Tutorials werden hier angezeigt, sobald sie verfügbar sind."
+    },
+    "dialog": {
+      "description": "Tutorial-Details für {title}",
+      "close": "Schließen",
+      "videoTitle": "{title} Video",
+      "moreActions": "Weitere Aktionen"
+    }
+  }
 }

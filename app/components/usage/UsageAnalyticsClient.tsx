@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { BarChart3, CalendarRange, Filter, Layers3, RefreshCw } from 'lucide-react';
 
-import { formatUsageCost, formatUsageTimestamp } from '@/app/lib/pi/usage-format';
+import { formatUsageCost } from '@/app/lib/pi/usage-format';
 import type {
   UsageEventsResponse,
   UsageSummaryGroupBy,
@@ -29,23 +30,6 @@ type FilterState = {
 type UsageAnalyticsClientProps = {
   isAdmin: boolean;
 };
-
-const STOP_REASON_OPTIONS = [
-  { value: '', label: 'All statuses' },
-  { value: 'stop', label: 'stop' },
-  { value: 'toolUse', label: 'toolUse' },
-  { value: 'length', label: 'length' },
-  { value: 'aborted', label: 'aborted' },
-  { value: 'error', label: 'error' },
-];
-
-const GROUP_BY_OPTIONS: Array<{ value: UsageSummaryGroupBy; label: string }> = [
-  { value: 'day', label: 'Day' },
-  { value: 'provider', label: 'Provider' },
-  { value: 'model', label: 'Model' },
-  { value: 'session', label: 'Session' },
-  { value: 'user', label: 'User' },
-];
 
 function formatDateInput(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -108,6 +92,23 @@ function StatCard({
 }
 
 export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
+  const t = useTranslations('usage');
+  const locale = useLocale();
+  const stopReasonOptions = [
+    { value: '', label: t('stopReasons.all') },
+    { value: 'stop', label: t('stopReasons.stop') },
+    { value: 'toolUse', label: t('stopReasons.toolUse') },
+    { value: 'length', label: t('stopReasons.length') },
+    { value: 'aborted', label: t('stopReasons.aborted') },
+    { value: 'error', label: t('stopReasons.error') },
+  ];
+  const groupByOptions: Array<{ value: UsageSummaryGroupBy; label: string }> = [
+    { value: 'day', label: t('groupBy.day') },
+    { value: 'provider', label: t('groupBy.provider') },
+    { value: 'model', label: t('groupBy.model') },
+    { value: 'session', label: t('groupBy.session') },
+    { value: 'user', label: t('groupBy.user') },
+  ];
   const [draftFilters, setDraftFilters] = useState<FilterState>(() => createDefaultFilters());
   const [activeFilters, setActiveFilters] = useState<FilterState>(() => createDefaultFilters());
   const [summary, setSummary] = useState<UsageSummaryResponse | null>(null);
@@ -118,6 +119,17 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
 
   const queryString = useMemo(() => buildQueryString(activeFilters, page), [activeFilters, page]);
   const canGoNext = events ? page * events.pageSize < events.totalRows : false;
+  const activeStopReasonLabel =
+    stopReasonOptions.find((option) => option.value === activeFilters.stopReason)?.label || t('scope.all');
+  const activeGroupByLabel =
+    groupByOptions.find((option) => option.value === activeFilters.groupBy)?.label || activeFilters.groupBy;
+
+  function formatTimestamp(value: string): string {
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(value));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -136,11 +148,11 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
         const eventsPayload = await eventsRes.json();
 
         if (!summaryRes.ok || !summaryPayload.success) {
-          throw new Error(summaryPayload.error || `Failed to load summary (${summaryRes.status})`);
+          throw new Error(summaryPayload.error || t('errors.loadSummary', { status: summaryRes.status }));
         }
 
         if (!eventsRes.ok || !eventsPayload.success) {
-          throw new Error(eventsPayload.error || `Failed to load events (${eventsRes.status})`);
+          throw new Error(eventsPayload.error || t('errors.loadEvents', { status: eventsRes.status }));
         }
 
         if (!cancelled) {
@@ -201,9 +213,9 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                 <BarChart3 className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <CardTitle className="text-lg sm:text-xl">Usage Analytics</CardTitle>
+                <CardTitle className="text-lg sm:text-xl">{t('header.title')}</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Tokens und Kosten auf Basis der PI-Usage-Events ab Rollout des Ledgers.
+                  {t('header.description')}
                 </p>
               </div>
             </div>
@@ -218,14 +230,14 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                   size="sm"
                   onClick={() => setPresetRange(days)}
                 >
-                  Last {days}d
+                  {t('presets.lastDays', { days })}
                 </Button>
               ))}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">From</span>
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.from')}</span>
                 <Input
                   type="date"
                   value={draftFilters.from}
@@ -233,7 +245,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">To</span>
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.to')}</span>
                 <Input
                   type="date"
                   value={draftFilters.to}
@@ -241,37 +253,37 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Provider</span>
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.provider')}</span>
                 <Input
-                  placeholder="openai, anthropic, ollama"
+                  placeholder={t('filters.providerPlaceholder')}
                   value={draftFilters.provider}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, provider: event.target.value }))}
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Model</span>
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.model')}</span>
                 <Input
-                  placeholder="gpt-4o, claude-sonnet-4"
+                  placeholder={t('filters.modelPlaceholder')}
                   value={draftFilters.model}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, model: event.target.value }))}
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Session</span>
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.session')}</span>
                 <Input
-                  placeholder="Session title or id"
+                  placeholder={t('filters.sessionPlaceholder')}
                   value={draftFilters.sessionQuery}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, sessionQuery: event.target.value }))}
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Stop reason</span>
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.stopReason')}</span>
                 <select
                   className="flex h-10 w-full border border-border bg-background px-3 text-sm"
                   value={draftFilters.stopReason}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, stopReason: event.target.value }))}
                 >
-                  {STOP_REASON_OPTIONS.map((option) => (
+                  {stopReasonOptions.map((option) => (
                     <option key={option.label} value={option.value}>
                       {option.label}
                     </option>
@@ -279,7 +291,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                 </select>
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Group by</span>
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.groupBy')}</span>
                 <select
                   className="flex h-10 w-full border border-border bg-background px-3 text-sm"
                   value={draftFilters.groupBy}
@@ -290,7 +302,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                     }))
                   }
                 >
-                  {GROUP_BY_OPTIONS.filter((option) => isAdmin || option.value !== 'user').map((option) => (
+                  {groupByOptions.filter((option) => isAdmin || option.value !== 'user').map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -299,9 +311,9 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
               </label>
               {isAdmin ? (
                 <label className="space-y-1 text-sm">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">User id</span>
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.userId')}</span>
                   <Input
-                    placeholder="Optional admin-wide filter"
+                    placeholder={t('filters.userIdPlaceholder')}
                     value={draftFilters.userId}
                     onChange={(event) => setDraftFilters((prev) => ({ ...prev, userId: event.target.value }))}
                   />
@@ -312,11 +324,11 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <Button type="button" size="sm" className="w-full gap-2 sm:w-auto" onClick={applyFilters}>
                 <Filter className="h-4 w-4" />
-                Apply filters
+                {t('actions.applyFilters')}
               </Button>
               <Button type="button" variant="outline" size="sm" className="w-full gap-2 sm:w-auto" onClick={resetFilters}>
                 <RefreshCw className="h-4 w-4" />
-                Reset
+                {t('actions.reset')}
               </Button>
             </div>
           </CardContent>
@@ -326,22 +338,26 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
           <CardHeader className="px-4 pb-4 sm:px-6">
             <CardTitle className="flex items-center gap-2 text-base">
               <Layers3 className="h-4 w-4" />
-              Active scope
+              {t('scope.title')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 px-4 pb-4 text-sm text-muted-foreground sm:px-6 sm:pb-6">
             <div className="flex items-start gap-2">
               <CalendarRange className="mt-0.5 h-4 w-4 text-foreground" />
               <span className="break-words">
-                {activeFilters.from} to {activeFilters.to}
+                {t('scope.range', { from: activeFilters.from, to: activeFilters.to })}
               </span>
             </div>
-            <div>Provider: {activeFilters.provider || 'all'}</div>
-            <div>Model: {activeFilters.model || 'all'}</div>
-            <div>Session: {activeFilters.sessionQuery || 'all'}</div>
-            <div>Stop reason: {activeFilters.stopReason || 'all'}</div>
-            <div>Grouped by: {activeFilters.groupBy}</div>
-            {isAdmin ? <div>User scope: {activeFilters.userId || 'all users'}</div> : <div>User scope: current user</div>}
+            <div>{t('scope.provider', { value: activeFilters.provider || t('scope.all') })}</div>
+            <div>{t('scope.model', { value: activeFilters.model || t('scope.all') })}</div>
+            <div>{t('scope.session', { value: activeFilters.sessionQuery || t('scope.all') })}</div>
+            <div>{t('scope.stopReason', { value: activeStopReasonLabel })}</div>
+            <div>{t('scope.groupedBy', { value: activeGroupByLabel })}</div>
+            {isAdmin ? (
+              <div>{t('scope.userScope', { value: activeFilters.userId || t('scope.allUsers') })}</div>
+            ) : (
+              <div>{t('scope.userScope', { value: t('scope.currentUser') })}</div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -354,52 +370,52 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
 
       <div className="grid gap-4 min-[480px]:grid-cols-2 xl:grid-cols-6">
         <StatCard
-          title="Total cost"
+          title={t('stats.totalCost.title')}
           value={formatUsageCost(summary?.totals.totalCost ?? 0)}
-          subtitle="PI pricing based"
+          subtitle={t('stats.totalCost.subtitle')}
         />
         <StatCard
-          title="Total tokens"
+          title={t('stats.totalTokens.title')}
           value={String(summary?.totals.totalTokens ?? 0)}
-          subtitle="Across filtered usage events"
+          subtitle={t('stats.totalTokens.subtitle')}
         />
         <StatCard
-          title="Input"
+          title={t('stats.input.title')}
           value={String(summary?.totals.inputTokens ?? 0)}
-          subtitle="Prompt and context tokens"
+          subtitle={t('stats.input.subtitle')}
         />
         <StatCard
-          title="Output"
+          title={t('stats.output.title')}
           value={String(summary?.totals.outputTokens ?? 0)}
-          subtitle="Assistant generation tokens"
+          subtitle={t('stats.output.subtitle')}
         />
         <StatCard
-          title="Cache"
+          title={t('stats.cache.title')}
           value={String(summary?.totals.cacheTokens ?? 0)}
-          subtitle="Read and write cache tokens"
+          subtitle={t('stats.cache.subtitle')}
         />
         <StatCard
-          title="Sessions"
+          title={t('stats.sessions.title')}
           value={String(summary?.totals.sessionCount ?? 0)}
-          subtitle={`${summary?.totals.eventCount ?? 0} usage events`}
+          subtitle={t('stats.sessions.subtitle', { count: summary?.totals.eventCount ?? 0 })}
         />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <Card className="border-border/70 bg-card/95">
           <CardHeader className="px-4 pb-3 sm:px-6">
-            <CardTitle className="text-base">Grouped summary</CardTitle>
+            <CardTitle className="text-base">{t('summary.title')}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
             <div className="overflow-x-auto">
               <table data-testid="usage-summary-table" className="min-w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                    <th className="px-0 py-2">Group</th>
-                    <th className="px-0 py-2">Cost</th>
-                    <th className="px-0 py-2">Tokens</th>
-                    <th className="px-0 py-2">Sessions</th>
-                    <th className="px-0 py-2">Events</th>
+                    <th className="px-0 py-2">{t('summary.columns.group')}</th>
+                    <th className="px-0 py-2">{t('summary.columns.cost')}</th>
+                    <th className="px-0 py-2">{t('summary.columns.tokens')}</th>
+                    <th className="px-0 py-2">{t('summary.columns.sessions')}</th>
+                    <th className="px-0 py-2">{t('summary.columns.events')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -409,7 +425,11 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                         <td className="px-0 py-3">
                           <div className="font-medium">{row.label}</div>
                           <div className="text-xs text-muted-foreground">
-                            {row.inputTokens} in / {row.outputTokens} out / {row.cacheTokens} cache
+                            {t('summary.breakdown', {
+                              input: row.inputTokens,
+                              output: row.outputTokens,
+                              cache: row.cacheTokens,
+                            })}
                           </div>
                         </td>
                         <td className="px-0 py-3 font-medium">{formatUsageCost(row.totalCost)}</td>
@@ -421,7 +441,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                   ) : (
                     <tr>
                       <td colSpan={5} className="px-0 py-6 text-sm text-muted-foreground">
-                        {isLoading ? 'Loading summary...' : 'No usage events found for the current filters.'}
+                        {isLoading ? t('summary.loading') : t('summary.empty')}
                       </td>
                     </tr>
                   )}
@@ -434,14 +454,14 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
         <Card className="border-border/70 bg-card/95">
           <CardHeader className="px-4 pb-3 sm:px-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-              <CardTitle className="text-base">Recent usage events</CardTitle>
+              <CardTitle className="text-base">{t('events.title')}</CardTitle>
               <div className="flex flex-col gap-2 min-[480px]:flex-row min-[480px]:items-center">
                 <Button type="button" variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((prev) => prev - 1)}>
-                  Previous
+                  {t('events.previous')}
                 </Button>
-                <span className="text-xs text-muted-foreground">Page {page}</span>
+                <span className="text-xs text-muted-foreground">{t('events.page', { page })}</span>
                 <Button type="button" variant="outline" size="sm" disabled={!canGoNext} onClick={() => setPage((prev) => prev + 1)}>
-                  Next
+                  {t('events.next')}
                 </Button>
               </div>
             </div>
@@ -457,18 +477,18 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                           <div className="font-medium">
                             {row.sessionTitleSnapshot || row.sessionId}
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {row.provider} / {row.model}
-                            {isAdmin ? ` / ${row.userLabel}` : ''}
+                        <div className="text-xs text-muted-foreground">
+                          {row.provider} / {row.model}
+                          {isAdmin ? ` / ${row.userLabel}` : ''}
                           </div>
                         </div>
                         <div className="text-right text-sm font-medium">{formatUsageCost(row.totalCost)}</div>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                        <span>{formatUsageTimestamp(row.assistantTimestamp)}</span>
-                        <span>{row.totalTokens} tok</span>
-                        <span>{row.inputTokens} in / {row.outputTokens} out</span>
-                        <span>{row.cacheTokens} cache</span>
+                        <span>{formatTimestamp(row.assistantTimestamp)}</span>
+                        <span>{t('events.tokens', { count: row.totalTokens })}</span>
+                        <span>{t('events.inputOutput', { input: row.inputTokens, output: row.outputTokens })}</span>
+                        <span>{t('events.cache', { count: row.cacheTokens })}</span>
                         <span>{row.stopReason}</span>
                       </div>
                     </div>
@@ -477,7 +497,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
               </ScrollArea>
             ) : (
               <div className="py-6 text-sm text-muted-foreground">
-                {isLoading ? 'Loading events...' : 'No usage events found for the current filters.'}
+                {isLoading ? t('events.loading') : t('events.empty')}
               </div>
             )}
           </CardContent>

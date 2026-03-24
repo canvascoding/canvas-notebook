@@ -2,8 +2,8 @@
   "updatedAt": "2026-03-24",
   "items": [
     {
-      "id": "i18n-5.11",
-      "title": "Usage & Help übersetzen",
+      "id": "i18n-8.1",
+      "title": "BETTER_AUTH_BASE_URL prüfen",
       "status": "in_progress",
       "source": "docs/i18n-migration-todo.json"
     }
