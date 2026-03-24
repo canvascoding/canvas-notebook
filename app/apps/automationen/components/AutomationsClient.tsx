@@ -3,11 +3,19 @@
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { ChevronDown, Clock3, Loader2, Play, Plus, RefreshCw, Save, Trash2, WandSparkles } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
-import type { AutomationJobRecord, AutomationRunRecord, AutomationPreferredSkill, AutomationWeekday } from '@/app/lib/automations/types';
-import { describeFriendlySchedule } from '@/app/lib/automations/schedule';
+import type {
+  AutomationJobRecord,
+  AutomationPreferredSkill,
+  AutomationRunRecord,
+  AutomationRunStatus,
+  AutomationTriggerType,
+  AutomationWeekday,
+  FriendlySchedule,
+} from '@/app/lib/automations/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -35,23 +43,8 @@ type JobDraft = {
   intervalUnit: 'minutes' | 'hours' | 'days';
 };
 
-const WEEKDAY_OPTIONS: Array<{ value: AutomationWeekday; label: string }> = [
-  { value: 'mon', label: 'Mo' },
-  { value: 'tue', label: 'Di' },
-  { value: 'wed', label: 'Mi' },
-  { value: 'thu', label: 'Do' },
-  { value: 'fri', label: 'Fr' },
-  { value: 'sat', label: 'Sa' },
-  { value: 'sun', label: 'So' },
-];
-
-const PREFERRED_SKILLS: Array<{ value: AutomationPreferredSkill; label: string; hint: string }> = [
-  { value: 'auto', label: 'Automatisch', hint: 'Der Agent entscheidet selbst, welche Tools sinnvoll sind.' },
-  { value: 'image_generation', label: 'Bild erstellen', hint: 'Fokus auf Bild-Generierung.' },
-  { value: 'video_generation', label: 'Video erstellen', hint: 'Fokus auf Video-Generierung.' },
-  { value: 'ad_localization', label: 'Anzeige lokalisieren', hint: 'Fokus auf Ad-Lokalisierung.' },
-  { value: 'qmd', label: 'Workspace durchsuchen', hint: 'Fokus auf qmd-Workspace-Suche mit Text- und Dokumentindex.' },
-];
+const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const PREFERRED_SKILLS: AutomationPreferredSkill[] = ['auto', 'image_generation', 'video_generation', 'ad_localization', 'qmd'];
 
 function defaultDraft(): JobDraft {
   const now = new Date();
@@ -114,16 +107,50 @@ function buildPayload(draft: JobDraft) {
   };
 }
 
-function formatDateTime(value: string | null): string {
-  if (!value) return 'Noch nicht geplant';
+function formatDateTime(value: string | null, locale: string, emptyLabel: string): string {
+  if (!value) return emptyLabel;
   try {
-    return new Intl.DateTimeFormat('de-DE', {
+    return new Intl.DateTimeFormat(locale, {
       dateStyle: 'medium',
       timeStyle: 'short',
     }).format(new Date(value));
   } catch {
     return value;
   }
+}
+
+function describeFriendlyScheduleLocalized(
+  schedule: FriendlySchedule,
+  translate: (key: string, values?: Record<string, string | number>) => string,
+  weekdayLabels: Record<AutomationWeekday, string>,
+): string {
+  if (schedule.kind === 'once') {
+    return translate('scheduleSummary.once', { date: schedule.date, time: schedule.time });
+  }
+
+  if (schedule.kind === 'daily') {
+    return translate('scheduleSummary.daily', { time: schedule.time });
+  }
+
+  if (schedule.kind === 'weekly') {
+    return translate('scheduleSummary.weekly', {
+      days: schedule.days.map((day) => weekdayLabels[day]).join(', '),
+      time: schedule.time,
+    });
+  }
+
+  return translate('scheduleSummary.interval', {
+    every: schedule.every,
+    unit: translate(`intervalUnits.${schedule.unit}`),
+  });
+}
+
+function formatRunStatus(status: AutomationRunStatus, translate: (key: string) => string): string {
+  return translate(`runStatus.${status}`);
+}
+
+function formatTriggerType(triggerType: AutomationTriggerType, translate: (key: string) => string): string {
+  return translate(`triggerType.${triggerType}`);
 }
 
 function toNotebookUrl(filePath: string) {
@@ -159,6 +186,8 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
 }
 
 export function AutomationsClient() {
+  const t = useTranslations('automationen');
+  const locale = useLocale();
   const [jobs, setJobs] = useState<AutomationJobRecord[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [draft, setDraft] = useState<JobDraft>(() => defaultDraft());
@@ -192,6 +221,27 @@ export function AutomationsClient() {
     () => getEffectiveAutomationTargetOutputPath({ name: draft.name || 'automation', targetOutputPath: draft.targetOutputPath }),
     [draft.name, draft.targetOutputPath],
   );
+  const weekdayLabels = useMemo<Record<AutomationWeekday, string>>(
+    () => ({
+      mon: t('weekdays.mon'),
+      tue: t('weekdays.tue'),
+      wed: t('weekdays.wed'),
+      thu: t('weekdays.thu'),
+      fri: t('weekdays.fri'),
+      sat: t('weekdays.sat'),
+      sun: t('weekdays.sun'),
+    }),
+    [t],
+  );
+  const preferredSkills = useMemo(
+    () =>
+      PREFERRED_SKILLS.map((value) => ({
+        value,
+        label: t(`preferredSkills.${value}.label`),
+        hint: t(`preferredSkills.${value}.hint`),
+      })),
+    [t],
+  );
 
   async function loadJobs(options?: { keepSelection?: boolean }) {
     setIsLoadingJobs(true);
@@ -199,7 +249,7 @@ export function AutomationsClient() {
       const response = await fetch('/api/automations/jobs', { cache: 'no-store', credentials: 'include' });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Automationen konnten nicht geladen werden.');
+        throw new Error(payload.error || t('errors.loadJobs'));
       }
 
       const nextJobs = payload.data as AutomationJobRecord[];
@@ -226,7 +276,7 @@ export function AutomationsClient() {
         }
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Automationen konnten nicht geladen werden.');
+      toast.error(error instanceof Error ? error.message : t('errors.loadJobs'));
     } finally {
       setIsLoadingJobs(false);
     }
@@ -242,7 +292,7 @@ export function AutomationsClient() {
       const response = await fetch(`/api/automations/jobs/${jobId}/runs`, { cache: 'no-store', credentials: 'include' });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Läufe konnten nicht geladen werden.');
+        throw new Error(payload.error || t('errors.loadRuns'));
       }
 
       const nextRuns = payload.data as AutomationRunRecord[];
@@ -253,7 +303,7 @@ export function AutomationsClient() {
       setRuns([]);
       setSelectedRunId(null);
       setLogContent('');
-      toast.error(error instanceof Error ? error.message : 'Läufe konnten nicht geladen werden.');
+      toast.error(error instanceof Error ? error.message : t('errors.loadRuns'));
     } finally {
       setIsRefreshingRuns(false);
     }
@@ -264,12 +314,12 @@ export function AutomationsClient() {
       const response = await fetch(`/api/automations/runs/${runId}/logs`, { cache: 'no-store', credentials: 'include' });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Logs konnten nicht geladen werden.');
+        throw new Error(payload.error || t('errors.loadLogs'));
       }
       setLogContent(payload.data.content || '');
     } catch (error) {
       setLogContent('');
-      toast.error(error instanceof Error ? error.message : 'Logs konnten nicht geladen werden.');
+      toast.error(error instanceof Error ? error.message : t('errors.loadLogs'));
     }
   }
 
@@ -320,16 +370,16 @@ export function AutomationsClient() {
       );
       const result = await response.json();
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Automation konnte nicht gespeichert werden.');
+        throw new Error(result.error || t('errors.saveJob'));
       }
 
       const savedJob = result.data as AutomationJobRecord;
-      toast.success(draft.id ? 'Automation aktualisiert.' : 'Automation erstellt.');
+      toast.success(draft.id ? t('toasts.jobUpdated') : t('toasts.jobCreated'));
       setSelectedJobId(savedJob.id);
       setDraft(mapJobToDraft(savedJob));
       await loadJobs({ keepSelection: true });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Automation konnte nicht gespeichert werden.');
+      toast.error(error instanceof Error ? error.message : t('errors.saveJob'));
     } finally {
       setIsSaving(false);
     }
@@ -345,21 +395,21 @@ export function AutomationsClient() {
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Lauf konnte nicht gestartet werden.');
+        throw new Error(payload.error || t('errors.runNow'));
       }
       const run = payload.data as AutomationRunRecord;
-      toast.success('Lauf eingeplant.');
+      toast.success(t('toasts.runQueued'));
       await loadJobs({ keepSelection: true });
       await loadRuns(selectedJobId, run.id);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Lauf konnte nicht gestartet werden.');
+      toast.error(error instanceof Error ? error.message : t('errors.runNow'));
     } finally {
       setIsRunningNow(false);
     }
   }
 
   async function handleDelete() {
-    if (!selectedJobId || !window.confirm('Diese Automation wirklich löschen?')) return;
+    if (!selectedJobId || !window.confirm(t('confirmDelete'))) return;
     setIsDeleting(true);
     try {
       const response = await fetch(`/api/automations/jobs/${selectedJobId}`, {
@@ -368,9 +418,9 @@ export function AutomationsClient() {
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Automation konnte nicht gelöscht werden.');
+        throw new Error(payload.error || t('errors.deleteJob'));
       }
-      toast.success('Automation gelöscht.');
+      toast.success(t('toasts.jobDeleted'));
       setSelectedJobId(null);
       setDraft(defaultDraft());
       setRuns([]);
@@ -378,7 +428,7 @@ export function AutomationsClient() {
       setLogContent('');
       await loadJobs();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Automation konnte nicht gelöscht werden.');
+      toast.error(error instanceof Error ? error.message : t('errors.deleteJob'));
     } finally {
       setIsDeleting(false);
     }
@@ -390,11 +440,12 @@ export function AutomationsClient() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-xl">
             <WandSparkles className="h-5 w-5" />
-            Automationen
+            {t('title')}
           </CardTitle>
           <CardDescription>
-            Plane wiederkehrende Agent-Aufträge für denselben Workspace. Run-Artefakte landen unter
-            <span className="ml-1 font-mono">automationen/</span>, fachliche Ergebnisse optional in einem eigenen Zielordner.
+            {t('intro.prefix')}
+            <span className="ml-1 font-mono">automationen/</span>
+            {t('intro.suffix')}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -402,8 +453,8 @@ export function AutomationsClient() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,380px)]">
         <Card className="min-h-[620px] min-w-0 overflow-hidden xl:h-[calc(100vh-220px)] xl:max-h-[calc(100vh-220px)]">
           <CardHeader className="border-b">
-            <CardTitle className="text-base">Übersicht</CardTitle>
-            <CardDescription>Alle aktiven und pausierten Automationen.</CardDescription>
+            <CardTitle className="text-base">{t('overview.title')}</CardTitle>
+            <CardDescription>{t('overview.description')}</CardDescription>
           </CardHeader>
           <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
             <div className="flex gap-2">
@@ -420,9 +471,15 @@ export function AutomationsClient() {
                 data-testid="automation-new"
               >
                 <Plus className="mr-2 h-4 w-4" />
-                Neue Automation
+                {t('overview.newAutomation')}
               </Button>
-              <Button variant="outline" size="icon" onClick={() => void loadJobs({ keepSelection: true })}>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => void loadJobs({ keepSelection: true })}
+                aria-label={t('overview.refresh')}
+                title={t('overview.refresh')}
+              >
                 <RefreshCw className={`h-4 w-4 ${isLoadingJobs ? 'animate-spin' : ''}`} />
               </Button>
             </div>
@@ -436,11 +493,11 @@ export function AutomationsClient() {
                 {isLoadingJobs && jobs.length === 0 ? (
                   <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Lade Automationen...
+                    {t('overview.loading')}
                   </div>
                 ) : jobs.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
-                    Noch keine Automation angelegt.
+                    {t('overview.empty')}
                   </div>
                 ) : (
                   jobs.map((job) => (
@@ -466,13 +523,13 @@ export function AutomationsClient() {
                             job.status === 'active' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
                           }`}
                         >
-                          {job.status === 'active' ? 'aktiv' : 'pausiert'}
+                          {t(`jobStatus.${job.status}`)}
                         </span>
                       </div>
                       <div className="mt-3 min-w-0 space-y-1 text-xs text-muted-foreground">
-                        <p className="break-words">{describeFriendlySchedule(job.schedule)}</p>
-                        <p className="break-words">Nächster Lauf: {formatDateTime(job.nextRunAt)}</p>
-                        <p>Letzter Status: {job.lastRunStatus || 'noch keiner'}</p>
+                        <p className="break-words">{describeFriendlyScheduleLocalized(job.schedule, t, weekdayLabels)}</p>
+                        <p className="break-words">{t('overview.nextRun')}: {formatDateTime(job.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</p>
+                        <p>{t('overview.lastStatus')}: {job.lastRunStatus ? formatRunStatus(job.lastRunStatus, t) : t('noneYet')}</p>
                       </div>
                     </button>
                   ))
@@ -484,48 +541,48 @@ export function AutomationsClient() {
 
         <Card className="min-h-[620px] min-w-0 overflow-hidden">
           <CardHeader className="border-b">
-            <CardTitle className="text-base">{draft.id ? 'Automation bearbeiten' : 'Neue Automation'}</CardTitle>
-            <CardDescription>Nicht technisch formulieren. Der Agent führt den Auftrag später im Workspace aus.</CardDescription>
+            <CardTitle className="text-base">{draft.id ? t('editor.editTitle') : t('editor.newTitle')}</CardTitle>
+            <CardDescription>{t('editor.description')}</CardDescription>
           </CardHeader>
           <CardContent className="min-w-0 space-y-4 overflow-hidden">
             <div className="grid gap-4 md:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">Name</span>
+                <span className="text-xs text-muted-foreground">{t('editor.fields.name')}</span>
                 <input
                   data-testid="automation-name"
                   className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={draft.name}
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Täglicher Markt-Check"
+                  placeholder={t('editor.placeholders.name')}
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">Status</span>
+                <span className="text-xs text-muted-foreground">{t('editor.fields.status')}</span>
                 <select
                   className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={draft.status}
                   onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as JobDraft['status'] }))}
                 >
-                  <option value="active">Aktiv</option>
-                  <option value="paused">Pausiert</option>
+                  <option value="active">{t('jobStatus.active')}</option>
+                  <option value="paused">{t('jobStatus.paused')}</option>
                 </select>
               </label>
             </div>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Was soll erledigt werden?</span>
+              <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
               <textarea
                 data-testid="automation-prompt"
                 className="min-h-[160px] rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={draft.prompt}
                 onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
-                placeholder="Beschreibe den Agent-Auftrag in normaler Sprache..."
+                placeholder={t('editor.placeholders.prompt')}
               />
             </label>
 
             <div className="grid gap-4 md:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">Bevorzugte Aktion</span>
+                <span className="text-xs text-muted-foreground">{t('editor.fields.preferredSkill')}</span>
                 <select
                   className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={draft.preferredSkill}
@@ -533,7 +590,7 @@ export function AutomationsClient() {
                     setDraft((current) => ({ ...current, preferredSkill: event.target.value as AutomationPreferredSkill }))
                   }
                 >
-                  {PREFERRED_SKILLS.map((option) => (
+                  {preferredSkills.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -542,7 +599,7 @@ export function AutomationsClient() {
               </label>
 
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">Zeitzone</span>
+                <span className="text-xs text-muted-foreground">{t('editor.fields.timeZone')}</span>
                 <input
                   className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={draft.timeZone}
@@ -551,11 +608,11 @@ export function AutomationsClient() {
               </label>
             </div>
             <p className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {PREFERRED_SKILLS.find((option) => option.value === draft.preferredSkill)?.hint}
+              {preferredSkills.find((option) => option.value === draft.preferredSkill)?.hint}
             </p>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Relevante Dateien oder Ordner</span>
+              <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
               <textarea
                 data-testid="automation-context-paths"
                 className="min-h-[100px] rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
@@ -568,10 +625,8 @@ export function AutomationsClient() {
             <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium">Wo sollen die Ergebnisse gespeichert werden?</p>
-                  <p className="text-xs text-muted-foreground">
-                    Optional. Leer gelassen nutzt die Automation automatisch einen Zielordner pro Job.
-                  </p>
+                  <p className="text-sm font-medium">{t('output.title')}</p>
+                  <p className="text-xs text-muted-foreground">{t('output.description')}</p>
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <Button
@@ -581,7 +636,7 @@ export function AutomationsClient() {
                     onClick={() => setIsDirectoryPickerOpen(true)}
                     data-testid="automation-target-output-picker"
                   >
-                    Im Workspace wählen
+                    {t('output.pickInWorkspace')}
                   </Button>
                   <Button
                     type="button"
@@ -589,7 +644,7 @@ export function AutomationsClient() {
                     size="sm"
                     onClick={() => setDraft((current) => ({ ...current, targetOutputPath: '' }))}
                   >
-                    Standard
+                    {t('output.useDefault')}
                   </Button>
                 </div>
               </div>
@@ -603,11 +658,11 @@ export function AutomationsClient() {
               />
               <div className="grid gap-3 lg:grid-cols-2">
                 <div className="rounded-md border border-dashed border-border bg-background/70 p-3">
-                  <p className="text-xs font-medium text-foreground">Vorschlag</p>
+                  <p className="text-xs font-medium text-foreground">{t('output.suggestedPath')}</p>
                   <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{draftDefaultTargetOutputPath}</p>
                 </div>
                 <div className="rounded-md border border-dashed border-border bg-background/70 p-3">
-                  <p className="text-xs font-medium text-foreground">Effektiver Zielordner</p>
+                  <p className="text-xs font-medium text-foreground">{t('output.effectivePath')}</p>
                   <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{draftEffectiveTargetOutputPath}</p>
                 </div>
               </div>
@@ -616,22 +671,22 @@ export function AutomationsClient() {
             <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
               <div className="flex items-center gap-2">
                 <Clock3 className="h-4 w-4 text-muted-foreground" />
-                <p className="text-sm font-medium">Wann soll das laufen?</p>
+                <p className="text-sm font-medium">{t('schedule.title')}</p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-xs text-muted-foreground">Rhythmus</span>
+                  <span className="text-xs text-muted-foreground">{t('schedule.fields.kind')}</span>
                   <select
                     data-testid="automation-schedule-kind"
                     className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                     value={draft.scheduleKind}
                     onChange={(event) => setDraft((current) => ({ ...current, scheduleKind: event.target.value as ScheduleKind }))}
                   >
-                    <option value="once">Einmalig</option>
-                    <option value="daily">Täglich</option>
-                    <option value="weekly">Wöchentlich</option>
-                    <option value="interval">Alle X</option>
+                    <option value="once">{t('schedule.kind.once')}</option>
+                    <option value="daily">{t('schedule.kind.daily')}</option>
+                    <option value="weekly">{t('schedule.kind.weekly')}</option>
+                    <option value="interval">{t('schedule.kind.interval')}</option>
                   </select>
                 </label>
               </div>
@@ -639,7 +694,7 @@ export function AutomationsClient() {
               {draft.scheduleKind === 'once' && (
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-xs text-muted-foreground">Datum</span>
+                    <span className="text-xs text-muted-foreground">{t('schedule.fields.date')}</span>
                     <input
                       type="date"
                       className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -648,7 +703,7 @@ export function AutomationsClient() {
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-xs text-muted-foreground">Uhrzeit</span>
+                    <span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span>
                     <input
                       type="time"
                       className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -661,7 +716,7 @@ export function AutomationsClient() {
 
               {draft.scheduleKind === 'daily' && (
                 <label className="flex flex-col gap-1 text-sm md:max-w-xs">
-                  <span className="text-xs text-muted-foreground">Uhrzeit</span>
+                  <span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span>
                   <input
                     type="time"
                     className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -675,28 +730,28 @@ export function AutomationsClient() {
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {WEEKDAY_OPTIONS.map((day) => {
-                      const selected = draft.weeklyDays.includes(day.value);
+                      const selected = draft.weeklyDays.includes(day);
                       return (
                         <button
-                          key={day.value}
+                          key={day}
                           type="button"
                           className={`rounded-md border px-3 py-2 text-sm ${selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
                           onClick={() =>
                             setDraft((current) => ({
                               ...current,
-                              weeklyDays: current.weeklyDays.includes(day.value)
-                                ? current.weeklyDays.filter((entry) => entry !== day.value)
-                                : [...current.weeklyDays, day.value],
+                              weeklyDays: current.weeklyDays.includes(day)
+                                ? current.weeklyDays.filter((entry) => entry !== day)
+                                : [...current.weeklyDays, day],
                             }))
                           }
                         >
-                          {day.label}
+                          {weekdayLabels[day]}
                         </button>
                       );
                     })}
                   </div>
                   <label className="flex flex-col gap-1 text-sm md:max-w-xs">
-                    <span className="text-xs text-muted-foreground">Uhrzeit</span>
+                    <span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span>
                     <input
                       type="time"
                       className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -710,7 +765,7 @@ export function AutomationsClient() {
               {draft.scheduleKind === 'interval' && (
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-xs text-muted-foreground">Wiederholen alle</span>
+                    <span className="text-xs text-muted-foreground">{t('schedule.fields.intervalEvery')}</span>
                     <input
                       type="number"
                       min="1"
@@ -721,7 +776,7 @@ export function AutomationsClient() {
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-xs text-muted-foreground">Einheit</span>
+                    <span className="text-xs text-muted-foreground">{t('schedule.fields.intervalUnit')}</span>
                     <select
                       className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                       value={draft.intervalUnit}
@@ -729,9 +784,9 @@ export function AutomationsClient() {
                         setDraft((current) => ({ ...current, intervalUnit: event.target.value as JobDraft['intervalUnit'] }))
                       }
                     >
-                      <option value="minutes">Minuten</option>
-                      <option value="hours">Stunden</option>
-                      <option value="days">Tage</option>
+                      <option value="minutes">{t('intervalUnits.minutes')}</option>
+                      <option value="hours">{t('intervalUnits.hours')}</option>
+                      <option value="days">{t('intervalUnits.days')}</option>
                     </select>
                   </label>
                 </div>
@@ -741,15 +796,15 @@ export function AutomationsClient() {
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => void handleSave()} disabled={isSaving} data-testid="automation-save">
                 {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Speichern
+                {t('actions.save')}
               </Button>
               <Button variant="secondary" onClick={() => void handleRunNow()} disabled={!selectedJobId || isRunningNow} data-testid="automation-run-now">
                 {isRunningNow ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-                Jetzt ausführen
+                {t('actions.runNow')}
               </Button>
               <Button variant="outline" onClick={handleDelete} disabled={!selectedJobId || isDeleting}>
                 {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                Löschen
+                {t('actions.delete')}
               </Button>
             </div>
           </CardContent>
@@ -757,19 +812,19 @@ export function AutomationsClient() {
 
         <Card className="min-h-[620px] min-w-0 overflow-hidden">
           <CardHeader className="border-b">
-            <CardTitle className="text-base">Laufhistorie</CardTitle>
-            <CardDescription>Status, Ergebnisse und Logs der ausgewählten Automation.</CardDescription>
+            <CardTitle className="text-base">{t('runs.title')}</CardTitle>
+            <CardDescription>{t('runs.description')}</CardDescription>
           </CardHeader>
           <CardContent className="min-w-0 space-y-4 overflow-hidden">
             <div className="space-y-2" data-testid="automation-run-list">
               {isRefreshingRuns && runs.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Lade Läufe...
+                  {t('runs.loading')}
                 </div>
               ) : runs.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
-                  Noch keine Läufe vorhanden.
+                  {t('runs.empty')}
                 </div>
               ) : (
                 runs.map((run) => (
@@ -783,13 +838,13 @@ export function AutomationsClient() {
                     data-testid={`automation-run-${run.id}`}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{run.status}</span>
-                      <span className="text-xs text-muted-foreground">Versuch {run.attemptNumber}</span>
+                      <span className="font-medium">{formatRunStatus(run.status, t)}</span>
+                      <span className="text-xs text-muted-foreground">{t('runs.attempt', { count: run.attemptNumber })}</span>
                     </div>
                     <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      <p>Ausgelöst: {run.triggerType}</p>
-                      <p>Geplant für: {formatDateTime(run.scheduledFor)}</p>
-                      <p>Beendet: {formatDateTime(run.finishedAt)}</p>
+                      <p>{t('runs.triggeredBy')}: {formatTriggerType(run.triggerType, t)}</p>
+                      <p>{t('runs.scheduledFor')}: {formatDateTime(run.scheduledFor, locale, t('scheduleSummary.notScheduled'))}</p>
+                      <p>{t('runs.finishedAt')}: {formatDateTime(run.finishedAt, locale, t('scheduleSummary.notScheduled'))}</p>
                       {run.errorMessage ? <p className="text-destructive">{run.errorMessage}</p> : null}
                     </div>
                   </button>
@@ -804,8 +859,8 @@ export function AutomationsClient() {
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-medium">Logs</p>
-                  <p className="text-xs text-muted-foreground">Rohes Event-Log der ausgewählten Ausführung.</p>
+                  <p className="text-sm font-medium">{t('logs.title')}</p>
+                  <p className="text-xs text-muted-foreground">{t('logs.description')}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {selectedRun?.logPath ? (
@@ -814,7 +869,7 @@ export function AutomationsClient() {
                       data-testid="automation-log-open"
                       className="text-xs font-medium text-primary underline-offset-4 hover:underline"
                     >
-                      Log-Datei öffnen
+                      {t('logs.openLogFile')}
                     </Link>
                   ) : null}
                   <CollapsibleTrigger asChild>
@@ -825,7 +880,7 @@ export function AutomationsClient() {
                       className="h-8 px-2 text-xs"
                       data-testid="automation-log-toggle"
                     >
-                      {isLogSectionOpen ? 'Einklappen' : 'Ausklappen'}
+                      {isLogSectionOpen ? t('logs.collapse') : t('logs.expand')}
                       <ChevronDown className={`ml-1 h-4 w-4 transition-transform ${isLogSectionOpen ? 'rotate-180' : ''}`} />
                     </Button>
                   </CollapsibleTrigger>
@@ -837,32 +892,32 @@ export function AutomationsClient() {
                     className="min-h-full p-3 text-xs text-foreground"
                     data-testid="automation-log-content"
                   >
-                    {logContent || 'Noch kein Log vorhanden.'}
+                    {logContent || t('logs.empty')}
                   </pre>
                 </ScrollArea>
               </CollapsibleContent>
             </Collapsible>
 
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
-              <p className="font-medium">Ergebnisordner</p>
+              <p className="font-medium">{t('results.title')}</p>
               <p className="break-all font-mono text-xs text-muted-foreground" data-testid="automation-result-folder">
-                {selectedRun?.effectiveTargetOutputPath || selectedJob?.effectiveTargetOutputPath || 'Noch keiner vorhanden.'}
+                {selectedRun?.effectiveTargetOutputPath || selectedJob?.effectiveTargetOutputPath || t('noneYet')}
               </p>
               {selectedRun?.targetOutputPath ? (
                 <p className="text-xs text-muted-foreground">
-                  Konfiguriert: <span className="font-mono">{selectedRun.targetOutputPath}</span>
+                  {t('results.configured')}: <span className="font-mono">{selectedRun.targetOutputPath}</span>
                 </p>
               ) : selectedJob ? (
                 <p className="text-xs text-muted-foreground">
-                  Standard: <span className="font-mono">{selectedJob.effectiveTargetOutputPath}</span>
+                  {t('results.default')}: <span className="font-mono">{selectedJob.effectiveTargetOutputPath}</span>
                 </p>
               ) : null}
             </div>
 
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
-              <p className="font-medium">Run-Artefakte</p>
+              <p className="font-medium">{t('artifacts.title')}</p>
               <p className="break-all font-mono text-xs text-muted-foreground" data-testid="automation-artifact-folder">
-                {selectedRun?.outputDir || 'Noch keiner vorhanden.'}
+                {selectedRun?.outputDir || t('noneYet')}
               </p>
               {selectedRun?.resultPath ? (
                 <Link
@@ -870,11 +925,11 @@ export function AutomationsClient() {
                   data-testid="automation-result-open"
                   className="text-sm font-medium text-primary underline-offset-4 hover:underline"
                 >
-                  Ergebnisdatei öffnen
+                  {t('artifacts.openResultFile')}
                 </Link>
               ) : null}
               {selectedRun?.piSessionId ? (
-                <p className="text-xs text-muted-foreground">PI Session: {selectedRun.piSessionId}</p>
+                <p className="text-xs text-muted-foreground">{t('artifacts.piSession')}: {selectedRun.piSessionId}</p>
               ) : null}
             </div>
           </CardContent>

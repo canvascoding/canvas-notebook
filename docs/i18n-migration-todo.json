@@ -331,13 +331,13 @@
         {
           "id": "5.9",
           "title": "Automationen-Seite übersetzen",
-          "status": "in_progress",
+          "status": "done",
           "description": "Namespace: 'automationen'."
         },
         {
           "id": "5.10",
           "title": "Image Generation, Veo, Nano-Banana übersetzen",
-          "status": "open",
+          "status": "in_progress",
           "description": "Namespaces: 'imageGeneration', 'veo', 'nanoBanana'."
         },
         {

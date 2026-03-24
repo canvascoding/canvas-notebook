@@ -745,7 +745,189 @@
       }
     }
   },
-  "automationen": { "title": "Automationen" },
+  "automationen": {
+    "title": "Automationen",
+    "intro": {
+      "prefix": "Plane wiederkehrende Agent-Aufträge für denselben Workspace. Run-Artefakte landen unter ",
+      "suffix": ", fachliche Ergebnisse optional in einem eigenen Zielordner."
+    },
+    "overview": {
+      "title": "Übersicht",
+      "description": "Alle aktiven und pausierten Automationen.",
+      "newAutomation": "Neue Automation",
+      "refresh": "Automationen neu laden",
+      "loading": "Lade Automationen...",
+      "empty": "Noch keine Automation angelegt.",
+      "nextRun": "Nächster Lauf",
+      "lastStatus": "Letzter Status"
+    },
+    "editor": {
+      "newTitle": "Neue Automation",
+      "editTitle": "Automation bearbeiten",
+      "description": "Nicht technisch formulieren. Der Agent führt den Auftrag später im Workspace aus.",
+      "fields": {
+        "name": "Name",
+        "status": "Status",
+        "prompt": "Was soll erledigt werden?",
+        "preferredSkill": "Bevorzugte Aktion",
+        "timeZone": "Zeitzone",
+        "workspaceContext": "Relevante Dateien oder Ordner"
+      },
+      "placeholders": {
+        "name": "Täglicher Markt-Check",
+        "prompt": "Beschreibe den Agent-Auftrag in normaler Sprache..."
+      }
+    },
+    "output": {
+      "title": "Wo sollen die Ergebnisse gespeichert werden?",
+      "description": "Optional. Leer gelassen nutzt die Automation automatisch einen Zielordner pro Job.",
+      "pickInWorkspace": "Im Workspace wählen",
+      "useDefault": "Standard",
+      "suggestedPath": "Vorschlag",
+      "effectivePath": "Effektiver Zielordner"
+    },
+    "schedule": {
+      "title": "Wann soll das laufen?",
+      "fields": {
+        "kind": "Rhythmus",
+        "date": "Datum",
+        "time": "Uhrzeit",
+        "intervalEvery": "Wiederholen alle",
+        "intervalUnit": "Einheit"
+      },
+      "kind": {
+        "once": "Einmalig",
+        "daily": "Täglich",
+        "weekly": "Wöchentlich",
+        "interval": "Alle X"
+      }
+    },
+    "scheduleSummary": {
+      "once": "Einmalig am {date} um {time}",
+      "daily": "Täglich um {time}",
+      "weekly": "Wöchentlich ({days}) um {time}",
+      "interval": "Alle {every} {unit}",
+      "notScheduled": "Noch nicht geplant"
+    },
+    "actions": {
+      "save": "Speichern",
+      "runNow": "Jetzt ausführen",
+      "delete": "Löschen"
+    },
+    "runs": {
+      "title": "Laufhistorie",
+      "description": "Status, Ergebnisse und Logs der ausgewählten Automation.",
+      "loading": "Lade Läufe...",
+      "empty": "Noch keine Läufe vorhanden.",
+      "attempt": "Versuch {count}",
+      "triggeredBy": "Ausgelöst",
+      "scheduledFor": "Geplant für",
+      "finishedAt": "Beendet"
+    },
+    "logs": {
+      "title": "Logs",
+      "description": "Rohes Event-Log der ausgewählten Ausführung.",
+      "openLogFile": "Log-Datei öffnen",
+      "collapse": "Einklappen",
+      "expand": "Ausklappen",
+      "empty": "Noch kein Log vorhanden."
+    },
+    "results": {
+      "title": "Ergebnisordner",
+      "configured": "Konfiguriert",
+      "default": "Standard"
+    },
+    "artifacts": {
+      "title": "Run-Artefakte",
+      "openResultFile": "Ergebnisdatei öffnen",
+      "piSession": "PI Session"
+    },
+    "jobStatus": {
+      "active": "Aktiv",
+      "paused": "Pausiert"
+    },
+    "runStatus": {
+      "pending": "Ausstehend",
+      "running": "Läuft",
+      "success": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "retry_scheduled": "Retry geplant"
+    },
+    "triggerType": {
+      "scheduled": "Geplant",
+      "manual": "Manuell",
+      "retry": "Retry"
+    },
+    "intervalUnits": {
+      "minutes": "Minuten",
+      "hours": "Stunden",
+      "days": "Tage"
+    },
+    "weekdays": {
+      "mon": "Mo",
+      "tue": "Di",
+      "wed": "Mi",
+      "thu": "Do",
+      "fri": "Fr",
+      "sat": "Sa",
+      "sun": "So"
+    },
+    "preferredSkills": {
+      "auto": {
+        "label": "Automatisch",
+        "hint": "Der Agent entscheidet selbst, welche Tools sinnvoll sind."
+      },
+      "image_generation": {
+        "label": "Bild erstellen",
+        "hint": "Fokus auf Bild-Generierung."
+      },
+      "video_generation": {
+        "label": "Video erstellen",
+        "hint": "Fokus auf Video-Generierung."
+      },
+      "ad_localization": {
+        "label": "Anzeige lokalisieren",
+        "hint": "Fokus auf Ad-Lokalisierung."
+      },
+      "qmd": {
+        "label": "Workspace durchsuchen",
+        "hint": "Fokus auf qmd-Workspace-Suche mit Text- und Dokumentindex."
+      }
+    },
+    "directoryPicker": {
+      "title": "Ordner im Workspace wählen",
+      "description": "Wähle einen bestehenden Basisordner im Workspace-Inspector. Der Tree startet standardmäßig eingeklappt.",
+      "searchPlaceholder": "Ordner suchen",
+      "refresh": "Ordner neu laden",
+      "loading": "Lade Ordner...",
+      "empty": "Keine Ordner gefunden.",
+      "workspaceRoot": "Workspace Root",
+      "currentSelection": "Aktuelle Auswahl",
+      "helpLineOne": "Nur Ordner innerhalb des Workspace sind auswählbar.",
+      "helpLineTwo": "Wenn du keinen eigenen Pfad setzt, nutzt die Automation automatisch ihren Standardordner.",
+      "toggleFolder": "Ordner auf- oder zuklappen",
+      "noSubfolders": "Keine Unterordner",
+      "errors": {
+        "loadDirectories": "Ordner konnten nicht geladen werden."
+      }
+    },
+    "errors": {
+      "loadJobs": "Automationen konnten nicht geladen werden.",
+      "loadRuns": "Läufe konnten nicht geladen werden.",
+      "loadLogs": "Logs konnten nicht geladen werden.",
+      "saveJob": "Automation konnte nicht gespeichert werden.",
+      "runNow": "Lauf konnte nicht gestartet werden.",
+      "deleteJob": "Automation konnte nicht gelöscht werden."
+    },
+    "toasts": {
+      "jobUpdated": "Automation aktualisiert.",
+      "jobCreated": "Automation erstellt.",
+      "runQueued": "Lauf eingeplant.",
+      "jobDeleted": "Automation gelöscht."
+    },
+    "confirmDelete": "Diese Automation wirklich löschen?",
+    "noneYet": "Noch keiner vorhanden."
+  },
   "imageGeneration": { "title": "Image Generation" },
   "veo": { "title": "VEO Studio" },
   "nanoBanana": { "title": "Nano Banana Localizer" },

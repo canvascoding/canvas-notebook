@@ -745,7 +745,189 @@
       }
     }
   },
-  "automationen": { "title": "Automations" },
+  "automationen": {
+    "title": "Automations",
+    "intro": {
+      "prefix": "Plan recurring agent jobs for the same workspace. Run artifacts are stored under ",
+      "suffix": ", with business outputs optionally written to a dedicated target folder."
+    },
+    "overview": {
+      "title": "Overview",
+      "description": "All active and paused automations.",
+      "newAutomation": "New automation",
+      "refresh": "Reload automations",
+      "loading": "Loading automations...",
+      "empty": "No automation created yet.",
+      "nextRun": "Next run",
+      "lastStatus": "Last status"
+    },
+    "editor": {
+      "newTitle": "New automation",
+      "editTitle": "Edit automation",
+      "description": "Keep it non-technical. The agent will execute the task in the workspace later.",
+      "fields": {
+        "name": "Name",
+        "status": "Status",
+        "prompt": "What should be done?",
+        "preferredSkill": "Preferred action",
+        "timeZone": "Time zone",
+        "workspaceContext": "Relevant files or folders"
+      },
+      "placeholders": {
+        "name": "Daily market check",
+        "prompt": "Describe the agent task in plain language..."
+      }
+    },
+    "output": {
+      "title": "Where should the results be stored?",
+      "description": "Optional. If left empty, the automation automatically uses one target folder per job.",
+      "pickInWorkspace": "Choose in workspace",
+      "useDefault": "Default",
+      "suggestedPath": "Suggestion",
+      "effectivePath": "Effective target folder"
+    },
+    "schedule": {
+      "title": "When should this run?",
+      "fields": {
+        "kind": "Cadence",
+        "date": "Date",
+        "time": "Time",
+        "intervalEvery": "Repeat every",
+        "intervalUnit": "Unit"
+      },
+      "kind": {
+        "once": "One-time",
+        "daily": "Daily",
+        "weekly": "Weekly",
+        "interval": "Every X"
+      }
+    },
+    "scheduleSummary": {
+      "once": "One-time on {date} at {time}",
+      "daily": "Daily at {time}",
+      "weekly": "Weekly ({days}) at {time}",
+      "interval": "Every {every} {unit}",
+      "notScheduled": "Not scheduled yet"
+    },
+    "actions": {
+      "save": "Save",
+      "runNow": "Run now",
+      "delete": "Delete"
+    },
+    "runs": {
+      "title": "Run history",
+      "description": "Status, results, and logs for the selected automation.",
+      "loading": "Loading runs...",
+      "empty": "No runs yet.",
+      "attempt": "Attempt {count}",
+      "triggeredBy": "Triggered by",
+      "scheduledFor": "Scheduled for",
+      "finishedAt": "Finished"
+    },
+    "logs": {
+      "title": "Logs",
+      "description": "Raw event log for the selected execution.",
+      "openLogFile": "Open log file",
+      "collapse": "Collapse",
+      "expand": "Expand",
+      "empty": "No log available yet."
+    },
+    "results": {
+      "title": "Result folder",
+      "configured": "Configured",
+      "default": "Default"
+    },
+    "artifacts": {
+      "title": "Run artifacts",
+      "openResultFile": "Open result file",
+      "piSession": "PI session"
+    },
+    "jobStatus": {
+      "active": "Active",
+      "paused": "Paused"
+    },
+    "runStatus": {
+      "pending": "Pending",
+      "running": "Running",
+      "success": "Successful",
+      "failed": "Failed",
+      "retry_scheduled": "Retry scheduled"
+    },
+    "triggerType": {
+      "scheduled": "Scheduled",
+      "manual": "Manual",
+      "retry": "Retry"
+    },
+    "intervalUnits": {
+      "minutes": "minutes",
+      "hours": "hours",
+      "days": "days"
+    },
+    "weekdays": {
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri",
+      "sat": "Sat",
+      "sun": "Sun"
+    },
+    "preferredSkills": {
+      "auto": {
+        "label": "Automatic",
+        "hint": "The agent decides on its own which tools make sense."
+      },
+      "image_generation": {
+        "label": "Create image",
+        "hint": "Focus on image generation."
+      },
+      "video_generation": {
+        "label": "Create video",
+        "hint": "Focus on video generation."
+      },
+      "ad_localization": {
+        "label": "Localize ad",
+        "hint": "Focus on ad localization."
+      },
+      "qmd": {
+        "label": "Search workspace",
+        "hint": "Focus on qmd workspace search with text and document index."
+      }
+    },
+    "directoryPicker": {
+      "title": "Choose folder in workspace",
+      "description": "Choose an existing base folder in the workspace inspector. The tree starts collapsed by default.",
+      "searchPlaceholder": "Search folders",
+      "refresh": "Reload folders",
+      "loading": "Loading folders...",
+      "empty": "No folders found.",
+      "workspaceRoot": "Workspace Root",
+      "currentSelection": "Current selection",
+      "helpLineOne": "Only folders inside the workspace can be selected.",
+      "helpLineTwo": "If you do not set your own path, the automation automatically uses its default folder.",
+      "toggleFolder": "Expand or collapse folder",
+      "noSubfolders": "No subfolders",
+      "errors": {
+        "loadDirectories": "Folders could not be loaded."
+      }
+    },
+    "errors": {
+      "loadJobs": "Automations could not be loaded.",
+      "loadRuns": "Runs could not be loaded.",
+      "loadLogs": "Logs could not be loaded.",
+      "saveJob": "Automation could not be saved.",
+      "runNow": "Run could not be started.",
+      "deleteJob": "Automation could not be deleted."
+    },
+    "toasts": {
+      "jobUpdated": "Automation updated.",
+      "jobCreated": "Automation created.",
+      "runQueued": "Run queued.",
+      "jobDeleted": "Automation deleted."
+    },
+    "confirmDelete": "Delete this automation?",
+    "noneYet": "None yet."
+  },
   "imageGeneration": { "title": "Image Generation" },
   "veo": { "title": "VEO Studio" },
   "nanoBanana": { "title": "Nano Banana Localizer" },

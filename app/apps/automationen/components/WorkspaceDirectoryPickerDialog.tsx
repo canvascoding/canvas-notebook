@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, Folder, Loader2, RefreshCw } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -84,8 +85,8 @@ function filterDirectoryTree(nodes: FileNode[], query: string): FileNode[] {
   return filtered;
 }
 
-function buildDirectoryLabel(path: string): string {
-  return path === '.' ? 'Workspace Root' : path;
+function buildDirectoryLabel(path: string, rootLabel: string): string {
+  return path === '.' ? rootLabel : path;
 }
 
 type WorkspaceDirectoryPickerDialogProps = {
@@ -101,6 +102,7 @@ export function WorkspaceDirectoryPickerDialog({
   onSelect,
   selectedPath,
 }: WorkspaceDirectoryPickerDialogProps) {
+  const t = useTranslations('automationen.directoryPicker');
   const [directories, setDirectories] = useState<FileNode[]>([]);
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -118,14 +120,14 @@ export function WorkspaceDirectoryPickerDialog({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Ordner konnten nicht geladen werden.');
+        throw new Error(payload.error || t('errors.loadDirectories'));
       }
 
       const nextDirectories = (payload.data || []).filter((node: FileNode) => node.type === 'directory');
       setDirectories(nextDirectories);
     } catch (loadError) {
       setDirectories([]);
-      setError(loadError instanceof Error ? loadError.message : 'Ordner konnten nicht geladen werden.');
+      setError(loadError instanceof Error ? loadError.message : t('errors.loadDirectories'));
     } finally {
       setIsLoading(false);
     }
@@ -162,7 +164,7 @@ export function WorkspaceDirectoryPickerDialog({
       const hasChildren = Boolean(directory.children?.length);
       const isExpanded = visibleExpandedPaths.has(directory.path);
       const isSelected = (selectedPath || '') === (directory.path === '.' ? '' : directory.path);
-      const label = buildDirectoryLabel(directory.path);
+      const label = buildDirectoryLabel(directory.path, t('workspaceRoot'));
 
       return (
         <Collapsible
@@ -196,7 +198,7 @@ export function WorkspaceDirectoryPickerDialog({
                 'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border',
                 hasChildren ? 'border-border text-foreground hover:bg-muted' : 'pointer-events-none border-transparent text-muted-foreground',
               )}
-              aria-label={hasChildren ? 'Ordner auf- oder zuklappen' : 'Keine Unterordner'}
+              aria-label={hasChildren ? t('toggleFolder') : t('noSubfolders')}
             >
               <ChevronRight
                 className={cn(
@@ -234,10 +236,8 @@ export function WorkspaceDirectoryPickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Ordner im Workspace wählen</DialogTitle>
-          <DialogDescription>
-            Wähle einen bestehenden Basisordner im Workspace-Inspector. Der Tree startet standardmäßig eingeklappt.
-          </DialogDescription>
+          <DialogTitle>{t('title')}</DialogTitle>
+          <DialogDescription>{t('description')}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -246,9 +246,16 @@ export function WorkspaceDirectoryPickerDialog({
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Ordner suchen"
+                placeholder={t('searchPlaceholder')}
               />
-              <Button variant="outline" size="sm" onClick={() => void loadDirectories()} disabled={isLoading}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadDirectories()}
+                disabled={isLoading}
+                aria-label={t('refresh')}
+                title={t('refresh')}
+              >
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
             </div>
@@ -259,11 +266,11 @@ export function WorkspaceDirectoryPickerDialog({
               {isLoading ? (
                 <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Lade Ordner...
+                  {t('loading')}
                 </div>
               ) : filteredDirectories.length === 0 ? (
                 <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
-                  Keine Ordner gefunden.
+                  {t('empty')}
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -280,7 +287,7 @@ export function WorkspaceDirectoryPickerDialog({
                       }}
                     >
                       <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="font-mono text-xs">Workspace Root</span>
+                      <span className="font-mono text-xs">{t('workspaceRoot')}</span>
                     </button>
                   </div>
                   {renderDirectoryNodes(filteredDirectories)}
@@ -291,15 +298,15 @@ export function WorkspaceDirectoryPickerDialog({
 
           <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
             <div>
-              <p className="text-sm font-medium">Aktuelle Auswahl</p>
+              <p className="text-sm font-medium">{t('currentSelection')}</p>
               <p className="mt-2 break-all rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
-                {selectedPath || 'Workspace Root'}
+                {selectedPath || t('workspaceRoot')}
               </p>
             </div>
 
             <div className="space-y-2 text-xs text-muted-foreground">
-              <p>Nur Ordner innerhalb des Workspace sind auswählbar.</p>
-              <p>Wenn du keinen eigenen Pfad setzt, nutzt die Automation automatisch ihren Standardordner.</p>
+              <p>{t('helpLineOne')}</p>
+              <p>{t('helpLineTwo')}</p>
             </div>
           </div>
         </div>
