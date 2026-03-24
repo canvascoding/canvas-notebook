@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import type { Usage } from '@mariozechner/pi-ai';
+import { useTranslations } from 'next-intl';
 import {
   Paperclip,
   X,
@@ -384,7 +385,7 @@ function formatContextTokens(value: number): string {
 function truncatePreview(value: string, maxLength = 88): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (!normalized) {
-    return 'Noch keine Ausgabe';
+    return '';
   }
 
   if (normalized.length <= maxLength) {
@@ -394,28 +395,34 @@ function truncatePreview(value: string, maxLength = 88): string {
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-function getToolStatusLabel(message: ChatMessage): string {
+function getToolStatusLabel(
+  message: ChatMessage,
+  t: ReturnType<typeof useTranslations<'chat'>>
+): string {
   switch (message.status) {
     case 'sending':
-      return 'Laeuft';
+      return t('toolStatusRunning');
     case 'aborting':
-      return 'Wird gestoppt';
+      return t('toolStatusAborting');
     case 'error':
-      return 'Fehler';
+      return t('toolStatusError');
     default:
-      return 'Fertig';
+      return t('toolStatusDone');
   }
 }
 
-function getCompactBreakLabel(message: ChatMessage): string {
+function getCompactBreakLabel(
+  message: ChatMessage,
+  t: ReturnType<typeof useTranslations<'chat'>>
+): string {
   const meta = message.compactMeta;
   if (!meta) {
     return message.content;
   }
 
-  const baseLabel = meta.kind === 'manual' ? 'Canvas context compaction' : 'Kontext automatisch verdichtet';
+  const baseLabel = meta.kind === 'manual' ? t('compactManual') : t('compactAutomatic');
   if (meta.omittedMessageCount > 0) {
-    return `${baseLabel} · ${meta.omittedMessageCount} aeltere Nachrichten komprimiert`;
+    return t('compactWithCount', { label: baseLabel, count: meta.omittedMessageCount });
   }
 
   return baseLabel;
@@ -439,13 +446,14 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
 }
 
 function StreamingMessageIndicator() {
+  const t = useTranslations('chat');
   return (
     <div
       data-testid="chat-assistant-streaming-indicator"
-      aria-label="Assistant response is still streaming"
+      aria-label={t('assistantStreamingAria')}
       className="inline-flex min-h-8 min-w-12 items-center justify-center px-1 text-muted-foreground/80"
     >
-      <span className="sr-only">Assistant response is still streaming</span>
+      <span className="sr-only">{t('assistantStreamingSr')}</span>
       {[0, 160, 320].map((delay) => (
         <span
           key={delay}
@@ -467,6 +475,7 @@ function StarterPromptButton({
   onSelect: (value: string) => void;
   compact?: boolean;
 }) {
+  const t = useTranslations('chat');
   const Icon = STARTER_PROMPT_ICONS[prompt.icon];
 
   return (
@@ -480,7 +489,7 @@ function StarterPromptButton({
     >
       <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         <Icon className="h-4 w-4 text-primary" />
-        Beispiel
+        {t('example')}
       </span>
       <div className="space-y-1">
         <div className={`${compact ? 'text-sm' : 'text-base'} font-semibold tracking-tight`}>{prompt.title}</div>
@@ -495,6 +504,7 @@ export default function CanvasAgentChat({
   initialPromptStorageKey,
   showSkillsLink = false,
 }: CanvasAgentChatProps) {
+  const t = useTranslations('chat');
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
   const isMobile = useIsMobile();
@@ -518,6 +528,13 @@ export default function CanvasAgentChat({
   const [filePickerQuery, setFilePickerQuery] = useState('');
   const [filePickerFiles, setFilePickerFiles] = useState<Array<{ name: string; path: string; type: 'file' | 'directory'; isImage: boolean }>>([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+
+  const localizedStarterPrompts = BUSINESS_STARTER_PROMPTS.map((prompt) => ({
+    ...prompt,
+    title: t(`starterPrompts.${prompt.id}.title`),
+    description: t(`starterPrompts.${prompt.id}.description`),
+    prompt: t(`starterPrompts.${prompt.id}.prompt`),
+  }));
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [composerHeight, setComposerHeight] = useState(220);
@@ -765,7 +782,7 @@ export default function CanvasAgentChat({
       {
         id: `compact-${timestamp}`,
         role: 'system',
-        content: kind === 'manual' ? 'Canvas context compaction' : 'Kontext automatisch verdichtet',
+        content: kind === 'manual' ? t('compactManual') : t('compactAutomatic'),
         type: 'compact_break',
         status: 'sent',
         compactMeta: {
@@ -775,7 +792,7 @@ export default function CanvasAgentChat({
         },
       },
     ]);
-  }, []);
+  }, [t]);
 
   const toggleToolMessage = useCallback((messageId: string) => {
     setMessages((prev) =>
@@ -876,7 +893,7 @@ export default function CanvasAgentChat({
     const createSessionResponse = await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'New session' }),
+      body: JSON.stringify({ title: t('newChatTitle') }),
     });
 
     const createSessionPayload = await createSessionResponse.json().catch(() => null);
@@ -889,7 +906,7 @@ export default function CanvasAgentChat({
     setSessionTitle(createSessionPayload.session.title || null);
     sessionIdRef.current = nextSessionId;
     return nextSessionId;
-  }, []);
+  }, [t]);
 
   const createAssistantBubble = useCallback((message?: AgentMessage) => {
     const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -946,7 +963,7 @@ export default function CanvasAgentChat({
       upsertToolMessage({
         assistantMessageId: currentAssistantIdRef.current,
         toolCallId: event.toolCallId,
-        toolName: event.toolName || 'Tool',
+        toolName: event.toolName || t('tool'),
         toolArgs: formatToolArgs(event.args),
         status: 'sending',
         type: 'tool_use',
@@ -958,7 +975,7 @@ export default function CanvasAgentChat({
       upsertToolMessage({
         assistantMessageId: currentAssistantIdRef.current,
         toolCallId: event.toolCallId,
-        toolName: event.toolName || 'Tool',
+        toolName: event.toolName || t('tool'),
         content: extractToolResultText(event.partialResult?.content),
         status: 'sending',
         type: 'tool_use',
@@ -971,7 +988,7 @@ export default function CanvasAgentChat({
       upsertToolMessage({
         assistantMessageId: currentAssistantIdRef.current,
         toolCallId: event.toolCallId,
-        toolName: event.toolName || 'Tool',
+        toolName: event.toolName || t('tool'),
         content: text,
         status: 'sent',
         type: 'tool_result',
@@ -985,9 +1002,9 @@ export default function CanvasAgentChat({
     }
 
     if (event.type === 'error') {
-      appendSystemMessage(`Error: ${event.error || 'Unknown error'}`);
+      appendSystemMessage(t('errorMessage', { message: event.error || t('unknownError') }));
     }
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, setRuntimeStatusWithReconciliation, syncPiMessage, updateAssistantMessage, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, setRuntimeStatusWithReconciliation, syncPiMessage, t, updateAssistantMessage, upsertToolMessage]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
@@ -1054,7 +1071,7 @@ export default function CanvasAgentChat({
     } catch (error) {
       if (!(error instanceof Error && error.name === 'AbortError')) {
         console.error('Chat stream error:', error);
-        appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
       }
     } finally {
       if (streamAbortRef.current === controller) {
@@ -1067,7 +1084,7 @@ export default function CanvasAgentChat({
         void refreshRuntimeStatus(targetSessionId);
       }
     }
-  }, [appendSystemMessage, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection]);
+  }, [appendSystemMessage, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection, t]);
 
   const postControl = useCallback(async (
     targetSessionId: string,
@@ -1221,34 +1238,34 @@ export default function CanvasAgentChat({
     try {
       await handleControlAction('send');
     } catch (error) {
-      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
-  }, [appendSystemMessage, handleControlAction]);
+  }, [appendSystemMessage, handleControlAction, t]);
 
   const handleSteer = useCallback(async () => {
     try {
       await handleControlAction('steer');
     } catch (error) {
-      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
-  }, [appendSystemMessage, handleControlAction]);
+  }, [appendSystemMessage, handleControlAction, t]);
 
   const handleNowSend = useCallback(async () => {
     try {
       await handleControlAction('replace');
     } catch (error) {
-      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
-  }, [appendSystemMessage, handleControlAction]);
+  }, [appendSystemMessage, handleControlAction, t]);
 
   const handleStop = useCallback(async () => {
     if (!sessionIdRef.current) return;
     try {
       await postControl(sessionIdRef.current, 'abort');
     } catch (error) {
-      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
-  }, [appendSystemMessage, postControl]);
+  }, [appendSystemMessage, postControl, t]);
 
   const handleCompact = useCallback(async () => {
     if (!sessionIdRef.current) return;
@@ -1258,9 +1275,9 @@ export default function CanvasAgentChat({
         appendCompactionBreak(status.lastCompactionKind, status.lastCompactionAt, status.lastCompactionOmittedCount || 0);
       }
     } catch (error) {
-      appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
-  }, [appendCompactionBreak, appendSystemMessage, postControl]);
+  }, [appendCompactionBreak, appendSystemMessage, postControl, t]);
 
   const startNewChat = useCallback(() => {
     resetStreamConnection();
@@ -1343,12 +1360,12 @@ export default function CanvasAgentChat({
       }
     } catch (err) {
       console.error('Failed to load messages', err);
-      setMessages([{ id: 'error', role: 'system', content: 'Failed to load message history.' }]);
+      setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [openRuntimeStream, resetStreamConnection, setRuntimeStatusWithReconciliation]);
+  }, [openRuntimeStream, resetStreamConnection, setRuntimeStatusWithReconciliation, t]);
 
   const deleteSession = useCallback(async (id: string) => {
-    if (!confirm('Are you sure you want to delete this session?')) return;
+    if (!confirm(t('deleteSessionConfirm'))) return;
 
     try {
       const res = await fetch(`/api/sessions?sessionId=${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -1362,10 +1379,10 @@ export default function CanvasAgentChat({
     } catch (err) {
       console.error('Failed to delete session', err);
     }
-  }, [startNewChat]);
+  }, [startNewChat, t]);
 
   const renameSession = useCallback(async (session: AISession) => {
-    const nextTitle = prompt('Rename session', session.title || '');
+    const nextTitle = prompt(t('renameSessionPrompt'), session.title || '');
     if (!nextTitle || !nextTitle.trim()) return;
 
     try {
@@ -1384,7 +1401,7 @@ export default function CanvasAgentChat({
     } catch (err) {
       console.error('Failed to rename session', err);
     }
-  }, []);
+  }, [t]);
 
   const handleFileUpload = useCallback(async (file: File) => {
     setIsUploading(true);
@@ -1570,7 +1587,7 @@ export default function CanvasAgentChat({
       try {
         await handleControlAction('send', { text: promptText, attachments: promptAttachments });
       } catch (error) {
-        appendSystemMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
       }
     };
 
@@ -1599,7 +1616,7 @@ export default function CanvasAgentChat({
       window.sessionStorage.removeItem(initialPromptStorageKey);
       void queueInitialPrompt(storedData.trim(), []);
     }
-  }, [appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey]);
+  }, [appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, t]);
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;
@@ -1686,8 +1703,13 @@ export default function CanvasAgentChat({
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
   const contextLabel = runtimeStatus
-    ? `${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.estimatedHistoryTokens)}/${formatContextTokens(runtimeStatus.availableHistoryTokens)} Budget · ${formatContextTokens(runtimeStatus.contextWindow)} Window`
-    : 'Noch keine Session';
+    ? t('contextLabel', {
+        percent: runtimeStatus.contextUsagePercent,
+        used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
+        available: formatContextTokens(runtimeStatus.availableHistoryTokens),
+        window: formatContextTokens(runtimeStatus.contextWindow),
+      })
+    : t('noSessionYet');
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, sessionId);
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const scrollContentPadding = composerHeight + 24;
@@ -1703,16 +1725,16 @@ export default function CanvasAgentChat({
   }, []);
 
   const composerPlaceholder = isMobile
-    ? 'Frag nach Kampagnen oder Dateien...'
+    ? t('composerPlaceholderMobile')
     : isCompactComposer
-      ? 'Frag nach Projekt oder Dateien. @ referenziert.'
-      : 'Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien.';
+      ? t('composerPlaceholderCompact')
+      : t('composerPlaceholderDefault');
   const composerHint =
     runtimeStatus?.phase !== 'idle'
       ? isMobile
-        ? 'Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenü.'
-        : 'Senden reiht die Nachricht als Folgeaktion ein. Nutze Steuern, um nach dem aktuellen Tool-Schritt zu unterbrechen, oder Jetzt senden, um die laufende Kette zuerst zu stoppen.'
-      : 'Tippe @ für Dateien oder wähle unten eine schnelle Aktion.';
+        ? t('composerHintBusyMobile')
+        : t('composerHintBusyDesktop')
+      : t('composerHintIdle');
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
@@ -1723,50 +1745,50 @@ export default function CanvasAgentChat({
             {showHistory ? (
               <button
                 type="button"
-                aria-label="Back to chat"
+                aria-label={t('backToChat')}
                 onClick={() => setShowHistory(false)}
                 className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
-                title="Back to chat"
+                title={t('backToChat')}
               >
                 <ChevronLeft size={18} />
               </button>
             ) : (
               <button
                 type="button"
-                aria-label="Open history"
+                aria-label={t('openHistory')}
                 onClick={() => {
                   setShowHistory(true);
                   void fetchHistory();
                 }}
                 className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
-                title="Open history"
+                title={t('openHistory')}
               >
                 <History size={18} />
               </button>
             )}
             <div className="min-w-0">
               {showHistory ? (
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">History</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('history')}</span>
               ) : isMobile ? (
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Canvas chat</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('canvasChatLabel')}</span>
               ) : (
                 <div className="flex min-w-0 items-center gap-1.5">
                   {/* Session Badge */}
                   <div
                     data-testid="chat-session-id"
-                    title={sessionId || 'New chat'}
+                    title={sessionId || t('newChatTitle')}
                     className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground"
                   >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Session</span>
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                     <span className="min-w-0 truncate max-w-[120px]">{sessionDisplayLabel}</span>
                   </div>
                   {/* Model Badge */}
                   <div
                     data-testid="chat-model-badge"
-                    title={`Model: ${activeModel}`}
+                    title={t('currentModelLabel', { model: activeModel })}
                     className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/50 px-2.5 py-0.5 text-[11px] text-foreground"
                   >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Model</span>
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('modelLabel')}</span>
                     <span className="max-w-[140px] truncate font-mono text-[9px]">{activeModel}</span>
                   </div>
                 </div>
@@ -1776,23 +1798,23 @@ export default function CanvasAgentChat({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              aria-label="New chat"
+              aria-label={t('newChatTitle')}
               onClick={startNewChat}
               className="group flex items-center gap-1 border border-primary/30 bg-primary/15 px-2 py-1 text-primary transition-all hover:bg-primary/25"
-              title="New chat"
+              title={t('newChatTitle')}
             >
               <Plus size={16} />
-              <span className="hidden text-[11px] font-bold sm:inline">New</span>
+              <span className="hidden text-[11px] font-bold sm:inline">{t('newChatShort')}</span>
             </button>
             {showSkillsLink && (
               <Link
                 href="/skills"
-                aria-label="View skills"
+                aria-label={t('viewSkills')}
                 className="group flex items-center gap-1 border border-border bg-muted/50 px-2 py-1 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                title="View skills"
+                title={t('viewSkills')}
               >
                 <Lightbulb size={16} />
-                <span className="hidden text-[11px] font-bold sm:inline">Skills</span>
+                <span className="hidden text-[11px] font-bold sm:inline">{t('skills')}</span>
               </Link>
             )}
           </div>
@@ -1809,14 +1831,14 @@ export default function CanvasAgentChat({
                 {runtimeStatus && totalQueuedMessages > 0 && (
                   <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                    {totalQueuedMessages} queued
+                    {t('queuedCount', { count: totalQueuedMessages })}
                   </span>
                 )}
                 
                 {/* Summary Badge */}
                 {!isMobile && runtimeStatus?.includedSummary && (
                   <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    Summary
+                    {t('summary')}
                   </span>
                 )}
                 
@@ -1848,7 +1870,7 @@ export default function CanvasAgentChat({
                       disabled={!runtimeStatus?.canAbort}
                       className="border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      Stop
+                      {t('stop')}
                     </button>
                     <button
                       type="button"
@@ -1857,7 +1879,7 @@ export default function CanvasAgentChat({
                       disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
                       className="border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      Compact
+                      {t('compact')}
                     </button>
                   </>
                 )}
@@ -1869,7 +1891,7 @@ export default function CanvasAgentChat({
                     disabled={!runtimeStatus?.canAbort}
                     className="border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Stop
+                    {t('stop')}
                   </button>
                 )}
                 {isMobile && (
@@ -1879,7 +1901,7 @@ export default function CanvasAgentChat({
                     onClick={() => setShowMobileDetails((current) => !current)}
                     className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
                   >
-                    Details
+                    {t('details')}
                     {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                   </button>
                 )}
@@ -1909,23 +1931,23 @@ export default function CanvasAgentChat({
                 <div className="flex flex-wrap gap-1.5">
                   <div
                     data-testid="chat-session-id"
-                    title={sessionId || 'New chat'}
+                    title={sessionId || t('newChatTitle')}
                     className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
                   >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Session</span>
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                     <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                   </div>
                   <div
                     data-testid="chat-model-badge"
-                    title={`Model: ${activeModel}`}
+                    title={t('currentModelLabel', { model: activeModel })}
                     className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] text-foreground"
                   >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Model</span>
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('modelLabel')}</span>
                     <span className="max-w-[120px] truncate font-mono text-[9px]">{activeModel}</span>
                   </div>
                   {runtimeStatus?.includedSummary && (
                     <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      Summary
+                      {t('summary')}
                     </span>
                   )}
                   {runtimeStatus?.activeTool && (
@@ -1940,11 +1962,11 @@ export default function CanvasAgentChat({
                 </div>
                 {totalQueuedMessages > 0 && (
                   <div data-testid="chat-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
-                    <div className="mb-1 font-medium text-foreground">{totalQueuedMessages} queued</div>
+                    <div className="mb-1 font-medium text-foreground">{t('queuedCount', { count: totalQueuedMessages })}</div>
                     <div className="flex flex-wrap gap-1 text-muted-foreground">
                       {queuePreview.map((entry) => (
                         <span key={entry.id} className="border border-border/60 bg-muted/40 px-1.5 py-0.5">
-                          {entry.text || 'Bildnachricht'}
+                          {entry.text || t('imageMessage')}
                         </span>
                       ))}
                     </div>
@@ -1960,9 +1982,9 @@ export default function CanvasAgentChat({
         {showHistory && (
           <div className="absolute inset-0 z-20 space-y-1 overflow-y-auto bg-background p-2 pb-20">
             <div className="mb-2 flex items-center gap-2 border-b border-border px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              <History size={10} /> Sessions
+              <History size={10} /> {t('sessions')}
             </div>
-            {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">No recent sessions</div>}
+            {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">{t('noRecentSessions')}</div>}
             {history.map((session) => (
               <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
                 <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left">
@@ -1977,7 +1999,7 @@ export default function CanvasAgentChat({
                   type="button"
                   onClick={() => void renameSession(session)}
                   className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-                  title="Rename session"
+                  title={t('renameSession')}
                 >
                   <Pencil size={15} />
                 </button>
@@ -1985,7 +2007,7 @@ export default function CanvasAgentChat({
                   type="button"
                   onClick={() => void deleteSession(session.sessionId)}
                   className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-                  title="Delete session"
+                  title={t('deleteSession')}
                 >
                   <Trash2 size={15} />
                 </button>
@@ -2009,7 +2031,7 @@ export default function CanvasAgentChat({
                 <div className="space-y-2">
                   <span className="inline-flex items-center gap-2 border border-border bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                     <Sparkles className="h-4 w-4 text-primary" />
-                    Produktive Startpunkte
+                    {t('productivityBadge')}
                   </span>
                   {latestSession ? (
                     <div className="flex justify-center">
@@ -2018,20 +2040,20 @@ export default function CanvasAgentChat({
                         className="inline-flex max-w-full items-center gap-2 border border-border bg-background/80 px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
                       >
                         <History className="h-3.5 w-3.5 text-primary" />
-                        <span className="font-medium">Letzte Session öffnen</span>
+                        <span className="font-medium">{t('openLatestSession')}</span>
                         <span className="max-w-[14rem] truncate text-muted-foreground">{latestSession.title || latestSession.sessionId}</span>
                       </Link>
                     </div>
                   ) : null}
                   <div className="space-y-1">
-                    <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">Was soll Canvas Chat für dich vorbereiten?</h2>
+                    <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">{t('starterTitle')}</h2>
                     <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                      Starte mit einer Vorlage für Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.
+                      {t('starterDescription')}
                     </p>
                   </div>
                 </div>
                 <div data-testid="chat-starter-prompts" className={`w-full gap-3 pb-3 ${isCompactView ? 'grid grid-cols-1 sm:grid-cols-2' : 'flex overflow-x-auto no-scrollbar md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3'} gap-4`}>
-                  {BUSINESS_STARTER_PROMPTS.map((prompt) => (
+                  {localizedStarterPrompts.map((prompt) => (
                     <StarterPromptButton key={prompt.id} prompt={prompt} onSelect={applyStarterPrompt} compact={isCompactView} />
                   ))}
                 </div>
@@ -2054,7 +2076,7 @@ export default function CanvasAgentChat({
                 <div key={message.id} data-testid="chat-compaction-break" className="flex items-center gap-3 py-1">
                   <div className="h-px flex-1 bg-border/80" />
                   <div className="border border-border/70 bg-background/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    {getCompactBreakLabel(message)}
+                    {getCompactBreakLabel(message, t)}
                   </div>
                   <div className="h-px flex-1 bg-border/80" />
                 </div>
@@ -2071,20 +2093,20 @@ export default function CanvasAgentChat({
                     ? 'border-destructive/40 bg-destructive/10 text-destructive'
                     : 'border-border bg-background/80 text-muted-foreground';
 
-            const title = isUser ? 'You' : isTool ? (message.toolName || 'Tool') : isAssistant ? 'Assistant' : 'System';
+            const title = isUser ? t('you') : isTool ? (message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
             const bodyContent =
               message.content ||
               (message.status === 'queued_follow_up'
-                ? 'Queued after current run.'
+                ? t('queuedAfterCurrentRun')
                 : message.status === 'queued_steering'
-                  ? 'Queued as steering message.'
+                  ? t('queuedAsSteeringMessage')
                   : message.status === 'aborting'
-                    ? 'Will send after current chain stops.'
+                    ? t('willSendAfterStop')
                     : message.status === 'sending'
-                      ? (isTool ? 'Running tool...' : 'Agent arbeitet...')
+                      ? (isTool ? t('runningTool') : t('agentWorking'))
                       : '');
             const toolBodyVisible = isTool ? !message.isCollapsed : true;
-            const toolStatusLabel = isTool ? getToolStatusLabel(message) : null;
+            const toolStatusLabel = isTool ? getToolStatusLabel(message, t) : null;
 
             return (
               <div key={message.id} data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -2106,10 +2128,10 @@ export default function CanvasAgentChat({
                             <span className="border border-amber-500/30 bg-background/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
                               {toolStatusLabel}
                             </span>
-                            {message.autoCollapsedAtEnd ? <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Auto</span> : null}
+                            {message.autoCollapsedAtEnd ? <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{t('auto')}</span> : null}
                           </div>
-                          <div className="mt-1 text-sm font-medium text-foreground">{message.toolName || 'Tool'}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{message.previewText || 'Noch keine Ausgabe'}</div>
+                          <div className="mt-1 text-sm font-medium text-foreground">{message.toolName || t('tool')}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{message.previewText || t('noOutputYet')}</div>
                         </div>
                         <span className="mt-0.5 text-muted-foreground">
                           {toolBodyVisible ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -2120,7 +2142,7 @@ export default function CanvasAgentChat({
                         <div data-testid="chat-tool-body" className="mt-3 space-y-3">
                           {message.toolArgs ? (
                             <div className="rounded-md border border-amber-500/30 bg-background/60 p-2">
-                              <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Input</div>
+                              <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t('toolInput')}</div>
                               <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">{message.toolArgs}</pre>
                             </div>
                           ) : null}
@@ -2133,8 +2155,8 @@ export default function CanvasAgentChat({
                       <div className="mb-2 flex items-center gap-2">
                         <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
                         {message.status === 'aborting' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />}
-                        {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Queue</span> : null}
-                        {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">Steer</span> : null}
+                        {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('queue')}</span> : null}
+                        {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('steer')}</span> : null}
                       </div>
 
                       {isUser ? (
@@ -2180,7 +2202,7 @@ export default function CanvasAgentChat({
             onClick={() => scrollToBottom()}
             className="absolute right-4 z-30 border border-primary/30 bg-primary p-2 text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
             style={{ bottom: `${scrollButtonOffset}px` }}
-            title="Scroll to bottom"
+            title={t('scrollToBottom')}
           >
             <ArrowDown size={20} />
           </button>
@@ -2194,7 +2216,7 @@ export default function CanvasAgentChat({
       >
         {attachments.length > 0 && !currentModelSupportsVision() && (
           <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-600">
-            <strong>Achtung:</strong> Das aktuelle Modell unterstuetzt keine Bilder. Die angehaengten Bilder werden ignoriert.
+            <strong>{t('imageModelWarningTitle')}</strong> {t('imageModelWarningBody')}
           </div>
         )}
 
@@ -2227,13 +2249,13 @@ export default function CanvasAgentChat({
         {!isMobile && runtimeStatus && totalQueuedMessages > 0 && (
           <div data-testid="chat-queue-panel" className="mb-2 border border-border bg-muted/50 p-2 text-xs">
             <div className="mb-1 flex items-center gap-2 font-medium text-foreground">
-              <span>{totalQueuedMessages} queued</span>
-              {runtimeStatus.activeTool ? <span className="text-muted-foreground">Aktiv: {runtimeStatus.activeTool.name}</span> : null}
+              <span>{t('queuedCount', { count: totalQueuedMessages })}</span>
+              {runtimeStatus.activeTool ? <span className="text-muted-foreground">{t('activeToolPrefix')} {runtimeStatus.activeTool.name}</span> : null}
             </div>
             <div className="flex flex-wrap gap-2 text-muted-foreground">
               {queuePreview.map((entry) => (
                 <span key={entry.id} className="border border-border/70 bg-background/60 px-2 py-1">
-                  {entry.text || 'Bildnachricht'}
+                  {entry.text || t('imageMessage')}
                 </span>
               ))}
             </div>
@@ -2249,34 +2271,34 @@ export default function CanvasAgentChat({
                   data-testid="chat-steer"
                   onClick={() => void handleSteer()}
                   disabled={!hasComposerContent}
-                  className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Steuern
+                className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                  {t('steerAction')}
                 </button>
                 <button
                   type="button"
                   data-testid="chat-send-now"
                   onClick={() => void handleNowSend()}
                   disabled={!hasComposerContent}
-                  className="border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Jetzt senden
+                className="border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                  {t('sendNow')}
                 </button>
                 <button
                   type="button"
                   data-testid="chat-compact-mobile"
                   onClick={() => void handleCompact()}
                   disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                  className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Canvas compact
+                className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                  {t('compactCanvas')}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowMobileActionPanel(false)}
-                  className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
-                >
-                  Schliessen
+                onClick={() => setShowMobileActionPanel(false)}
+                className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+              >
+                  {t('close')}
                 </button>
               </div>
             ) : null}
@@ -2290,7 +2312,7 @@ export default function CanvasAgentChat({
               disabled={!hasComposerContent}
               className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Steuern
+              {t('steerAction')}
             </button>
             <button
               type="button"
@@ -2299,7 +2321,7 @@ export default function CanvasAgentChat({
               disabled={!hasComposerContent}
               className="border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Jetzt senden
+              {t('sendNow')}
             </button>
           </div>
         ) : null}
@@ -2310,7 +2332,7 @@ export default function CanvasAgentChat({
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
             className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-            title={isUploading ? 'Wird hochgeladen...' : 'Attach image'}
+            title={isUploading ? t('uploading') : t('attachImage')}
           >
             {isUploading
               ? <Loader2 className="h-5 w-5 animate-spin" />
@@ -2332,10 +2354,10 @@ export default function CanvasAgentChat({
             />
 
             {showFilePicker && (
-              <div ref={filePickerRef} className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-full overflow-y-auto border border-border bg-background shadow-lg">
-                <div className="border-b border-border p-2 text-xs text-muted-foreground">
-                  {isLoadingFiles ? 'Loading files...' : `${filePickerFiles.length} files found`}
-                </div>
+                <div ref={filePickerRef} className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-full overflow-y-auto border border-border bg-background shadow-lg">
+                  <div className="border-b border-border p-2 text-xs text-muted-foreground">
+                  {isLoadingFiles ? t('loadingFiles') : t('filesFound', { count: filePickerFiles.length })}
+                  </div>
                 {filePickerFiles.map((file, index) => (
                   <button
                     key={file.path}
@@ -2350,7 +2372,7 @@ export default function CanvasAgentChat({
                 ))}
                 {filePickerFiles.length === 0 && !isLoadingFiles && (
                   <div className="p-3 text-center text-sm text-muted-foreground">
-                    {filePickerQuery ? <>No files found matching &ldquo;{filePickerQuery}&rdquo;</> : <>No files in workspace</>}
+                    {filePickerQuery ? t('noFilesFoundMatching', { query: filePickerQuery }) : t('noFilesInWorkspace')}
                   </div>
                 )}
               </div>
@@ -2362,7 +2384,7 @@ export default function CanvasAgentChat({
               data-testid="chat-mobile-action-toggle"
               onClick={() => setShowMobileActionPanel((current) => !current)}
               className="relative border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
-              title="Quick actions"
+              title={t('quickActions')}
             >
               <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
                 {totalQueuedMessages}
@@ -2392,7 +2414,7 @@ export default function CanvasAgentChat({
               className="inline-flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
             >
               <CircleHelp className="h-3.5 w-3.5" />
-              Hinweis
+              {t('hint')}
             </button>
             {showComposerHint ? (
               <div className="max-w-[38rem] border border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
@@ -2402,12 +2424,12 @@ export default function CanvasAgentChat({
           </div>
           <Link
             href="/settings?tab=agent"
-            aria-label="Open agent settings"
+            aria-label={t('openAgentSettings')}
             className="inline-flex items-center gap-1 border border-border/60 bg-muted/30 px-2 py-1 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-            title="Open agent settings"
+            title={t('openAgentSettings')}
           >
             <Settings className="h-3 w-3" />
-            <span>Einstellungen</span>
+            <span>{t('settings')}</span>
           </Link>
         </div>
       </div>

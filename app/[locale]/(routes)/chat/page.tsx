@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import { Link } from '@/i18n/navigation';
 import { ArrowLeft } from 'lucide-react';
+import { getTranslations } from 'next-intl/server';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
@@ -11,13 +12,19 @@ import { requirePageSession } from '@/app/lib/auth-guards';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { Button } from '@/components/ui/button';
 
-export const metadata: Metadata = {
-  title: 'Canvas Chat | Canvas Notebook',
-  description: 'Fullscreen chat app for the Canvas Notebook workspace.',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations('chat');
+
+  return {
+    title: t('metadataTitle'),
+    description: t('metadataDescription'),
+  };
+}
 
 export default async function ChatPage() {
   const session = await requirePageSession();
+  const t = await getTranslations('chat');
+  const tCommon = await getTranslations('common');
 
   const username = session?.user?.name || session?.user?.email || 'User';
 
@@ -29,20 +36,20 @@ export default async function ChatPage() {
             <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
               <Link href="/">
                 <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">Suite</span>
+                <span className="hidden sm:inline">{tCommon('suite')}</span>
               </Link>
             </Button>
-            <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="shrink-0 border border-border" />
-            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">CANVAS CHAT</h1>
+            <Image src="/logo.jpg" alt={t('logoAlt')} width={32} height={32} className="shrink-0 border border-border" />
+            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
             <NotebookNavButton />
             <ThemeToggle />
             <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
-              <Link href="/usage">Usage</Link>
+              <Link href="/usage">{t('usage')}</Link>
             </Button>
             <div className="hidden lg:flex flex-col items-end shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">User</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{t('userLabel')}</span>
               <span className="text-xs text-foreground/90">{username}</span>
             </div>
             <LogoutButton />

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import type { RuntimeStatus } from './runtime-status';
 
 type ChatRuntimeActivityBadgeProps = {
@@ -7,8 +8,9 @@ type ChatRuntimeActivityBadgeProps = {
 };
 
 export function ChatRuntimeActivityBadge({ status }: ChatRuntimeActivityBadgeProps) {
+  const t = useTranslations('chat');
   const isWorking = Boolean(status && status.phase !== 'idle');
-  const label = isWorking ? 'In Arbeit' : 'Bereit';
+  const label = isWorking ? t('working') : t('ready');
   const badgeClass = isWorking
     ? 'border-rose-500/40 bg-rose-500/12 text-rose-700 dark:text-rose-300'
     : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';

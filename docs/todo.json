@@ -2,8 +2,8 @@
   "updatedAt": "2026-03-24",
   "items": [
     {
-      "id": "i18n-5.4",
-      "title": "Notebook/Editor-Seite übersetzen",
+      "id": "i18n-5.5",
+      "title": "Chat-Seite übersetzen",
       "status": "done",
       "source": "docs/i18n-migration-todo.json"
     }
