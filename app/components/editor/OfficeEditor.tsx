@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
+import { useTranslations } from 'next-intl';
 
 // Dynamic import for DocxEditor to avoid SSR issues
 const DocxEditorComponent = dynamic(
@@ -35,6 +36,7 @@ export interface OfficeEditorRef {
 
 export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
   function OfficeEditor({ path, extension, updateDraft, onChange }, ref) {
+    const t = useTranslations('notebook');
     const docxEditorRef = useRef<{ save: () => Promise<ArrayBuffer | null> } | null>(null);
     const spreadsheetEditorRef = useRef<{ save: () => Promise<string | null>; getData: () => { name: string; data: (string | number | boolean)[][] }[] | null; hasChanges: () => boolean } | null>(null);
     const [loading, setLoading] = useState(true);
@@ -137,7 +139,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
                 }}
                 className="border border-border bg-primary px-3 py-1 text-xs text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
             >
-                Update Changes
+                {t('updateChanges')}
             </button>
           </div>
           <DocxEditorComponent
@@ -163,7 +165,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
                 }}
                 className="border border-border bg-primary px-3 py-1 text-xs text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
             >
-                Update Changes
+                {t('updateChanges')}
             </button>
           </div>
           <SpreadsheetEditorComponent
@@ -192,7 +194,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
           <div className="absolute inset-0 flex items-center justify-center bg-background z-[60]">
             <div className="flex flex-col items-center gap-2">
               <div className="h-8 w-8 animate-spin border-2 border-primary border-t-transparent"></div>
-              <span className="text-xs text-muted-foreground">Opening {extension.toUpperCase()}...</span>
+              <span className="text-xs text-muted-foreground">{t('openingExtension', { extension: extension.toUpperCase() })}</span>
             </div>
           </div>
         )}
@@ -207,7 +209,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
 
         <div className="flex-1 w-full h-full flex items-center justify-center">
           <div className="text-muted-foreground">
-            Unsupported file format: {extension}
+            {t('unsupportedFileFormat', { extension })}
           </div>
         </div>
       </div>

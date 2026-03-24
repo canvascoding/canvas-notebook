@@ -301,7 +301,7 @@
         {
           "id": "5.4",
           "title": "Notebook/Editor-Seite übersetzen",
-          "status": "open",
+          "status": "done",
           "description": "Toolbar-Labels, Kontextmenüs, Statusanzeigen. Namespace: 'notebook'."
         },
         {

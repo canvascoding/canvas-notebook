@@ -60,7 +60,7 @@ function MobileNotebookEmptyState({
       <div className="w-full max-w-sm rounded-[28px] border border-border/80 bg-background/95 p-6 shadow-[0_24px_80px_-32px_hsl(var(--foreground)/0.45)] backdrop-blur">
         <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
           <Files className="h-3.5 w-3.5" />
-          Notebook
+          {t('badge')}
         </div>
         <div className="mt-5 space-y-3">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -90,6 +90,7 @@ function MobileNotebookEmptyState({
 }
 
 export function DashboardShell({ username }: DashboardShellProps) {
+  const tNotebook = useTranslations('notebook');
   const tCommon = useTranslations('common');
   const tNav = useTranslations('navigation');
   const searchParams = useSearchParams();
@@ -339,7 +340,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 >
                   <PanelLeft className="h-4 w-4" />
                 </Button>
-                <Image src="/logo.jpg" alt="Canvas Notebook logo" width={32} height={32} className="shrink-0 border border-border" />
+                <Image src="/logo.jpg" alt={tNav('canvasNotebook')} width={32} height={32} className="shrink-0 border border-border" />
                 <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{tNav('canvasNotebook')}</h1>
               </>
             ) : null}
@@ -514,7 +515,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
 
           {sidebarVisible ? (
             <div
-              aria-label="Resize file tree"
+              aria-label={tNotebook('resizeFileTree')}
               className="hidden md:flex w-1 hover:w-1.5 bg-border hover:bg-primary/60 cursor-col-resize z-50 transition-all items-center justify-center"
               onMouseDown={(event) => {
                 if (event.button !== 0) return;

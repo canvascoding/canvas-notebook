@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import { Loader2, AlertCircle, FolderOpen } from 'lucide-react';
 import {
   SidebarMenu,
@@ -12,6 +13,7 @@ import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
 import { FileTreeNode } from './FileTreeNode';
 
 export function FileTree() {
+  const t = useTranslations('notebook');
   const {
     fileTree,
     isLoadingTree,
@@ -69,7 +71,7 @@ export function FileTree() {
           onClick={() => loadFileTree()}
           className="mt-2"
         >
-          Retry
+          {t('tryAgain')}
         </Button>
       </div>
     );
@@ -79,8 +81,8 @@ export function FileTree() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
         <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
-        <p className="text-sm text-muted-foreground">No files found</p>
-        <p className="text-xs text-muted-foreground/60">Upload files to get started</p>
+        <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
+        <p className="text-xs text-muted-foreground/60">{t('uploadFilesToGetStarted')}</p>
       </div>
     );
   }
@@ -99,9 +101,9 @@ export function FileTree() {
       
       {filteredTree.length === 0 && searchQuery && (
         <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
-          <p className="text-sm text-muted-foreground">No results found</p>
+          <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
           <p className="text-xs text-muted-foreground/60">
-            No files match &quot;{searchQuery}&quot;
+            {t('noFilesMatch', { query: searchQuery })}
           </p>
         </div>
       )}

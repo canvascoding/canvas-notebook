@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback, type ChangeEvent, type DragEvent } from 'react';
 import { ChevronsDownUp, ChevronLeft, CheckSquare, FilePlus, FolderPlus, House, MoreHorizontal, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,6 +31,7 @@ interface FileBrowserProps {
 }
 
 export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
+  const t = useTranslations('notebook');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
@@ -103,7 +105,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   };
 
   const handleNewFile = async () => {
-    const name = window.prompt('New file name');
+    const name = window.prompt(t('newFilePrompt'));
     if (!name) return;
     const targetDir = resolveTargetDir();
     const targetPath = targetDir === '.' ? name : `${targetDir}/${name}`;
@@ -111,7 +113,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   };
 
   const handleNewFolder = async () => {
-    const name = window.prompt('New folder name');
+    const name = window.prompt(t('newFolderPrompt'));
     if (!name) return;
     const targetDir = resolveTargetDir();
     const targetPath = targetDir === '.' ? name : `${targetDir}/${name}`;
@@ -169,29 +171,29 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
       const skippedCount = multiSelectPaths.length - pathsToDelete.length;
       if (pathsToDelete.length === 0) {
         if (skippedCount > 0) {
-          toast.error('App output folders cannot be deleted.');
+          toast.error(t('protectedFoldersDeleteOnly'));
         }
         return;
       }
 
       const confirmed = window.confirm(
         skippedCount > 0
-          ? `Delete ${pathsToDelete.length} items? ${skippedCount} protected app folder(s) will be skipped.`
-          : `Are you sure you want to delete ${pathsToDelete.length} items?`
+          ? t('deleteItemsConfirmWithSkipped', { count: pathsToDelete.length, skipped: skippedCount })
+          : t('deleteItemsConfirm', { count: pathsToDelete.length })
       );
       if (confirmed) {
         await deletePath(pathsToDelete);
         if (skippedCount > 0) {
-          toast.info(`${skippedCount} protected app folder(s) were not deleted.`);
+          toast.info(t('protectedFoldersSkipped', { count: skippedCount }));
         }
         clearMultiSelect();
       }
     } else if (selectedNode) {
       if (selectedNode.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path)) {
-        toast.error('This app output folder cannot be deleted.');
+        toast.error(t('protectedFolderDelete'));
         return;
       }
-      const confirmed = window.confirm(`Are you sure you want to delete "${selectedNode.name}"?`);
+      const confirmed = window.confirm(t('deleteSingleConfirm', { name: selectedNode.name }));
       if (confirmed) {
         await deletePath(selectedNode.path);
       }
@@ -204,7 +206,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     (isMultiSelectMode
       ? deletableMultiSelectCount === 0
       : selectedNode?.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path));
-  const currentDirectoryLabel = currentDirectory === '.' ? 'Workspace /' : `/${currentDirectory}`;
+  const currentDirectoryLabel = currentDirectory === '.' ? t('workspaceRoot') : `/${currentDirectory}`;
 
   const navigateToDirectory = useCallback(
     async (targetDir: string) => {
@@ -252,7 +254,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     >
       {isDragging && (
         <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center border-2 border-dashed border-border bg-background/95 text-sm text-foreground">
-          Drop files to upload
+          {t('dropFilesToUpload')}
         </div>
       )}
       <div className="sticky top-0 z-20 border-b border-border bg-background/95">
@@ -262,42 +264,42 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="h-9 gap-2 rounded-full px-3">
                   <MoreHorizontal className="h-4 w-4" />
-                  Aktionen
+                  {t('actions')}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" sideOffset={8} className="w-56">
                 <DropdownMenuItem onSelect={handleNewFile}>
                   <FilePlus className="h-4 w-4" />
-                  Neue Datei
+                  {t('newFile')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleNewFolder}>
                   <FolderPlus className="h-4 w-4" />
-                  Neuer Ordner
+                  {t('newFolder')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleUploadClick}>
                   <Upload className="h-4 w-4" />
-                  Datei hochladen
+                  {t('uploadFile')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleUploadFolderClick}>
                   <FolderPlus className="h-4 w-4 text-primary" />
-                  Ordner hochladen
+                  {t('uploadFolder')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={toggleMultiSelectMode}>
                   <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
-                  {isMultiSelectMode ? 'Mehrfachauswahl beenden' : 'Mehrfachauswahl'}
+                  {isMultiSelectMode ? t('multiSelectDone') : t('multiSelect')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={collapseAllDirectories}>
                   <ChevronsDownUp className="h-4 w-4" />
-                  Alle Ordner einklappen
+                  {t('collapseAllFolders')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => void handleRefresh()} disabled={isLoadingTree}>
                   <RefreshCw className={cn('h-4 w-4', isLoadingTree && 'animate-spin')} />
-                  Aktualisieren
+                  {t('refresh')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => void handleDeleteClick()} disabled={isDeleteDisabled}>
                   <Trash2 className="h-4 w-4" />
-                  Auswahl löschen
+                  {t('deleteSelection')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -306,7 +308,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
               size="icon-sm"
               onClick={() => void handleRefresh()}
               disabled={isLoadingTree}
-              aria-label="Refresh file tree"
+              aria-label={t('refreshFileTree')}
             >
               <RefreshCw className={cn('h-4 w-4', isLoadingTree && 'animate-spin')} />
             </Button>
@@ -317,12 +319,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                   isConnected ? 'bg-green-500' : 'bg-amber-500'
                 )}
               />
-              Sync
+              {t('sync')}
             </div>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
-            <h2 className="shrink-0 text-sm font-semibold text-foreground">Files</h2>
+            <h2 className="shrink-0 text-sm font-semibold text-foreground">{t('filesTitle')}</h2>
             <TooltipProvider delayDuration={300}>
               <div className="flex min-w-[180px] flex-1 flex-wrap content-start items-center justify-start gap-1">
                 <Tooltip>
@@ -331,12 +333,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       variant="ghost"
                       size="icon-sm"
                       onClick={toggleMultiSelectMode}
-                      aria-label="Toggle select mode"
+                      aria-label={t('toggleSelectMode')}
                     >
                       <CheckSquare className={`h-4 w-4 ${isMultiSelectMode ? 'text-primary' : ''}`} />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Select</TooltipContent>
+                  <TooltipContent>{t('select')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -344,12 +346,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       variant="ghost"
                       size="icon-sm"
                       onClick={handleNewFile}
-                      aria-label="New file"
+                      aria-label={t('newFile')}
                     >
                       <FilePlus className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>New file</TooltipContent>
+                  <TooltipContent>{t('newFile')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -357,12 +359,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       variant="ghost"
                       size="icon-sm"
                       onClick={handleNewFolder}
-                      aria-label="New folder"
+                      aria-label={t('newFolder')}
                     >
                       <FolderPlus className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>New folder</TooltipContent>
+                  <TooltipContent>{t('newFolder')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -370,12 +372,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       variant="ghost"
                       size="icon-sm"
                       onClick={handleUploadFolderClick}
-                      aria-label="Upload folder"
+                      aria-label={t('uploadFolder')}
                     >
                       <FolderPlus className="h-4 w-4 text-primary" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Upload folder</TooltipContent>
+                  <TooltipContent>{t('uploadFolder')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -383,12 +385,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       variant="ghost"
                       size="icon-sm"
                       onClick={handleUploadClick}
-                      aria-label="Upload files"
+                      aria-label={t('uploadFile')}
                     >
                       <Upload className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Upload files</TooltipContent>
+                  <TooltipContent>{t('uploadFile')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -397,12 +399,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       size="icon-sm"
                       onClick={handleDeleteClick}
                       disabled={isDeleteDisabled}
-                      aria-label="Delete"
+                      aria-label={t('delete')}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Delete</TooltipContent>
+                  <TooltipContent>{t('delete')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -410,12 +412,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       variant="ghost"
                       size="icon-sm"
                       onClick={collapseAllDirectories}
-                      aria-label="Collapse all folders"
+                      aria-label={t('collapseAllFolders')}
                     >
                       <ChevronsDownUp className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Collapse all</TooltipContent>
+                  <TooltipContent>{t('collapseAll')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -424,14 +426,14 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       size="icon-sm"
                       onClick={() => void handleRefresh()}
                       disabled={isLoadingTree}
-                      aria-label="Refresh file tree"
+                      aria-label={t('refreshFileTree')}
                     >
                       <RefreshCw
                         className={cn('h-4 w-4', isLoadingTree && 'animate-spin')}
                       />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Refresh</TooltipContent>
+                  <TooltipContent>{t('refresh')}</TooltipContent>
                 </Tooltip>
                 <div className="ml-auto flex items-center">
                   <Tooltip>
@@ -442,7 +444,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                       )} />
                     </TooltipTrigger>
                     <TooltipContent>
-                      {isConnected ? 'Auto-refresh: Connected' : 'Auto-refresh: Disconnected'}
+                      {isConnected ? t('autoRefreshConnected') : t('autoRefreshDisconnected')}
                     </TooltipContent>
                   </Tooltip>
                 </div>
@@ -467,7 +469,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
         />
         {isMultiSelectMode && (
           <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1 text-xs">
-            <span className="text-muted-foreground">{multiSelectPaths.length} selected</span>
+            <span className="text-muted-foreground">{t('selectedCount', { count: multiSelectPaths.length })}</span>
             <Button
               variant="ghost"
               size="sm"
@@ -475,7 +477,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
               onClick={toggleMultiSelectMode}
             >
               <X className="mr-1 h-3 w-3" />
-              Cancel
+              {t('cancel')}
             </Button>
           </div>
         )}
@@ -488,10 +490,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                 size="sm"
                 className="h-8 px-2 text-xs"
                 onClick={() => void handleGoRoot()}
-                aria-label="Jump to workspace root"
+                aria-label={t('jumpToWorkspaceRoot')}
               >
                 <House className="h-3.5 w-3.5" />
-                <span>Root</span>
+                <span>{t('root')}</span>
               </Button>
               <Button
                 type="button"
@@ -500,10 +502,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                 className="h-8 px-2 text-xs"
                 onClick={() => void handleGoUp()}
                 disabled={currentDirectory === '.'}
-                aria-label="Go up one folder"
+                aria-label={t('goUpOneFolder')}
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
-                <span>Up</span>
+                <span>{t('up')}</span>
               </Button>
               <div className="min-w-0 flex-1 truncate border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground">
                 {currentDirectoryLabel}
@@ -520,10 +522,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                 size="sm"
                 className="h-8 px-2 text-xs"
                 onClick={() => void handleGoRoot()}
-                aria-label="Jump to workspace root"
+                aria-label={t('jumpToWorkspaceRoot')}
               >
                 <House className="h-3.5 w-3.5" />
-                <span>Root</span>
+                <span>{t('root')}</span>
               </Button>
               <Button
                 type="button"
@@ -532,10 +534,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                 className="h-8 px-2 text-xs"
                 onClick={() => void handleGoUp()}
                 disabled={currentDirectory === '.'}
-                aria-label="Go up one folder"
+                aria-label={t('goUpOneFolder')}
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
-                <span>Up</span>
+                <span>{t('up')}</span>
               </Button>
               <div className="min-w-0 flex-1 truncate border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground">
                 {currentDirectoryLabel}
@@ -549,7 +551,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
             <Input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search files"
+              placeholder={t('searchFiles')}
               className="h-9 bg-background pl-8 placeholder:text-muted-foreground"
             />
           </div>

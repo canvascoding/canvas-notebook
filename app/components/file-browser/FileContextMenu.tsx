@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Folder, Share2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
@@ -53,6 +54,7 @@ function joinPath(parent: string, name: string) {
 }
 
 export function FileContextMenu({ node, isRowActive = false }: FileContextMenuProps) {
+  const t = useTranslations('notebook');
   const [open, setOpen] = useState(false);
   
   // State for Move Dialog
@@ -84,20 +86,20 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   }, [node]);
 
   const handleNewFile = async () => {
-    const name = window.prompt('New file name');
+    const name = window.prompt(t('newFilePrompt'));
     if (!name) return;
     await createPath(joinPath(parentPath, name), 'file');
   };
 
   const handleNewFolder = async () => {
-    const name = window.prompt('New folder name');
+    const name = window.prompt(t('newFolderPrompt'));
     if (!name) return;
     await createPath(joinPath(parentPath, name), 'directory');
   };
 
   const handleRename = () => {
     if (isProtectedOutputFolder) {
-      toast.error('This app output folder cannot be renamed.');
+      toast.error(t('protectedFolderRename'));
       return;
     }
     setOpen(false); // Close dropdown
@@ -116,7 +118,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
 
   const handleMove = () => {
     if (isProtectedOutputFolder) {
-      toast.error('This app output folder cannot be moved.');
+      toast.error(t('protectedFolderMove'));
       return;
     }
     setOpen(false);
@@ -128,10 +130,10 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
 
   const handleDelete = async () => {
     if (isProtectedOutputFolder) {
-      toast.error('This app output folder cannot be deleted.');
+      toast.error(t('protectedFolderDelete'));
       return;
     }
-    const confirmed = window.confirm(`Delete "${node.name}"?`);
+    const confirmed = window.confirm(t('deleteSingleConfirm', { name: node.name }));
     if (!confirmed) return;
     await deletePath(node.path);
   };
@@ -202,7 +204,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   const handleConfirmMove = async () => {
     const trimmedName = moveName.trim();
     if (!trimmedName) {
-      toast.error('Please enter a name.');
+      toast.error(t('pleaseEnterName'));
       return;
     }
     const destination = moveTarget === '.' ? trimmedName : `${moveTarget}/${trimmedName}`;
@@ -211,7 +213,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       return;
     }
     if (node.type === 'directory' && destination.startsWith(`${node.path}/`)) {
-      toast.error('Cannot move a folder into itself.');
+      toast.error(t('moveIntoSelf'));
       return;
     }
     await renamePath(node.path, destination);
@@ -239,7 +241,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
               setOpen(true);
             }}
             onPointerDown={(event) => event.stopPropagation()}
-            aria-label="File actions"
+            aria-label={t('fileActions')}
           >
             <MoreHorizontal className="h-4 w-4 text-foreground" />
           </Button>
@@ -247,33 +249,33 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
         <DropdownMenuContent align="end" sideOffset={6}>
           <DropdownMenuItem onSelect={handleNewFile}>
             <FilePlus className="h-4 w-4" />
-            New file
+            {t('newFile')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handleNewFolder}>
             <FolderPlus className="h-4 w-4" />
-            New folder
+            {t('newFolder')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={handleCopyPath}>
             <Copy className="h-4 w-4" />
-            Copy path
+            {t('copyPath')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handleRename} disabled={isProtectedOutputFolder}>
             <Pencil className="h-4 w-4" />
-            Rename
+            {t('rename')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handleMove} disabled={isProtectedOutputFolder}>
             <Move className="h-4 w-4" />
-            Move
+            {t('move')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handleDownload}>
             <Download className="h-4 w-4" />
-            Download
+            {t('download')}
           </DropdownMenuItem>
           {isMarkdown && (
             <DropdownMenuItem onSelect={handleShare}>
               <Share2 className="h-4 w-4" />
-              Share
+              {t('share')}
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
@@ -283,7 +285,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             disabled={isProtectedOutputFolder}
           >
             <Trash2 className="h-4 w-4" />
-            Delete
+            {t('delete')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -291,13 +293,13 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>{`Rename "${node.name}"`}</DialogTitle>
+              <DialogTitle>{t('renameTitle', { name: node.name })}</DialogTitle>
               <DialogDescription>
-                Enter a new name for the item. The new name will be saved in the same directory.
+                {t('renameDescription')}
               </DialogDescription>
             </DialogHeader>
           <div className="py-4">
-            <label htmlFor="newName" className="text-xs text-muted-foreground">New name</label>
+            <label htmlFor="newName" className="text-xs text-muted-foreground">{t('newName')}</label>
             <Input
               id="newName"
               value={newName}
@@ -308,8 +310,8 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             />
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setRenameOpen(false)}>Cancel</Button>
-            <Button variant="secondary" onClick={handleConfirmRename}>Rename</Button>
+            <Button variant="ghost" onClick={() => setRenameOpen(false)}>{t('cancel')}</Button>
+            <Button variant="secondary" onClick={handleConfirmRename}>{t('rename')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -317,14 +319,14 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{`Move "${node.name}"`}</DialogTitle>
+            <DialogTitle>{t('moveTitle', { name: node.name })}</DialogTitle>
             <DialogDescription>
-              Select a new destination folder and optionally rename the item.
+              {t('moveDescription')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-muted-foreground">Destination folder</label>
+              <label className="text-xs text-muted-foreground">{t('destinationFolder')}</label>
               <Input
                 value={moveTarget}
                 onChange={(event) => setMoveTarget(event.target.value)}
@@ -332,7 +334,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Name</label>
+              <label className="text-xs text-muted-foreground">{t('name')}</label>
               <Input
                 value={moveName}
                 onChange={(event) => setMoveName(event.target.value)}
@@ -340,7 +342,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
               />
             </div>
             <div className="rounded border border-border bg-muted/40 p-2">
-              <div className="mb-2 text-xs text-muted-foreground">Choose destination</div>
+              <div className="mb-2 text-xs text-muted-foreground">{t('chooseDestination')}</div>
               <div className="max-h-56 overflow-auto">
                 <button
                   type="button"
@@ -352,7 +354,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
                   onClick={() => setMoveTarget('.')}
                 >
                   <Folder className="h-4 w-4 text-muted-foreground" />
-                  <span className="truncate">/ (root)</span>
+                  <span className="truncate">{t('rootDirectory')}</span>
                 </button>
                 {renderMoveDirectories(fileTree)}
               </div>
@@ -360,10 +362,10 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
           </div>
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setMoveOpen(false)}>
-              Cancel
+              {t('cancel')}
             </Button>
             <Button variant="secondary" onClick={handleConfirmMove}>
-              Move
+              {t('move')}
             </Button>
           </DialogFooter>
         </DialogContent>

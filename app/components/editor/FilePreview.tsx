@@ -1,9 +1,11 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { AlertCircle, FileText, Loader2 } from 'lucide-react';
 import { useFileStore } from '@/app/store/file-store';
 
 export function FilePreview() {
+  const t = useTranslations('notebook');
   const { currentFile, isLoadingFile, fileError } = useFileStore();
 
   if (isLoadingFile) {
@@ -27,7 +29,7 @@ export function FilePreview() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
         <FileText className="h-6 w-6" />
-        <p className="text-sm">Select a file to preview.</p>
+        <p className="text-sm">{t('selectFileToPreview')}</p>
       </div>
     );
   }

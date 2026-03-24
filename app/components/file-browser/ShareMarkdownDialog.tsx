@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { FileText, X, Loader2, Eye } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -24,6 +25,7 @@ export function ShareMarkdownDialog({
   filePath,
   fileName,
 }: ShareMarkdownDialogProps) {
+  const t = useTranslations('notebook');
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [htmlContent, setHtmlContent] = useState<string>('');
@@ -42,14 +44,14 @@ export function ShareMarkdownDialog({
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw new Error(
-          errorData?.error || `Failed to export markdown: ${response.statusText}`
+          errorData?.error || t('failedToExportMarkdown', { statusText: response.statusText })
         );
       }
 
       const html = await response.text();
       setHtmlContent(html);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load preview';
+      const message = err instanceof Error ? err.message : t('failedToLoadPreview');
       setError(message);
       toast.error(message);
     } finally {
@@ -78,7 +80,7 @@ export function ShareMarkdownDialog({
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw new Error(
-          errorData?.error || `PDF generation failed: ${response.statusText}`
+          errorData?.error || t('pdfGenerationFailed', { statusText: response.statusText })
         );
       }
 
@@ -87,7 +89,7 @@ export function ShareMarkdownDialog({
       window.open(url, '_blank');
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to generate PDF';
+      const message = err instanceof Error ? err.message : t('failedToGeneratePdf');
       toast.error(message);
     } finally {
       setPdfLoading(false);
@@ -101,7 +103,7 @@ export function ShareMarkdownDialog({
           <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
             <FileText className="h-4 md:h-5 w-4 md:w-5 shrink-0" />
             <span className="truncate min-w-0" title={fileName}>
-              Share: {fileName}
+              {t('shareTitle', { fileName })}
             </span>
           </DialogTitle>
         </DialogHeader>
@@ -111,7 +113,7 @@ export function ShareMarkdownDialog({
             <div className="flex items-center justify-center h-full">
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">Loading preview...</p>
+                <p className="text-sm text-muted-foreground">{t('loadingPreview')}</p>
               </div>
             </div>
           ) : error ? (
@@ -119,7 +121,7 @@ export function ShareMarkdownDialog({
               <div className="text-center px-4">
                 <p className="text-red-500 mb-2 text-sm md:text-base">{error}</p>
                 <Button variant="outline" onClick={loadHtmlExport} size="sm">
-                  Try Again
+                  {t('tryAgain')}
                 </Button>
               </div>
             </div>
@@ -131,11 +133,11 @@ export function ShareMarkdownDialog({
                   srcDoc={htmlContent}
                   className="w-full h-full"
                   sandbox="allow-same-origin"
-                  title={`Preview of ${fileName}`}
+                  title={t('previewTitle', { fileName })}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  No preview available
+                  {t('noPreviewAvailable')}
                 </div>
               )}
             </div>
@@ -147,7 +149,7 @@ export function ShareMarkdownDialog({
             {!loading && !error && (
               <span className="flex items-center gap-1">
                 <Eye className="h-3 md:h-4 w-3 md:w-4" />
-                Preview ready
+                {t('previewReady')}
               </span>
             )}
           </div>
@@ -160,7 +162,7 @@ export function ShareMarkdownDialog({
               className="md:size-default"
             >
               <X className="h-4 w-4 mr-1 md:mr-2" />
-              <span>Close</span>
+              <span>{t('close')}</span>
             </Button>
 
             <Button
@@ -174,7 +176,7 @@ export function ShareMarkdownDialog({
               ) : (
                 <FileText className="h-4 w-4 mr-1 md:mr-2" />
               )}
-              <span>{pdfLoading ? 'Generating PDF...' : 'Open as PDF'}</span>
+              <span>{pdfLoading ? t('generatingPdf') : t('openAsPdf')}</span>
             </Button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { AlertCircle, CheckCircle2, Download, FileText, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -98,6 +99,7 @@ function formatTimestamp(timestamp: number | null) {
 }
 
 export function FileEditor() {
+  const t = useTranslations('notebook');
   const { currentFile, isLoadingFile, fileError, saveFile, downloadFile } = useFileStore();
   const {
     activePath,
@@ -170,7 +172,7 @@ export function FileEditor() {
         }
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : 'Failed to save file';
+          error instanceof Error ? error.message : t('failedToSaveFile');
         setSaveError(message);
         toast.error(message);
       }
@@ -181,7 +183,7 @@ export function FileEditor() {
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [activePath, draft, isDirty, markSaved, markSaving, saveFile, setSaveError]);
+  }, [activePath, draft, isDirty, markSaved, markSaving, saveFile, setSaveError, t]);
 
   const extension = useMemo(() => {
     if (!currentFile) return '';
@@ -220,7 +222,7 @@ export function FileEditor() {
           })
           .catch((error) => {
             const message =
-              error instanceof Error ? error.message : 'Failed to save file';
+              error instanceof Error ? error.message : t('failedToSaveFile');
             setSaveError(message);
             toast.error(message);
           });
@@ -229,7 +231,7 @@ export function FileEditor() {
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [markSaved, markSaving, saveFile, setSaveError]);
+  }, [markSaved, markSaving, saveFile, setSaveError, t]);
 
   if (isLoadingFile) {
     return (
@@ -252,7 +254,7 @@ export function FileEditor() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
         <FileText className="h-6 w-6" />
-        <p className="text-sm">Select a file to preview.</p>
+        <p className="text-sm">{t('selectFileToPreview')}</p>
       </div>
     );
   }
@@ -261,7 +263,7 @@ export function FileEditor() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-nowrap items-center justify-between border-b border-border px-3 sm:px-4 py-2 text-sm text-muted-foreground gap-2">
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground overflow-hidden">
-          <span className="text-foreground shrink-0">File</span>
+          <span className="text-foreground shrink-0">{t('fileLabel')}</span>
           <div className="flex min-w-0 items-center overflow-hidden">
             {breadcrumbs.map((segment, index) => (
               <span key={`segment-${segment}-${index}`} className="truncate">
@@ -272,26 +274,26 @@ export function FileEditor() {
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
-          {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">Read-only</span>}
+          {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">{t('readOnly')}</span>}
           {saveError ? (
             <span className="flex items-center gap-1 text-destructive shrink-0" title={saveError}>
               <AlertCircle className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">{saveError}</span>
             </span>
           ) : isSaving ? (
-            <span className="flex items-center gap-1 shrink-0" title="Saving...">
+            <span className="flex items-center gap-1 shrink-0" title={t('saving')}>
               <Save className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Saving...</span>
+              <span className="hidden sm:inline">{t('saving')}</span>
             </span>
           ) : isDirty ? (
-            <span className="flex items-center gap-1 shrink-0" title="Unsaved changes">
+            <span className="flex items-center gap-1 shrink-0" title={t('unsavedChanges')}>
               <Save className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Unsaved changes</span>
+              <span className="hidden sm:inline">{t('unsavedChanges')}</span>
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-primary shrink-0" title={savedTime ? `Saved ${savedTime}` : 'Saved'}>
+            <span className="flex items-center gap-1 text-primary shrink-0" title={savedTime ? t('savedAt', { time: savedTime }) : t('saved')}>
               <CheckCircle2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{savedTime ? `Saved ${savedTime}` : 'Saved'}</span>
+              <span className="hidden sm:inline">{savedTime ? t('savedAt', { time: savedTime }) : t('saved')}</span>
             </span>
           )}
         </div>
@@ -300,10 +302,10 @@ export function FileEditor() {
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText className="h-8 w-8" />
-              <p className="text-sm">Binary file preview is not available.</p>
+              <p className="text-sm">{t('binaryPreviewUnavailable')}</p>
               <Button variant="secondary" onClick={() => downloadFile(currentFile.path)}>
                 <Download className="h-4 w-4" />
-                Download file
+                {t('downloadFile')}
               </Button>
             </div>
           ) : isImage ? (
