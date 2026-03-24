@@ -1,15 +1,43 @@
 'use client';
 
 import { useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/app/lib/auth-client';
 import { toast } from 'sonner';
 import Image from 'next/image';
+import { routing } from '@/i18n/routing';
+
+function buildLocalePath(locale: string, pathname: string) {
+  if (locale === routing.defaultLocale) {
+    return pathname;
+  }
+
+  return pathname === '/' ? `/${locale}` : `/${locale}${pathname}`;
+}
+
+function resolvePostAuthRedirect(locale: string, from: string | null) {
+  if (!from || !from.startsWith('/') || from.startsWith('//')) {
+    return buildLocalePath(locale, '/');
+  }
+
+  const hasLocalePrefix = routing.locales.some(
+    (candidate) => from === `/${candidate}` || from.startsWith(`/${candidate}/`)
+  );
+
+  if (hasLocalePrefix || locale === routing.defaultLocale) {
+    return from;
+  }
+
+  return buildLocalePath(locale, from);
+}
 
 export default function LoginClient() {
   const t = useTranslations('login');
+  const locale = useLocale();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,7 +56,7 @@ export default function LoginClient() {
         toast.error(error.message || t('loginFailed'));
       } else {
         toast.success(t('loginSuccessful'));
-        window.location.href = '/';
+        window.location.href = resolvePostAuthRedirect(locale, searchParams.get('from'));
       }
     } catch (err) {
       toast.error(t('unexpectedError'));

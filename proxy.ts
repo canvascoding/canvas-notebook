@@ -10,6 +10,24 @@ const handleI18nRouting = createIntlMiddleware(routing);
 const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/automations/execute', '/api/automations/scheduler'];
 const PUBLIC_EXACT_ROUTES = ['/', '/api/health', '/manifest.webmanifest'];
 
+function getLocaleFromPathname(pathname: string) {
+  for (const locale of routing.locales) {
+    if (pathname === `/${locale}` || pathname.startsWith(`/${locale}/`)) {
+      return locale;
+    }
+  }
+
+  return routing.defaultLocale;
+}
+
+function buildLocalePath(locale: string, pathname: string) {
+  if (locale === routing.defaultLocale) {
+    return pathname;
+  }
+
+  return pathname === '/' ? `/${locale}` : `/${locale}${pathname}`;
+}
+
 function setCommonHeaders(response: NextResponse) {
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex, notranslate');
   response.headers.set('X-Frame-Options', 'SAMEORIGIN');
@@ -80,8 +98,10 @@ export default async function middleware(request: NextRequest) {
   if (!sessionCookie) {
     // Redirect to login for page requests
     if (!pathname.startsWith('/api/')) {
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('from', pathname);
+      const locale = getLocaleFromPathname(pathname);
+      const loginUrl = new URL(buildLocalePath(locale, '/login'), request.url);
+      const from = `${pathname}${request.nextUrl.search}`;
+      loginUrl.searchParams.set('from', from);
       const redirectResponse = NextResponse.redirect(loginUrl);
       setCommonHeaders(redirectResponse);
       return redirectResponse;

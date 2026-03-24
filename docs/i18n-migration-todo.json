@@ -424,7 +424,7 @@
         {
           "id": "8.2",
           "title": "Auth-Redirect nach Login testen",
-          "status": "in_progress",
+          "status": "done",
           "description": "Nach erfolgreichem Login soll auf die locale-korrekte Startseite weitergeleitet werden. callbackURL in better-auth client-Aufruf ggf. mit Locale prefixen.",
           "notes": [
             "Verwendung von redirect() aus i18n/navigation.ts statt next/navigation in Auth-Callbacks"
@@ -433,7 +433,7 @@
         {
           "id": "8.3",
           "title": "Middleware-Matcher und better-auth Cookie-Handling testen",
-          "status": "open",
+          "status": "done",
           "description": "Sicherstellen dass next-intl Middleware keine /api/auth/-Requests verändert. Cookies von better-auth müssen unberührt bleiben.",
           "notes": [
             "better-auth nutzt sameSite=lax Cookies – locale-Wechsel (redirect) kann Cookies invalidieren wenn Origin sich ändert – bei as-needed Prefix kein Problem da gleiche Origin"
@@ -484,7 +484,7 @@
         {
           "id": "10.2",
           "title": "Smoke Tests ausführen (npm run test:smoke)",
-          "status": "open"
+          "status": "in_progress"
         },
         {
           "id": "10.3",
