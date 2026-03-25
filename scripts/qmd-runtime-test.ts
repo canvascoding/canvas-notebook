@@ -18,8 +18,9 @@ function env(values: Record<string, string> = {}): NodeJS.ProcessEnv {
 assert.equal(normalizeQmdMode(undefined), 'search');
 assert.equal(normalizeQmdMode('vsearch'), 'vsearch');
 assert.throws(() => normalizeQmdMode('invalid'));
-assert.equal(isQmdEnabled(env()), true);
+assert.equal(isQmdEnabled(env()), false);
 assert.equal(isQmdEnabled(env({ QMD_AUTO_INSTALL: 'false' })), false);
+assert.equal(isQmdEnabled(env({ QMD_AUTO_INSTALL: 'true' })), true);
 assert.equal(isQmdEnabled(env({ QMD_ENABLED: 'false', QMD_AUTO_INSTALL: 'true' })), false);
 assert.equal(isQmdEnabled(env({ QMD_ENABLED: 'true', QMD_AUTO_INSTALL: 'false' })), true);
 

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-03-25T10:58:00+01:00",
+  "updatedAt": "2026-03-25T11:07:00+01:00",
   "items": [
     {
       "id": "debug-qmd-entrypoint-failure",
@@ -11,7 +11,7 @@
       "id": "qmd-env-toggle-and-rg-tool",
       "title": "QMD per Env abschaltbar machen und rg als Agent-Tool einbauen",
       "status": "done",
-      "notes": "QMD wird jetzt zentral über QMD_ENABLED gesteuert, qmd/qmd_search werden bei Bedarf ausgeblendet, ripgrep ist im Runner-Image installiert und der Agent-Prompt bevorzugt rg/glob/find/ls/read statt qmd."
+      "notes": "QMD wird jetzt zentral über QMD_ENABLED gesteuert und ist standardmäßig deaktiviert, qmd/qmd_search werden bei Bedarf ausgeblendet, ripgrep ist im Runner-Image installiert und der Agent-Prompt bevorzugt rg/glob/find/ls/read statt qmd."
     }
   ]
 }

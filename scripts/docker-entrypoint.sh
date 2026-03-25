@@ -147,7 +147,7 @@ if [ -n "${QMD_ENABLED:-}" ]; then
     qmd_enabled=false
   fi
 else
-  if env_flag_enabled "${QMD_AUTO_INSTALL:-true}"; then
+  if env_flag_enabled "${QMD_AUTO_INSTALL:-false}"; then
     qmd_enabled=true
   else
     qmd_enabled=false

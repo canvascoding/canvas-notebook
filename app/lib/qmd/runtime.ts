@@ -106,7 +106,7 @@ export function isQmdEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
     return legacy;
   }
 
-  return true;
+  return false;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
