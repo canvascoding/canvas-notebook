@@ -1,11 +1,12 @@
 import { type AgentTool } from '@mariozechner/pi-agent-core';
 import { Type } from '@sinclair/typebox';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
+import { constants as fsConstants, promises as fsPromises } from 'fs';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
 import { loadSkillsFromDisk, getSkillsDir, AnthropicSkill } from './skill-loader';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const RESERVED_STATIC_SKILL_NAMES = new Set(['image-generation', 'video-generation', 'ad-localization', 'qmd']);
 
 // Cache for loaded skills
@@ -34,7 +35,7 @@ async function hasExecutableCapability(skillName: string): Promise<boolean> {
   const binPath = `${skillsDir}/bin/${skillName}`;
   
   try {
-    await execAsync(`test -x ${binPath}`);
+    await fsPromises.access(binPath, fsConstants.X_OK);
     return true;
   } catch {
     return false;
@@ -73,9 +74,7 @@ async function createToolFromSkill(skill: AnthropicSkill): Promise<AgentTool | n
         const { prompt } = params as { prompt: string };
         
         // Execute the skill via the bin wrapper
-        const cmd = `${skillsDir}/bin/${skill.name} "${prompt.replace(/"/g, '\\"')}"`;
-        
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+        const { stdout, stderr } = await execFileAsync(`${skillsDir}/bin/${skill.name}`, [prompt], { cwd: workspacePath });
         return {
           content: [{ type: 'text', text: stdout || stderr || 'Skill executed successfully' }],
           details: { stdout, stderr },

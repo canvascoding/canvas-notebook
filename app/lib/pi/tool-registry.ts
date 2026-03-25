@@ -47,6 +47,7 @@ import {
 
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   '.gif':  'image/gif',
@@ -846,35 +847,31 @@ export const piTools: AgentTool[] = [
       };
       try {
         const workspacePath = getWorkspacePath();
-        let scheduleArgs = '';
-        
+        const args = ['workflow-automation', 'create', '--name', name, '--prompt', prompt];
+
         switch (schedule.kind) {
           case 'once':
-            scheduleArgs = `--schedule-kind once --schedule-date "${schedule.date}" --schedule-time "${schedule.time}"`;
+            args.push('--schedule-kind', 'once', '--schedule-date', schedule.date!, '--schedule-time', schedule.time!);
             break;
           case 'daily':
-            scheduleArgs = `--schedule-kind daily --schedule-time "${schedule.time}"`;
+            args.push('--schedule-kind', 'daily', '--schedule-time', schedule.time!);
             break;
           case 'weekly':
-            const daysStr = schedule.days?.map(d => `--schedule-days "${d}"`).join(' ') || '';
-            scheduleArgs = `--schedule-kind weekly --schedule-time "${schedule.time}" ${daysStr}`;
+            args.push('--schedule-kind', 'weekly', '--schedule-time', schedule.time!);
+            schedule.days?.forEach(d => args.push('--schedule-days', d));
             break;
           case 'interval':
-            scheduleArgs = `--schedule-kind interval --schedule-every ${schedule.every} --schedule-unit "${schedule.unit}"`;
+            args.push('--schedule-kind', 'interval', '--schedule-every', String(schedule.every), '--schedule-unit', schedule.unit!);
             break;
         }
-        
-        if (schedule.timeZone) {
-          scheduleArgs += ` --timezone "${schedule.timeZone}"`;
-        }
-        
-        const skillArg = preferredSkill ? `--preferred-skill "${preferredSkill}"` : '';
-        const outputArg = targetOutputPath ? `--target-output "${targetOutputPath}"` : '';
-        const contextArgs = workspaceContextPaths?.map(p => `--context-path "${p}"`).join(' ') || '';
-        const statusArg = status ? `--status "${status}"` : '';
-        
-        const cmd = `/data/skills/skill workflow-automation create --name "${name}" --prompt "${prompt.replace(/"/g, '\\"')}" ${scheduleArgs} ${skillArg} ${outputArg} ${contextArgs} ${statusArg}`;
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+
+        if (schedule.timeZone) args.push('--timezone', schedule.timeZone);
+        if (preferredSkill) args.push('--preferred-skill', preferredSkill);
+        if (targetOutputPath) args.push('--target-output', targetOutputPath);
+        workspaceContextPaths?.forEach(p => args.push('--context-path', p));
+        if (status) args.push('--status', status);
+
+        const { stdout, stderr } = await execFileAsync('/data/skills/skill', args, { cwd: workspacePath });
         return {
           content: [{ type: 'text', text: stdout || stderr || 'Automation job created successfully' }],
           details: { stdout, stderr },
@@ -954,32 +951,26 @@ export const piTools: AgentTool[] = [
       };
       try {
         const workspacePath = getWorkspacePath();
-        let cmd = `/data/skills/skill workflow-automation update --job-id "${jobId}"`;
-        
-        if (name) cmd += ` --name "${name}"`;
-        if (prompt) cmd += ` --prompt "${prompt.replace(/"/g, '\\"')}"`;
-        if (preferredSkill) cmd += ` --preferred-skill "${preferredSkill}"`;
-        if (targetOutputPath) cmd += ` --target-output "${targetOutputPath}"`;
-        if (status) cmd += ` --status "${status}"`;
-        if (workspaceContextPaths?.length) {
-          const contextArgs = workspaceContextPaths.map(p => `--context-path "${p}"`).join(' ');
-          cmd += ` ${contextArgs}`;
-        }
-        
+        const args = ['workflow-automation', 'update', '--job-id', jobId];
+
+        if (name) args.push('--name', name);
+        if (prompt) args.push('--prompt', prompt);
+        if (preferredSkill) args.push('--preferred-skill', preferredSkill);
+        if (targetOutputPath) args.push('--target-output', targetOutputPath);
+        if (status) args.push('--status', status);
+        workspaceContextPaths?.forEach(p => args.push('--context-path', p));
+
         if (schedule) {
-          cmd += ` --schedule-kind "${schedule.kind}"`;
-          if (schedule.date) cmd += ` --schedule-date "${schedule.date}"`;
-          if (schedule.time) cmd += ` --schedule-time "${schedule.time}"`;
-          if (schedule.days?.length) {
-            const daysArgs = schedule.days.map(d => `--schedule-days "${d}"`).join(' ');
-            cmd += ` ${daysArgs}`;
-          }
-          if (schedule.every) cmd += ` --schedule-every ${schedule.every}`;
-          if (schedule.unit) cmd += ` --schedule-unit "${schedule.unit}"`;
-          if (schedule.timeZone) cmd += ` --timezone "${schedule.timeZone}"`;
+          args.push('--schedule-kind', schedule.kind);
+          if (schedule.date) args.push('--schedule-date', schedule.date);
+          if (schedule.time) args.push('--schedule-time', schedule.time);
+          schedule.days?.forEach(d => args.push('--schedule-days', d));
+          if (schedule.every) args.push('--schedule-every', String(schedule.every));
+          if (schedule.unit) args.push('--schedule-unit', schedule.unit);
+          if (schedule.timeZone) args.push('--timezone', schedule.timeZone);
         }
-        
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+
+        const { stdout, stderr } = await execFileAsync('/data/skills/skill', args, { cwd: workspacePath });
         return {
           content: [{ type: 'text', text: stdout || stderr || 'Automation job updated successfully' }],
           details: { stdout, stderr },
@@ -1004,8 +995,7 @@ export const piTools: AgentTool[] = [
       const { jobId } = params as { jobId: string };
       try {
         const workspacePath = getWorkspacePath();
-        const cmd = `/data/skills/skill workflow-automation delete --job-id "${jobId}"`;
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+        const { stdout, stderr } = await execFileAsync('/data/skills/skill', ['workflow-automation', 'delete', '--job-id', jobId], { cwd: workspacePath });
         return {
           content: [{ type: 'text', text: stdout || stderr || 'Automation job deleted successfully' }],
           details: { stdout, stderr },
@@ -1030,8 +1020,7 @@ export const piTools: AgentTool[] = [
       const { jobId } = params as { jobId: string };
       try {
         const workspacePath = getWorkspacePath();
-        const cmd = `/data/skills/skill workflow-automation trigger --job-id "${jobId}"`;
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+        const { stdout, stderr } = await execFileAsync('/data/skills/skill', ['workflow-automation', 'trigger', '--job-id', jobId], { cwd: workspacePath });
         return {
           content: [{ type: 'text', text: stdout || stderr || 'Automation job triggered successfully' }],
           details: { stdout, stderr },
