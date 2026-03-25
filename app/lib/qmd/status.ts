@@ -8,6 +8,7 @@ import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import {
   getQmdDerivedStatusPath,
   getQmdRuntimeStatusPath,
+  isQmdEnabled,
   QMD_DEFAULT_COLLECTIONS,
   QMD_DEFAULT_MODE,
   QMD_DERIVED_COLLECTION_NAME,
@@ -44,6 +45,7 @@ type QmdDerivedStatus = {
 };
 
 export type QmdDoctorStatus = {
+  enabled: boolean;
   ready: boolean;
   binaryAvailable: boolean;
   defaultMode: QmdSearchMode;
@@ -91,7 +93,34 @@ async function detectQmdBinary(): Promise<boolean> {
 }
 
 export async function getQmdDoctorStatus(): Promise<QmdDoctorStatus> {
-  const [runtimeStatus, derivedStatus, binaryAvailable, piConfig] = await Promise.all([
+  const enabled = isQmdEnabled();
+  const piConfig = await readPiRuntimeConfig();
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      ready: true,
+      binaryAvailable: false,
+      defaultMode: QMD_DEFAULT_MODE,
+      allowExpensiveQueryMode: piConfig.qmd?.allowExpensiveQueryMode === true,
+      collections: [],
+      lastUpdateAt: null,
+      lastUpdateSuccess: false,
+      lastEmbedAt: null,
+      derivedDocxIndexing: {
+        enabled: false,
+        healthy: false,
+        lastRunAt: null,
+        extractedCount: 0,
+        updatedCount: 0,
+        errorCount: 0,
+        warningCount: 0,
+      },
+      issues: [],
+    };
+  }
+
+  const [runtimeStatus, derivedStatus, binaryAvailable, loadedPiConfig] = await Promise.all([
     readJsonIfExists<QmdRuntimeStatus>(getQmdRuntimeStatusPath()),
     readJsonIfExists<QmdDerivedStatus>(getQmdDerivedStatusPath()),
     detectQmdBinary(),
@@ -143,10 +172,11 @@ export async function getQmdDoctorStatus(): Promise<QmdDoctorStatus> {
   }
 
   return {
+    enabled: true,
     ready: issues.length === 0,
     binaryAvailable,
     defaultMode: runtimeStatus?.defaultMode || QMD_DEFAULT_MODE,
-    allowExpensiveQueryMode: piConfig.qmd?.allowExpensiveQueryMode === true,
+    allowExpensiveQueryMode: loadedPiConfig.qmd?.allowExpensiveQueryMode === true,
     collections,
     lastUpdateAt: runtimeStatus?.lastUpdateAt || null,
     lastUpdateSuccess: runtimeStatus?.lastUpdateSuccess === true,

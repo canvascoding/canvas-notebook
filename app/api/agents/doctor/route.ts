@@ -52,8 +52,10 @@ export async function POST(request: NextRequest) {
       getQmdDoctorStatus(),
     ]);
     const { diagnostics } = promptResult;
-    const errorCount = (readiness.pi?.issues.length || 0) + qmd.issues.length;
-    const warningCount = (diagnostics.usedFallback ? 1 : 0) + (qmd.derivedDocxIndexing.warningCount > 0 ? 1 : 0);
+    const qmdErrorCount = qmd.enabled ? qmd.issues.length : 0;
+    const qmdWarningCount = qmd.enabled && qmd.derivedDocxIndexing.warningCount > 0 ? 1 : 0;
+    const errorCount = (readiness.pi?.issues.length || 0) + qmdErrorCount;
+    const warningCount = (diagnostics.usedFallback ? 1 : 0) + qmdWarningCount;
 
     return NextResponse.json({
       success: true,
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest) {
         promptDiagnostics: diagnostics,
         qmd,
         summary: {
-          ready: readiness.activeProviderReady && !diagnostics.usedFallback && qmd.ready,
+          ready: readiness.activeProviderReady && !diagnostics.usedFallback && (!qmd.enabled || qmd.ready),
           errors: errorCount,
           warnings: warningCount,
         },

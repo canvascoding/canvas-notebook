@@ -1,11 +1,27 @@
 # TOOLS
 
+## Workspace Search And Inspection
+
+Use the normal file tools for workspace search and inspection:
+
+- `rg`: Search file contents quickly across the workspace
+- `glob`: Find files by name or path pattern
+- `ls`: List the contents of a specific known directory
+- `read`: Read the exact files you have narrowed down
+- `bash`: Use shell commands like `find` only when the normal tools are not expressive enough
+
+Rules:
+- Start with `rg` for "find text", "where is this string", code lookup, and document text search
+- Use `glob` or `bash` + `find` for filename and path discovery
+- Do not use `ls` as a search tool
+- After finding candidates, switch to `read` for the exact files
+
 ## Available Skills (Overview)
 
 You have the following specialized tools available:
 
 ### python environment
-Python3 is installed - use it to help the user with custom requests where needed. 
+Python3 is installed - use it to help the user with custom requests where needed.
 Use sudo -n apt-get update and sudo -n apt-get install -s jq should work as well. Without sudo it does not work.
 
 Rules:
@@ -20,7 +36,7 @@ Rules:
 Generates images with Gemini. Prefer this direct PI tool when the user says: "create an image", "generate a photo", "make a picture of...", or wants to use workspace reference images.
 Parameters: prompt (optional when reference_image_paths is provided), count, aspect_ratio, model, reference_image_paths.
 reference_image_paths must contain workspace-relative image paths.
-If the result includes a media URL, show the image in the normal chat reply as Markdown: \`![generated image](URL)\`. Still include the URL or path in text.
+If the result includes a media URL, show the image in the normal chat reply as Markdown: `![generated image](URL)`. Still include the URL or path in text.
 
 ### video_generation
 Generates videos with VEO. Prefer this direct PI tool when the user says: "create a video", "generate a video", "make a video of...", or wants start/end frames, reference images, or an input video.
@@ -35,18 +51,10 @@ Mode rules:
 ### ad_localization
 Localizes advertisements. Use when the user says: "localize this ad", "translate for market...", "adapt for country..."
 
-### qmd
-Searches the workspace via qmd. Use when the user says: "search...", "find...", "where is...", "search my workspace"
-Use the search tool but do not use the vsearch tool, except the user explicitly asks for it. the container you run in does not have enough power to run vector searches and could break.
-
 ## Important Notes
 
-- **Prerequisite:** GEMINI_API_KEY must be configured in /settings (except for qmd)
+- **Prerequisite:** GEMINI_API_KEY must be configured in /settings for image/video/ad-localization
 - **Local Skills** (image_generation, video_generation, ad_localization): Return JSON with { "success": true, "data": { ... } }
-- **Workspace Search** (\`qmd\`): Use the PI tool \`qmd({ query, mode, limit, collection })\` for any file/content search
-- **Default qmd mode:** \`search\` for BM25 keyword search
-- **Fallback qmd mode:** \`vsearch\` only after weak or empty keyword results
-- **Not Standard:** \`query\` is expensive and intentionally disabled by default
 - **Do not read token/env files:** For Gemini skills, do not use internal API routes or env files directly. The wrappers resolve the central integration configuration themselves.
 - **Output directories:** All results are workspace-relative under /data/workspace
 
@@ -56,7 +64,6 @@ For complete documentation, parameter details, and examples:
 - /data/skills/image-generation/SKILL.md
 - /data/skills/video-generation/SKILL.md
 - /data/skills/ad-localization/SKILL.md
-- /data/skills/qmd/SKILL.md
 
 ## Trigger Phrases (When to use which skill)
 
@@ -81,13 +88,6 @@ For complete documentation, parameter details, and examples:
 - "lokalisiere diese Anzeige"
 - "übersetze für Markt..."
 
-**qmd:**
-- "search for..."
-- "find..."
-- "where is..."
-- "suche nach..."
-- "finde..."
-
 ## Skill Creator
 
 You can create new skills with the create_skill tool. A skill allows you to add new functionality to Canvas Notebook.
@@ -105,7 +105,7 @@ You can create new skills with the create_skill tool. A skill allows you to add 
 - **parameters**: JSON object with parameter definitions
 
 ### Example:
-\`\`\`
+```text
 create_skill(
   name="text-to-speech",
   title="Text to Speech",
@@ -113,7 +113,7 @@ create_skill(
   type="cli",
   parameters='{"text": {"type": "string", "required": true}, "voice": {"type": "string", "enum": ["male", "female"], "default": "female"}}'
 )
-\`\`\`
+```
 
 After creation:
 1. Validate the skill with validate_skill(name="skill-name")

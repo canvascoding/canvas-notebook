@@ -509,6 +509,7 @@
         "promptFallbackInactive": "Inaktiv",
         "qmdLabel": "qmd:",
         "needsAttention": "Benötigt Aufmerksamkeit",
+        "disabledStatus": "Deaktiviert",
         "available": "verfügbar",
         "missing": "fehlt",
         "defaultMode": "Standardmodus:",

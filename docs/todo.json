@@ -1,11 +1,17 @@
 {
-  "updatedAt": "2026-03-24T23:59:00+01:00",
+  "updatedAt": "2026-03-25T10:58:00+01:00",
   "items": [
     {
       "id": "debug-qmd-entrypoint-failure",
       "title": "Entrypoint-Logging fuer qmd-Rebuild verbessern",
       "status": "done",
       "notes": "Der qmd-Build im Docker-Entrypoint schreibt jetzt nach /data/cache/qmd/qmd-build.log und gibt bei Fehlern die letzten 200 Zeilen direkt ins Container-Log aus."
+    },
+    {
+      "id": "qmd-env-toggle-and-rg-tool",
+      "title": "QMD per Env abschaltbar machen und rg als Agent-Tool einbauen",
+      "status": "done",
+      "notes": "QMD wird jetzt zentral über QMD_ENABLED gesteuert, qmd/qmd_search werden bei Bedarf ausgeblendet, ripgrep ist im Runner-Image installiert und der Agent-Prompt bevorzugt rg/glob/find/ls/read statt qmd."
     }
   ]
 }

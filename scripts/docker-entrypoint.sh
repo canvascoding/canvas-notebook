@@ -6,6 +6,21 @@ fatal_startup() {
   exit 1
 }
 
+env_flag_enabled() {
+  normalized="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$normalized" in
+    1|true|yes|on)
+      return 0
+      ;;
+    0|false|no|off|'')
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 prepare_writable_dir() {
   target_dir="$1"
   owner="$(id -un):$(id -gn)"
@@ -124,9 +139,22 @@ else
   echo "[entrypoint] Skipping Ollama CLI auto-install (OLLAMA_CLI_AUTO_INSTALL=${ollama_auto_install})"
 fi
 
-# Install Bun and qmd for workspace search
-qmd_auto_install="${QMD_AUTO_INSTALL:-true}"
-if [ "$qmd_auto_install" = "true" ]; then
+# Install Bun and qmd for optional workspace search
+if [ -n "${QMD_ENABLED:-}" ]; then
+  if env_flag_enabled "$QMD_ENABLED"; then
+    qmd_enabled=true
+  else
+    qmd_enabled=false
+  fi
+else
+  if env_flag_enabled "${QMD_AUTO_INSTALL:-true}"; then
+    qmd_enabled=true
+  else
+    qmd_enabled=false
+  fi
+fi
+
+if [ "$qmd_enabled" = "true" ]; then
   export BUN_INSTALL="${BUN_INSTALL:-/data/cache/.bun}"
   export PATH="${BUN_INSTALL}/bin:$PATH"
   QMD_TEXT_COLLECTION_NAME="workspace-text"
@@ -336,7 +364,7 @@ EOF
     fatal_startup "qmd is not working properly after setup."
   fi
 else
-  echo "[entrypoint] Skipping qmd auto-install (QMD_AUTO_INSTALL=${qmd_auto_install})"
+  echo "[entrypoint] Skipping qmd setup (QMD_ENABLED=${QMD_ENABLED:-unset}, QMD_AUTO_INSTALL=${QMD_AUTO_INSTALL:-unset})"
 fi
 
 exec "$@"

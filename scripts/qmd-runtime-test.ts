@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
 import {
+  isQmdEnabled,
   mapQmdFileToOriginalPath,
   mergeQmdResults,
   normalizeQmdCollections,
@@ -10,9 +11,17 @@ import {
   QMD_DEFAULT_COLLECTIONS,
 } from '../app/lib/qmd/runtime';
 
+function env(values: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return values as unknown as NodeJS.ProcessEnv;
+}
+
 assert.equal(normalizeQmdMode(undefined), 'search');
 assert.equal(normalizeQmdMode('vsearch'), 'vsearch');
 assert.throws(() => normalizeQmdMode('invalid'));
+assert.equal(isQmdEnabled(env()), true);
+assert.equal(isQmdEnabled(env({ QMD_AUTO_INSTALL: 'false' })), false);
+assert.equal(isQmdEnabled(env({ QMD_ENABLED: 'false', QMD_AUTO_INSTALL: 'true' })), false);
+assert.equal(isQmdEnabled(env({ QMD_ENABLED: 'true', QMD_AUTO_INSTALL: 'false' })), true);
 
 assert.deepEqual(normalizeQmdCollections(undefined), [...QMD_DEFAULT_COLLECTIONS]);
 assert.deepEqual(normalizeQmdCollections('workspace-text'), ['workspace-text']);
@@ -69,9 +78,10 @@ async function main() {
   const toolRegistry = await fs.readFile(new URL('../app/lib/pi/tool-registry.ts', import.meta.url), 'utf8');
 
   assert.equal(QMD_CANONICAL_TOOL_NAME, 'qmd');
+  assert.match(toolRegistry, /createRipgrepTool/);
+  assert.match(toolRegistry, /isQmdEnabled\(\) \? \[/);
   assert.match(toolRegistry, /createQmdTool\(QMD_CANONICAL_TOOL_NAME\)/);
   assert.match(toolRegistry, /createQmdTool\('qmd_search', true\)/);
-  assert.match(toolRegistry, /workspace-text/);
   assert.match(toolRegistry, /query mode is disabled by default/);
 
   console.log('QMD runtime test passed');

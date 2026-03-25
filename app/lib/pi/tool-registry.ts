@@ -38,6 +38,7 @@ import {
   QMD_CANONICAL_TOOL_NAME,
   extractFirstJsonArray,
   formatQmdSearchSummary,
+  isQmdEnabled,
   mergeQmdResults,
   normalizeQmdCollections,
   normalizeQmdMode,
@@ -124,6 +125,14 @@ function getErrorMessage(error: unknown): string {
 
 function asCommandExecutionError(error: unknown): CommandExecutionError {
   return error instanceof Error ? (error as CommandExecutionError) : new Error(String(error));
+}
+
+function clampMaxResults(value: unknown, fallback: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.min(Math.trunc(value), max));
 }
 
 function formatImageGenerationText(data: ImageGenerationResultData): string {
@@ -439,6 +448,83 @@ async function executeQmdCommand(args: string[], cwd: string): Promise<{ stdout:
   });
 }
 
+export function createRipgrepTool(): AgentTool {
+  return {
+    name: 'rg',
+    label: 'Searching text with ripgrep',
+    description: 'Searches file contents with ripgrep. Use this for fast text/content lookup across the workspace before falling back to bash.',
+    parameters: Type.Object({
+      pattern: Type.String({ description: 'Text or regex pattern to search for.' }),
+      path: Type.Optional(Type.String({ description: 'Directory or file to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
+      glob: Type.Optional(Type.String({ description: 'Optional glob filter, for example "**/*.ts" or "*.md".' })),
+      ignoreCase: Type.Optional(Type.Boolean({ description: 'Case-insensitive search when true.' })),
+      hidden: Type.Optional(Type.Boolean({ description: 'Include hidden files when true.' })),
+      maxResults: Type.Optional(Type.Number({ description: 'Maximum matches per file. Default: 50 (max 200).' })),
+    }),
+    execute: async (toolCallId, params) => {
+      const {
+        pattern,
+        path: searchPath,
+        glob,
+        ignoreCase,
+        hidden,
+        maxResults,
+      } = params as {
+        pattern: string;
+        path?: string;
+        glob?: string;
+        ignoreCase?: boolean;
+        hidden?: boolean;
+        maxResults?: number;
+      };
+
+      try {
+        const targetPath = resolveAgentPath(searchPath || '.');
+        const args = ['-n', '--color', 'never', '--no-heading'];
+        if (ignoreCase) {
+          args.push('-i');
+        }
+        if (hidden) {
+          args.push('--hidden');
+        }
+        if (glob?.trim()) {
+          args.push('-g', glob.trim());
+        }
+        args.push('--max-count', String(clampMaxResults(maxResults, 50, 200)));
+        args.push(pattern, targetPath);
+
+        const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+          execFile('rg', args, { cwd: '/' }, (err, commandStdout, commandStderr) => {
+            const errCode = (err as NodeJS.ErrnoException & { code?: number })?.code;
+            if (errCode === 1) {
+              resolve({ stdout: '', stderr: '' });
+              return;
+            }
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve({ stdout: commandStdout, stderr: commandStderr });
+          });
+        });
+
+        const matches = stdout.split('\n').filter(Boolean);
+        return {
+          content: [{ type: 'text', text: stdout || '(no matches found)' }],
+          details: { args, stdout, stderr, matches },
+        };
+      } catch (error: unknown) {
+        const execError = asCommandExecutionError(error);
+        const message = [execError.stderr, execError.message].filter(Boolean).join('\n') || getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message, stdout: execError.stdout, stderr: execError.stderr },
+        };
+      }
+    },
+  };
+}
+
 async function runQmdSearch(params: {
   query: string;
   mode?: unknown;
@@ -552,6 +638,7 @@ function createQmdTool(name: string, legacy = false): AgentTool {
  */
 
 export const piTools: AgentTool[] = [
+  createRipgrepTool(),
   {
     name: 'ls',
     label: 'Listing directory',
@@ -681,7 +768,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'grep',
     label: 'Searching files',
-    description: 'Searches for a pattern in files. Use absolute paths (e.g. /data/canvas-agent) or relative paths from /data/workspace.',
+    description: 'Legacy text search alias. Prefer the dedicated `rg` tool for new searches.',
     parameters: Type.Object({
       pattern: Type.String({ description: 'The regex pattern to search for.' }),
       path: Type.Optional(Type.String({ description: 'The directory or file to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
@@ -719,7 +806,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'glob',
     label: 'Finding files',
-    description: 'Finds files matching a glob pattern. Searches in /data/workspace by default; use path to search elsewhere.',
+    description: 'Finds files by name pattern. Use this or bash+find for path-based file discovery.',
     parameters: Type.Object({
       pattern: Type.String({ description: 'The glob pattern (e.g., "**/*.ts").' }),
       path: Type.Optional(Type.String({ description: 'The directory to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
@@ -799,12 +886,14 @@ export const piTools: AgentTool[] = [
       }
     },
   },
-  {
-    ...createQmdTool(QMD_CANONICAL_TOOL_NAME),
-  },
-  {
-    ...createQmdTool('qmd_search', true),
-  },
+  ...(isQmdEnabled() ? [
+    {
+      ...createQmdTool(QMD_CANONICAL_TOOL_NAME),
+    },
+    {
+      ...createQmdTool('qmd_search', true),
+    },
+  ] : []),
   // Workflow Automation Tools
   {
     name: 'create_automation_job',

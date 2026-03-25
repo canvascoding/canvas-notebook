@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import type { GenerateImageRequestBody } from '../app/lib/integrations/image-generation-service';
 import type { GenerateVideoRequestBody } from '../app/lib/integrations/veo-generation-service';
@@ -10,6 +13,8 @@ function getText(result: unknown): string {
 }
 
 async function main() {
+  process.env.QMD_ENABLED = 'false';
+
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
   };
@@ -21,7 +26,7 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
 
-  const { createImageGenerationTool, createVideoGenerationTool } = await import('../app/lib/pi/tool-registry');
+  const { createImageGenerationTool, createRipgrepTool, createVideoGenerationTool, piTools } = await import('../app/lib/pi/tool-registry');
 
   const imageCalls: GenerateImageRequestBody[] = [];
   const videoCalls: GenerateVideoRequestBody[] = [];
@@ -58,6 +63,38 @@ async function main() {
       };
     },
   });
+  const rgTool = createRipgrepTool();
+
+  assert.equal(piTools.some((tool) => tool.name === 'rg'), true);
+  assert.equal(piTools.some((tool) => tool.name === 'qmd'), false);
+  assert.equal(piTools.some((tool) => tool.name === 'qmd_search'), false);
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-rg-tool-'));
+  const matchFile = path.join(tempDir, 'match.ts');
+  const otherFile = path.join(tempDir, 'other.md');
+  await fs.writeFile(matchFile, 'const SearchToken = "needle";\nconst secondNeedle = "needle";\n', 'utf8');
+  await fs.writeFile(otherFile, 'no interesting text here\n', 'utf8');
+
+  const rgMatchResult = await rgTool.execute('rg-match', {
+    pattern: 'needle',
+    path: tempDir,
+    glob: '*.ts',
+    ignoreCase: true,
+    maxResults: 5,
+  });
+  assert.match(getText(rgMatchResult), /match\.ts:1:const SearchToken = "needle";/);
+
+  const rgNoMatchResult = await rgTool.execute('rg-empty', {
+    pattern: 'definitely-not-here',
+    path: tempDir,
+  });
+  assert.equal(getText(rgNoMatchResult), '(no matches found)');
+
+  const rgInvalidPathResult = await rgTool.execute('rg-error', {
+    pattern: 'needle',
+    path: path.join(tempDir, 'missing-dir'),
+  });
+  assert.match(getText(rgInvalidPathResult), /^Error:/);
 
   const imageReferenceResult = await imageTool.execute('img-ref', {
     count: 2,

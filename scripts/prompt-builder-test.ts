@@ -35,11 +35,10 @@ assert.match(populated.systemPrompt, /## AGENTS\.md\n# AGENTS\n\n- Follow repo r
 assert.match(populated.systemPrompt, /## MEMORY\.md\nRemember the migration state\./);
 assert.doesNotMatch(populated.systemPrompt, /## SOUL\.md/);
 assert.match(populated.systemPrompt, /## TOOLS\.md\nUse filesystem and terminal carefully\./);
-assert.match(populated.systemPrompt, /Call the PI tool as `qmd\(\{ query, mode, limit, collection \}\)`/);
-assert.match(populated.systemPrompt, /Default mode.*search/);
-assert.match(populated.systemPrompt, /Avoid by default.*query/);
-assert.match(populated.systemPrompt, /workspace-text/);
-assert.match(populated.systemPrompt, /workspace-derived/);
+assert.match(populated.systemPrompt, /Use the built-in file tools for workspace search/);
+assert.match(populated.systemPrompt, /Use `rg` for text\/content search across the workspace/);
+assert.match(populated.systemPrompt, /Use `glob` or `bash` with `find` for file\/path discovery/);
+assert.doesNotMatch(populated.systemPrompt, /\bqmd\b/);
 
 const fallback = composeManagedAgentSystemPrompt(createFiles());
 assert.equal(fallback.systemPrompt, BASE_AGENT_SYSTEM_PROMPT);

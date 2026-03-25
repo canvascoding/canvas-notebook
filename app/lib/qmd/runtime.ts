@@ -21,6 +21,9 @@ export const QMD_DERIVED_COLLECTION_MASK = '**/*.md';
 export const QMD_RUNTIME_STATUS_FILE = 'runtime-status.json';
 export const QMD_DERIVED_STATUS_FILE = 'status.json';
 
+const BOOLEAN_FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
+const BOOLEAN_TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
 export type QmdSourceType = 'workspace-text' | 'workspace-derived';
 
 export type QmdSearchResult = {
@@ -69,6 +72,41 @@ export function getQmdDerivedStatusPath(cwd = process.cwd()): string {
 
 export function getQmdShellExports(): string {
   return 'export BUN_INSTALL="${BUN_INSTALL:-/data/cache/.bun}" && export PATH="$BUN_INSTALL/bin:$PATH"';
+}
+
+function parseBooleanish(value: string | undefined): boolean | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (BOOLEAN_TRUE_VALUES.has(normalized)) {
+    return true;
+  }
+
+  if (BOOLEAN_FALSE_VALUES.has(normalized)) {
+    return false;
+  }
+
+  return true;
+}
+
+export function isQmdEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const explicit = parseBooleanish(env.QMD_ENABLED);
+  if (explicit !== null) {
+    return explicit;
+  }
+
+  const legacy = parseBooleanish(env.QMD_AUTO_INSTALL);
+  if (legacy !== null) {
+    return legacy;
+  }
+
+  return true;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

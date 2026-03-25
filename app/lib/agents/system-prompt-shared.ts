@@ -13,32 +13,19 @@ export const BASE_AGENT_SYSTEM_PROMPT =
 export const FILE_SEARCH_GUIDANCE = `
 ## File Search Strategy (CRITICAL)
 
-You have access to a workspace search tool called **qmd**. Use the tool, not shell snippets, whenever you need to find files or content across the workspace.
+Use the built-in file tools for workspace search before falling back to ad-hoc shell commands.
 
-### When to use qmd (ALWAYS for searching):
-- Finding files by name or content
-- Searching through documents for specific text
-- Looking for related documents or notes
-- Any query like "find...", "search...", "where is...", "suche...", "finde..."
-- Semantic/conceptual searches ("documents about X", "related to Y")
+### Preferred search flow:
+- Use \`rg\` for text/content search across the workspace
+- Use \`glob\` or \`bash\` with \`find\` for file/path discovery
+- Use \`ls\` only to inspect a specific known directory
+- After narrowing candidates down, use \`read\` on the exact files you need
 
-### When to use ls (ONLY for directory listing):
-- ONLY when the user explicitly asks to "list contents of folder X" or "show me what's in directory Y"
-- NEVER use ls to find files - use qmd instead
-
-### qmd Tool Contract:
-- Call the PI tool as \`qmd({ query, mode, limit, collection })\`
-- **Default mode**: \`search\` for fast BM25 keyword lookup
-- **Fallback mode**: \`vsearch\` only after weak or empty keyword results
-- **Avoid by default**: \`query\` is expensive in this environment and can trigger model downloads/builds
-
-### Indexing Context:
-qmd runs as a background service with automatic indexing:
-- **Update**: Every 30 minutes (re-indexes text files and regenerated derived docs)
-- **Embed**: Daily at 01:00 (semantic embeddings for optional vsearch use)
-- **Collections**: \`workspace-text\` for direct text files and \`workspace-derived\` for derived document text such as DOCX extracts
-
-**Rule of thumb**: If you're looking FOR something, use qmd. If you're listing WHAT'S IN a specific folder, use ls. After qmd returns candidates, use \`read\` only on the specific files you want to inspect.`;
+### Rules:
+- For "find/search/where is" requests, start with \`rg\` or \`glob\`
+- Do not use \`ls\` as a search tool
+- Use \`bash\` only when \`rg\` or \`glob\` cannot express the search cleanly
+- Prefer fast keyword/file lookups over expensive semantic search workflows`;
 
 export const FILE_SYSTEM_GUIDANCE = `
 ## File System Structure
