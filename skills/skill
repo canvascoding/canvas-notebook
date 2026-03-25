@@ -7,6 +7,16 @@ set -euo pipefail
 # Usage: /data/skills/skill <skill-name> [options...]
 # ---------------------------------------------------------------------------
 
+# Source Canvas Integrations env file (API keys for external services)
+# shellcheck disable=SC2034
+CANVAS_INTEGRATIONS_ENV="${CANVAS_INTEGRATIONS_ENV:-/data/secrets/Canvas-Integrations.env}"
+if [ -f "$CANVAS_INTEGRATIONS_ENV" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$CANVAS_INTEGRATIONS_ENV"
+  set +a
+fi
+
 # JSON string escaping via Python3 (available in all Node.js Docker images)
 json_str() {
   printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
@@ -63,10 +73,19 @@ if [ -z "$SKILL" ]; then
   echo "Usage: skill <skill-name> [options]" >&2
   echo "" >&2
   echo "Available skills:" >&2
-  echo "  image-generation   Generate images with Gemini" >&2
-  echo "  video-generation   Generate videos with Google VEO" >&2
-  echo "  ad-localization    Localize ad images for target markets (Nano Banana)" >&2
-  echo "  qmd                Search markdown notes and docs in workspace" >&2
+  echo "  image-generation    Generate images with Gemini" >&2
+  echo "  video-generation    Generate videos with Google VEO" >&2
+  echo "  ad-localization     Localize ad images for target markets (Nano Banana)" >&2
+  echo "  qmd                 Search markdown notes and docs in workspace" >&2
+  echo "  brave-search        Web search via Brave API (requires BRAVE_API_KEY)" >&2
+  echo "  brave-content       Extract page content as markdown" >&2
+  echo "  transcribe          Speech-to-text via Groq Whisper (requires GROQ_API_KEY)" >&2
+  echo "  youtube-transcript  Fetch YouTube video transcripts" >&2
+  echo "  browser-start       Launch Chromium with remote debugging on :9222" >&2
+  echo "  browser-nav         Navigate browser to URL" >&2
+  echo "  browser-screenshot  Capture browser screenshot" >&2
+  echo "  browser-content     Extract page content via browser" >&2
+  echo "  browser-eval        Execute JavaScript in browser" >&2
   echo "" >&2
   echo "For skill-specific help, see /data/skills/<skill-name>/README.md" >&2
   exit 1
@@ -180,9 +199,55 @@ case "$SKILL" in
     qmd "$@"
     ;;
 
+  # -------------------------------------------------------------------------
+  brave-search|search)
+    SKILL_DIR="$(dirname "$0")/brave-search"
+    exec node "$SKILL_DIR/search.js" "$@"
+    ;;
+
+  brave-content)
+    SKILL_DIR="$(dirname "$0")/brave-search"
+    exec node "$SKILL_DIR/content.js" "$@"
+    ;;
+
+  # -------------------------------------------------------------------------
+  transcribe)
+    SKILL_DIR="$(dirname "$0")/transcribe"
+    exec bash "$SKILL_DIR/transcribe.sh" "$@"
+    ;;
+
+  # -------------------------------------------------------------------------
+  youtube-transcript|yt-transcript)
+    SKILL_DIR="$(dirname "$0")/youtube-transcript"
+    exec node "$SKILL_DIR/transcript.js" "$@"
+    ;;
+
+  # -------------------------------------------------------------------------
+  browser-start)
+    exec node "$(dirname "$0")/browser-tools/browser-start.js" "$@"
+    ;;
+
+  browser-nav)
+    exec node "$(dirname "$0")/browser-tools/browser-nav.js" "$@"
+    ;;
+
+  browser-screenshot)
+    exec node "$(dirname "$0")/browser-tools/browser-screenshot.js" "$@"
+    ;;
+
+  browser-content)
+    exec node "$(dirname "$0")/browser-tools/browser-content.js" "$@"
+    ;;
+
+  browser-eval)
+    exec node "$(dirname "$0")/browser-tools/browser-eval.js" "$@"
+    ;;
+
   *)
     echo "Unknown skill: $SKILL" >&2
-    echo "Available: image-generation, video-generation, ad-localization, qmd" >&2
+    echo "Available: image-generation, video-generation, ad-localization, qmd," >&2
+    echo "           brave-search, brave-content, transcribe, youtube-transcript," >&2
+    echo "           browser-start, browser-nav, browser-screenshot, browser-content, browser-eval" >&2
     exit 1
     ;;
 esac

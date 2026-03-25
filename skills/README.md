@@ -1,10 +1,14 @@
 # Canvas Skills
 
-Skills sind lokale CLI-Werkzeuge, die der Agent über das `bash`-Tool aufrufen kann, um die eingebauten Micro-SaaS-Integrationen von Canvas Notebook zu nutzen.
+Skills sind lokale CLI-Werkzeuge, die der Agent über das `bash`-Tool aufrufen kann.
 
 ## Aufruf
 
-Die Skills sind direkt als Befehle verfügbar (in `/usr/local/bin/` installiert):
+```bash
+/data/skills/skill <skill-name> [options]
+```
+
+Einige Skills sind zusätzlich direkt als Befehl in `/usr/local/bin/` verfügbar:
 
 ```bash
 image-generation --prompt "..."
@@ -12,13 +16,9 @@ video-generation --prompt "..."
 ad-localization --ref "..." --market "..."
 ```
 
-Alternativ über den vollständigen Pfad:
-
-```bash
-/data/skills/skill <skill-name> [options]
-```
-
 ## Verfügbare Skills
+
+### Canvas-interne Skills
 
 | Befehl | Beschreibung |
 |--------|-------------|
@@ -27,41 +27,69 @@ Alternativ über den vollständigen Pfad:
 | `ad-localization` | Werbeanzeigen für Zielmärkte lokalisieren |
 | `qmd` | Markdown-Notizen und Dokumente im Workspace durchsuchen |
 
+### Web & Suche
+
+| Befehl | Beschreibung | API-Key |
+|--------|-------------|---------|
+| `brave-search` | Websuche via Brave API | `BRAVE_API_KEY` |
+| `brave-content` | Seiteninhalt als Markdown extrahieren | `BRAVE_API_KEY` |
+| `youtube-transcript` | YouTube-Transkript abrufen | – |
+
+### Audio
+
+| Befehl | Beschreibung | API-Key |
+|--------|-------------|---------|
+| `transcribe` | Sprache-zu-Text via Groq Whisper | `GROQ_API_KEY` |
+
+### Browser-Automatisierung
+
+| Befehl | Beschreibung |
+|--------|-------------|
+| `browser-start` | Chromium mit Remote-Debugging auf :9222 starten |
+| `browser-nav` | Browser zu URL navigieren |
+| `browser-screenshot` | Screenshot aufnehmen |
+| `browser-content` | Seiteninhalt via Browser extrahieren |
+| `browser-eval` | JavaScript im Browser ausführen |
+
+### Google Workspace (manuelle Installation erforderlich)
+
+| Befehl | Beschreibung |
+|--------|-------------|
+| `gccli` | Google Calendar CLI |
+| `gmcli` | Gmail CLI |
+| `gdcli` | Google Drive CLI |
+
+## API-Keys konfigurieren
+
+API-Keys für externe Skills werden zentral in Canvas Notebook unter **Settings → Integrations** gesetzt und dort in `/data/secrets/Canvas-Integrations.env` gespeichert. Der `skill`-Dispatcher lädt diese Datei automatisch beim Aufruf.
+
+**Wichtig:** Der Agent soll `/data/secrets/Canvas-Integrations.env` weder direkt lesen noch interne API-Routen aufrufen.
+
 ## Output-Verzeichnisse (workspace-relativ)
 
 - **Image Generation:** `image-generation/generations/`
 - **Video Generation:** `veo-studio/video-generation/`
 - **Ad Localization:** `nano-banana-ad-localizer/localizations/`
 
-## Voraussetzungen
-
-**Erforderliche Konfiguration:**
-
-1. **GEMINI_API_KEY** - Muss in Canvas Notebook unter Settings → Integrations konfiguriert sein
-
-**Wichtig:** Die Wrapper laden keine zusätzlichen API-Keys oder Tokens aus Env-Dateien. Der Agent soll weder `/data/secrets/Canvas-Integrations.env` lesen noch interne API-Routen direkt aufrufen. Die Skills nutzen lokale Canvas-Services und greifen zentral auf die bereits gespeicherte Integrations-Konfiguration zu.
-
 ## Antwortformat
 
-Die meisten Skills geben JSON zurück:
+Canvas-interne Skills geben JSON zurück:
 
 ```json
 { "success": true, "data": { ... } }
 ```
 
-oder bei Fehler:
-
-```json
-{ "success": false, "error": "Fehlermeldung" }
-```
-
-Die `path`-Felder in der Antwort sind workspace-relativ und können mit dem `read`-Tool geöffnet werden.
-
-**Ausnahme:** `qmd` ist ebenfalls ein lokales CLI-Tool und gibt direkte Text-/JSON-Ausgabe zurück.
+Pi-Skills (brave-search, transcribe, youtube-transcript, browser-tools) geben direkte Text-Ausgabe zurück.
 
 ## Skill-Dokumentation
 
-- `/data/skills/image-generation/README.md`
-- `/data/skills/video-generation/README.md`
-- `/data/skills/ad-localization/README.md`
-- `/data/skills/qmd/README.md`
+Jeder Skill hat eine `SKILL.md` in seinem Ordner:
+
+- `/data/skills/image-generation/SKILL.md`
+- `/data/skills/brave-search/SKILL.md`
+- `/data/skills/transcribe/SKILL.md`
+- `/data/skills/youtube-transcript/SKILL.md`
+- `/data/skills/browser-tools/SKILL.md`
+- `/data/skills/gccli/SKILL.md`
+- `/data/skills/gmcli/SKILL.md`
+- `/data/skills/gdcli/SKILL.md`

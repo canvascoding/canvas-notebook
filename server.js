@@ -9,6 +9,7 @@ loadEnvConfig(process.cwd(), dev);
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
@@ -88,7 +89,13 @@ function getContentType(filePath) {
 const SKILLS_REPO_DIR = path.resolve(process.cwd(), 'skills');
 const SKILLS_DATA_DIR = resolveSkillsDataDir();
 
-const SKILL_COMMANDS = ['image-generation', 'video-generation', 'ad-localization'];
+const SKILL_COMMANDS = [
+  'image-generation', 'video-generation', 'ad-localization',
+  'brave-search', 'brave-content',
+  'transcribe',
+  'youtube-transcript',
+  'browser-start', 'browser-nav', 'browser-screenshot', 'browser-content', 'browser-eval',
+];
 
 function ensureSkillsDirectory() {
   try {
@@ -97,6 +104,25 @@ function ensureSkillsDirectory() {
     }
     fs.mkdirSync(SKILLS_DATA_DIR, { recursive: true });
     fs.cpSync(SKILLS_REPO_DIR, SKILLS_DATA_DIR, { recursive: true, force: true });
+
+    // Install npm dependencies for skills that have package.json but no node_modules
+    const skillEntries = fs.readdirSync(SKILLS_DATA_DIR, { withFileTypes: true });
+    for (const entry of skillEntries) {
+      if (!entry.isDirectory()) continue;
+      const skillDir = path.join(SKILLS_DATA_DIR, entry.name);
+      const pkgJson = path.join(skillDir, 'package.json');
+      const nodeModules = path.join(skillDir, 'node_modules');
+      if (fs.existsSync(pkgJson) && !fs.existsSync(nodeModules)) {
+        try {
+          console.log(`[Startup] Installing npm deps for skill: ${entry.name}`);
+          execSync('npm install --omit=dev', { cwd: skillDir, stdio: 'pipe' });
+          console.log(`[Startup] npm install done: ${entry.name}`);
+        } catch (e) {
+          console.warn(`[Startup] npm install failed for ${entry.name}:`, e.message);
+        }
+      }
+    }
+
     const skillBin = path.join(SKILLS_DATA_DIR, 'skill');
     if (fs.existsSync(skillBin)) {
       fs.chmodSync(skillBin, 0o755);
