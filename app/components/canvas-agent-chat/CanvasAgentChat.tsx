@@ -41,6 +41,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
+import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 
 interface Attachment {
   name: string;
@@ -325,33 +326,8 @@ function getAssistantChainUsage(messages: ChatMessage[], index: number): Usage |
   return aggregatedUsage;
 }
 
-function formatSessionId(value: string | null): string {
-  if (!value) {
-    return 'new chat';
-  }
-
-  if (value.length <= 18) {
-    return value;
-  }
-
-  return `${value.slice(0, 8)}...${value.slice(-6)}`;
-}
-
-function isAutomaticSessionTitle(value: string | null | undefined): boolean {
-  if (!value) {
-    return true;
-  }
-
-  const normalized = value.trim();
-  return normalized === '' || normalized === 'New session' || normalized === 'New PI Chat';
-}
-
-function getSessionDisplayLabel(sessionTitle: string | null, sessionId: string | null): string {
-  if (sessionTitle && !isAutomaticSessionTitle(sessionTitle)) {
-    return sessionTitle;
-  }
-
-  return formatSessionId(sessionId);
+function getSessionDisplayLabel(sessionTitle: string | null, fallbackTitle: string): string {
+  return getSessionDisplayTitle(sessionTitle, fallbackTitle);
 }
 
 function formatToolArgs(args: unknown): string {
@@ -892,8 +868,6 @@ export default function CanvasAgentChat({
 
     const createSessionResponse = await fetch('/api/sessions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: t('newChatTitle') }),
     });
 
     const createSessionPayload = await createSessionResponse.json().catch(() => null);
@@ -1382,7 +1356,7 @@ export default function CanvasAgentChat({
   }, [startNewChat, t]);
 
   const renameSession = useCallback(async (session: AISession) => {
-    const nextTitle = prompt(t('renameSessionPrompt'), session.title || '');
+    const nextTitle = prompt(t('renameSessionPrompt'), getSessionDisplayTitle(session.title, t('newChatTitle')));
     if (!nextTitle || !nextTitle.trim()) return;
 
     try {
@@ -1710,7 +1684,7 @@ export default function CanvasAgentChat({
         window: formatContextTokens(runtimeStatus.contextWindow),
       })
     : t('noSessionYet');
-  const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, sessionId);
+  const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const scrollContentPadding = composerHeight + 24;
   const scrollButtonOffset = composerHeight + 16;
@@ -1776,7 +1750,7 @@ export default function CanvasAgentChat({
                   {/* Session Badge */}
                   <div
                     data-testid="chat-session-id"
-                    title={sessionId || t('newChatTitle')}
+                    title={sessionDisplayLabel}
                     className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground"
                   >
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
@@ -1988,7 +1962,9 @@ export default function CanvasAgentChat({
             {history.map((session) => (
               <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
                 <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left">
-                  <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">{session.title || session.sessionId}</div>
+                  <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">
+                    {getSessionDisplayTitle(session.title, t('newChatTitle'))}
+                  </div>
                   <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                     <span>{new Date(session.createdAt).toLocaleString()}</span>
                     <span>&bull;</span>

@@ -8,6 +8,7 @@ import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
 import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
 import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
+import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 
 type CreateSessionPayload = {
   title?: string;
@@ -151,7 +152,7 @@ export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json().catch(() => ({}))) as CreateSessionPayload;
     const sessionId = buildSessionId();
-    const title = normalizeTitle(payload.title, 'New session');
+    const title = normalizeTitle(payload.title, DEFAULT_SESSION_TITLE);
 
     if (engine === 'pi') {
       const piConfig = await readPiRuntimeConfig();

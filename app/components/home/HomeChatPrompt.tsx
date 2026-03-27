@@ -8,6 +8,7 @@ import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
+import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -106,7 +107,7 @@ export function HomeChatPrompt() {
           const latest = data.sessions[0] as RecentSession;
           setLatestSession({
             sessionId: latest.sessionId,
-            title: latest.title || tHome('chatPrompt.latestSessionFallback'),
+            title: getSessionDisplayTitle(latest.title, tChat('newChatTitle')),
             createdAt: latest.createdAt,
           });
           return;
@@ -126,7 +127,7 @@ export function HomeChatPrompt() {
     return () => {
       isActive = false;
     };
-  }, [tHome]);
+  }, [tChat]);
 
   const handleFileUpload = useCallback(async (file: File) => {
     const formData = new FormData();

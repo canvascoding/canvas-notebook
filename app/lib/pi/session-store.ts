@@ -3,14 +3,13 @@ import { piSessions, piMessages, aiSessions, aiMessages } from '../db/schema';
 import { eq, and, asc } from 'drizzle-orm';
 import { type AgentMessage } from '@mariozechner/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
+import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
  */
 
-const DEFAULT_PI_SESSION_TITLE = 'New PI Chat';
 const SESSION_TITLE_MAX_LENGTH = 48;
-const AUTOMATIC_SESSION_TITLES = new Set(['', 'New session', DEFAULT_PI_SESSION_TITLE]);
 
 function extractFirstUserText(messages: AgentMessage[]): string {
   const firstUserMessage = messages.find((message) => message.role === 'user');
@@ -48,14 +47,6 @@ function deriveSessionTitle(messages: AgentMessage[]): string {
   }
 
   return truncateSessionTitle(normalized);
-}
-
-function isAutomaticSessionTitle(value: string | null | undefined): boolean {
-  if (typeof value !== 'string') {
-    return true;
-  }
-
-  return AUTOMATIC_SESSION_TITLES.has(value.trim());
 }
 
 function getAgentMessageTimestamp(message: AgentMessage): number {

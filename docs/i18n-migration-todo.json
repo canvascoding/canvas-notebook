@@ -308,7 +308,8 @@
           "id": "5.5",
           "title": "Chat-Seite übersetzen",
           "status": "done",
-          "description": "Namespace: 'chat'."
+          "description": "Namespace: 'chat'.",
+          "notes": "Follow-up-Bugfix abgeschlossen: automatische Session-Titel werden zentral erkannt, lokalisierte Fallbacks wie 'Neuer Chat' oder 'New chat' werden nicht mehr als manuelle Titel behandelt und nach der ersten Nachricht korrekt ersetzt."
         },
         {
           "id": "5.6",
