@@ -16,13 +16,13 @@ Speech-to-text using Groq Whisper API. Fast and accurate transcription, no local
 ## Usage
 
 ```bash
-skill transcribe <audio-file>
+transcribe <audio-file>
 ```
 
 Example:
 ```bash
-skill transcribe /data/workspace/recordings/meeting.mp3
-skill transcribe /data/workspace/voice-note.m4a
+transcribe /data/workspace/recordings/meeting.mp3
+transcribe /data/workspace/voice-note.m4a
 ```
 
 ## Supported Formats
@@ -37,4 +37,6 @@ Returns plain text transcription with punctuation and proper capitalization to s
 ## Requirements
 
 - `GROQ_API_KEY` must be set in Canvas Notebook under Settings → Integrations
+- Canvas stores that key centrally in `/data/secrets/Canvas-Integrations.env`
+- New skills that need secrets must also use `/data/secrets/Canvas-Integrations.env`
 - Get a free API key at https://console.groq.com/

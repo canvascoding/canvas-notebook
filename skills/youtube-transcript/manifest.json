@@ -1,0 +1,16 @@
+{
+  "name": "youtube-transcript",
+  "version": "1.0.0",
+  "title": "YouTube Transcript",
+  "description": "Fetch transcripts from YouTube videos.",
+  "type": "cli",
+  "commands": [
+    {
+      "name": "youtube-transcript",
+      "exec": ["node", "transcript.js"],
+      "envScope": "none",
+      "installStrategy": "npm",
+      "description": "Fetch a transcript from a YouTube video."
+    }
+  ]
+}

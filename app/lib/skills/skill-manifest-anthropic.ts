@@ -27,6 +27,17 @@ export interface SkillFrontmatter {
   compatibility?: string;
 }
 
+export type SkillCommandEnvScope = 'integrations' | 'agents' | 'none';
+export type SkillCommandInstallStrategy = 'none' | 'npm';
+
+export interface SkillCommand {
+  name: string;
+  exec: string[];
+  envScope: SkillCommandEnvScope;
+  installStrategy: SkillCommandInstallStrategy;
+  description?: string;
+}
+
 // Complete skill definition
 export interface AnthropicSkill {
   name: string;
@@ -37,12 +48,71 @@ export interface AnthropicSkill {
   content: string; // Full markdown content after frontmatter
   path: string; // Full path to SKILL.md
   enabled: boolean; // Whether skill is enabled
+  commands: SkillCommand[];
 }
 
 // Validation result
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
+}
+
+function parseSkillCommandManifest(rawManifest: unknown, skillName: string): SkillCommand[] {
+  if (!rawManifest || typeof rawManifest !== 'object') {
+    return [];
+  }
+
+  const manifest = rawManifest as { commands?: unknown };
+  if (!Array.isArray(manifest.commands)) {
+    return [];
+  }
+
+  const commands: SkillCommand[] = [];
+  for (const rawCommand of manifest.commands) {
+    if (!rawCommand || typeof rawCommand !== 'object') {
+      throw new Error(`Skill "${skillName}" has an invalid command entry.`);
+    }
+
+    const candidate = rawCommand as {
+      name?: unknown;
+      exec?: unknown;
+      envScope?: unknown;
+      installStrategy?: unknown;
+      description?: unknown;
+    };
+
+    const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+    const exec = Array.isArray(candidate.exec)
+      ? candidate.exec.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+    const envScope = typeof candidate.envScope === 'string' ? candidate.envScope : 'none';
+    const installStrategy = typeof candidate.installStrategy === 'string' ? candidate.installStrategy : 'none';
+
+    if (!name || !/^[a-z][a-z0-9-]*$/.test(name)) {
+      throw new Error(`Skill "${skillName}" has a command with an invalid name.`);
+    }
+    if (exec.length === 0) {
+      throw new Error(`Skill "${skillName}" command "${name}" is missing a valid exec definition.`);
+    }
+    if (!['integrations', 'agents', 'none'].includes(envScope)) {
+      throw new Error(`Skill "${skillName}" command "${name}" has an unsupported envScope.`);
+    }
+    if (!['none', 'npm'].includes(installStrategy)) {
+      throw new Error(`Skill "${skillName}" command "${name}" has an unsupported installStrategy.`);
+    }
+
+    commands.push({
+      name,
+      exec,
+      envScope: envScope as SkillCommandEnvScope,
+      installStrategy: installStrategy as SkillCommandInstallStrategy,
+      description: typeof candidate.description === 'string' && candidate.description.trim()
+        ? candidate.description.trim()
+        : undefined,
+    });
+  }
+
+  return commands;
 }
 
 /**
@@ -146,6 +216,17 @@ export async function parseSkillFile(skillPath: string): Promise<AnthropicSkill 
 
     const skillName = frontmatter!.name;
     const title = extractTitle(skillName);
+    const manifestPath = path.join(path.dirname(skillPath), 'manifest.json');
+    let commands: SkillCommand[] = [];
+
+    try {
+      const rawManifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+      commands = parseSkillCommandManifest(rawManifest, skillName);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
 
     return {
       name: skillName,
@@ -156,6 +237,7 @@ export async function parseSkillFile(skillPath: string): Promise<AnthropicSkill 
       content: body,
       path: skillPath,
       enabled: true, // Default to enabled
+      commands,
     };
   } catch (error) {
     console.error(`[SkillParser] Error parsing skill at ${skillPath}:`, error);

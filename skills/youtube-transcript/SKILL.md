@@ -17,14 +17,14 @@ Fetch transcripts from YouTube videos. Works with both auto-generated and manual
 ## Usage
 
 ```bash
-skill youtube-transcript <video-id-or-url>
+youtube-transcript <video-id-or-url>
 ```
 
 Accepts video ID or any YouTube URL format:
 ```bash
-skill youtube-transcript EBw7gsDPAYQ
-skill youtube-transcript https://www.youtube.com/watch?v=EBw7gsDPAYQ
-skill youtube-transcript https://youtu.be/EBw7gsDPAYQ
+youtube-transcript EBw7gsDPAYQ
+youtube-transcript https://www.youtube.com/watch?v=EBw7gsDPAYQ
+youtube-transcript https://youtu.be/EBw7gsDPAYQ
 ```
 
 ## Output

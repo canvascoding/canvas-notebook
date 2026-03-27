@@ -1,0 +1,44 @@
+{
+  "name": "browser-tools",
+  "version": "1.0.0",
+  "title": "Browser Tools",
+  "description": "Lokale Browser-Automatisierung via Chromium und CDP.",
+  "type": "cli",
+  "commands": [
+    {
+      "name": "browser-start",
+      "exec": ["node", "browser-start.js"],
+      "envScope": "none",
+      "installStrategy": "npm",
+      "description": "Launch Chromium with remote debugging."
+    },
+    {
+      "name": "browser-nav",
+      "exec": ["node", "browser-nav.js"],
+      "envScope": "none",
+      "installStrategy": "npm",
+      "description": "Navigate the browser to a URL."
+    },
+    {
+      "name": "browser-screenshot",
+      "exec": ["node", "browser-screenshot.js"],
+      "envScope": "none",
+      "installStrategy": "npm",
+      "description": "Capture a browser screenshot."
+    },
+    {
+      "name": "browser-content",
+      "exec": ["node", "browser-content.js"],
+      "envScope": "none",
+      "installStrategy": "npm",
+      "description": "Extract readable browser page content."
+    },
+    {
+      "name": "browser-eval",
+      "exec": ["node", "browser-eval.js"],
+      "envScope": "none",
+      "installStrategy": "npm",
+      "description": "Evaluate JavaScript in the active browser tab."
+    }
+  ]
+}

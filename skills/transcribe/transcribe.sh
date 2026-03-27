@@ -13,7 +13,7 @@ if [ -z "$1" ]; then
 fi
 
 if [ -z "$GROQ_API_KEY" ]; then
-  echo "Error: GROQ_API_KEY not set. Create config file with: echo 'GROQ_API_KEY=\"your-key\"' > $SCRIPT_DIR/config"
+  echo "Error: GROQ_API_KEY not set. Configure it centrally in /data/secrets/Canvas-Integrations.env via Settings -> Integrations."
   exit 1
 fi
 

@@ -4,10 +4,10 @@ import { execFile } from 'child_process';
 import { constants as fsConstants, promises as fsPromises } from 'fs';
 import { promisify } from 'util';
 import { getWorkspacePath } from '../utils/workspace-manager';
-import { loadSkillsFromDisk, getSkillsDir, AnthropicSkill } from './skill-loader';
+import { loadSkillsFromDisk, getSkillsDir, AnthropicSkill, type SkillCommand } from './skill-loader';
 
 const execFileAsync = promisify(execFile);
-const RESERVED_STATIC_SKILL_NAMES = new Set(['image-generation', 'video-generation', 'ad-localization', 'qmd']);
+const RESERVED_STATIC_COMMAND_NAMES = new Set(['image-generation', 'video-generation', 'ad-localization', 'qmd']);
 
 // Cache for loaded skills
 let cachedSkills: AnthropicSkill[] = [];
@@ -30,51 +30,58 @@ async function getCachedSkills(): Promise<AnthropicSkill[]> {
  * Check if a skill has executable capabilities
  * Skills with bin/ directory or specific executables are treated as tools
  */
-async function hasExecutableCapability(skillName: string): Promise<boolean> {
-  const skillsDir = getSkillsDir();
-  const binPath = `${skillsDir}/bin/${skillName}`;
-  
-  try {
-    await fsPromises.access(binPath, fsConstants.X_OK);
-    return true;
-  } catch {
-    return false;
+async function hasExecutableCapability(skill: AnthropicSkill): Promise<boolean> {
+  for (const command of skill.commands) {
+    if (RESERVED_STATIC_COMMAND_NAMES.has(command.name)) {
+      continue;
+    }
+
+    const skillsDir = getSkillsDir();
+    const binPath = `${skillsDir}/bin/${command.name}`;
+    try {
+      await fsPromises.access(binPath, fsConstants.X_OK);
+      return true;
+    } catch {
+      continue;
+    }
   }
+
+  return false;
 }
 
 /**
- * Create a PI tool from a skill
- * Only creates tools for skills that have executable capabilities
+ * Create PI tools from a skill command manifest.
  */
-async function createToolFromSkill(skill: AnthropicSkill): Promise<AgentTool | null> {
-  if (RESERVED_STATIC_SKILL_NAMES.has(skill.name)) {
+async function createToolFromCommand(skill: AnthropicSkill, command: SkillCommand): Promise<AgentTool | null> {
+  if (RESERVED_STATIC_COMMAND_NAMES.has(command.name)) {
     return null;
   }
 
-  // Check if this skill has an executable
-  const hasExecutable = await hasExecutableCapability(skill.name);
-  
-  if (!hasExecutable) {
-    // This is a prompt-based skill, not a tool
+  const skillsDir = getSkillsDir();
+  const binPath = `${skillsDir}/bin/${command.name}`;
+  try {
+    await fsPromises.access(binPath, fsConstants.X_OK);
+  } catch {
     return null;
   }
-  
-  // For executable skills, create a generic tool
+
+  const toolName = command.name.replace(/-/g, '_');
+  const toolDescription = command.description || skill.description;
+
   return {
-    name: skill.name.replace(/-/g, '_'),
-    label: `Using ${skill.title}`,
-    description: skill.description,
+    name: toolName,
+    label: `Using ${command.name}`,
+    description: toolDescription,
     parameters: Type.Object({
-      prompt: Type.String({ description: 'The prompt or input for the skill' }),
+      prompt: Type.Optional(Type.String({ description: 'The prompt or input for the skill command' })),
     }),
     execute: async (toolCallId, params) => {
       try {
         const workspacePath = getWorkspacePath();
-        const skillsDir = getSkillsDir();
-        const { prompt } = params as { prompt: string };
+        const { prompt = '' } = params as { prompt?: string };
         
-        // Execute the skill via the bin wrapper
-        const { stdout, stderr } = await execFileAsync(`${skillsDir}/bin/${skill.name}`, [prompt], { cwd: workspacePath });
+        const args = prompt ? [prompt] : [];
+        const { stdout, stderr } = await execFileAsync(binPath, args, { cwd: workspacePath });
         return {
           content: [{ type: 'text', text: stdout || stderr || 'Skill executed successfully' }],
           details: { stdout, stderr },
@@ -100,9 +107,11 @@ export async function getDynamicSkillTools(): Promise<AgentTool[]> {
   const tools: AgentTool[] = [];
   
   for (const skill of skills) {
-    const tool = await createToolFromSkill(skill);
-    if (tool) {
-      tools.push(tool);
+    for (const command of skill.commands) {
+      const tool = await createToolFromCommand(skill, command);
+      if (tool) {
+        tools.push(tool);
+      }
     }
   }
   
@@ -114,8 +123,14 @@ export async function getDynamicSkillTools(): Promise<AgentTool[]> {
  */
 export async function getSkillToolByName(name: string): Promise<AgentTool | null> {
   const skills = await getCachedSkills();
-  const skill = skills.find(s => s.name === name || s.name.replace(/-/g, '_') === name);
-  return skill ? createToolFromSkill(skill) : null;
+  for (const skill of skills) {
+    for (const command of skill.commands) {
+      if (command.name === name || command.name.replace(/-/g, '_') === name) {
+        return createToolFromCommand(skill, command);
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -138,7 +153,7 @@ export async function getDynamicSkillStats(): Promise<{
   let executableCount = 0;
   
   for (const skill of skills) {
-    if (await hasExecutableCapability(skill.name)) {
+    if (await hasExecutableCapability(skill)) {
       executableCount++;
     }
   }
@@ -159,7 +174,7 @@ export async function getPromptBasedSkills(): Promise<AnthropicSkill[]> {
   const promptSkills: AnthropicSkill[] = [];
   
   for (const skill of skills) {
-    const hasExecutable = await hasExecutableCapability(skill.name);
+    const hasExecutable = await hasExecutableCapability(skill);
     if (!hasExecutable) {
       promptSkills.push(skill);
     }

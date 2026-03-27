@@ -50,19 +50,11 @@ mkdir -p /data/workspace
 mkdir -p /data/temp/skills
 echo "[entrypoint] Data directories ready."
 
-# Copy skills from repo to /data/skills if the directory is empty
-# This ensures skills are available even when /data is a fresh volume
-echo "[entrypoint] Checking skills directory..."
-if [ -d "/app/skills" ]; then
-  if [ -z "$(ls -A /data/skills 2>/dev/null)" ]; then
-    echo "[entrypoint] Copying skills from /app/skills to /data/skills..."
-    cp -r /app/skills/* /data/skills/
-    echo "[entrypoint] Skills copied successfully."
-  else
-    echo "[entrypoint] Skills directory already populated, skipping copy."
-  fi
+echo "[entrypoint] Preparing skills runtime..."
+if node scripts/prepare-skills-runtime.js; then
+  echo "[entrypoint] Skills runtime prepared."
 else
-  echo "[entrypoint] WARNING: /app/skills not found, cannot copy skills."
+  fatal_startup "Skills runtime preparation failed."
 fi
 
 # Runtime bootstrap must happen in the container because /home/node is volume-mounted

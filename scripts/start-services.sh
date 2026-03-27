@@ -20,6 +20,12 @@ chmod 777 /tmp 2>/dev/null || true
 
 cd /app
 
+echo "[Startup] Preparing skills runtime..."
+node scripts/prepare-skills-runtime.js
+SKILLS_BIN_DIR="${DATA:-/data}/skills/bin"
+PATH="${SKILLS_BIN_DIR}:$PATH"
+export PATH
+
 NEXT_PID=""
 SCHEDULER_PID=""
 

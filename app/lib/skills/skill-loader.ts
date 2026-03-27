@@ -1,9 +1,9 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { AnthropicSkill, parseSkillFile, getSkillsDir, createDefaultSkillMd } from './skill-manifest-anthropic';
+import { AnthropicSkill, SkillCommand, parseSkillFile, getSkillsDir, createDefaultSkillMd } from './skill-manifest-anthropic';
 
 // Re-export types and functions from the new anthropic module
-export type { AnthropicSkill } from './skill-manifest-anthropic';
+export type { AnthropicSkill, SkillCommand } from './skill-manifest-anthropic';
 export {
   parseSkillFile,
   getSkillsDir,

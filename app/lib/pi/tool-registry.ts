@@ -45,6 +45,22 @@ import {
   normalizeQmdResults,
   type QmdSearchMode,
 } from '../qmd/runtime';
+import {
+  createAutomationJob,
+  deleteAutomationJob,
+  getAutomationJob,
+  listAutomationJobs,
+  scheduleAutomationJobRun,
+  updateAutomationJob,
+} from '../automations/store';
+import {
+  type AutomationIntervalUnit,
+  type AutomationJobRecord,
+  type AutomationJobStatus,
+  type AutomationPreferredSkill,
+  type AutomationWeekday,
+  type FriendlySchedule,
+} from '../automations/types';
 
 
 const execAsync = promisify(exec);
@@ -171,6 +187,108 @@ function formatAdLocalizationText(data: AdLocalizationResultData): string {
 function normalizeOptionalString(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
+}
+
+const VALID_AUTOMATION_PREFERRED_SKILLS: AutomationPreferredSkill[] = [
+  'auto',
+  'image_generation',
+  'video_generation',
+  'ad_localization',
+  'qmd',
+  'qmd_search',
+];
+const VALID_AUTOMATION_DAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const VALID_AUTOMATION_INTERVAL_UNITS: AutomationIntervalUnit[] = ['minutes', 'hours', 'days'];
+
+function formatAutomationJob(job: AutomationJobRecord): string {
+  const schedule = JSON.stringify(job.schedule);
+  const outputPath = job.targetOutputPath || job.effectiveTargetOutputPath;
+  return [
+    `ID: ${job.id}`,
+    `Name: ${job.name}`,
+    `Status: ${job.status}`,
+    `Preferred skill: ${job.preferredSkill}`,
+    `Schedule: ${schedule}`,
+    `Next run: ${job.nextRunAt || 'not scheduled'}`,
+    `Last run: ${job.lastRunAt || 'never'}`,
+    `Last run status: ${job.lastRunStatus || 'n/a'}`,
+    `Output: ${outputPath}`,
+  ].join('\n');
+}
+
+function normalizeAutomationPreferredSkill(value: string | undefined): AutomationPreferredSkill | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (normalized === 'qmd_search') {
+    return 'qmd';
+  }
+  return VALID_AUTOMATION_PREFERRED_SKILLS.includes(normalized as AutomationPreferredSkill)
+    ? (normalized as AutomationPreferredSkill)
+    : undefined;
+}
+
+function normalizeAutomationStatus(value: string | undefined): AutomationJobStatus | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value === 'paused' ? 'paused' : value === 'active' ? 'active' : undefined;
+}
+
+function normalizeAutomationSchedule(schedule: {
+  kind: string;
+  date?: string;
+  time?: string;
+  days?: string[];
+  every?: number;
+  unit?: string;
+  timeZone?: string;
+}): FriendlySchedule {
+  const timeZone = schedule.timeZone?.trim() || 'UTC';
+
+  switch (schedule.kind) {
+    case 'once':
+      if (!schedule.date || !schedule.time) {
+        throw new Error('once schedule requires date and time.');
+      }
+      return { kind: 'once', date: schedule.date, time: schedule.time, timeZone };
+    case 'daily':
+      if (!schedule.time) {
+        throw new Error('daily schedule requires time.');
+      }
+      return { kind: 'daily', time: schedule.time, timeZone };
+    case 'weekly': {
+      const days = (schedule.days || []).filter((day): day is AutomationWeekday =>
+        VALID_AUTOMATION_DAYS.includes(day as AutomationWeekday),
+      );
+      if (days.length === 0 || !schedule.time) {
+        throw new Error('weekly schedule requires at least one valid day and a time.');
+      }
+      return { kind: 'weekly', days, time: schedule.time, timeZone };
+    }
+    case 'interval':
+      if (!schedule.every || !schedule.unit || !VALID_AUTOMATION_INTERVAL_UNITS.includes(schedule.unit as AutomationIntervalUnit)) {
+        throw new Error('interval schedule requires every and a valid unit.');
+      }
+      return { kind: 'interval', every: schedule.every, unit: schedule.unit as AutomationIntervalUnit, timeZone };
+    default:
+      throw new Error(`Unsupported automation schedule kind: ${schedule.kind}`);
+  }
+}
+
+function normalizeAutomationWorkspacePaths(paths: string[] | undefined): string[] | undefined {
+  if (!paths) {
+    return undefined;
+  }
+
+  const normalized = paths
+    .map((entry) => entry.trim().replace(/^\/+|^\.\/+/, ''))
+    .filter(Boolean)
+    .slice(0, 20);
+
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function normalizeWorkspaceRelativePath(value: string | undefined, fieldName: string): string | undefined {
@@ -935,35 +1053,21 @@ export const piTools: AgentTool[] = [
         status?: string;
       };
       try {
-        const workspacePath = getWorkspacePath();
-        const args = ['workflow-automation', 'create', '--name', name, '--prompt', prompt];
-
-        switch (schedule.kind) {
-          case 'once':
-            args.push('--schedule-kind', 'once', '--schedule-date', schedule.date!, '--schedule-time', schedule.time!);
-            break;
-          case 'daily':
-            args.push('--schedule-kind', 'daily', '--schedule-time', schedule.time!);
-            break;
-          case 'weekly':
-            args.push('--schedule-kind', 'weekly', '--schedule-time', schedule.time!);
-            schedule.days?.forEach(d => args.push('--schedule-days', d));
-            break;
-          case 'interval':
-            args.push('--schedule-kind', 'interval', '--schedule-every', String(schedule.every), '--schedule-unit', schedule.unit!);
-            break;
-        }
-
-        if (schedule.timeZone) args.push('--timezone', schedule.timeZone);
-        if (preferredSkill) args.push('--preferred-skill', preferredSkill);
-        if (targetOutputPath) args.push('--target-output', targetOutputPath);
-        workspaceContextPaths?.forEach(p => args.push('--context-path', p));
-        if (status) args.push('--status', status);
-
-        const { stdout, stderr } = await execFileAsync('/data/skills/skill', args, { cwd: workspacePath });
+        const job = await createAutomationJob(
+          {
+            name: name.trim().slice(0, 120),
+            prompt: prompt.trim().slice(0, 12000),
+            schedule: normalizeAutomationSchedule(schedule),
+            preferredSkill: normalizeAutomationPreferredSkill(preferredSkill),
+            targetOutputPath: normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
+            workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
+            status: normalizeAutomationStatus(status) || 'active',
+          },
+          'pi-agent',
+        );
         return {
-          content: [{ type: 'text', text: stdout || stderr || 'Automation job created successfully' }],
-          details: { stdout, stderr },
+          content: [{ type: 'text', text: `Automation job created successfully\n\n${formatAutomationJob(job)}` }],
+          details: { job },
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -981,12 +1085,13 @@ export const piTools: AgentTool[] = [
     parameters: Type.Object({}),
     execute: async () => {
       try {
-        const workspacePath = getWorkspacePath();
-        const cmd = `/data/skills/skill workflow-automation list`;
-        const { stdout, stderr } = await execAsync(cmd, { cwd: workspacePath });
+        const jobs = await listAutomationJobs();
+        const text = jobs.length === 0
+          ? 'No automation jobs found'
+          : jobs.map((job, index) => `--- Job ${index + 1} ---\n${formatAutomationJob(job)}`).join('\n\n');
         return {
-          content: [{ type: 'text', text: stdout || stderr || 'No automation jobs found' }],
-          details: { stdout, stderr },
+          content: [{ type: 'text', text }],
+          details: { jobs },
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -1039,30 +1144,23 @@ export const piTools: AgentTool[] = [
         status?: string;
       };
       try {
-        const workspacePath = getWorkspacePath();
-        const args = ['workflow-automation', 'update', '--job-id', jobId];
-
-        if (name) args.push('--name', name);
-        if (prompt) args.push('--prompt', prompt);
-        if (preferredSkill) args.push('--preferred-skill', preferredSkill);
-        if (targetOutputPath) args.push('--target-output', targetOutputPath);
-        if (status) args.push('--status', status);
-        workspaceContextPaths?.forEach(p => args.push('--context-path', p));
-
-        if (schedule) {
-          args.push('--schedule-kind', schedule.kind);
-          if (schedule.date) args.push('--schedule-date', schedule.date);
-          if (schedule.time) args.push('--schedule-time', schedule.time);
-          schedule.days?.forEach(d => args.push('--schedule-days', d));
-          if (schedule.every) args.push('--schedule-every', String(schedule.every));
-          if (schedule.unit) args.push('--schedule-unit', schedule.unit);
-          if (schedule.timeZone) args.push('--timezone', schedule.timeZone);
+        const updatedJob = await updateAutomationJob(jobId, {
+          name: normalizeOptionalString(name)?.slice(0, 120),
+          prompt: normalizeOptionalString(prompt)?.slice(0, 12000),
+          preferredSkill: normalizeAutomationPreferredSkill(preferredSkill),
+          targetOutputPath: targetOutputPath === undefined
+            ? undefined
+            : normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
+          workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
+          status: normalizeAutomationStatus(status),
+          schedule: schedule ? normalizeAutomationSchedule(schedule) : undefined,
+        });
+        if (!updatedJob) {
+          throw new Error(`Automation job "${jobId}" not found.`);
         }
-
-        const { stdout, stderr } = await execFileAsync('/data/skills/skill', args, { cwd: workspacePath });
         return {
-          content: [{ type: 'text', text: stdout || stderr || 'Automation job updated successfully' }],
-          details: { stdout, stderr },
+          content: [{ type: 'text', text: `Automation job updated successfully\n\n${formatAutomationJob(updatedJob)}` }],
+          details: { job: updatedJob },
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -1083,11 +1181,13 @@ export const piTools: AgentTool[] = [
     execute: async (toolCallId, params) => {
       const { jobId } = params as { jobId: string };
       try {
-        const workspacePath = getWorkspacePath();
-        const { stdout, stderr } = await execFileAsync('/data/skills/skill', ['workflow-automation', 'delete', '--job-id', jobId], { cwd: workspacePath });
+        const deleted = await deleteAutomationJob(jobId);
+        if (!deleted) {
+          throw new Error(`Automation job "${jobId}" not found.`);
+        }
         return {
-          content: [{ type: 'text', text: stdout || stderr || 'Automation job deleted successfully' }],
-          details: { stdout, stderr },
+          content: [{ type: 'text', text: 'Automation job deleted successfully' }],
+          details: { jobId },
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -1108,11 +1208,14 @@ export const piTools: AgentTool[] = [
     execute: async (toolCallId, params) => {
       const { jobId } = params as { jobId: string };
       try {
-        const workspacePath = getWorkspacePath();
-        const { stdout, stderr } = await execFileAsync('/data/skills/skill', ['workflow-automation', 'trigger', '--job-id', jobId], { cwd: workspacePath });
+        const job = await getAutomationJob(jobId);
+        if (!job) {
+          throw new Error(`Automation job "${jobId}" not found.`);
+        }
+        const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
         return {
-          content: [{ type: 'text', text: stdout || stderr || 'Automation job triggered successfully' }],
-          details: { stdout, stderr },
+          content: [{ type: 'text', text: `Automation job triggered successfully\nRun ID: ${run.id}` }],
+          details: { jobId, run },
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);

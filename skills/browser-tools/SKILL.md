@@ -12,8 +12,8 @@ Chromium is bundled via the `puppeteer` npm package and is automatically availab
 ## Start Chromium
 
 ```bash
-skill browser-start              # Fresh profile (headless, works in Docker)
-skill browser-start --profile    # Copy user's Chrome profile (macOS only)
+browser-start              # Fresh profile (headless, works in Docker)
+browser-start --profile    # Copy user's Chrome profile (macOS only)
 ```
 
 Launch Chromium with remote debugging on `:9222`. Use `--profile` to preserve the user's authentication state (only works on macOS with Chrome installed).
@@ -21,8 +21,8 @@ Launch Chromium with remote debugging on `:9222`. Use `--profile` to preserve th
 ## Navigate
 
 ```bash
-skill browser-nav https://example.com
-skill browser-nav https://example.com --new
+browser-nav https://example.com
+browser-nav https://example.com --new
 ```
 
 Navigate to URLs. Use `--new` flag to open in a new tab instead of reusing the current tab.
@@ -30,8 +30,8 @@ Navigate to URLs. Use `--new` flag to open in a new tab instead of reusing the c
 ## Evaluate JavaScript
 
 ```bash
-skill browser-eval 'document.title'
-skill browser-eval 'document.querySelectorAll("a").length'
+browser-eval 'document.title'
+browser-eval 'document.querySelectorAll("a").length'
 ```
 
 Execute JavaScript in the active tab. Code runs in async context. Use this to extract data, inspect page state, or perform DOM operations programmatically.
@@ -39,7 +39,7 @@ Execute JavaScript in the active tab. Code runs in async context. Use this to ex
 ## Screenshot
 
 ```bash
-skill browser-screenshot
+browser-screenshot
 ```
 
 Capture current viewport and return temporary file path. Use to visually inspect page state or verify UI changes.
@@ -47,7 +47,7 @@ Capture current viewport and return temporary file path. Use to visually inspect
 ## Extract Page Content
 
 ```bash
-skill browser-content https://example.com
+browser-content https://example.com
 ```
 
 Navigate to a URL and extract readable content as markdown. Uses Mozilla Readability for article extraction. Works on pages with JavaScript content (waits for page to load).
@@ -133,7 +133,7 @@ Extract structured state in one call:
 If DOM updates after actions, add a small delay:
 
 ```bash
-sleep 0.5 && skill browser-eval '...'
+sleep 0.5 && browser-eval '...'
 ```
 
 ### Investigate Before Interacting

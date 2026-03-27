@@ -56,6 +56,9 @@ Localizes advertisements. Use when the user says: "localize this ad", "translate
 - **Prerequisite:** GEMINI_API_KEY must be configured in /settings for image/video/ad-localization
 - **Local Skills** (image_generation, video_generation, ad_localization): Return JSON with { "success": true, "data": { ... } }
 - **Do not read token/env files:** For Gemini skills, do not use internal API routes or env files directly. The wrappers resolve the central integration configuration themselves.
+- All skill-related secrets and environment variables supplied by the user live in `/data/secrets/Canvas-Integrations.env`
+- If you create a new skill that needs env vars, explicitly instruct the user to add them in Settings -> Integrations so they end up in `/data/secrets/Canvas-Integrations.env`
+- Never store new secrets in `/data/skills/<skill-name>/`, `/data/workspace`, or other ad-hoc files
 - **Output directories:** All results are workspace-relative under /data/workspace
 
 ## Detailed Documentation
@@ -124,3 +127,4 @@ After creation:
 - CLI skills require an executable script under /data/skills/<name>/
 - API skills require an API integration (provided by the user)
 - The Skill Creator only creates the manifest and documentation
+- If a created skill needs environment variables, document that they must come from `/data/secrets/Canvas-Integrations.env`

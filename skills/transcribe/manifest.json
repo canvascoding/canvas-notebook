@@ -1,0 +1,16 @@
+{
+  "name": "transcribe",
+  "version": "1.0.0",
+  "title": "Transcribe",
+  "description": "Speech-to-text transcription via Groq Whisper.",
+  "type": "cli",
+  "commands": [
+    {
+      "name": "transcribe",
+      "exec": ["bash", "transcribe.sh"],
+      "envScope": "integrations",
+      "installStrategy": "none",
+      "description": "Transcribe an audio file to text."
+    }
+  ]
+}

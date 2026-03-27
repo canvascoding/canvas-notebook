@@ -108,6 +108,12 @@ cloud-deploy/
 ```
 Claude reads only the relevant reference file.
 
+#### Secrets and Environment Variables
+
+- If a skill needs API keys or other environment variables, tell the user to store them in `/data/secrets/Canvas-Integrations.env` via Settings -> Integrations.
+- New skills must read integration secrets from `/data/secrets/Canvas-Integrations.env`.
+- Do not create per-skill secret files inside `/data/skills`, `/data/workspace`, or other ad-hoc locations.
+
 #### Principle of Lack of Surprise
 
 This goes without saying, but skills must not contain malware, exploit code, or any content that could compromise system security. A skill's contents should not surprise the user in their intent if described. Don't go along with requests to create misleading skills or skills designed to facilitate unauthorized access, data exfiltration, or other malicious activities. Things like a "roleplay as an XYZ" are OK though.

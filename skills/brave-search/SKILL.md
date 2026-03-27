@@ -18,18 +18,18 @@ Web search and content extraction using the official Brave Search API. No browse
 
 **Search the web:**
 ```bash
-skill brave-search "query"                                       # 5 results (default)
-skill brave-search "query" -n 10                                 # More results (max 20)
-skill brave-search "query" --content                             # Include page content as markdown
-skill brave-search "query" --freshness pw                        # Results from last week
-skill brave-search "query" --freshness 2024-01-01to2024-06-30   # Date range
-skill brave-search "query" --country DE                          # Results from Germany
-skill brave-search "query" -n 3 --content                        # Combined options
+brave-search "query"                                       # 5 results (default)
+brave-search "query" -n 10                                 # More results (max 20)
+brave-search "query" --content                             # Include page content as markdown
+brave-search "query" --freshness pw                        # Results from last week
+brave-search "query" --freshness 2024-01-01to2024-06-30   # Date range
+brave-search "query" --country DE                          # Results from Germany
+brave-search "query" -n 3 --content                        # Combined options
 ```
 
 **Extract page content:**
 ```bash
-skill brave-content https://example.com/article
+brave-content https://example.com/article
 ```
 Fetches a URL and returns the readable content as markdown.
 
@@ -58,4 +58,6 @@ Content: (if --content flag used)
 ## Requirements
 
 - `BRAVE_API_KEY` must be set in Canvas Notebook under Settings → Integrations
+- Canvas stores that key centrally in `/data/secrets/Canvas-Integrations.env`
+- New skills that need API keys must also use `/data/secrets/Canvas-Integrations.env` rather than ad-hoc config files
 - Get a free API key at https://api-dashboard.search.brave.com/ (free tier available, credit card required for signup)

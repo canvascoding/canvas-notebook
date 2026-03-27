@@ -9,11 +9,11 @@ loadEnvConfig(process.cwd(), dev);
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
 const { startAutomationScheduler } = require('./server/automation-scheduler');
+const { prepareSkillsRuntime } = require('./server/skills-runtime');
 const { auth } = require('./app/lib/auth');
 const {
   resolveSkillsDataDir,
@@ -86,75 +86,10 @@ function getContentType(filePath) {
   return MEDIA_TYPES[ext] || 'application/octet-stream';
 }
 
-const SKILLS_REPO_DIR = path.resolve(process.cwd(), 'skills');
-const SKILLS_DATA_DIR = resolveSkillsDataDir();
-
-const SKILL_COMMANDS = [
-  'image-generation', 'video-generation', 'ad-localization',
-  'brave-search', 'brave-content',
-  'transcribe',
-  'youtube-transcript',
-  'browser-start', 'browser-nav', 'browser-screenshot', 'browser-content', 'browser-eval',
-];
-
 function ensureSkillsDirectory() {
   try {
-    if (!fs.existsSync(SKILLS_REPO_DIR)) {
-      return;
-    }
-    fs.mkdirSync(SKILLS_DATA_DIR, { recursive: true });
-    fs.cpSync(SKILLS_REPO_DIR, SKILLS_DATA_DIR, { recursive: true, force: true });
-
-    // Install npm dependencies for skills that have package.json but no node_modules
-    const skillEntries = fs.readdirSync(SKILLS_DATA_DIR, { withFileTypes: true });
-    for (const entry of skillEntries) {
-      if (!entry.isDirectory()) continue;
-      const skillDir = path.join(SKILLS_DATA_DIR, entry.name);
-      const pkgJson = path.join(skillDir, 'package.json');
-      const nodeModules = path.join(skillDir, 'node_modules');
-      if (fs.existsSync(pkgJson) && !fs.existsSync(nodeModules)) {
-        try {
-          console.log(`[Startup] Installing npm deps for skill: ${entry.name}`);
-          execSync('npm install --omit=dev', { cwd: skillDir, stdio: 'pipe' });
-          console.log(`[Startup] npm install done: ${entry.name}`);
-        } catch (e) {
-          console.warn(`[Startup] npm install failed for ${entry.name}:`, e.message);
-        }
-      }
-    }
-
-    const skillBin = path.join(SKILLS_DATA_DIR, 'skill');
-    if (fs.existsSync(skillBin)) {
-      fs.chmodSync(skillBin, 0o755);
-    }
-    const wrapperDir = path.join(SKILLS_DATA_DIR, 'bin');
-    fs.mkdirSync(wrapperDir, { recursive: true });
-
-    for (const name of SKILL_COMMANDS) {
-      const wrapperPath = path.join(wrapperDir, name);
-      const content = `#!/usr/bin/env bash\nexec "${SKILLS_DATA_DIR}/skill" ${name} "$@"\n`;
-      fs.writeFileSync(wrapperPath, content, { encoding: 'utf8', mode: 0o755 });
-    }
-
-    const currentPath = process.env.PATH || '';
-    if (!currentPath.split(path.delimiter).includes(wrapperDir)) {
-      process.env.PATH = `${wrapperDir}${path.delimiter}${currentPath}`;
-    }
-
-    console.log(`[Startup] Skills synced to ${SKILLS_DATA_DIR}`);
-
-    // Best effort only: install global wrappers when the runtime allows it.
-    if (process.env.CANVAS_RUNTIME_ENV === 'docker') {
-      for (const name of SKILL_COMMANDS) {
-        const wrapperPath = `/usr/local/bin/${name}`;
-        const content = `#!/usr/bin/env bash\nexec "${SKILLS_DATA_DIR}/skill" ${name} "$@"\n`;
-        try {
-          fs.writeFileSync(wrapperPath, content, { encoding: 'utf8', mode: 0o755 });
-        } catch (e) {
-          console.warn(`[Startup] Could not install global wrapper for ${name}:`, e.message);
-        }
-      }
-    }
+    const result = prepareSkillsRuntime({ cwd: process.cwd() });
+    console.log(`[Startup] Skills synced to ${resolveSkillsDataDir()} (${result.commandSpecs.length} commands)`);
   } catch (error) {
     console.error('[Startup] Failed to sync skills directory:', error);
   }

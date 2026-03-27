@@ -4,6 +4,15 @@
   "title": "Videos mit VEO generieren",
   "description": "Generiert Videos mit Google VEO über den lokalen Canvas-Wrapper. Verwenden wenn der User sagt: erstelle ein Video, generiere ein Video, mache ein Video von..., create a video, generate a video. Output: workspace/veo-studio/video-generation/. Der Gemini-Key wird zentral aus den Integrations-Einstellungen geladen; kein manuelles Env-Loading nötig. Hinweis: Dauert typischerweise 3-10 Minuten.",
   "type": "cli",
+  "commands": [
+    {
+      "name": "video-generation",
+      "exec": ["node", "command.js"],
+      "envScope": "integrations",
+      "installStrategy": "none",
+      "description": "Generate videos with Google VEO."
+    }
+  ],
   "author": "system",
   "created_at": "2025-01-15T00:00:00Z",
   "tool": {

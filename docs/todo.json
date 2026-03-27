@@ -1,6 +1,12 @@
 {
-  "updatedAt": "2026-03-27T10:45:00+01:00",
+  "updatedAt": "2026-03-27T12:52:00+01:00",
   "items": [
+    {
+      "id": "skill-runtime-manifest-first",
+      "title": "Skill-Runtime auf manifest-first Direct Commands umbauen",
+      "status": "done",
+      "notes": "Der zentrale skill-Dispatcher wurde durch manifest-basierte Direct Commands ersetzt. Startup und Wrapper-Generierung laufen jetzt ueber die neue Skill-Runtime, Automation-Tools nutzen direkte Services, Skill-Dokus und Seed-Prompts verankern /data/secrets/Canvas-Integrations.env als zentrale Secret-Quelle, und verifiziert wurde mit npm run build, npm run test:skills:runtime, npm run test:pi:tools sowie einem Playwright-UI-Check auf localhost:3000."
+    },
     {
       "id": "debug-qmd-entrypoint-failure",
       "title": "Entrypoint-Logging fuer qmd-Rebuild verbessern",

@@ -35,6 +35,7 @@ If generation succeeds and a `mediaUrl` is available, show the generated image i
 - Use the local `image-generation` command directly.
 - Do not call internal Canvas API routes for this skill.
 - Do not read env files or manually load `GEMINI_API_KEY`; the wrapper resolves the configured key centrally.
+- If this skill or a new related skill needs secrets, they must be stored centrally in `/data/secrets/Canvas-Integrations.env`.
 
 ## Examples
 
@@ -58,4 +59,4 @@ image-generation \
 
 ## Requirements
 
-- GEMINI_API_KEY must be configured in settings
+- GEMINI_API_KEY must be configured in settings and is stored centrally in `/data/secrets/Canvas-Integrations.env`

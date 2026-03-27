@@ -4,6 +4,15 @@
   "title": "Markdown-Notizen durchsuchen",
   "description": "Lokale hybride Suche für Markdown-Notizen und Dokumente im Canvas Notebook Workspace. Indexiert automatisch alle .md Dateien im /data/workspace. Verwenden wenn der User sagt: suche in meinen Notizen, finde verwandte Notizen, durchsuche meine Markdown-Dateien, suche nach ... in meinem Workspace, search my notes, find related documents. Standard-Verhalten: Bevorzuge qmd search (schnelle Keyword-Suche mit BM25), nutze qmd vsearch nur wenn semantische Ähnlichkeit nötig ist (langsamer). Collection: workspace (indexiert /data/workspace/**/*.md). Voraussetzungen: Bun und SQLite3 (im Container verfügbar).",
   "type": "cli",
+  "commands": [
+    {
+      "name": "qmd",
+      "exec": ["qmd"],
+      "envScope": "none",
+      "installStrategy": "none",
+      "description": "Search Markdown notes in the workspace."
+    }
+  ],
   "author": "system",
   "created_at": "2025-01-15T00:00:00Z",
   "tool": {

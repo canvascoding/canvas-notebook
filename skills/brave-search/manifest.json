@@ -1,0 +1,23 @@
+{
+  "name": "brave-search",
+  "version": "1.0.0",
+  "title": "Brave Search",
+  "description": "Websuche und Inhalts-Extraktion via Brave Search API.",
+  "type": "cli",
+  "commands": [
+    {
+      "name": "brave-search",
+      "exec": ["node", "search.js"],
+      "envScope": "integrations",
+      "installStrategy": "npm",
+      "description": "Search the web via Brave Search."
+    },
+    {
+      "name": "brave-content",
+      "exec": ["node", "content.js"],
+      "envScope": "integrations",
+      "installStrategy": "npm",
+      "description": "Fetch readable page content via Brave Search."
+    }
+  ]
+}
