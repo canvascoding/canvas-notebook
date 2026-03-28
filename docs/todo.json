@@ -1,6 +1,12 @@
 {
-  "updatedAt": "2026-03-28T14:05:00+01:00",
+  "updatedAt": "2026-03-28T14:22:54+01:00",
   "items": [
+    {
+      "id": "fix-browser-tools-dynamic-skill-bridge",
+      "title": "Browser-Tools fuer Agent und Container-Shell robust anbinden",
+      "status": "done",
+      "notes": "Dynamic-Skill-Inputs unterstuetzen jetzt legacy-prompt, none und strukturierte Parameter mit argv-Bindings. browser-tools verwenden explizite Inputs fuer browser-start/browser-nav/browser-content/browser-eval, browser-screenshot laeuft arglos, und Login-Shells im Container bekommen /data/skills/bin ueber /etc/profile.d auf den PATH. Verifiziert mit npm run test:browser-start, npm run test:skills:runtime, npm run test:pi:tools, zweimal npm run build, Container-Recreate sowie einem Playwright-Check in der Container-App, bei dem browser_start mit {} lief, danach browser_nav/browser_eval ausgefuehrt wurden und als Titel Example Domain zurueckkam."
+    },
     {
       "id": "portable-skill-wrappers",
       "title": "Skill-Wrapper runtime-portabel statt host-spezifisch machen",

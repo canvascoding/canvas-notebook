@@ -53,7 +53,7 @@ ENV NODE_ENV=production \
     ALLOW_SIGNUP=false \
     NPM_CONFIG_PREFIX=/home/${APP_USER}/.npm-global \
     BUN_INSTALL=/data/cache/.bun \
-    PATH=/data/cache/.bun/bin:/home/${APP_USER}/.npm-global/bin:${PATH} \
+    PATH=/data/skills/bin:/data/cache/.bun/bin:/home/${APP_USER}/.npm-global/bin:${PATH} \
     CANVAS_TERMINAL_SOCKET=/tmp/canvas-terminal.sock \
     CANVAS_TERMINAL_USE_UNIX_SOCKET=true \
     XDG_CACHE_HOME=/data/cache
@@ -83,6 +83,11 @@ COPY --from=builder /app/node_modules ./node_modules
 RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills /data/cache /tmp
 RUN chmod +x ./scripts/docker-entrypoint.sh ./scripts/start-services.sh
 RUN printf '%s\n' \
+  'SKILLS_BIN="/data/skills/bin"' \
+  'case ":$PATH:" in' \
+  '  *":$SKILLS_BIN:"*) ;;' \
+  '  *) PATH="$SKILLS_BIN:$PATH" ;;' \
+  'esac' \
   'NPM_GLOBAL_BIN="/home/node/.npm-global/bin"' \
   'case ":$PATH:" in' \
   '  *":$NPM_GLOBAL_BIN:"*) ;;' \

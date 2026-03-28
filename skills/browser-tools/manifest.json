@@ -10,35 +10,87 @@
       "exec": ["node", "browser-start.js"],
       "envScope": "none",
       "installStrategy": "npm",
-      "description": "Launch Chromium with remote debugging."
+      "description": "Launch Chromium with remote debugging.",
+      "inputMode": "structured",
+      "inputs": [
+        {
+          "name": "profile",
+          "type": "boolean",
+          "description": "Copy your default Chrome profile on supported local macOS runs.",
+          "binding": { "kind": "flag", "flag": "--profile" }
+        }
+      ]
     },
     {
       "name": "browser-nav",
       "exec": ["node", "browser-nav.js"],
       "envScope": "none",
       "installStrategy": "npm",
-      "description": "Navigate the browser to a URL."
+      "description": "Navigate the browser to a URL.",
+      "inputMode": "structured",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "string",
+          "required": true,
+          "description": "The URL to open in the current or a new tab.",
+          "binding": { "kind": "positional" }
+        },
+        {
+          "name": "new_tab",
+          "type": "boolean",
+          "description": "Open the URL in a new tab instead of reusing the active one.",
+          "binding": { "kind": "flag", "flag": "--new" }
+        },
+        {
+          "name": "reload",
+          "type": "boolean",
+          "description": "Force a reload after navigation.",
+          "binding": { "kind": "flag", "flag": "--reload" }
+        }
+      ]
     },
     {
       "name": "browser-screenshot",
       "exec": ["node", "browser-screenshot.js"],
       "envScope": "none",
       "installStrategy": "npm",
-      "description": "Capture a browser screenshot."
+      "description": "Capture a browser screenshot.",
+      "inputMode": "none"
     },
     {
       "name": "browser-content",
       "exec": ["node", "browser-content.js"],
       "envScope": "none",
       "installStrategy": "npm",
-      "description": "Extract readable browser page content."
+      "description": "Extract readable browser page content.",
+      "inputMode": "structured",
+      "inputs": [
+        {
+          "name": "url",
+          "type": "string",
+          "required": true,
+          "description": "The URL to extract readable content from.",
+          "binding": { "kind": "positional" }
+        }
+      ]
     },
     {
       "name": "browser-eval",
       "exec": ["node", "browser-eval.js"],
       "envScope": "none",
       "installStrategy": "npm",
-      "description": "Evaluate JavaScript in the active browser tab."
+      "description": "Evaluate JavaScript in the active browser tab.",
+      "inputMode": "structured",
+      "inputs": [
+        {
+          "name": "code",
+          "type": "string",
+          "required": true,
+          "description": "JavaScript expression to evaluate in the active tab.",
+          "binding": { "kind": "positional" }
+        }
+      ]
     }
   ]
 }

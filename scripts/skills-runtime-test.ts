@@ -28,6 +28,7 @@ async function writeSkill(
 
 async function main() {
   const runtime = await import('../server/skills-runtime.js');
+  const { parseSkillFile } = await import('../app/lib/skills/skill-manifest-anthropic');
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-skills-runtime-'));
   const repoSkillsDir = path.join(tempRoot, 'skills');
   const invalidSkillsDir = path.join(tempRoot, 'invalid-skills');
@@ -68,6 +69,56 @@ async function main() {
     ],
   });
 
+  await writeSkill(repoSkillsDir, 'browser-tools', {
+    name: 'browser-tools',
+    commands: [
+      {
+        name: 'browser-start',
+        exec: ['node', 'browser-start.js'],
+        envScope: 'none',
+        installStrategy: 'npm',
+        inputMode: 'structured',
+        inputs: [
+          {
+            name: 'profile',
+            type: 'boolean',
+            description: 'Enable profile mode.',
+            binding: { kind: 'flag', flag: '--profile' },
+          },
+        ],
+      },
+      {
+        name: 'browser-screenshot',
+        exec: ['node', 'browser-screenshot.js'],
+        envScope: 'none',
+        installStrategy: 'npm',
+        inputMode: 'none',
+      },
+      {
+        name: 'browser-nav',
+        exec: ['node', 'browser-nav.js'],
+        envScope: 'none',
+        installStrategy: 'npm',
+        inputMode: 'structured',
+        inputs: [
+          {
+            name: 'url',
+            type: 'string',
+            required: true,
+            description: 'Target URL.',
+            binding: { kind: 'positional' },
+          },
+          {
+            name: 'new_tab',
+            type: 'boolean',
+            description: 'Open a new tab.',
+            binding: { kind: 'flag', flag: '--new' },
+          },
+        ],
+      },
+    ],
+  });
+
   await writeSkill(invalidSkillsDir, 'broken-skill', {
     name: 'broken-skill',
     commands: [
@@ -83,8 +134,46 @@ async function main() {
   const specs = runtime.listSkillCommandSpecs({ cwd: tempRoot, skillsDir: repoSkillsDir });
   assert.deepEqual(
     specs.map((spec: { name: string }) => spec.name).sort(),
-    ['multi-one', 'multi-two', 'single-command'],
+    ['browser-nav', 'browser-screenshot', 'browser-start', 'multi-one', 'multi-two', 'single-command'],
   );
+
+  const parsedBrowserSkill = await parseSkillFile(path.join(repoSkillsDir, 'browser-tools', 'SKILL.md'));
+  assert(parsedBrowserSkill);
+  const parsedBrowserStart = parsedBrowserSkill.commands.find((command) => command.name === 'browser-start');
+  const parsedBrowserScreenshot = parsedBrowserSkill.commands.find((command) => command.name === 'browser-screenshot');
+  const parsedBrowserNav = parsedBrowserSkill.commands.find((command) => command.name === 'browser-nav');
+  assert(parsedBrowserStart);
+  assert.equal(parsedBrowserStart.inputMode, 'structured');
+  assert.deepEqual(parsedBrowserStart.inputs, [
+    {
+      name: 'profile',
+      type: 'boolean',
+      description: 'Enable profile mode.',
+      required: false,
+      binding: { kind: 'flag', flag: '--profile' },
+    },
+  ]);
+  assert(parsedBrowserScreenshot);
+  assert.equal(parsedBrowserScreenshot.inputMode, 'none');
+  assert.deepEqual(parsedBrowserScreenshot.inputs, []);
+  assert(parsedBrowserNav);
+  assert.equal(parsedBrowserNav.inputMode, 'structured');
+  assert.deepEqual(parsedBrowserNav.inputs, [
+    {
+      name: 'url',
+      type: 'string',
+      description: 'Target URL.',
+      required: true,
+      binding: { kind: 'positional' },
+    },
+    {
+      name: 'new_tab',
+      type: 'boolean',
+      description: 'Open a new tab.',
+      required: false,
+      binding: { kind: 'flag', flag: '--new' },
+    },
+  ]);
 
   assert.throws(
     () => runtime.listSkillCommandSpecs({ cwd: tempRoot, skillsDir: invalidSkillsDir }),
@@ -114,7 +203,7 @@ async function main() {
     repoSkillsDir,
     installGlobalWrappers: false,
   });
-  assert.equal(prepared.commandSpecs.length, 3);
+  assert.equal(prepared.commandSpecs.length, 6);
   const singleWrapperPath = path.join(prepared.wrapperDir, 'single-command');
   await fs.access(singleWrapperPath);
   await fs.access(path.join(prepared.wrapperDir, 'multi-one'));

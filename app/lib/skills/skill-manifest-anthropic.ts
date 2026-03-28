@@ -29,6 +29,27 @@ export interface SkillFrontmatter {
 
 export type SkillCommandEnvScope = 'integrations' | 'agents' | 'none';
 export type SkillCommandInstallStrategy = 'none' | 'npm';
+export type SkillCommandInputMode = 'legacy-prompt' | 'none' | 'structured';
+export type SkillCommandInputType = 'string' | 'boolean';
+
+export interface SkillCommandInputBindingPositional {
+  kind: 'positional';
+}
+
+export interface SkillCommandInputBindingFlag {
+  kind: 'flag';
+  flag: string;
+}
+
+export type SkillCommandInputBinding = SkillCommandInputBindingPositional | SkillCommandInputBindingFlag;
+
+export interface SkillCommandInput {
+  name: string;
+  type: SkillCommandInputType;
+  description?: string;
+  required: boolean;
+  binding: SkillCommandInputBinding;
+}
 
 export interface SkillCommand {
   name: string;
@@ -36,6 +57,8 @@ export interface SkillCommand {
   envScope: SkillCommandEnvScope;
   installStrategy: SkillCommandInstallStrategy;
   description?: string;
+  inputMode: SkillCommandInputMode;
+  inputs: SkillCommandInput[];
 }
 
 // Complete skill definition
@@ -79,6 +102,8 @@ function parseSkillCommandManifest(rawManifest: unknown, skillName: string): Ski
       envScope?: unknown;
       installStrategy?: unknown;
       description?: unknown;
+      inputMode?: unknown;
+      inputs?: unknown;
     };
 
     const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
@@ -87,6 +112,7 @@ function parseSkillCommandManifest(rawManifest: unknown, skillName: string): Ski
       : [];
     const envScope = typeof candidate.envScope === 'string' ? candidate.envScope : 'none';
     const installStrategy = typeof candidate.installStrategy === 'string' ? candidate.installStrategy : 'none';
+    const inputMode = typeof candidate.inputMode === 'string' ? candidate.inputMode : 'legacy-prompt';
 
     if (!name || !/^[a-z][a-z0-9-]*$/.test(name)) {
       throw new Error(`Skill "${skillName}" has a command with an invalid name.`);
@@ -100,6 +126,11 @@ function parseSkillCommandManifest(rawManifest: unknown, skillName: string): Ski
     if (!['none', 'npm'].includes(installStrategy)) {
       throw new Error(`Skill "${skillName}" command "${name}" has an unsupported installStrategy.`);
     }
+    if (!['legacy-prompt', 'none', 'structured'].includes(inputMode)) {
+      throw new Error(`Skill "${skillName}" command "${name}" has an unsupported inputMode.`);
+    }
+
+    const inputs = parseSkillCommandInputs(candidate.inputs, skillName, name, inputMode as SkillCommandInputMode);
 
     commands.push({
       name,
@@ -109,10 +140,117 @@ function parseSkillCommandManifest(rawManifest: unknown, skillName: string): Ski
       description: typeof candidate.description === 'string' && candidate.description.trim()
         ? candidate.description.trim()
         : undefined,
+      inputMode: inputMode as SkillCommandInputMode,
+      inputs,
     });
   }
 
   return commands;
+}
+
+function parseSkillCommandInputs(
+  rawInputs: unknown,
+  skillName: string,
+  commandName: string,
+  inputMode: SkillCommandInputMode,
+): SkillCommandInput[] {
+  if (inputMode === 'legacy-prompt') {
+    if (rawInputs !== undefined) {
+      throw new Error(`Skill "${skillName}" command "${commandName}" must not define inputs in legacy-prompt mode.`);
+    }
+    return [];
+  }
+
+  if (inputMode === 'none') {
+    if (rawInputs !== undefined) {
+      throw new Error(`Skill "${skillName}" command "${commandName}" must not define inputs in none mode.`);
+    }
+    return [];
+  }
+
+  if (!Array.isArray(rawInputs) || rawInputs.length === 0) {
+    throw new Error(`Skill "${skillName}" command "${commandName}" requires a non-empty inputs array in structured mode.`);
+  }
+
+  const seenNames = new Set<string>();
+
+  return rawInputs.map((rawInput) => {
+    if (!rawInput || typeof rawInput !== 'object') {
+      throw new Error(`Skill "${skillName}" command "${commandName}" has an invalid structured input entry.`);
+    }
+
+    const candidate = rawInput as {
+      name?: unknown;
+      type?: unknown;
+      description?: unknown;
+      required?: unknown;
+      binding?: unknown;
+    };
+
+    const inputName = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+    const inputType = typeof candidate.type === 'string' ? candidate.type : '';
+    const required = typeof candidate.required === 'boolean' ? candidate.required : false;
+
+    if (!inputName || !/^[a-z][a-z0-9_]*$/.test(inputName)) {
+      throw new Error(`Skill "${skillName}" command "${commandName}" has an input with an invalid name.`);
+    }
+    if (seenNames.has(inputName)) {
+      throw new Error(`Skill "${skillName}" command "${commandName}" defines duplicate input "${inputName}".`);
+    }
+    seenNames.add(inputName);
+
+    if (inputType !== 'string' && inputType !== 'boolean') {
+      throw new Error(`Skill "${skillName}" command "${commandName}" input "${inputName}" has an unsupported type.`);
+    }
+
+    if (!candidate.binding || typeof candidate.binding !== 'object') {
+      throw new Error(`Skill "${skillName}" command "${commandName}" input "${inputName}" is missing a binding.`);
+    }
+
+    const bindingCandidate = candidate.binding as { kind?: unknown; flag?: unknown };
+    const bindingKind = typeof bindingCandidate.kind === 'string' ? bindingCandidate.kind : '';
+
+    if (bindingKind === 'positional') {
+      if (inputType !== 'string') {
+        throw new Error(`Skill "${skillName}" command "${commandName}" input "${inputName}" must use type string for positional binding.`);
+      }
+
+      return {
+        name: inputName,
+        type: 'string',
+        description: typeof candidate.description === 'string' && candidate.description.trim()
+          ? candidate.description.trim()
+          : undefined,
+        required,
+        binding: { kind: 'positional' },
+      };
+    }
+
+    if (bindingKind === 'flag') {
+      const flag = typeof bindingCandidate.flag === 'string' ? bindingCandidate.flag.trim() : '';
+      if (inputType !== 'boolean') {
+        throw new Error(`Skill "${skillName}" command "${commandName}" input "${inputName}" must use type boolean for flag binding.`);
+      }
+      if (!flag || !/^--[a-z0-9-]+$/i.test(flag)) {
+        throw new Error(`Skill "${skillName}" command "${commandName}" input "${inputName}" has an invalid flag binding.`);
+      }
+      if (required) {
+        throw new Error(`Skill "${skillName}" command "${commandName}" input "${inputName}" cannot be required when bound as a flag.`);
+      }
+
+      return {
+        name: inputName,
+        type: 'boolean',
+        description: typeof candidate.description === 'string' && candidate.description.trim()
+          ? candidate.description.trim()
+          : undefined,
+        required: false,
+        binding: { kind: 'flag', flag },
+      };
+    }
+
+    throw new Error(`Skill "${skillName}" command "${commandName}" input "${inputName}" has an unsupported binding kind.`);
+  });
 }
 
 /**

@@ -1,5 +1,5 @@
 import { type AgentTool } from '@mariozechner/pi-agent-core';
-import { Type } from '@sinclair/typebox';
+import { Type, type TSchema } from '@sinclair/typebox';
 import { execFile } from 'child_process';
 import { constants as fsConstants, promises as fsPromises } from 'fs';
 import { promisify } from 'util';
@@ -49,6 +49,76 @@ async function hasExecutableCapability(skill: AnthropicSkill): Promise<boolean> 
   return false;
 }
 
+function createLegacyPromptParameters() {
+  return Type.Object({
+    prompt: Type.Optional(Type.String({ description: 'The prompt or input for the skill command' })),
+  });
+}
+
+function createStructuredParameters(command: SkillCommand) {
+  const properties: Record<string, TSchema> = {};
+
+  for (const input of command.inputs) {
+    const schema =
+      input.type === 'boolean'
+        ? Type.Boolean({ description: input.description })
+        : Type.String({ description: input.description });
+
+    properties[input.name] = input.required ? schema : Type.Optional(schema);
+  }
+
+  return Type.Object(properties);
+}
+
+function createToolParameters(command: SkillCommand) {
+  switch (command.inputMode) {
+    case 'none':
+      return Type.Object({});
+    case 'structured':
+      return createStructuredParameters(command);
+    case 'legacy-prompt':
+    default:
+      return createLegacyPromptParameters();
+  }
+}
+
+function buildCommandArgs(command: SkillCommand, rawParams: unknown): string[] {
+  const params = rawParams && typeof rawParams === 'object' ? rawParams as Record<string, unknown> : {};
+
+  if (command.inputMode === 'none') {
+    return [];
+  }
+
+  if (command.inputMode === 'legacy-prompt') {
+    const prompt = typeof params.prompt === 'string' ? params.prompt : '';
+    return prompt ? [prompt] : [];
+  }
+
+  const args: string[] = [];
+
+  for (const input of command.inputs) {
+    const value = params[input.name];
+
+    if (input.binding.kind === 'flag') {
+      if (value === true) {
+        args.push(input.binding.flag);
+      }
+      continue;
+    }
+
+    if (typeof value !== 'string' || value.length === 0) {
+      if (input.required) {
+        throw new Error(`${input.name} is required.`);
+      }
+      continue;
+    }
+
+    args.push(value);
+  }
+
+  return args;
+}
+
 /**
  * Create PI tools from a skill command manifest.
  */
@@ -72,15 +142,11 @@ async function createToolFromCommand(skill: AnthropicSkill, command: SkillComman
     name: toolName,
     label: `Using ${command.name}`,
     description: toolDescription,
-    parameters: Type.Object({
-      prompt: Type.Optional(Type.String({ description: 'The prompt or input for the skill command' })),
-    }),
+    parameters: createToolParameters(command),
     execute: async (toolCallId, params) => {
       try {
         const workspacePath = getWorkspacePath();
-        const { prompt = '' } = params as { prompt?: string };
-        
-        const args = prompt ? [prompt] : [];
+        const args = buildCommandArgs(command, params);
         const { stdout, stderr } = await execFileAsync(binPath, args, { cwd: workspacePath });
         return {
           content: [{ type: 'text', text: stdout || stderr || 'Skill executed successfully' }],
