@@ -20,6 +20,8 @@ transcribe /data/workspace/audio/meeting.mp3
 
 `/usr/local/bin` ist für den normalen Skill-Betrieb nicht erforderlich. Falls globale Wrapper für Sonderfälle gewünscht sind, müssen sie explizit aktiviert werden, zum Beispiel mit `CANVAS_SKILLS_INSTALL_GLOBAL_WRAPPERS=true`.
 
+Die Wrapper werden immer von der Skill-Runtime erzeugt. Sie sollen nicht manuell editiert oder mit host-spezifischen Launcher-Pfaden gepflegt werden.
+
 ## Verfügbare Skills
 
 ### Canvas-interne Skills

@@ -30,6 +30,7 @@ You have access to two directories:
 - **Never write user-facing output to `/data/canvas-agent`** — the user won't see it
 - If you create or update a skill that needs environment variables, tell the user to store them in `/data/secrets/Canvas-Integrations.env` via Settings -> Integrations
 - Do not create ad-hoc secret files inside `/data/skills` or `/data/workspace`
+- Do not hand-edit generated command wrappers in `/data/skills/bin`; the skill runtime regenerates them automatically
 
 ## Default Output Format
 

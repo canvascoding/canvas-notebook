@@ -19,6 +19,7 @@ mkdir -p /tmp
 chmod 777 /tmp 2>/dev/null || true
 
 cd /app
+export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
 
 SKILLS_BIN_DIR="${DATA:-/data}/skills/bin"
 if [ ! -d "$SKILLS_BIN_DIR" ] || [ -z "$(find "$SKILLS_BIN_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then

@@ -288,8 +288,25 @@ function resolveExec(commandSpec) {
   return { command, args };
 }
 
-function buildWrapperContent(launcherPath, commandName) {
-  return `#!/usr/bin/env bash\nexec node "${launcherPath}" "${commandName}" "$@"\n`;
+function buildWrapperContent(commandName) {
+  return `#!/usr/bin/env bash
+launcher="\${CANVAS_SKILLS_LAUNCHER_PATH:-}"
+if [ -z "$launcher" ] && [ -n "\${CANVAS_APP_ROOT:-}" ]; then
+  launcher="\${CANVAS_APP_ROOT}/scripts/run-skill-command.js"
+fi
+
+if [ -z "$launcher" ]; then
+  echo "[skills-runtime] Missing skill launcher path. Set CANVAS_SKILLS_LAUNCHER_PATH or CANVAS_APP_ROOT before running ${commandName}." >&2
+  exit 1
+fi
+
+if [ ! -f "$launcher" ]; then
+  echo "[skills-runtime] Skill launcher not found at $launcher. Reinitialize the Canvas runtime or update CANVAS_SKILLS_LAUNCHER_PATH." >&2
+  exit 1
+fi
+
+exec node "$launcher" "${commandName}" "$@"
+`;
 }
 
 function ensureWrapperDirectory(wrapperDir) {
@@ -318,7 +335,6 @@ function prepareSkillsRuntime(options = {}) {
   const cwd = options.cwd || process.cwd();
   const repoSkillsDir = options.repoSkillsDir || path.resolve(cwd, 'skills');
   const skillsDir = options.skillsDir || resolveSkillsDataDir(cwd);
-  const launcherPath = options.launcherPath || path.resolve(cwd, 'scripts', 'run-skill-command.js');
   const globalWrapperDir = options.globalWrapperDir || process.env.CANVAS_SKILLS_GLOBAL_WRAPPER_DIR || DEFAULT_GLOBAL_WRAPPER_DIR;
   const installGlobalWrappers =
     options.installGlobalWrappers ?? envFlagEnabled(process.env.CANVAS_SKILLS_INSTALL_GLOBAL_WRAPPERS);
@@ -334,7 +350,7 @@ function prepareSkillsRuntime(options = {}) {
 
   for (const spec of commandSpecs) {
     const wrapperPath = path.join(wrapperDir, spec.name);
-    fs.writeFileSync(wrapperPath, buildWrapperContent(launcherPath, spec.name), {
+    fs.writeFileSync(wrapperPath, buildWrapperContent(spec.name), {
       encoding: 'utf8',
       mode: 0o755,
     });
@@ -342,7 +358,7 @@ function prepareSkillsRuntime(options = {}) {
 
   if (installGlobalWrappers && canWriteDirectory(globalWrapperDir)) {
     for (const spec of commandSpecs) {
-      fs.writeFileSync(path.join(globalWrapperDir, spec.name), buildWrapperContent(launcherPath, spec.name), {
+      fs.writeFileSync(path.join(globalWrapperDir, spec.name), buildWrapperContent(spec.name), {
         encoding: 'utf8',
         mode: 0o755,
       });

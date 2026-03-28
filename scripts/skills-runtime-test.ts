@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import fsSync from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 
 function encryptValue(value: string, secret: string): string {
@@ -112,12 +113,16 @@ async function main() {
     cwd: tempRoot,
     repoSkillsDir,
     installGlobalWrappers: false,
-    launcherPath,
   });
   assert.equal(prepared.commandSpecs.length, 3);
-  await fs.access(path.join(prepared.wrapperDir, 'single-command'));
+  const singleWrapperPath = path.join(prepared.wrapperDir, 'single-command');
+  await fs.access(singleWrapperPath);
   await fs.access(path.join(prepared.wrapperDir, 'multi-one'));
   await fs.access(path.join(prepared.wrapperDir, 'multi-two'));
+  const wrapperContent = await fs.readFile(singleWrapperPath, 'utf8');
+  assert.match(wrapperContent, /CANVAS_SKILLS_LAUNCHER_PATH/);
+  assert.match(wrapperContent, /CANVAS_APP_ROOT/);
+  assert.doesNotMatch(wrapperContent, new RegExp(launcherPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
   const globalWrites: string[] = [];
   const originalWriteFileSync = fsSync.writeFileSync;
@@ -131,7 +136,6 @@ async function main() {
     runtime.prepareSkillsRuntime({
       cwd: tempRoot,
       repoSkillsDir,
-      launcherPath,
     });
   } finally {
     fsSync.writeFileSync = originalWriteFileSync;
@@ -149,7 +153,6 @@ async function main() {
     runtime.prepareSkillsRuntime({
       cwd: tempRoot,
       repoSkillsDir,
-      launcherPath,
       installGlobalWrappers: true,
       globalWrapperDir: unwritableGlobalDir,
     });
@@ -159,6 +162,40 @@ async function main() {
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /Skipping global wrapper install/i);
   assert.match(warnings[0], /Using .*\/bin via PATH instead/i);
+
+  const missingEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+  };
+  delete missingEnv.CANVAS_APP_ROOT;
+  delete missingEnv.CANVAS_SKILLS_LAUNCHER_PATH;
+
+  const missingEnvResult = spawnSync(singleWrapperPath, [], {
+    cwd: tempRoot,
+    env: missingEnv,
+    encoding: 'utf8',
+  });
+  assert.equal(missingEnvResult.status, 1);
+  assert.match(missingEnvResult.stderr, /Missing skill launcher path/i);
+
+  const appRootResult = spawnSync(singleWrapperPath, [], {
+    cwd: tempRoot,
+    env: {
+      ...process.env,
+      CANVAS_APP_ROOT: tempRoot,
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(appRootResult.status, 0);
+
+  const explicitLauncherResult = spawnSync(singleWrapperPath, [], {
+    cwd: tempRoot,
+    env: {
+      ...process.env,
+      CANVAS_SKILLS_LAUNCHER_PATH: launcherPath,
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(explicitLauncherResult.status, 0);
 
   console.log('skills-runtime-test: ok');
 }

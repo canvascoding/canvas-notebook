@@ -101,6 +101,7 @@ async function main() {
   const childEnv = {
     ...process.env,
     CANVAS_ENV_FILE: configuredEnvFile,
+    CANVAS_APP_ROOT: process.cwd(),
     PORT: String(selectedPort),
     CANVAS_TERMINAL_TOKEN: terminalToken,
     CANVAS_TERMINAL_PORT: '3457',

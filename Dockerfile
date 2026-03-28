@@ -45,6 +45,7 @@ RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \
     CANVAS_RUNTIME_ENV=docker \
+    CANVAS_APP_ROOT=/app \
     CHROMIUM_PATH=/usr/bin/chromium \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \

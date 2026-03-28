@@ -1,6 +1,12 @@
 {
-  "updatedAt": "2026-03-28T13:15:00+01:00",
+  "updatedAt": "2026-03-28T14:05:00+01:00",
   "items": [
+    {
+      "id": "portable-skill-wrappers",
+      "title": "Skill-Wrapper runtime-portabel statt host-spezifisch machen",
+      "status": "done",
+      "notes": "Generierte Wrapper loesen den Launcher jetzt zur Laufzeit ueber CANVAS_SKILLS_LAUNCHER_PATH oder CANVAS_APP_ROOT auf, statt absolute Entwicklerpfade einzubrennen. Container- und Dev-Starts setzen CANVAS_APP_ROOT explizit, Seed-Dokumente und Skill-Creator verankern weiter /data/secrets/Canvas-Integrations.env und verbieten manuelles Editieren von /data/skills/bin."
+    },
     {
       "id": "quiet-skill-startup-logs",
       "title": "Skill-Startup ohne /usr/local/bin-Warnungen beruhigen",

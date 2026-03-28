@@ -59,6 +59,7 @@ Localizes advertisements. Use when the user says: "localize this ad", "translate
 - All skill-related secrets and environment variables supplied by the user live in `/data/secrets/Canvas-Integrations.env`
 - If you create a new skill that needs env vars, explicitly instruct the user to add them in Settings -> Integrations so they end up in `/data/secrets/Canvas-Integrations.env`
 - Never store new secrets in `/data/skills/<skill-name>/`, `/data/workspace`, or other ad-hoc files
+- Do not manually maintain generated wrappers in `/data/skills/bin`; update the skill manifest/runtime and let the wrappers be regenerated
 - **Output directories:** All results are workspace-relative under /data/workspace
 
 ## Detailed Documentation
@@ -128,3 +129,4 @@ After creation:
 - API skills require an API integration (provided by the user)
 - The Skill Creator only creates the manifest and documentation
 - If a created skill needs environment variables, document that they must come from `/data/secrets/Canvas-Integrations.env`
+- Generated command wrappers are runtime-managed; do not instruct the agent to edit `/data/skills/bin/*` by hand

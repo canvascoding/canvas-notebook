@@ -42,6 +42,7 @@ prepare_writable_dir() {
 
 # Ensure required data directories exist (critical for container persistence)
 echo "[entrypoint] Ensuring data directories exist..."
+export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
 mkdir -p /data/canvas-agent
 mkdir -p /data/pi-oauth-states
 mkdir -p /data/secrets
