@@ -1,6 +1,12 @@
 {
-  "updatedAt": "2026-03-27T12:52:00+01:00",
+  "updatedAt": "2026-03-28T12:35:00+01:00",
   "items": [
+    {
+      "id": "fix-docker-skills-runtime-copy",
+      "title": "Runner-Image fuer Skills-Runtime vervollstaendigen",
+      "status": "done",
+      "notes": "Das Runner-Image kopiert jetzt auch server/skills-runtime.js. Damit kann scripts/prepare-skills-runtime.js im Container starten, statt mit MODULE_NOT_FOUND auf ../server/skills-runtime abzubrechen."
+    },
     {
       "id": "skill-runtime-manifest-first",
       "title": "Skill-Runtime auf manifest-first Direct Commands umbauen",

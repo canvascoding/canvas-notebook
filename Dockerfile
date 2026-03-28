@@ -70,6 +70,7 @@ COPY --from=builder /app/tsconfig.json ./tsconfig.json
 # terminal-service.js stays as a deliberate JS artifact because the runner image executes it directly.
 COPY --from=builder /app/server/terminal-service.js ./server/terminal-service.js
 COPY --from=builder /app/server/load-app-env.js ./server/load-app-env.js
+COPY --from=builder /app/server/skills-runtime.js ./server/skills-runtime.js
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
