@@ -64,7 +64,7 @@ import {
 
 
 const execAsync = promisify(exec);
-const execFileAsync = promisify(execFile);
+
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   '.gif':  'image/gif',

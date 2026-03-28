@@ -880,7 +880,7 @@ export default function CanvasAgentChat({
     setSessionTitle(createSessionPayload.session.title || null);
     sessionIdRef.current = nextSessionId;
     return nextSessionId;
-  }, [t]);
+  }, []);
 
   const createAssistantBubble = useCallback((message?: AgentMessage) => {
     const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
