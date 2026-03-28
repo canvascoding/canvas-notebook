@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import fsSync from 'node:fs';
 import { promises as fs } from 'node:fs';
 
 function encryptValue(value: string, secret: string): string {
@@ -117,6 +118,47 @@ async function main() {
   await fs.access(path.join(prepared.wrapperDir, 'single-command'));
   await fs.access(path.join(prepared.wrapperDir, 'multi-one'));
   await fs.access(path.join(prepared.wrapperDir, 'multi-two'));
+
+  const globalWrites: string[] = [];
+  const originalWriteFileSync = fsSync.writeFileSync;
+  try {
+    fsSync.writeFileSync = ((file: fsSync.PathOrFileDescriptor, ...args: unknown[]) => {
+      if (typeof file === 'string' && file.startsWith('/usr/local/bin/')) {
+        globalWrites.push(file);
+      }
+      return originalWriteFileSync(file, ...(args as [never, never?]));
+    }) as typeof fsSync.writeFileSync;
+    runtime.prepareSkillsRuntime({
+      cwd: tempRoot,
+      repoSkillsDir,
+      launcherPath,
+    });
+  } finally {
+    fsSync.writeFileSync = originalWriteFileSync;
+  }
+  assert.deepEqual(globalWrites, []);
+
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  try {
+    console.warn = (message?: unknown, ...args: unknown[]) => {
+      warnings.push([message, ...args].map(String).join(' '));
+    };
+    const unwritableGlobalDir = path.join(tempRoot, 'readonly-bin');
+    await fs.mkdir(unwritableGlobalDir, { recursive: true, mode: 0o555 });
+    runtime.prepareSkillsRuntime({
+      cwd: tempRoot,
+      repoSkillsDir,
+      launcherPath,
+      installGlobalWrappers: true,
+      globalWrapperDir: unwritableGlobalDir,
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /Skipping global wrapper install/i);
+  assert.match(warnings[0], /Using .*\/bin via PATH instead/i);
 
   console.log('skills-runtime-test: ok');
 }

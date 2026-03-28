@@ -1,6 +1,12 @@
 {
-  "updatedAt": "2026-03-28T12:49:45+01:00",
+  "updatedAt": "2026-03-28T13:15:00+01:00",
   "items": [
+    {
+      "id": "quiet-skill-startup-logs",
+      "title": "Skill-Startup ohne /usr/local/bin-Warnungen beruhigen",
+      "status": "done",
+      "notes": "Die Skill-Runtime verwendet im Container standardmaessig nur noch /data/skills/bin. Globale Wrapper sind jetzt opt-in, nicht mehr Docker-Default, und bei nicht beschreibbarem Ziel gibt es hoechstens eine einzelne Skip-Warnung. start-services.sh bereitet die Runtime nur noch bei fehlendem oder leerem Bin-Verzeichnis nach."
+    },
     {
       "id": "fix-browser-start-container-runtime",
       "title": "browser-start fuer Container-Laufzeit robust machen",

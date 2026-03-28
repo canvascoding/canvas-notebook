@@ -20,9 +20,11 @@ chmod 777 /tmp 2>/dev/null || true
 
 cd /app
 
-echo "[Startup] Preparing skills runtime..."
-node scripts/prepare-skills-runtime.js
 SKILLS_BIN_DIR="${DATA:-/data}/skills/bin"
+if [ ! -d "$SKILLS_BIN_DIR" ] || [ -z "$(find "$SKILLS_BIN_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+  echo "[Startup] Skills runtime bin missing or empty, preparing skills runtime..."
+  node scripts/prepare-skills-runtime.js
+fi
 PATH="${SKILLS_BIN_DIR}:$PATH"
 export PATH
 

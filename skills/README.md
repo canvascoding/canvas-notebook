@@ -8,7 +8,7 @@ Skills sind lokale CLI-Werkzeuge, die der Agent über das `bash`-Tool aufrufen k
 <command> [options]
 ```
 
-Die Commands werden aus den Skill-Manifests erzeugt und zur Laufzeit unter `/data/skills/bin/` bereitgestellt. In Docker werden sie zusätzlich nach Möglichkeit in `/usr/local/bin/` gespiegelt.
+Die Commands werden aus den Skill-Manifests erzeugt und zur Laufzeit unter `/data/skills/bin/` bereitgestellt. Das ist im Container der kanonische und unterstützte Pfad.
 
 ```bash
 image-generation --prompt "..."
@@ -17,6 +17,8 @@ ad-localization --ref "..." --market "..."
 brave-search "query"
 transcribe /data/workspace/audio/meeting.mp3
 ```
+
+`/usr/local/bin` ist für den normalen Skill-Betrieb nicht erforderlich. Falls globale Wrapper für Sonderfälle gewünscht sind, müssen sie explizit aktiviert werden, zum Beispiel mit `CANVAS_SKILLS_INSTALL_GLOBAL_WRAPPERS=true`.
 
 ## Verfügbare Skills
 

@@ -7,6 +7,7 @@ const ENCRYPTED_PREFIX = 'enc:v1';
 const CONTAINER_DATA_ROOT = '/data';
 const VALID_ENV_SCOPES = new Set(['integrations', 'agents', 'none']);
 const VALID_INSTALL_STRATEGIES = new Set(['none', 'npm']);
+const DEFAULT_GLOBAL_WRAPPER_DIR = '/usr/local/bin';
 
 function directoryExists(targetPath) {
   try {
@@ -14,6 +15,15 @@ function directoryExists(targetPath) {
   } catch {
     return false;
   }
+}
+
+function envFlagEnabled(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
 function resolveCanvasDataRoot(cwd = process.cwd()) {
@@ -291,12 +301,27 @@ function ensureWrapperDirectory(wrapperDir) {
   }
 }
 
+function canWriteDirectory(targetDir) {
+  if (!directoryExists(targetDir)) {
+    return false;
+  }
+
+  try {
+    fs.accessSync(targetDir, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function prepareSkillsRuntime(options = {}) {
   const cwd = options.cwd || process.cwd();
   const repoSkillsDir = options.repoSkillsDir || path.resolve(cwd, 'skills');
   const skillsDir = options.skillsDir || resolveSkillsDataDir(cwd);
   const launcherPath = options.launcherPath || path.resolve(cwd, 'scripts', 'run-skill-command.js');
-  const installGlobalWrappers = options.installGlobalWrappers ?? (process.env.CANVAS_RUNTIME_ENV === 'docker');
+  const globalWrapperDir = options.globalWrapperDir || process.env.CANVAS_SKILLS_GLOBAL_WRAPPER_DIR || DEFAULT_GLOBAL_WRAPPER_DIR;
+  const installGlobalWrappers =
+    options.installGlobalWrappers ?? envFlagEnabled(process.env.CANVAS_SKILLS_INSTALL_GLOBAL_WRAPPERS);
 
   fs.mkdirSync(skillsDir, { recursive: true });
   if (directoryExists(repoSkillsDir)) {
@@ -315,17 +340,17 @@ function prepareSkillsRuntime(options = {}) {
     });
   }
 
-  if (installGlobalWrappers) {
+  if (installGlobalWrappers && canWriteDirectory(globalWrapperDir)) {
     for (const spec of commandSpecs) {
-      try {
-        fs.writeFileSync(`/usr/local/bin/${spec.name}`, buildWrapperContent(launcherPath, spec.name), {
-          encoding: 'utf8',
-          mode: 0o755,
-        });
-      } catch (error) {
-        console.warn(`[skills-runtime] Could not install global wrapper for ${spec.name}: ${error.message}`);
-      }
+      fs.writeFileSync(path.join(globalWrapperDir, spec.name), buildWrapperContent(launcherPath, spec.name), {
+        encoding: 'utf8',
+        mode: 0o755,
+      });
     }
+  } else if (installGlobalWrappers) {
+    console.warn(
+      `[skills-runtime] Skipping global wrapper install because ${globalWrapperDir} is not writable. Using ${wrapperDir} via PATH instead.`,
+    );
   }
 
   const currentPath = process.env.PATH || '';
