@@ -1,6 +1,12 @@
 {
-  "updatedAt": "2026-03-28T12:35:00+01:00",
+  "updatedAt": "2026-03-28T12:49:45+01:00",
   "items": [
+    {
+      "id": "fix-browser-start-container-runtime",
+      "title": "browser-start fuer Container-Laufzeit robust machen",
+      "status": "done",
+      "notes": "browser-start loest Chromium jetzt priorisiert ueber CHROMIUM_PATH, dann Puppeteer und dann Systempfade auf. Container-/No-Display-Laeufe starten headless mit Docker-sicheren Flags, --profile ist ausserhalb lokaler macOS-Desktop-Laeufe abgesichert, die Browser-Tools-Doku wurde angepasst und verifiziert mit npm run test:browser-start, npm run test:skills:runtime, npm run build sowie einem Playwright-UI-Check auf localhost:3000/en/skills."
+    },
     {
       "id": "fix-docker-skills-runtime-copy",
       "title": "Runner-Image fuer Skills-Runtime vervollstaendigen",

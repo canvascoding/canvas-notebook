@@ -29,6 +29,8 @@
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts",
     "pretest:skills:runtime": "npm run todos:sync:agent",
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
+    "pretest:browser-start": "npm run todos:sync:agent",
+    "test:browser-start": "node scripts/browser-start-test.mjs",
     "pretest:prompt-builder": "npm run todos:sync:agent",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
     "pretest:automation:schedule": "npm run todos:sync:agent",

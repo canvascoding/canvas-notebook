@@ -1,22 +1,27 @@
 ---
 name: browser-tools
-description: Interactive browser automation via Chrome DevTools Protocol. Use when you need to interact with web pages, test frontends, scrape dynamic content, or when user interaction with a visible browser is required. Chromium is included via puppeteer.
+description: Interactive browser automation via Chrome DevTools Protocol. Use when you need to interact with web pages, test frontends, scrape dynamic content, or when user interaction with a visible browser is required. The skill prefers CHROMIUM_PATH when provided and otherwise falls back to an available Chromium/Chrome binary.
 ---
 
 # Browser Tools
 
 Chrome DevTools Protocol tools for agent-assisted web automation. These tools connect to Chromium running on `:9222` with remote debugging enabled.
 
-Chromium is bundled via the `puppeteer` npm package and is automatically available — no separate installation needed.
+The launcher prefers `CHROMIUM_PATH` when it is set. If that is missing, it falls back to Puppeteer's bundled browser when present and then to common system Chromium/Chrome locations.
 
 ## Start Chromium
 
 ```bash
-browser-start              # Fresh profile (headless, works in Docker)
-browser-start --profile    # Copy user's Chrome profile (macOS only)
+browser-start              # Container/no-display: headless. Local desktop: visible when possible.
+browser-start --profile    # Copy your Chrome profile on local macOS runs
 ```
 
-Launch Chromium with remote debugging on `:9222`. Use `--profile` to preserve the user's authentication state (only works on macOS with Chrome installed).
+Launch Chromium with remote debugging on `:9222`.
+
+- In Docker or other no-display environments, the browser starts headless with container-safe flags.
+- On a local desktop, the browser stays visible when the environment supports it.
+- `--profile` is only honored on local macOS runs with a visible browser and is ignored elsewhere so container startup keeps working.
+- If the binary cannot be found, the error tells you which paths were tried.
 
 ## Navigate
 

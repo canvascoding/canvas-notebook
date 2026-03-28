@@ -2,7 +2,7 @@
 
 import { spawn, execSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
-import puppeteerFull from "puppeteer";
+import { buildBrowserLaunchSpec } from "./browser-start-config.js";
 
 const useProfile = process.argv[2] === "--profile";
 
@@ -26,6 +26,12 @@ try {
 	process.exit(0);
 } catch {}
 
+const launchSpec = buildBrowserLaunchSpec({ requestedProfile: useProfile });
+
+if (launchSpec.profileWarning) {
+	console.warn(`! ${launchSpec.profileWarning}`);
+}
+
 // Setup profile directory
 execSync(`mkdir -p "${SCRAPING_DIR}"`, { stdio: "ignore" });
 
@@ -34,7 +40,7 @@ try {
 	execSync(`rm -f "${SCRAPING_DIR}/SingletonLock" "${SCRAPING_DIR}/SingletonSocket" "${SCRAPING_DIR}/SingletonCookie"`, { stdio: "ignore" });
 } catch {}
 
-if (useProfile) {
+if (launchSpec.profileEnabled) {
 	console.log("Syncing profile...");
 	execSync(
 		`rsync -a --delete \
@@ -51,21 +57,12 @@ if (useProfile) {
 	);
 }
 
-// Resolve Chromium executable: use puppeteer's bundled Chromium (works in Docker),
-// fall back to system Chrome on macOS if available.
-const chromiumPath = puppeteerFull.executablePath();
-
 // Start Chromium with flags to force new instance
-spawn(
-	chromiumPath,
-	[
-		"--remote-debugging-port=9222",
-		`--user-data-dir=${SCRAPING_DIR}`,
-		"--no-first-run",
-		"--no-default-browser-check",
-	],
-	{ detached: true, stdio: "ignore" },
-).unref();
+const child = spawn(launchSpec.executablePath, launchSpec.args, {
+	detached: true,
+	stdio: "ignore",
+});
+child.unref();
 
 // Wait for Chrome to be ready
 let connected = false;
@@ -84,8 +81,14 @@ for (let i = 0; i < 30; i++) {
 }
 
 if (!connected) {
-	console.error("✗ Failed to connect to browser");
+	console.error(
+		`✗ Failed to connect to browser at :9222 (binary: ${launchSpec.executablePath}, ` +
+			`source: ${launchSpec.executableSource}, headless: ${launchSpec.headless ? "yes" : "no"})`,
+	);
 	process.exit(1);
 }
 
-console.log(`✓ Browser started on :9222${useProfile ? " with your profile" : ""}`);
+console.log(
+	`✓ Browser started on :9222${launchSpec.profileEnabled ? " with your profile" : ""} ` +
+		`(${launchSpec.headless ? "headless" : "visible"}, ${launchSpec.executableSource})`,
+);
