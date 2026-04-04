@@ -70,6 +70,7 @@ export function ShareMarkdownDialog({
 
   const handleOpenPDF = async () => {
     setPdfLoading(true);
+    const newWindow = window.open('', '_blank');
     try {
       const response = await fetch('/api/files/markdown-pdf', {
         method: 'POST',
@@ -78,6 +79,7 @@ export function ShareMarkdownDialog({
       });
 
       if (!response.ok) {
+        newWindow?.close();
         const errorData = await response.json().catch(() => null);
         throw new Error(
           errorData?.error || t('pdfGenerationFailed', { statusText: response.statusText })
@@ -86,7 +88,11 @@ export function ShareMarkdownDialog({
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      if (newWindow) {
+        newWindow.location.href = url;
+      } else {
+        window.open(url, '_blank');
+      }
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('failedToGeneratePdf');
@@ -98,7 +104,7 @@ export function ShareMarkdownDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent layout="viewport" showCloseButton={false} className="flex flex-col sm:max-w-4xl">
+      <DialogContent showCloseButton={false} className="flex flex-col w-full max-w-4xl h-[85vh] max-h-[85vh]">
         <DialogHeader className="px-4 md:px-6 pt-4 md:pt-5 pb-2 shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
             <FileText className="h-4 md:h-5 w-4 md:w-5 shrink-0" />

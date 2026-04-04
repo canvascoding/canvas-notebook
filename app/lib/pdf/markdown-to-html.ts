@@ -96,6 +96,9 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${fileName}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
   <style>
     @page {
       size: A4;
@@ -107,7 +110,7 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
     }
 
     body {
-      font-family: Georgia, serif;
+      font-family: Arial, Helvetica, sans-serif, 'Noto Color Emoji';
       font-size: 11pt;
       line-height: 1.6;
       color: #222;
@@ -117,7 +120,7 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
     }
 
     h1, h2, h3, h4, h5, h6 {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: Arial, Helvetica, sans-serif;
       margin-top: 1.5em;
       margin-bottom: 0.5em;
       line-height: 1.3;
@@ -142,7 +145,7 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
     }
 
     code {
-      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace, 'Noto Color Emoji';
       font-size: 0.9em;
     }
 
