@@ -4,9 +4,26 @@ import { useState, useRef, useCallback, useEffect, type CSSProperties } from 're
 import Image from 'next/image';
 import { Link } from '@/i18n/navigation';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Files, MessageSquare, PanelLeft, Terminal as TerminalIcon, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  Files,
+  Maximize2,
+  MessageSquare,
+  PanelLeft,
+  PanelRight,
+  Terminal as TerminalIcon,
+  X,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Sheet,
   SheetContent,
@@ -31,6 +48,7 @@ interface DashboardShellProps {
 }
 
 type MobileSurface = 'editor' | 'terminal';
+type DesktopChatMode = 'side' | 'fullscreen';
 
 const LEFT_SIDEBAR_MIN = 220;
 const MIN_EDITOR_WIDTH = 360;
@@ -98,6 +116,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [chatVisible, setChatVisible] = useState(false);
+  const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [chatWidth, setChatWidth] = useState(420);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>('editor');
@@ -189,6 +208,25 @@ export function DashboardShell({ username }: DashboardShellProps) {
     document.body.style.userSelect = 'auto';
   }, []);
 
+  const openDesktopChat = useCallback((mode: DesktopChatMode) => {
+    setDesktopChatMode(mode);
+    setChatVisible(true);
+  }, []);
+
+  const handleDesktopChatPrimaryAction = useCallback(() => {
+    if (!chatVisible) {
+      openDesktopChat('side');
+      return;
+    }
+
+    if (desktopChatMode === 'fullscreen') {
+      setDesktopChatMode('side');
+      return;
+    }
+
+    setChatVisible(false);
+  }, [chatVisible, desktopChatMode, openDesktopChat]);
+
   useEffect(() => {
     const handleViewport = () => {
       const isMobile = window.innerWidth < 768;
@@ -270,7 +308,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
       if (viewportMode !== 'desktop') {
         return;
       }
-      setChatVisible((current) => !current);
+      handleDesktopChatPrimaryAction();
     };
 
     window.addEventListener('notebook-desktop-toggle-sidebar', handleDesktopSidebarToggle);
@@ -279,7 +317,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
       window.removeEventListener('notebook-desktop-toggle-sidebar', handleDesktopSidebarToggle);
       window.removeEventListener('notebook-desktop-toggle-chat', handleDesktopChatToggle);
     };
-  }, [viewportMode]);
+  }, [handleDesktopChatPrimaryAction, viewportMode]);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -318,6 +356,12 @@ export function DashboardShell({ username }: DashboardShellProps) {
   const showMobileChrome = viewportMode !== 'desktop';
   const isMobileViewport = viewportMode === 'mobile';
   const isDesktopViewport = viewportMode === 'desktop';
+  const isDesktopChatSideVisible = isDesktopViewport && chatVisible && desktopChatMode === 'side';
+  const isDesktopChatFullscreen = isDesktopViewport && chatVisible && desktopChatMode === 'fullscreen';
+  const desktopChatWrapperStyle =
+    desktopChatMode === 'side'
+      ? ({ width: chatVisible ? `${chatWidth}px` : '0px' } as CSSProperties)
+      : undefined;
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
@@ -399,15 +443,46 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   <TerminalIcon className="h-4 w-4" />
                   <span className="hidden sm:inline">{tCommon('terminal')}</span>
                 </Button>
-                <Button
-                  variant={chatVisible ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setChatVisible(!chatVisible)}
-                  className="gap-2 px-2 sm:px-3"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  <span className="hidden sm:inline">{tCommon('aiChat')}</span>
-                </Button>
+                <div className="flex items-center">
+                  <Button
+                    variant={chatVisible ? "default" : "ghost"}
+                    size="sm"
+                    onClick={handleDesktopChatPrimaryAction}
+                    className="gap-2 rounded-r-none px-2 sm:px-3"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    <span className="hidden sm:inline">{tCommon('aiChat')}</span>
+                  </Button>
+                  <DropdownMenu modal={false}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant={chatVisible ? "default" : "ghost"}
+                        size="sm"
+                        className={`rounded-l-none border-l px-2 ${
+                          chatVisible ? 'border-primary-foreground/15' : 'border-border/60'
+                        }`}
+                        aria-label={tNav('openChatModeMenu')}
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuRadioGroup
+                        value={desktopChatMode}
+                        onValueChange={(value) => openDesktopChat(value as DesktopChatMode)}
+                      >
+                        <DropdownMenuRadioItem value="side">
+                          <PanelRight className="h-4 w-4" />
+                          {tCommon('openInSidePanel')}
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="fullscreen">
+                          <Maximize2 className="h-4 w-4" />
+                          {tCommon('openFullscreen')}
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
                 <div className="hidden lg:flex flex-col items-end shrink-0">
                     <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{tCommon('user')}</span>
                     <span className="text-xs text-foreground/90">{username}</span>
@@ -543,7 +618,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     <FileEditor />
                   </div>
 
-                  {chatVisible ? (
+                  {isDesktopChatSideVisible ? (
                     <div
                       onMouseDown={startResizing}
                       className="hidden md:flex w-1 hover:w-1.5 bg-border hover:bg-primary/60 cursor-col-resize z-50 transition-all items-center justify-center"
@@ -553,14 +628,20 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   ) : null}
 
                   <div
-                    style={{
-                      width: chatVisible ? `${chatWidth}px` : '0px'
-                    }}
-                    className={`
-                      relative flex-shrink-0 bg-background border-l border-border
-                      transition-all duration-300 ease-in-out overflow-hidden
-                      ${chatVisible ? 'opacity-100' : 'opacity-0 pointer-events-none w-0 border-none'}
-                    `}
+                    style={desktopChatWrapperStyle}
+                    className={
+                      desktopChatMode === 'fullscreen'
+                        ? `
+                          absolute inset-0 z-[70] overflow-hidden bg-background shadow-[0_0_0_1px_hsl(var(--border)),0_24px_60px_-24px_hsl(var(--foreground)/0.45)]
+                          transition-all duration-300 ease-in-out
+                          ${isDesktopChatFullscreen ? 'opacity-100' : 'pointer-events-none opacity-0'}
+                        `
+                        : `
+                          relative flex-shrink-0 overflow-hidden border-l border-border bg-background
+                          transition-all duration-300 ease-in-out
+                          ${chatVisible ? 'opacity-100' : 'pointer-events-none w-0 border-none opacity-0'}
+                        `
+                    }
                   >
                     <div className="flex flex-col w-full h-full relative">
                       <CanvasAgentChat

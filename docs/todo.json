@@ -1,11 +1,11 @@
 {
-  "updatedAt": "2026-04-04T15:05:00+02:00",
+  "updatedAt": "2026-04-04T14:47:27+02:00",
   "items": [
     {
       "id": "notebook-chat-split-button-fullscreen",
       "title": "Desktop-Chat im Notebook als Split Button mit Side Panel und Vollbild erweitern",
-      "status": "in_progress",
-      "notes": "In Arbeit: Desktop-AI-Chat wird im Notebook zu einem Split Button erweitert. Hauptklick behaelt das Side Panel als Default, das Dropdown bietet Side Panel und Vollbild, dieselbe Chat-Instanz wechselt nur den Wrapper. Anschliessend folgen Build- und Browser-Checks auf localhost:3000."
+      "status": "done",
+      "notes": "Desktop-AI-Chat im Notebook ist jetzt ein Split Button. Hauptklick behaelt das Side Panel als Default, das Dropdown oeffnet Side Panel oder Vollbild mit derselben Chat-Instanz und ohne Draft-Verlust. Verifiziert mit npm run build sowie einem Playwright-Desktop-Check auf localhost:3000 per Session-Cookie-Login. Gemessene Chat-Breiten: Side initial ca. 297px, geschlossen ca. 22px Restbox, Side ueber Dropdown ca. 264px, Vollbild ca. 1094px, Rueckkehr ins Side Panel ca. 298px. Fuer den gruernen Build wurde zusaetzlich ein Syntaxfehler in app/lib/skills/skill-icons.tsx korrigiert."
     },
     {
       "id": "chat-slash-skill-references",
