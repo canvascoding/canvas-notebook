@@ -405,6 +405,10 @@
       "terminal": {
         "title": "Terminal",
         "description": "Workspace Terminal für echte Nerds. Keine GUI, nur pure Kommandozeilen-Magie."
+      },
+      "chat": {
+        "title": "Canvas Chat",
+        "description": "Vollbild-KI-Chat-Interface für den Canvas Workspace."
       }
     },
     "footer": {

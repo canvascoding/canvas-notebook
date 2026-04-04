@@ -1,14 +1,14 @@
 import * as React from 'react';
 import { Link } from '@/i18n/navigation';
 import { getTranslations } from 'next-intl/server';
-import { BarChart3, ChevronRight, Clapperboard, Globe, ImageIcon, NotebookPen, Terminal, Workflow, Wrench } from 'lucide-react';
+import { BarChart3, ChevronRight, Clapperboard, Globe, ImageIcon, MessageSquare, NotebookPen, Terminal, Workflow, Wrench } from 'lucide-react';
 
 import { HomeChatPrompt } from '@/app/components/home/HomeChatPrompt';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
 type SuiteApp = {
-  id: 'notebook' | 'usage' | 'imageGeneration' | 'veo' | 'nanoBanana' | 'automations' | 'skills' | 'terminal';
+  id: 'notebook' | 'usage' | 'imageGeneration' | 'veo' | 'nanoBanana' | 'automations' | 'skills' | 'terminal' | 'chat';
   status: 'ready' | 'planned';
   href?: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -75,6 +75,12 @@ const suiteApps: SuiteApp[] = [
     status: 'ready',
     href: '/terminal',
     icon: Terminal,
+  },
+  {
+    id: 'chat',
+    status: 'ready',
+    href: '/chat',
+    icon: MessageSquare,
   },
 ];
 
