@@ -1,6 +1,18 @@
 {
-  "updatedAt": "2026-03-28T14:22:54+01:00",
+  "updatedAt": "2026-04-04T15:05:00+02:00",
   "items": [
+    {
+      "id": "notebook-chat-split-button-fullscreen",
+      "title": "Desktop-Chat im Notebook als Split Button mit Side Panel und Vollbild erweitern",
+      "status": "in_progress",
+      "notes": "In Arbeit: Desktop-AI-Chat wird im Notebook zu einem Split Button erweitert. Hauptklick behaelt das Side Panel als Default, das Dropdown bietet Side Panel und Vollbild, dieselbe Chat-Instanz wechselt nur den Wrapper. Anschliessend folgen Build- und Browser-Checks auf localhost:3000."
+    },
+    {
+      "id": "chat-slash-skill-references",
+      "title": "Slash-Skill-Referenzen im Chat-Composer wie @-Mentions einfuehren",
+      "status": "done",
+      "notes": "Der Chat-Composer nutzt jetzt einen gemeinsamen Referenz-Picker fuer @-Dateien und /-Skills. /-Treffer laden nur aktive Skills, rendern Skill-Icons und fuegen /skill-name statt @\"...\" ein. /api/skills und die Einzel-Enable/Disable-Routen spiegeln den Runtime-Status jetzt korrekt, explizite /skill-name-Referenzen werden im Skill-Prompt als starke Praeferenz behandelt, und die Chat-Texte nennen jetzt @ fuer Dateien sowie / fuer Skills. Verifiziert mit zweimal npm run build sowie BASE_URL=http://localhost:3000 E2E_EXTERNAL_SERVER=1 npx playwright test tests/chat-file-reference-picker.spec.ts gegen die vorhandene lokale Instanz."
+    },
     {
       "id": "fix-browser-tools-dynamic-skill-bridge",
       "title": "Browser-Tools fuer Agent und Container-Shell robust anbinden",

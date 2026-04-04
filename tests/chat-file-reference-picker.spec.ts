@@ -28,7 +28,23 @@ async function login(page: Page) {
 
 async function startFreshChat(page: Page) {
   await page.getByRole('button', { name: /new chat/i }).click();
-  await expect(page.getByTestId('chat-session-id')).toContainText('new chat');
+  await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', /new chat/i);
+}
+
+async function setSkillEnabled(page: Page, skillName: string, enabled: boolean) {
+  const response = await page.evaluate(async ({ enabled, skillName }) => {
+    const res = await fetch(`/api/skills/${skillName}/${enabled ? 'enable' : 'disable'}`, {
+      method: 'POST',
+    });
+
+    return {
+      body: await res.text(),
+      ok: res.ok,
+      status: res.status,
+    };
+  }, { enabled, skillName });
+
+  expect(response.ok, `Failed to update skill "${skillName}": HTTP ${response.status} ${response.body}`).toBeTruthy();
 }
 
 test.describe('Chat File Reference Picker', () => {
@@ -46,11 +62,12 @@ test.describe('Chat File Reference Picker', () => {
 
   test('prefers direct filename matches over folder-name path matches', async ({ page }) => {
     const fixtureId = `playwright-file-picker-${Date.now()}`;
+    const query = `PickerUnique${Date.now()}`;
     const fixtureRoot = path.join(WORKSPACE_ROOT, fixtureId);
-    const pathOnlyDir = path.join(fixtureRoot, 'Test');
+    const pathOnlyDir = path.join(fixtureRoot, query);
     const filenameDir = path.join(fixtureRoot, 'Elsewhere');
     const pathOnlyFile = path.join(pathOnlyDir, 'unrelated-notes.md');
-    const filenameMatchFile = path.join(filenameDir, 'Test.md');
+    const filenameMatchFile = path.join(filenameDir, `${query}.md`);
 
     await mkdir(pathOnlyDir, { recursive: true });
     await mkdir(filenameDir, { recursive: true });
@@ -62,14 +79,68 @@ test.describe('Chat File Reference Picker', () => {
       await startFreshChat(page);
 
       const input = page.getByTestId('chat-input');
-      await input.fill('@Test');
+      await input.fill(`@${query}`);
 
       const pickerButtons = page.locator('textarea[data-testid="chat-input"] + div button');
       await expect(pickerButtons.first()).toBeVisible({ timeout: 15000 });
-      await expect(pickerButtons.first()).toContainText(`${fixtureId}/Elsewhere/Test.md`);
-      await expect(pickerButtons.first()).not.toContainText('/Test/unrelated-notes.md');
+      await expect(pickerButtons.first()).toContainText(`${fixtureId}/Elsewhere/${query}.md`);
+      await expect(pickerButtons.first()).not.toContainText(`/${query}/unrelated-notes.md`);
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });
     }
+  });
+
+  test('shows active slash skill references and inserts the selected skill', async ({ page }) => {
+    await page.goto('/chat');
+    await setSkillEnabled(page, 'pdf', true);
+
+    await startFreshChat(page);
+
+    const input = page.getByTestId('chat-input');
+    await input.fill('/pdf');
+
+    const picker = page.getByTestId('chat-reference-picker');
+    await expect(picker).toBeVisible({ timeout: 15000 });
+    await expect(picker).toContainText(/pdf/i);
+    await expect(picker).toContainText('/pdf');
+    await expect(picker.locator('[data-reference-kind="skill"] [data-testid="chat-reference-icon"]').first()).toBeVisible();
+
+    await input.press('Enter');
+    await expect(input).toHaveValue('/pdf ');
+    await expect(picker).toBeHidden();
+  });
+
+  test('does not show disabled skills in the slash picker', async ({ page }) => {
+    await page.goto('/chat');
+    await setSkillEnabled(page, 'pdf', false);
+
+    try {
+      await startFreshChat(page);
+
+      const input = page.getByTestId('chat-input');
+      await input.fill('/pdf');
+
+      const picker = page.getByTestId('chat-reference-picker');
+      await expect(picker).toBeVisible({ timeout: 15000 });
+      await expect(picker.locator('[data-reference-kind="skill"]')).toHaveCount(0);
+      await expect(picker).toContainText(/No skills found matching|Keine Skills gefunden/);
+      await expect(picker).not.toContainText('/pdf');
+    } finally {
+      await setSkillEnabled(page, 'pdf', true);
+    }
+  });
+
+  test('does not open the slash picker inside normal paths or URLs', async ({ page }) => {
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    const input = page.getByTestId('chat-input');
+    const picker = page.getByTestId('chat-reference-picker');
+
+    await input.fill('foo/bar');
+    await expect(picker).toHaveCount(0);
+
+    await input.fill('https://example.com');
+    await expect(picker).toHaveCount(0);
   });
 });

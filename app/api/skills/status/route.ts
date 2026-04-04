@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
+import { resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
+import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 import { headers } from 'next/headers';
 
 export async function GET() {
@@ -12,15 +14,14 @@ export async function GET() {
 
     // Read current config
     const config = await readPiRuntimeConfig();
-    
-    // Handle missing enabledSkills field (backward compatibility)
-    const enabledSkills = config.enabledSkills || [];
-    
+    const skills = await loadSkillsFromDisk();
+    const allSkillNames = skills.map((skill) => skill.name);
+    const enabledSkillNames = Array.from(resolveEnabledSkillNames(allSkillNames, config.enabledSkills));
+
     return NextResponse.json({
       success: true,
-      enabledSkills: enabledSkills,
-      // If enabledSkills is empty or undefined, all skills are enabled by default
-      allEnabled: !enabledSkills || enabledSkills.length === 0,
+      enabledSkills: enabledSkillNames,
+      allEnabled: enabledSkillNames.length === allSkillNames.length,
     });
   } catch (error) {
     console.error('[Skills API] Error reading skill status:', error);

@@ -620,6 +620,8 @@ export function getSkillsContext(skills: AnthropicSkill[]): string {
   let context = '\n\n# Skill Instructions\n\n';
   context += 'When the user requests tasks that match the following skill descriptions, ';
   context += 'follow the detailed instructions provided for each skill.\n\n';
+  context += 'If the user explicitly mentions one or more skills with the syntax /skill-name, ';
+  context += 'treat that as a strong preference to use those enabled skills when they are relevant and available.\n\n';
 
   for (const skill of enabledSkills) {
     context += `---\n\n`;

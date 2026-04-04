@@ -37,7 +37,7 @@ export default function SkillsPageClient({ skills: initialSkills, stats: initial
       .then(data => {
         if (data.success) {
           const apiEnabledSkills = data.enabledSkills || [];
-          const allEnabled = data.allEnabled || apiEnabledSkills.length === 0;
+          const allEnabled = data.allEnabled === true;
           
           // Only update if server state differs from client state
           const serverEnabledSet = allEnabled 

@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import type { Usage } from '@mariozechner/pi-ai';
 import { useTranslations } from 'next-intl';
+import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 import {
   Paperclip,
   X,
@@ -32,16 +33,20 @@ import {
   FolderTree,
   Settings,
 } from 'lucide-react';
+import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
+import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
+import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 
 interface Attachment {
   name: string;
@@ -127,6 +132,16 @@ type AgentConfig = {
   };
   discovery: Record<string, { models: DiscoveryModel[] }>;
 };
+
+type FilePickerFile = {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  isImage: boolean;
+};
+
+type SkillPickerSkill = Pick<AnthropicSkill, 'name' | 'title' | 'description' | 'enabled'>;
+type ReferencePickerValue = FilePickerFile | SkillPickerSkill;
 
 interface CanvasAgentChatProps {
   initialPrompt?: string | null;
@@ -502,10 +517,10 @@ export default function CanvasAgentChat({
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
 
-  const [showFilePicker, setShowFilePicker] = useState(false);
-  const [filePickerQuery, setFilePickerQuery] = useState('');
-  const [filePickerFiles, setFilePickerFiles] = useState<Array<{ name: string; path: string; type: 'file' | 'directory'; isImage: boolean }>>([]);
-  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
+  const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
+  const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
+  const [availableSkills, setAvailableSkills] = useState<SkillPickerSkill[] | null>(null);
 
   const localizedStarterPrompts = BUSINESS_STARTER_PROMPTS.map((prompt) => ({
     ...prompt,
@@ -513,8 +528,7 @@ export default function CanvasAgentChat({
     description: t(`starterPrompts.${prompt.id}.description`),
     prompt: t(`starterPrompts.${prompt.id}.prompt`),
   }));
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const [cursorPosition, setCursorPosition] = useState(0);
+  const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
   const [composerHeight, setComposerHeight] = useState(220);
   const [composerWidth, setComposerWidth] = useState(0);
   const [showComposerHint, setShowComposerHint] = useState(false);
@@ -524,7 +538,7 @@ export default function CanvasAgentChat({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const filePickerRef = useRef<HTMLDivElement>(null);
+  const referencePickerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -541,6 +555,7 @@ export default function CanvasAgentChat({
   const userStartedNewChatRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   const isAtBottomRef = useRef(true);
+  const referenceRequestIdRef = useRef(0);
 
   const getTextareaBaseHeight = useCallback(() => (
     isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
@@ -1430,87 +1445,158 @@ export default function CanvasAgentChat({
     }
   }, [handleFileUpload]);
 
-  const fetchFiles = useCallback(async (query: string = '') => {
-    setIsLoadingFiles(true);
+  const closeReferencePicker = useCallback(() => {
+    setActiveReferenceMatch(null);
+    setReferencePickerItems([]);
+    setSelectedReferenceIndex(0);
+    referenceRequestIdRef.current += 1;
+  }, []);
+
+  const fetchFiles = useCallback(async (query: string = '', requestId: number) => {
     try {
       const res = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=50`);
       const data = await res.json();
+      if (requestId !== referenceRequestIdRef.current) {
+        return;
+      }
+
       if (data.success) {
-        setFilePickerFiles(data.files);
-        setSelectedFileIndex(0);
+        const items = (data.files as FilePickerFile[]).map((file) => ({
+          id: `file:${file.path}`,
+          kind: 'file' as const,
+          icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }),
+          label: file.path,
+          payload: file,
+        }));
+        setReferencePickerItems(items);
+        setSelectedReferenceIndex(0);
       }
     } catch (err) {
       console.error('Failed to fetch files', err);
-    } finally {
-      setIsLoadingFiles(false);
     }
   }, []);
+
+  const setSkillReferenceItems = useCallback((skills: SkillPickerSkill[], query: string) => {
+    const items = searchSkillReferenceEntries(skills, query).map((skill) => ({
+      id: `skill:${skill.name}`,
+      kind: 'skill' as const,
+      icon: renderSkillIcon(skill.name, skill.description),
+      label: skill.title,
+      secondaryLabel: `/${skill.name}`,
+      payload: skill,
+    }));
+    setReferencePickerItems(items);
+    setSelectedReferenceIndex(0);
+  }, []);
+
+  const fetchSkills = useCallback(async () => {
+    if (availableSkills) {
+      return availableSkills;
+    }
+
+    try {
+      const res = await fetch('/api/skills');
+      const data = await res.json();
+      if (!data.success) {
+        return [];
+      }
+
+      const nextSkills = (data.skills as Array<SkillPickerSkill & { path?: string }>).filter((skill) => skill.enabled).map((skill) => ({
+        description: skill.description,
+        enabled: skill.enabled,
+        name: skill.name,
+        title: skill.title,
+      }));
+      setAvailableSkills(nextSkills);
+      return nextSkills;
+    } catch (err) {
+      console.error('Failed to fetch skills', err);
+      return [];
+    }
+  }, [availableSkills]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const cursorPos = e.target.selectionStart;
     setInput(value);
-    setCursorPosition(cursorPos);
 
-    const lastAtIndex = value.lastIndexOf('@', cursorPos);
-    if (lastAtIndex !== -1 && cursorPos > lastAtIndex) {
-      const textAfterAt = value.slice(lastAtIndex + 1, cursorPos);
-      const hasSpace = textAfterAt.includes(' ');
-      const hasCompletedQuote = textAfterAt.includes('"') && textAfterAt.indexOf('"') < textAfterAt.length - 1;
-      const hasAnotherAt = textAfterAt.includes('@');
-
-      if (!hasSpace && !hasCompletedQuote && !hasAnotherAt) {
-        setFilePickerQuery(textAfterAt);
-        setShowFilePicker(true);
-        void fetchFiles(textAfterAt);
-        return;
-      }
+    const match = findActiveComposerReference(value, cursorPos);
+    if (!match) {
+      setIsLoadingReferenceItems(false);
+      closeReferencePicker();
+      return;
     }
 
-    setShowFilePicker(false);
-  }, [fetchFiles]);
+    setActiveReferenceMatch(match);
+    setIsLoadingReferenceItems(true);
+    const requestId = referenceRequestIdRef.current + 1;
+    referenceRequestIdRef.current = requestId;
 
-  const handleFileSelect = useCallback((file: { name: string; path: string }) => {
-    const lastAtIndex = input.lastIndexOf('@', cursorPosition);
-    if (lastAtIndex === -1) return;
-    const before = input.slice(0, lastAtIndex);
-    const after = input.slice(cursorPosition);
-    const newValue = `${before}@"${file.path}" ${after}`;
-    setInput(newValue);
-    setShowFilePicker(false);
-    setFilePickerQuery('');
+    if (match.kind === 'file') {
+      void fetchFiles(match.query, requestId).finally(() => {
+        if (referenceRequestIdRef.current === requestId) {
+          setIsLoadingReferenceItems(false);
+        }
+      });
+      return;
+    }
+
+    void fetchSkills().then((skills) => {
+      if (referenceRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setSkillReferenceItems(skills, match.query);
+      setIsLoadingReferenceItems(false);
+    });
+  }, [closeReferencePicker, fetchFiles, fetchSkills, setSkillReferenceItems]);
+
+  const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ReferencePickerValue>) => {
+    if (!activeReferenceMatch) {
+      return;
+    }
+
+    const replacement = item.kind === 'file'
+      ? `@"${(item.payload as FilePickerFile).path}" `
+      : `/${(item.payload as SkillPickerSkill).name} `;
+    const { nextValue, nextCursorPosition } = replaceComposerReference(input, activeReferenceMatch, replacement);
+
+    setInput(nextValue);
+    closeReferencePicker();
 
     setTimeout(() => {
       textareaRef.current?.focus();
-      const newCursorPos = before.length + file.path.length + 4;
-      textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+      textareaRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
     }, 0);
-  }, [cursorPosition, input]);
+  }, [activeReferenceMatch, closeReferencePicker, input]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (showFilePicker && filePickerFiles.length > 0) {
+    if (activeReferenceMatch && e.key === 'Escape') {
+      e.preventDefault();
+      closeReferencePicker();
+      return;
+    }
+
+    if (activeReferenceMatch && referencePickerItems.length > 0) {
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
-          setSelectedFileIndex((prev) => (prev < filePickerFiles.length - 1 ? prev + 1 : prev));
+          setSelectedReferenceIndex((prev) => (prev < referencePickerItems.length - 1 ? prev + 1 : prev));
           return;
         case 'ArrowUp':
           e.preventDefault();
-          setSelectedFileIndex((prev) => (prev > 0 ? prev - 1 : 0));
+          setSelectedReferenceIndex((prev) => (prev > 0 ? prev - 1 : 0));
           return;
         case 'Enter':
         case 'Tab':
           e.preventDefault();
-          if (filePickerFiles[selectedFileIndex]) {
-            handleFileSelect(filePickerFiles[selectedFileIndex]);
+          if (referencePickerItems[selectedReferenceIndex]) {
+            handleReferenceSelect(referencePickerItems[selectedReferenceIndex]);
           }
-          return;
-        case 'Escape':
-          setShowFilePicker(false);
           return;
       }
     }
@@ -1519,7 +1605,7 @@ export default function CanvasAgentChat({
       e.preventDefault();
       void handleSend();
     }
-  }, [filePickerFiles, handleFileSelect, handleSend, selectedFileIndex, showFilePicker]);
+  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, referencePickerItems, selectedReferenceIndex]);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -1711,6 +1797,21 @@ export default function CanvasAgentChat({
         ? t('composerHintBusyMobile')
         : t('composerHintBusyDesktop')
       : t('composerHintIdle');
+  const activeReferenceKind = activeReferenceMatch?.kind;
+  const referencePickerHeader = activeReferenceKind === 'skill'
+    ? isLoadingReferenceItems
+      ? t('loadingSkills')
+      : t('skillsFound', { count: referencePickerItems.length })
+    : isLoadingReferenceItems
+      ? t('loadingFiles')
+      : t('filesFound', { count: referencePickerItems.length });
+  const referencePickerEmptyState = activeReferenceKind === 'skill'
+    ? activeReferenceMatch?.query
+      ? t('noSkillsFoundMatching', { query: activeReferenceMatch.query })
+      : t('noSkillsAvailable')
+    : activeReferenceMatch?.query
+      ? t('noFilesFoundMatching', { query: activeReferenceMatch.query })
+      : t('noFilesInWorkspace');
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
@@ -2331,30 +2432,16 @@ export default function CanvasAgentChat({
               className="w-full resize-none border border-border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm sm:placeholder:text-sm"
             />
 
-            {showFilePicker && (
-                <div ref={filePickerRef} className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-full overflow-y-auto border border-border bg-background shadow-lg">
-                  <div className="border-b border-border p-2 text-xs text-muted-foreground">
-                  {isLoadingFiles ? t('loadingFiles') : t('filesFound', { count: filePickerFiles.length })}
-                  </div>
-                {filePickerFiles.map((file, index) => (
-                  <button
-                    key={file.path}
-                    type="button"
-                    onClick={() => handleFileSelect(file)}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${index === selectedFileIndex ? 'bg-accent' : ''}`}
-                  >
-                    {getFileIconComponent({ name: file.name, path: file.path, type: file.type })}
-                    <span className="flex-1 truncate">{file.path}</span>
-                    {index === selectedFileIndex ? <span className="text-xs text-muted-foreground">↵</span> : null}
-                  </button>
-                ))}
-                {filePickerFiles.length === 0 && !isLoadingFiles && (
-                  <div className="p-3 text-center text-sm text-muted-foreground">
-                    {filePickerQuery ? t('noFilesFoundMatching', { query: filePickerQuery }) : t('noFilesInWorkspace')}
-                  </div>
-                )}
-              </div>
-            )}
+            {activeReferenceMatch ? (
+              <ComposerReferencePicker
+                emptyState={referencePickerEmptyState}
+                header={referencePickerHeader}
+                items={referencePickerItems}
+                onSelect={handleReferenceSelect}
+                pickerRef={referencePickerRef}
+                selectedIndex={selectedReferenceIndex}
+              />
+            ) : null}
           </div>
           {isMobile && totalQueuedMessages > 0 ? (
             <button
