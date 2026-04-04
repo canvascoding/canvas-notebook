@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, Download, FileText, Loader2, Save } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Code2, Download, Eye, FileText, Loader2, RefreshCw, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
 import { MarkdownEditor } from './MarkdownEditor';
 import { CodeEditor } from './CodeEditor';
+import { HtmlViewer } from './HtmlViewer';
 import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { MediaViewer } from './MediaViewer';
@@ -24,6 +25,7 @@ const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.Offi
 });
 
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
+const HTML_EXTENSIONS = new Set(['html', 'htm']);
 const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'csv', 'xls', 'pptx']);
 const IMAGE_EXTENSIONS = new Set([
   'png',
@@ -117,6 +119,8 @@ export function FileEditor() {
   } = useEditorStore();
 
   const saveTimeoutRef = useRef<number | null>(null);
+  const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('preview');
+  const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
 
   useEffect(() => {
     // This effect synchronizes the main file store (useFileStore) 
@@ -191,13 +195,14 @@ export function FileEditor() {
   }, [currentFile]);
 
   const isMarkdown = MARKDOWN_EXTENSIONS.has(extension);
+  const isHtml = HTML_EXTENSIONS.has(extension);
   const isOffice = OFFICE_EXTENSIONS.has(extension);
   const isImage = IMAGE_EXTENSIONS.has(extension);
   const isPdf = PDF_EXTENSIONS.has(extension);
   const isAudio = AUDIO_EXTENSIONS.has(extension);
   const isVideo = VIDEO_EXTENSIONS.has(extension);
   const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
-  const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isAudio && !isVideo && !isOffice;
+  const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isAudio && !isVideo && !isOffice;
   const savedTime = formatTimestamp(lastSavedAt);
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const mediaMimeType = MEDIA_MIME_TYPES[extension];
@@ -274,6 +279,33 @@ export function FileEditor() {
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
+          {isHtml && (
+            <>
+              {htmlViewMode === 'preview' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => setHtmlRefreshKey((k) => k + 1)}
+                  title="Refresh preview"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2"
+                onClick={() => setHtmlViewMode((m) => (m === 'code' ? 'preview' : 'code'))}
+              >
+                {htmlViewMode === 'code' ? (
+                  <><Eye className="h-3.5 w-3.5" /><span>Preview</span></>
+                ) : (
+                  <><Code2 className="h-3.5 w-3.5" /><span>Code</span></>
+                )}
+              </Button>
+            </>
+          )}
           {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">{t('readOnly')}</span>}
           {saveError ? (
             <span className="flex items-center gap-1 text-destructive shrink-0" title={saveError}>
@@ -298,7 +330,7 @@ export function FileEditor() {
           )}
         </div>
       </div>
-      <div className={isVideo || isMarkdown ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
+      <div className={isVideo || isMarkdown || isHtml ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText className="h-8 w-8" />
@@ -334,6 +366,8 @@ export function FileEditor() {
               mimeType={mediaMimeType}
               size={currentFile.stats?.size}
             />
+          ) : isHtml ? (
+            <HtmlViewer path={currentFile.path} value={draft} onChange={updateDraft} viewMode={htmlViewMode} refreshKey={htmlRefreshKey} lastSavedAt={lastSavedAt} />
           ) : isMarkdown ? (
             <MarkdownEditor value={draft} onChange={updateDraft} />
           ) : (

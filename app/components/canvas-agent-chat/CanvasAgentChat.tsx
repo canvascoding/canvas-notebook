@@ -45,6 +45,7 @@ import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPro
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
+import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 
@@ -205,12 +206,13 @@ function normalizeMessageStart(text: string): string {
 }
 
 function extractPiMessageText(piMessage?: AgentMessage | null): string {
-  if (!piMessage || !Array.isArray(piMessage.content)) {
-    return typeof piMessage?.content === 'string' ? piMessage.content : '';
+  if (!piMessage || isCompactBreakMessage(piMessage)) return '';
+  if (!Array.isArray(piMessage.content)) {
+    return typeof piMessage.content === 'string' ? piMessage.content : '';
   }
 
   const textContent = piMessage.content
-    .map((part) => {
+    .map((part: unknown) => {
       if (isTextPart(part)) return part.text;
       return '';
     })
@@ -241,7 +243,7 @@ function extractToolResultText(content: unknown[] | undefined): string {
   );
 }
 
-function extractImageAttachments(content: AgentMessage['content']): Attachment[] | undefined {
+function extractImageAttachments(content: unknown): Attachment[] | undefined {
   if (!Array.isArray(content)) {
     return undefined;
   }
@@ -1319,6 +1321,22 @@ export default function CanvasAgentChat({
       if (messagesPayload.success && messagesPayload.messages) {
         setMessages(
           messagesPayload.messages.map((rawMessage: PersistedChatMessage) => {
+            if (rawMessage.role === 'compact-break') {
+              const cb = rawMessage as unknown as CompactBreakMessage;
+              return {
+                id: rawMessage.id?.toString() || `compact-${cb.timestamp}`,
+                role: 'system' as const,
+                content: '',
+                type: 'compact_break' as const,
+                status: 'sent' as const,
+                compactMeta: {
+                  kind: cb.kind,
+                  timestamp: cb.timestamp,
+                  omittedMessageCount: cb.omittedMessageCount,
+                },
+              };
+            }
+
             const isToolResult = rawMessage.role === 'toolResult';
             const content = isToolResult
               ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)

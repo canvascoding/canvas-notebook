@@ -15,6 +15,7 @@ import {
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
 import { filterImagesForNonVisionModel, normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
+import { createCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { resolveActivePiModel, resolvePiModel } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
@@ -536,6 +537,9 @@ class LivePiRuntime {
       omittedMessageCount: composition.omittedMessages.length,
       includedSummary: composition.includedSummary,
     });
+    this.agent.appendMessage(
+      createCompactBreakMessage(kind, this.lastCompactionAt.toISOString(), composition.omittedMessages.length),
+    );
   }
 
   private publishError(error: unknown) {
@@ -575,7 +579,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       tools,
       messages: initialMessages,
     },
-    convertToLlm: async (messages) => normalizePiMessagesForLlm(messages),
+    convertToLlm: async (messages) => normalizePiMessagesForLlm(messages.filter((m) => m.role !== 'compact-break')),
     transformContext: async (messages, signal) => {
       if (!runtimeRef.current) {
         throw new Error('PI runtime not initialized');

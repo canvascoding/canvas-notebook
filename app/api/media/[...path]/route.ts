@@ -22,6 +22,11 @@ const MEDIA_TYPES: Record<string, string> = {
   ogg: 'audio/ogg',
   opus: 'audio/opus',
   flac: 'audio/flac',
+  html: 'text/html',
+  htm: 'text/html',
+  css: 'text/css',
+  js: 'text/javascript',
+  mjs: 'text/javascript',
 };
 
 function getContentType(filePath: string): string {
