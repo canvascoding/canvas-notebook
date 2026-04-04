@@ -35,7 +35,7 @@ import {
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
@@ -483,6 +483,8 @@ export default function CanvasAgentChat({
   const t = useTranslations('chat');
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
+  const pathname = usePathname();
+  const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -2012,7 +2014,7 @@ export default function CanvasAgentChat({
                   {latestSession ? (
                     <div className="flex justify-center">
                       <Link
-                        href={`/notebook?session=${encodeURIComponent(latestSession.sessionId)}`}
+                        href={`${sessionBasePath}?session=${encodeURIComponent(latestSession.sessionId)}`}
                         className="inline-flex max-w-full items-center gap-2 border border-border bg-background/80 px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
                       >
                         <History className="h-3.5 w-3.5 text-primary" />
