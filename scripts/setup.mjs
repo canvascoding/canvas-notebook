@@ -160,30 +160,146 @@ function ensureDataDirs() {
   }
 }
 
+// ─── Spinner ──────────────────────────────────────────────────────────────────
+
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+function createSpinner(getMessage) {
+  let frame = 0;
+  const interval = setInterval(() => {
+    frame = (frame + 1) % SPINNER.length;
+    process.stdout.write(`\r\x1b[K  ${SPINNER[frame]} ${getMessage()}`);
+  }, 100);
+  return {
+    stop() {
+      clearInterval(interval);
+      process.stdout.write('\r\x1b[K');
+    },
+  };
+}
+
+// ─── Docker build with progress ───────────────────────────────────────────────
+
+function buildWithProgress() {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    let frame = 0;
+    let currentDesc = 'Starting build...';
+    let completed = 0;
+    let total = 0;
+
+    const steps = new Map(); // id → { desc, done }
+
+    function renderBar() {
+      const pct = total > 0 ? Math.min(1, completed / total) : 0;
+      const filled = Math.round(pct * 20);
+      const bar = '█'.repeat(filled) + '░'.repeat(20 - filled);
+      const pctStr = `${Math.round(pct * 100)}%`.padStart(4);
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      const desc = currentDesc.slice(0, 55);
+      process.stdout.write(`\r\x1b[K  ${SPINNER[frame]} [${bar}] ${pctStr}  ${desc}  (${elapsed}s)`);
+    }
+
+    const spinnerInterval = setInterval(() => {
+      frame = (frame + 1) % SPINNER.length;
+      renderBar();
+    }, 100);
+
+    const proc = spawn('docker', ['compose', 'build', '--no-cache', '--progress=plain'], {
+      cwd: rootDir,
+      env: process.env,
+    });
+
+    let stderrBuffer = '';
+    let capturedOutput = '';
+
+    const startRe = /^#(\d+) \[([^\]]+)\] (.+)/;
+    const doneRe  = /^#(\d+) (DONE|CACHED)/;
+
+    function processLine(line) {
+      capturedOutput += line + '\n';
+
+      const startMatch = line.match(startRe);
+      if (startMatch) {
+        const id = parseInt(startMatch[1]);
+        const stageInfo = startMatch[2];
+        const action = startMatch[3];
+        if (!steps.has(id)) steps.set(id, { desc: `[${stageInfo}] ${action}`, done: false });
+        if (id > total) total = id;
+        currentDesc = `[${stageInfo}] ${action}`;
+        renderBar();
+        return;
+      }
+
+      const doneMatch = line.match(doneRe);
+      if (doneMatch) {
+        const id = parseInt(doneMatch[1]);
+        const entry = steps.get(id);
+        if (entry && !entry.done) {
+          entry.done = true;
+          completed++;
+          renderBar();
+        }
+      }
+    }
+
+    proc.stderr.on('data', chunk => {
+      stderrBuffer += chunk.toString();
+      const lines = stderrBuffer.split('\n');
+      stderrBuffer = lines.pop() ?? '';
+      for (const line of lines) processLine(line);
+    });
+
+    proc.on('close', code => {
+      if (stderrBuffer) processLine(stderrBuffer);
+      clearInterval(spinnerInterval);
+      process.stdout.write('\r\x1b[K');
+
+      if (code === 0) {
+        const elapsed = Math.round((Date.now() - start) / 1000);
+        ok(`Image built successfully (${elapsed}s)`);
+        resolve();
+      } else {
+        fail('Build failed. Docker output:');
+        console.error(capturedOutput.slice(-3000));
+        reject(new Error(`docker compose build exited with code ${code}`));
+      }
+    });
+
+    proc.on('error', err => {
+      clearInterval(spinnerInterval);
+      process.stdout.write('\r\x1b[K');
+      reject(err);
+    });
+  });
+}
+
 // ─── Health check ─────────────────────────────────────────────────────────────
 
 async function waitForReady(url, maxWaitMs = 300_000, intervalMs = 3_000) {
   const start = Date.now();
 
+  const spinner = createSpinner(() => {
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    return `Waiting for app...  (${elapsed}s)`;
+  });
+
   while (Date.now() - start < maxWaitMs) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
       if (res.status < 500) {
-        log(`✓ App is ready after ${Math.round((Date.now() - start) / 1000)}s`, 'green');
+        spinner.stop();
+        const elapsed = Math.round((Date.now() - start) / 1000);
+        ok(`App is ready after ${elapsed}s`);
         return true;
       }
     } catch {
       // not ready yet
     }
-
-    const elapsed = Math.round((Date.now() - start) / 1000);
-    if (elapsed % 15 < intervalMs / 1000) {
-      info(`Still starting up... (${elapsed}s elapsed)`);
-    }
-
     await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
 
+  spinner.stop();
   warn('App did not respond within the timeout — it may still be starting.');
   return false;
 }
@@ -299,10 +415,8 @@ async function main() {
   info('This may take a few minutes on the first run.');
   console.log();
   try {
-    exec('docker compose build --no-cache');
-    ok('Image built successfully');
+    await buildWithProgress();
   } catch {
-    fail('Build failed. Check the output above for errors.');
     process.exit(1);
   }
 

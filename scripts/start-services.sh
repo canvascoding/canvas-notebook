@@ -10,6 +10,8 @@ _step_num=0
 _step_total=0
 _step_label=""
 
+if [ -t 1 ]; then _is_tty=true; else _is_tty=false; fi
+
 _progress_bar() {
   if [ "$_step_total" -le 0 ]; then return; fi
   _pct=$(( _step_num * 100 / _step_total ))
@@ -17,22 +19,36 @@ _progress_bar() {
   _bar="" _i=0
   while [ $_i -lt $_filled ]; do _bar="${_bar}█"; _i=$((_i+1)); done
   while [ $_i -lt 20 ];        do _bar="${_bar}░"; _i=$((_i+1)); done
-  printf '  [%s] %3d%%' "$_bar" "$_pct"
+  if [ "$_is_tty" = "true" ]; then
+    printf '  [%s] %3d%%' "$_bar" "$_pct"
+  else
+    printf '  [%s] %3d%%\n' "$_bar" "$_pct"
+  fi
 }
 
 step() {
   _step_num=$((_step_num + 1))
   _step_label="$1"
-  printf '\r\033[K  \342\206\222 [%d/%d] %s' "$_step_num" "$_step_total" "$_step_label"
+  if [ "$_is_tty" = "true" ]; then
+    printf '\r\033[K  \342\206\222 [%d/%d] %s' "$_step_num" "$_step_total" "$_step_label"
+  fi
 }
 
 step_ok() {
-  printf '\r\033[K  \342\234\223 [%d/%d] %s\n' "$_step_num" "$_step_total" "$_step_label"
+  if [ "$_is_tty" = "true" ]; then
+    printf '\r\033[K  \342\234\223 [%d/%d] %s\n' "$_step_num" "$_step_total" "$_step_label"
+  else
+    printf '  \342\234\223 [%d/%d] %s\n' "$_step_num" "$_step_total" "$_step_label"
+  fi
   _progress_bar
 }
 
 step_fail() {
-  printf '\r\033[K  \342\234\227 [%d/%d] %s \342\200\224 FAILED\n' "$_step_num" "$_step_total" "$_step_label"
+  if [ "$_is_tty" = "true" ]; then
+    printf '\r\033[K  \342\234\227 [%d/%d] %s \342\200\224 FAILED\n' "$_step_num" "$_step_total" "$_step_label"
+  else
+    printf '  \342\234\227 [%d/%d] %s \342\200\224 FAILED\n' "$_step_num" "$_step_total" "$_step_label"
+  fi
   printf '\n  Full log: %s\n\n' "$STARTUP_LOG"
   tail -n 30 "$STARTUP_LOG" >&2
 }
@@ -124,7 +140,9 @@ while [ "$attempt" -lt "$max_attempts" ]; do
     break
   fi
   attempt=$((attempt + 1))
-  printf '\r\033[K  \342\206\222 [%d/%d] Next.js startup (%ds)...' "$_step_num" "$_step_total" "$attempt"
+  if [ "$_is_tty" = "true" ]; then
+    printf '\r\033[K  \342\206\222 [%d/%d] Next.js startup (%ds)...' "$_step_num" "$_step_total" "$attempt"
+  fi
   sleep 1
 done
 
