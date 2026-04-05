@@ -12,9 +12,7 @@ const path = require('path');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
-// automation-scheduler is loaded via dynamic import() — its dependency chain
-// (@mariozechner/pi-agent-core → @mariozechner/pi-ai) is ESM-only and cannot
-// be loaded via synchronous CJS require().
+const { spawn } = require('child_process');
 const { prepareSkillsRuntime } = require('./server/skills-runtime');
 const { auth } = require('./app/lib/auth');
 const {
@@ -266,19 +264,23 @@ try {
   console.error('[Startup] Stack trace:', error.stack);
 }
 
-import('./server/automation-scheduler.js').then(({ startAutomationScheduler }) => {
-  try {
-    console.log('[Startup] Calling startAutomationScheduler()...');
-    startAutomationScheduler();
-    console.log('[Startup] startAutomationScheduler() completed');
-  } catch (error) {
-    console.error('[Startup] ERROR in startAutomationScheduler():', error.message);
-    console.error('[Startup] Stack trace:', error.stack);
-  }
-}).catch(error => {
-  console.error('[Startup] ERROR loading automation-scheduler:', error.message);
-  console.error('[Startup] Stack trace:', error.stack);
-});
+// Spawn the standalone HTTP-based scheduler as a child process.
+// This avoids the ESM-only dependency chain (pi-agent-core → pi-ai) that
+// cannot be loaded via tsx's CJS transform in server.js.
+try {
+  console.log('[Startup] Spawning automation-scheduler...');
+  const schedulerProcess = spawn(process.execPath, [path.resolve(__dirname, 'scripts/automation-scheduler.js')], {
+    env: process.env,
+    stdio: 'inherit',
+  });
+  schedulerProcess.on('error', (err) => {
+    console.error('[Startup] automation-scheduler spawn error:', err.message);
+  });
+  process.on('exit', () => schedulerProcess.kill());
+  console.log('[Startup] automation-scheduler spawned (pid %d)', schedulerProcess.pid);
+} catch (error) {
+  console.error('[Startup] ERROR spawning automation-scheduler:', error.message);
+}
 
 console.log('[Startup] Runtime setup complete');
 
