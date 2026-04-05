@@ -43,6 +43,13 @@ type JobDraft = {
   intervalUnit: 'minutes' | 'hours' | 'days';
 };
 
+type PersistedAutomationSessionMessage = {
+  id?: number | string;
+  role: string;
+  content?: unknown;
+  errorMessage?: string;
+};
+
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const PREFERRED_SKILLS: AutomationPreferredSkill[] = ['auto', 'image_generation', 'video_generation', 'ad_localization', 'qmd'];
 
@@ -157,6 +164,61 @@ function toNotebookUrl(filePath: string) {
   return `/notebook?path=${encodeURIComponent(filePath)}`;
 }
 
+function toChatUrl(sessionId: string) {
+  return `/chat?session=${encodeURIComponent(sessionId)}`;
+}
+
+function isTextContentPart(part: unknown): part is { type: 'text'; text: string } {
+  return typeof part === 'object' && part !== null && 'type' in part && part.type === 'text' && 'text' in part && typeof part.text === 'string';
+}
+
+function extractAutomationSessionMessageText(message: PersistedAutomationSessionMessage): string {
+  if (typeof message.content === 'string') {
+    return message.content.trim();
+  }
+
+  if (Array.isArray(message.content)) {
+    const text = message.content
+      .filter(isTextContentPart)
+      .map((part) => part.text)
+      .join('\n\n')
+      .trim();
+
+    if (text) {
+      return text;
+    }
+  }
+
+  if (message.errorMessage?.trim()) {
+    return message.errorMessage.trim();
+  }
+
+  if (message.role === 'toolResult') {
+    return '[Tool result]';
+  }
+
+  if (message.role === 'compact-break') {
+    return '[Conversation compacted]';
+  }
+
+  return '';
+}
+
+function formatAutomationSessionRole(
+  role: string,
+  translate: (key: string) => string,
+): string {
+  if (role === 'user' || role === 'assistant' || role === 'toolResult') {
+    return translate(`session.roles.${role}`);
+  }
+
+  if (role === 'compact-break') {
+    return translate('session.roles.system');
+  }
+
+  return role;
+}
+
 function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   const draft = defaultDraft();
   draft.id = job.id;
@@ -194,11 +256,13 @@ export function AutomationsClient() {
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [logContent, setLogContent] = useState('');
+  const [sessionMessages, setSessionMessages] = useState<PersistedAutomationSessionMessage[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningNow, setIsRunningNow] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshingRuns, setIsRefreshingRuns] = useState(false);
+  const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
   const [isDirectoryPickerOpen, setIsDirectoryPickerOpen] = useState(false);
   const [isLogSectionOpen, setIsLogSectionOpen] = useState(true);
 
@@ -323,6 +387,27 @@ export function AutomationsClient() {
     }
   }
 
+  async function loadSessionMessages(sessionId: string) {
+    setIsLoadingSessionMessages(true);
+    try {
+      const response = await fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(sessionId)}`, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('errors.loadSession'));
+      }
+
+      setSessionMessages(Array.isArray(payload.messages) ? (payload.messages as PersistedAutomationSessionMessage[]) : []);
+    } catch (error) {
+      setSessionMessages([]);
+      toast.error(error instanceof Error ? error.message : t('errors.loadSession'));
+    } finally {
+      setIsLoadingSessionMessages(false);
+    }
+  }
+
   useEffect(() => {
     loadJobsEvent();
   }, []);
@@ -346,6 +431,17 @@ export function AutomationsClient() {
     void loadLogs(selectedRunId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadLogs takes selectedRunId as argument
   }, [selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedRun?.piSessionId || !selectedRun.hasPersistedSession) {
+      setSessionMessages([]);
+      setIsLoadingSessionMessages(false);
+      return;
+    }
+
+    void loadSessionMessages(selectedRun.piSessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSessionMessages takes the session id as an argument
+  }, [selectedRun?.piSessionId, selectedRun?.hasPersistedSession, selectedRun?.status, selectedRun?.finishedAt]);
 
   useEffect(() => {
     if (!selectedJobId) return undefined;
@@ -932,8 +1028,99 @@ export function AutomationsClient() {
                 </Link>
               ) : null}
               {selectedRun?.piSessionId ? (
-                <p className="text-xs text-muted-foreground">{t('artifacts.piSession')}: {selectedRun.piSessionId}</p>
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    {t('artifacts.piSession')}: {selectedRun.piSessionTitle || selectedRun.piSessionId}
+                  </p>
+                  <p className="break-all font-mono text-xs text-muted-foreground">{selectedRun.piSessionId}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Link
+                      href={toChatUrl(selectedRun.piSessionId)}
+                      data-testid="automation-open-chat-session"
+                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      {t('session.openChat')}
+                    </Link>
+                    <Link
+                      href={toChatUrl(selectedRun.piSessionId)}
+                      data-testid="automation-continue-chat-session"
+                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      {t('session.continueChat')}
+                    </Link>
+                  </div>
+                  {!selectedRun.hasPersistedSession ? (
+                    <p className="text-xs text-muted-foreground" data-testid="automation-session-pending">
+                      {t('session.pending')}
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium">{t('session.title')}</p>
+                  <p className="text-xs text-muted-foreground">{t('session.description')}</p>
+                </div>
+                {selectedRun?.piSessionId ? (
+                  <Link
+                    href={toChatUrl(selectedRun.piSessionId)}
+                    className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    {t('session.openChat')}
+                  </Link>
+                ) : null}
+              </div>
+
+              {!selectedRun?.piSessionId ? (
+                <p className="text-xs text-muted-foreground" data-testid="automation-session-empty">
+                  {t('session.noSession')}
+                </p>
+              ) : !selectedRun.hasPersistedSession ? (
+                <p className="text-xs text-muted-foreground" data-testid="automation-session-not-persisted">
+                  {t('session.pending')}
+                </p>
+              ) : isLoadingSessionMessages ? (
+                <div className="flex items-center gap-2 rounded-md border border-dashed border-border px-3 py-6 text-xs text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t('session.loading')}
+                </div>
+              ) : sessionMessages.length === 0 ? (
+                <p className="text-xs text-muted-foreground" data-testid="automation-session-no-messages">
+                  {t('session.empty')}
+                </p>
+              ) : (
+                <ScrollArea className="h-[260px] rounded-md border border-border bg-background" data-testid="automation-session-scroll">
+                  <div className="space-y-3 p-3">
+                    {sessionMessages.map((message, index) => {
+                      const content = extractAutomationSessionMessageText(message);
+
+                      return (
+                        <div
+                          key={message.id?.toString() || `${message.role}-${index}`}
+                          className={`rounded-md border px-3 py-2 ${
+                            message.role === 'user'
+                              ? 'border-primary/30 bg-primary/5'
+                              : message.role === 'assistant'
+                                ? 'border-border bg-muted/40'
+                                : 'border-dashed border-border bg-background'
+                          }`}
+                          data-testid="automation-session-message"
+                        >
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            {formatAutomationSessionRole(message.role, t)}
+                          </p>
+                          <p className="whitespace-pre-wrap break-words text-xs text-foreground">
+                            {content || t('session.emptyMessage')}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              )}
             </div>
           </CardContent>
         </Card>

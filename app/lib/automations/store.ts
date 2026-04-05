@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, lte, notInArray, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, notInArray, or } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { automationJobs, automationRuns } from '@/app/lib/db/schema';
+import { automationJobs, automationRuns, piSessions } from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
@@ -26,6 +26,12 @@ const VALID_PREFERRED_SKILLS = new Set<AutomationPreferredSkill>([
   'qmd',
   'qmd_search',
 ]);
+const STALE_AUTOMATION_RUN_TTL_MS = 15 * 60_000;
+
+type AutomationSessionMetadata = {
+  sessionId: string;
+  title: string | null;
+};
 
 function toIsoString(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
@@ -114,7 +120,10 @@ function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord
   };
 }
 
-function mapRunRow(row: typeof automationRuns.$inferSelect): AutomationRunRecord {
+function mapRunRow(
+  row: typeof automationRuns.$inferSelect,
+  sessionMetadata?: AutomationSessionMetadata | null,
+): AutomationRunRecord {
   return {
     id: row.id,
     jobId: row.jobId,
@@ -131,8 +140,43 @@ function mapRunRow(row: typeof automationRuns.$inferSelect): AutomationRunRecord
     resultPath: row.resultPath,
     errorMessage: row.errorMessage,
     piSessionId: row.piSessionId,
+    piSessionTitle: sessionMetadata?.title ?? null,
+    hasPersistedSession: Boolean(row.piSessionId && sessionMetadata),
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+async function loadAutomationSessionMetadata(sessionIds: string[]): Promise<Map<string, AutomationSessionMetadata>> {
+  const uniqueSessionIds = Array.from(new Set(sessionIds.filter(Boolean)));
+  if (uniqueSessionIds.length === 0) {
+    return new Map();
+  }
+
+  const rows = await db
+    .select({
+      sessionId: piSessions.sessionId,
+      title: piSessions.title,
+    })
+    .from(piSessions)
+    .where(inArray(piSessions.sessionId, uniqueSessionIds));
+
+  return new Map(
+    rows.map((row) => [
+      row.sessionId,
+      {
+        sessionId: row.sessionId,
+        title: row.title,
+      },
+    ]),
+  );
+}
+
+async function mapRunRows(rows: Array<typeof automationRuns.$inferSelect>): Promise<AutomationRunRecord[]> {
+  const sessionMetadata = await loadAutomationSessionMetadata(
+    rows.map((row) => row.piSessionId).filter((value): value is string => Boolean(value)),
+  );
+
+  return rows.map((row) => mapRunRow(row, row.piSessionId ? sessionMetadata.get(row.piSessionId) ?? null : null));
 }
 
 export async function listAutomationJobs(): Promise<AutomationJobRecord[]> {
@@ -160,7 +204,7 @@ export async function listAutomationRuns(jobId: string): Promise<AutomationRunRe
     .orderBy(desc(automationRuns.createdAt))
     .limit(100);
 
-  return rows.map(mapRunRow);
+  return mapRunRows(rows);
 }
 
 export async function getAutomationRun(runId: string): Promise<AutomationRunRecord | null> {
@@ -168,7 +212,12 @@ export async function getAutomationRun(runId: string): Promise<AutomationRunReco
     where: eq(automationRuns.id, runId),
   });
 
-  return row ? mapRunRow(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  const sessionMetadata = row.piSessionId ? await loadAutomationSessionMetadata([row.piSessionId]) : new Map();
+  return mapRunRow(row, row.piSessionId ? sessionMetadata.get(row.piSessionId) ?? null : null);
 }
 
 export async function createAutomationJob(input: CreateAutomationJobInput, userId: string): Promise<AutomationJobRecord> {
@@ -306,7 +355,7 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
     })
     .where(and(eq(automationJobs.id, jobId), eq(automationJobs.status, job.status)));
 
-  return mapRunRow(inserted);
+  return mapRunRow(inserted, null);
 }
 
 export async function listDueAutomationJobs(now = new Date()): Promise<AutomationJobRecord[]> {
@@ -336,7 +385,43 @@ export async function listExecutableAutomationRuns(now = new Date()): Promise<Au
     )
     .orderBy(asc(automationRuns.createdAt));
 
-  return rows.map(mapRunRow);
+  return mapRunRows(rows);
+}
+
+async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise<number> {
+  const staleBefore = new Date(now.getTime() - STALE_AUTOMATION_RUN_TTL_MS);
+  const staleRuns = await db
+    .select()
+    .from(automationRuns)
+    .where(
+      and(
+        eq(automationRuns.jobId, jobId),
+        eq(automationRuns.status, 'running'),
+        lte(automationRuns.startedAt, staleBefore),
+      ),
+    );
+
+  for (const run of staleRuns) {
+    await db
+      .update(automationRuns)
+      .set({
+        status: 'failed',
+        errorMessage: 'Automation run was marked stale before a new run could start.',
+        finishedAt: now,
+      })
+      .where(eq(automationRuns.id, run.id));
+
+    await db
+      .update(automationJobs)
+      .set({
+        lastRunAt: now,
+        lastRunStatus: 'failed',
+        updatedAt: now,
+      })
+      .where(eq(automationJobs.id, run.jobId));
+  }
+
+  return staleRuns.length;
 }
 
 export async function hasInFlightAutomationRun(jobId: string): Promise<boolean> {
@@ -351,6 +436,7 @@ export async function hasInFlightAutomationRun(jobId: string): Promise<boolean> 
 }
 
 export async function scheduleAutomationJobRun(jobId: string, triggerType: AutomationRunRecord['triggerType'], scheduledFor: Date): Promise<AutomationRunRecord> {
+  await failStaleAutomationRuns(jobId);
   const inFlight = await hasInFlightAutomationRun(jobId);
   if (inFlight) {
     throw new Error('Automation already has an in-flight run.');
@@ -387,7 +473,7 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
     })
     .where(eq(automationJobs.id, jobId));
 
-  return mapRunRow(inserted);
+  return mapRunRow(inserted, null);
 }
 
 export async function advanceAutomationJobSchedule(jobId: string, anchor = new Date()): Promise<void> {
@@ -434,10 +520,15 @@ export async function markAutomationRunStarted(
       errorMessage: null,
       piSessionId: values.piSessionId,
     })
-    .where(eq(automationRuns.id, runId))
+    .where(
+      and(
+        eq(automationRuns.id, runId),
+        or(eq(automationRuns.status, 'pending'), eq(automationRuns.status, 'retry_scheduled')),
+      ),
+    )
     .returning();
 
-  return updated ? mapRunRow(updated) : null;
+  return updated ? mapRunRow(updated, null) : null;
 }
 
 export async function markAutomationRunRetryScheduled(
@@ -472,7 +563,7 @@ export async function markAutomationRunRetryScheduled(
     })
     .where(eq(automationJobs.id, current.jobId));
 
-  return updated ? mapRunRow(updated) : null;
+  return updated ? mapRunRow(updated, null) : null;
 }
 
 export async function markAutomationRunFinished(
@@ -509,5 +600,5 @@ export async function markAutomationRunFinished(
     })
     .where(eq(automationJobs.id, current.jobId));
 
-  return updated ? mapRunRow(updated) : null;
+  return updated ? mapRunRow(updated, null) : null;
 }

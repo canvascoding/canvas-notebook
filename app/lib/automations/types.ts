@@ -72,6 +72,8 @@ export type AutomationRunRecord = {
   resultPath: string | null;
   errorMessage: string | null;
   piSessionId: string | null;
+  piSessionTitle: string | null;
+  hasPersistedSession: boolean;
   createdAt: string;
 };
 

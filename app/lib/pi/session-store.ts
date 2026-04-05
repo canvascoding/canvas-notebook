@@ -64,12 +64,17 @@ export async function savePiSession(
   model: string,
   messages: AgentMessage[],
   summary?: PiSessionSummaryState,
+  options?: {
+    titleOverride?: string | null;
+  },
 ): Promise<void> {
   // Find or create session
   const session = await db.query.piSessions.findFirst({
     where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
   });
   const derivedTitle = deriveSessionTitle(messages);
+  const normalizedTitleOverride = options?.titleOverride?.trim() || null;
+  const resolvedTitle = normalizedTitleOverride || derivedTitle;
 
   let sessionDbId: number;
 
@@ -87,7 +92,7 @@ export async function savePiSession(
       userId,
       provider,
       model,
-      title: derivedTitle,
+      title: resolvedTitle,
       createdAt: new Date(),
       updatedAt: new Date(),
       ...summaryFields,
@@ -95,7 +100,7 @@ export async function savePiSession(
     sessionDbId = inserted.id;
   } else {
     sessionDbId = session.id;
-    const nextTitle = isAutomaticSessionTitle(session.title) ? derivedTitle : session.title;
+    const nextTitle = normalizedTitleOverride || (isAutomaticSessionTitle(session.title) ? derivedTitle : session.title);
 
     await db.update(piSessions)
       .set({ updatedAt: new Date(), title: nextTitle, ...summaryFields })

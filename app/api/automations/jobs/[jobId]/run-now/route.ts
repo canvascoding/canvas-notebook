@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
+import { dispatchAutomationRunExecution } from '@/app/lib/automations/dispatch';
 import { getAutomationJob, scheduleAutomationJobRun } from '@/app/lib/automations/store';
 
 type RouteContext = {
@@ -26,6 +27,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
+    dispatchAutomationRunExecution(run.id);
     return NextResponse.json({ success: true, data: run }, { status: 202 });
   } catch (error) {
     return NextResponse.json(

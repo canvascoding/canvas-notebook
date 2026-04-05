@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { dispatchAutomationRunExecution } from '@/app/lib/automations/dispatch';
 import { listExecutableAutomationRuns } from '@/app/lib/automations/store';
-import { getCanvasInternalToken, isValidCanvasInternalToken } from '@/app/lib/internal-auth';
+import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 
 export async function POST(request: NextRequest) {
   const isValid = isValidCanvasInternalToken(request.headers.get('x-canvas-internal-token'));
@@ -11,26 +12,13 @@ export async function POST(request: NextRequest) {
   try {
     const now = new Date();
     const runs = await listExecutableAutomationRuns(now);
-    // Scheduler always connects to internal port 3000, never external port
-    const baseUrl = 'http://127.0.0.1:3000';
-    const internalToken = getCanvasInternalToken();
-
     const executed: string[] = [];
 
     for (const run of runs) {
       try {
-        const response = await fetch(`${baseUrl}/api/automations/execute`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-canvas-internal-token': internalToken,
-          },
-          body: JSON.stringify({ runId: run.id }),
-        });
-
-        if (!response.ok) {
-          const payload = await response.text();
-          throw new Error(`Internal execution request failed (${response.status}): ${payload}`);
+        const didDispatch = dispatchAutomationRunExecution(run.id);
+        if (!didDispatch) {
+          throw new Error('Run is already being dispatched.');
         }
 
         executed.push(run.id);

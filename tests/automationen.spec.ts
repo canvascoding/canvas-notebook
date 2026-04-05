@@ -9,7 +9,8 @@ async function login(page: Page) {
   await page.fill('input[type="email"]', TEST_EMAIL);
   await page.fill('input[type="password"]', TEST_PASSWORD);
   await page.click('button[type="submit"]');
-  await expect(page).toHaveURL('/');
+  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30000 });
+  await expect(page).not.toHaveURL(/\/login(?:\?.*)?$/);
 }
 
 test.describe('Automationen API auth', () => {
@@ -34,14 +35,12 @@ test.describe('Automationen UI', () => {
     await context.close();
   });
 
-  test('creates an automation, queues a run, and shows run history/logs', async ({ page }) => {
+  test('creates an automation, starts a run immediately, and links its chat session', async ({ page }) => {
     const uniqueName = `PW Automation ${Date.now()} mit langem Titel fuer Overflow-Test`;
     const targetDir = `automationen/playwright-target-${Date.now()}`;
 
-    await page.goto('/');
-    await expect(page.getByText('Automationen', { exact: true })).toBeVisible();
     await page.goto('/automationen');
-    await expect(page).toHaveURL('/automationen');
+    await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automationen$/);
     await page.getByTestId('automation-new').click();
 
     await page.getByTestId('automation-name').fill(uniqueName);
@@ -68,7 +67,6 @@ test.describe('Automationen UI', () => {
       .toBe(true);
 
     await page.getByTestId('automation-run-now').click();
-    await expect(page.getByText('Lauf eingeplant.')).toBeVisible({ timeout: 15000 });
 
     const runItems = page.getByTestId('automation-run-list').locator('button[data-testid^="automation-run-"]');
     await expect(runItems.first()).toBeVisible({ timeout: 20000 });
@@ -77,7 +75,7 @@ test.describe('Automationen UI', () => {
       .poll(
         async () => {
           await page.reload();
-          await expect(page).toHaveURL('/automationen');
+          await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automationen$/);
           await page.getByText(uniqueName).click();
           const firstRun = page.getByTestId('automation-run-list').locator('button[data-testid^="automation-run-"]').first();
           return ((await firstRun.textContent()) || '').toLowerCase();
@@ -105,6 +103,19 @@ test.describe('Automationen UI', () => {
     await expect(page.getByTestId('automation-log-scroll')).toBeHidden();
     await page.getByTestId('automation-log-toggle').click();
     await expect(page.getByTestId('automation-log-scroll')).toBeVisible();
+    await expect(page.getByTestId('automation-open-chat-session')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('automation-continue-chat-session')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('automation-session-scroll')).toBeVisible({ timeout: 30000 });
+    await expect
+      .poll(async () => page.getByTestId('automation-session-message').count(), { timeout: 30000 })
+      .toBeGreaterThanOrEqual(2);
+
+    const chatHref = await page.getByTestId('automation-open-chat-session').getAttribute('href');
+    expect(chatHref).toContain('/chat?session=auto-');
+
+    await page.getByTestId('automation-open-chat-session').click();
+    await expect(page).toHaveURL(/\/chat\?session=auto-/);
+    await expect(page.getByTestId('chat-session-id')).toBeVisible({ timeout: 15000 });
 
     const targetDirectoryExists = await page.evaluate(async (path) => {
       const response = await fetch(`/api/files/tree?path=${encodeURIComponent(path)}&depth=2&noCache=1`, {

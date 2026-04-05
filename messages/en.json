@@ -420,7 +420,8 @@
     },
     "footer": {
       "madeWith": "Made with",
-      "byCanvasCoding": "by Canvas Coding"
+      "byCanvasCoding": "by Canvas Coding",
+      "version": "v. {version}"
     }
   },
   "terminal": {
@@ -876,11 +877,28 @@
       "configured": "Configured",
       "default": "Default"
     },
-    "artifacts": {
-      "title": "Run artifacts",
-      "openResultFile": "Open result file",
-      "piSession": "PI session"
-    },
+  "artifacts": {
+    "title": "Run artifacts",
+    "openResultFile": "Open result file",
+    "piSession": "PI session"
+  },
+  "session": {
+    "title": "Run chat",
+    "description": "Read-only history of the linked session. You can continue the same session in chat at any time.",
+    "openChat": "Open in chat",
+    "continueChat": "Continue session",
+    "loading": "Loading chat history...",
+    "empty": "No chat messages available yet.",
+    "pending": "The session was created but has not been fully persisted yet.",
+    "noSession": "No session has been created for this run yet.",
+    "emptyMessage": "No text output available.",
+    "roles": {
+      "user": "User",
+      "assistant": "Assistant",
+      "toolResult": "Tool",
+      "system": "System"
+    }
+  },
     "jobStatus": {
       "active": "Active",
       "paused": "Paused"
@@ -950,14 +968,15 @@
         "loadDirectories": "Folders could not be loaded."
       }
     },
-    "errors": {
-      "loadJobs": "Automations could not be loaded.",
-      "loadRuns": "Runs could not be loaded.",
-      "loadLogs": "Logs could not be loaded.",
-      "saveJob": "Automation could not be saved.",
-      "runNow": "Run could not be started.",
-      "deleteJob": "Automation could not be deleted."
-    },
+  "errors": {
+    "loadJobs": "Automations could not be loaded.",
+    "loadRuns": "Runs could not be loaded.",
+    "loadLogs": "Logs could not be loaded.",
+    "loadSession": "Chat history could not be loaded.",
+    "saveJob": "Automation could not be saved.",
+    "runNow": "Run could not be started.",
+    "deleteJob": "Automation could not be deleted."
+  },
     "toasts": {
       "jobUpdated": "Automation updated.",
       "jobCreated": "Automation created.",

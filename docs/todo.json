@@ -1,6 +1,18 @@
 {
-  "updatedAt": "2026-04-04T14:47:27+02:00",
+  "updatedAt": "2026-04-05T21:44:00+02:00",
   "items": [
+    {
+      "id": "automation-run-chat-sessions",
+      "title": "Automationen pro Run mit eigener Chat-Session und History-Verknuepfung ausstatten",
+      "status": "done",
+      "notes": "Automationen starten jetzt pro Run sofort eine eigene PI-Session mit kurzem auto-Session-Key, persistieren die Session direkt und aktualisieren sie auch im Fehlerfall. Run now dispatcht die Ausfuehrung sofort ohne Scheduler-Wartezeit, stale running-Runs blockieren neue Starts nicht mehr, und die Automations-App zeigt Session-Titel, Deep-Links nach /chat und den read-only Chatverlauf des ausgewaehlten Runs an. Verifiziert mit npm run lint, zweimal npm run build sowie einem sichtbaren Playwright-Lauf auf localhost:3000 gegen die frisch gebaute App (tests/automationen.spec.ts --headed)."
+    },
+    {
+      "id": "home-footer-github-version-tag",
+      "title": "Startseiten-Footer mit GitHub-Icon und Versions-Tag-Link ausstatten",
+      "status": "done",
+      "notes": "Repo-Link im Home-Footer wurde auf GitHub-Icon umgestellt. Die Versionsanzeige ist jetzt kurz als v. <version> gehalten und verlinkt dynamisch auf die GitHub-Release-Seite des passenden Tags. Auf Mobile ist der Footer auf eine einzelne Zeile verdichtet; links steht by + Herz + Canvas Coding, rechts nur GitHub-Logo + Version, damit kein Umbruch entsteht. Keine Tests ausgefuehrt."
+    },
     {
       "id": "notebook-chat-split-button-fullscreen",
       "title": "Desktop-Chat im Notebook als Split Button mit Side Panel und Vollbild erweitern",

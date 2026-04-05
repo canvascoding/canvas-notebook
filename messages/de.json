@@ -420,7 +420,8 @@
     },
     "footer": {
       "madeWith": "Made with",
-      "byCanvasCoding": "by Canvas Coding"
+      "byCanvasCoding": "by Canvas Coding",
+      "version": "v. {version}"
     }
   },
   "terminal": {
@@ -876,11 +877,28 @@
       "configured": "Konfiguriert",
       "default": "Standard"
     },
-    "artifacts": {
-      "title": "Run-Artefakte",
-      "openResultFile": "Ergebnisdatei öffnen",
-      "piSession": "PI Session"
-    },
+  "artifacts": {
+    "title": "Run-Artefakte",
+    "openResultFile": "Ergebnisdatei öffnen",
+    "piSession": "PI Session"
+  },
+  "session": {
+    "title": "Run-Chat",
+    "description": "Read-only Verlauf der verknüpften Session. Du kannst die Session jederzeit im Chat weiterführen.",
+    "openChat": "Im Chat öffnen",
+    "continueChat": "Session fortsetzen",
+    "loading": "Lade Chatverlauf...",
+    "empty": "Noch keine Chat-Nachrichten vorhanden.",
+    "pending": "Die Session wurde angelegt, aber noch nicht vollständig persistiert.",
+    "noSession": "Für diesen Lauf wurde noch keine Session angelegt.",
+    "emptyMessage": "Keine Textausgabe vorhanden.",
+    "roles": {
+      "user": "User",
+      "assistant": "Assistant",
+      "toolResult": "Tool",
+      "system": "System"
+    }
+  },
     "jobStatus": {
       "active": "Aktiv",
       "paused": "Pausiert"
@@ -950,14 +968,15 @@
         "loadDirectories": "Ordner konnten nicht geladen werden."
       }
     },
-    "errors": {
-      "loadJobs": "Automationen konnten nicht geladen werden.",
-      "loadRuns": "Läufe konnten nicht geladen werden.",
-      "loadLogs": "Logs konnten nicht geladen werden.",
-      "saveJob": "Automation konnte nicht gespeichert werden.",
-      "runNow": "Lauf konnte nicht gestartet werden.",
-      "deleteJob": "Automation konnte nicht gelöscht werden."
-    },
+  "errors": {
+    "loadJobs": "Automationen konnten nicht geladen werden.",
+    "loadRuns": "Läufe konnten nicht geladen werden.",
+    "loadLogs": "Logs konnten nicht geladen werden.",
+    "loadSession": "Der Chatverlauf konnte nicht geladen werden.",
+    "saveJob": "Automation konnte nicht gespeichert werden.",
+    "runNow": "Lauf konnte nicht gestartet werden.",
+    "deleteJob": "Automation konnte nicht gelöscht werden."
+  },
     "toasts": {
       "jobUpdated": "Automation aktualisiert.",
       "jobCreated": "Automation erstellt.",
