@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
+import type { PiRuntimeStatus } from '@/app/lib/pi/live-runtime';
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
@@ -835,7 +836,7 @@ test.describe('PI Chat E2E', () => {
 
   test('should show runtime status, queue state, and context budget in the chat UI', async ({ page }) => {
     const sessionId = 'sess-runtime-status';
-    let currentStatus = {
+    let currentStatus: PiRuntimeStatus = {
       sessionId,
       phase: 'running_tool',
       activeTool: { toolCallId: 'tool-1', name: 'read_file' },
@@ -1228,7 +1229,7 @@ test.describe('PI Chat E2E', () => {
 
   test('should render a compaction break after manual canvas compact', async ({ page }) => {
     const sessionId = 'sess-compact-break';
-    let currentStatus = {
+    let currentStatus: PiRuntimeStatus = {
       sessionId,
       phase: 'idle',
       activeTool: null,

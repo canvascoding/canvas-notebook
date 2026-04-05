@@ -537,9 +537,10 @@ class LivePiRuntime {
       omittedMessageCount: composition.omittedMessages.length,
       includedSummary: composition.includedSummary,
     });
-    this.agent.appendMessage(
+    this.agent.state.messages = [
+      ...this.agent.state.messages,
       createCompactBreakMessage(kind, this.lastCompactionAt.toISOString(), composition.omittedMessages.length),
-    );
+    ];
   }
 
   private publishError(error: unknown) {
@@ -606,7 +607,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   );
   runtimeRef.current = runtime;
 
-  agent.subscribe((event) => {
+  agent.subscribe(async (event, _signal) => {
     runtime.onAgentEvent(event);
   });
 

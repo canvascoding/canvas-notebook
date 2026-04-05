@@ -147,11 +147,15 @@ export async function initiateOAuthLogin(
 ): Promise<OAuthCredentials> {
   switch (provider) {
     case 'anthropic': {
-      // Anthropic: loginAnthropic(onAuthUrl, onPromptCode)
-      return await loginAnthropic(
-        (url: string) => onAuthUrl(url),
-        async () => onPrompt('Enter the authorization code from your browser')
-      );
+      return await loginAnthropic({
+        onAuth: (info: { url: string; instructions?: string }) => {
+          onAuthUrl(info.url, info.instructions);
+        },
+        onPrompt: async (prompt) => {
+          return await onPrompt(prompt.message);
+        },
+        onProgress: onProgress,
+      });
     }
     
     case 'openai-codex': {

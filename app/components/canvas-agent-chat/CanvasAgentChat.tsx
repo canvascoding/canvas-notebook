@@ -51,8 +51,13 @@ import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-se
 
 interface Attachment {
   name: string;
-  path: string;
-  type: string;
+  contentKind: 'image' | 'document';
+  // image
+  path?: string;
+  mimeType?: string;
+  // document
+  text?: string;
+  originalMimeType?: string;
 }
 
 interface ChatMessage {
@@ -191,11 +196,18 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
   }
 
   for (const attachment of attachments) {
-    content.push({
-      type: 'image',
-      data: attachment.path,
-      mimeType: attachment.type,
-    });
+    if (attachment.contentKind === 'image') {
+      content.push({
+        type: 'image',
+        data: attachment.path!,
+        mimeType: attachment.mimeType!,
+      });
+    } else {
+      content.push({
+        type: 'text',
+        text: `--- Dateiinhalt: ${attachment.name} ---\n${attachment.text ?? ''}\n--- Ende: ${attachment.name} ---`,
+      });
+    }
   }
 
   return content;
@@ -252,8 +264,9 @@ function extractImageAttachments(content: unknown): Attachment[] | undefined {
     if (isImagePart(part)) {
       result.push({
         name: `attachment-${index + 1}`,
+        contentKind: 'image',
         path: part.data,
-        type: part.mimeType,
+        mimeType: part.mimeType,
       });
     }
     return result;
@@ -1151,8 +1164,9 @@ export default function CanvasAgentChat({
         if (!contentType.startsWith('image/')) return;
         foundAttachments.push({
           name: path.split('/').pop() || path,
+          contentKind: 'image',
           path,
-          type: contentType,
+          mimeType: contentType,
         });
       } catch {
         // ignore
@@ -1419,12 +1433,14 @@ export default function CanvasAgentChat({
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/upload/screenshot', { method: 'POST', body: formData });
+      const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok || !data.success) {
         setUploadError(data.error ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.');
+      } else if (data.contentKind === 'image') {
+        setAttachments((prev) => [...prev, { name: data.name, contentKind: 'image', path: data.path, mimeType: data.mimeType }]);
       } else {
-        setAttachments((prev) => [...prev, { name: data.name, path: data.path, type: file.type }]);
+        setAttachments((prev) => [...prev, { name: data.name, contentKind: 'document', text: data.text, originalMimeType: data.originalMimeType }]);
       }
     } catch (err) {
       console.error('Upload failed', err);
@@ -2311,7 +2327,7 @@ export default function CanvasAgentChat({
         className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 px-3 pt-3"
         style={{ paddingBottom: isMobile ? 'calc(env(safe-area-inset-bottom) + 0.75rem)' : '0.75rem' }}
       >
-        {attachments.length > 0 && !currentModelSupportsVision() && (
+        {attachments.some((a) => a.contentKind === 'image') && !currentModelSupportsVision() && (
           <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-600">
             <strong>{t('imageModelWarningTitle')}</strong> {t('imageModelWarningBody')}
           </div>
@@ -2334,7 +2350,9 @@ export default function CanvasAgentChat({
           >
             {attachments.map((attachment, index) => (
               <div key={index} className="flex shrink-0 items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
-                <ImageIcon className="h-3.5 w-3.5" /> {attachment.name}
+                {attachment.contentKind === 'image'
+                  ? <ImageIcon className="h-3.5 w-3.5" />
+                  : <FileText className="h-3.5 w-3.5" />} {attachment.name}
                 <button type="button" onClick={() => removeAttachment(index)} className="hover:text-destructive">
                   <X className="h-3 w-3" />
                 </button>
@@ -2435,7 +2453,7 @@ export default function CanvasAgentChat({
               ? <Loader2 className="h-5 w-5 animate-spin" />
               : <Paperclip className="h-5 w-5" />}
           </button>
-          <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*" />
+          <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*,application/pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.html" />
           <div className="relative flex-1">
             <textarea
               ref={textareaRef}

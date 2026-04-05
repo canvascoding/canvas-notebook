@@ -71,6 +71,7 @@ function estimateContentTokens(content: unknown): number {
 }
 
 export function estimatePiMessageTokens(message: AgentMessage): number {
+  if (message.role === 'compact-break') return MESSAGE_OVERHEAD_TOKENS;
   return MESSAGE_OVERHEAD_TOKENS + estimateContentTokens(message.content);
 }
 

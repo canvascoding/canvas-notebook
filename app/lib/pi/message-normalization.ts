@@ -247,6 +247,7 @@ async function normalizeImageArray(
 }
 
 async function normalizePiMessage(message: AgentMessage): Promise<Message> {
+  if (message.role === 'compact-break') return message as unknown as Message;
   if (!Array.isArray(message.content)) {
     return message as Message;
   }
@@ -289,6 +290,7 @@ export async function normalizePiMessagesForLlm(messages: AgentMessage[]): Promi
  */
 export function filterImagesForNonVisionModel(messages: AgentMessage[]): AgentMessage[] {
   return messages.map((message) => {
+    if (message.role === 'compact-break') return message;
     if (!Array.isArray(message.content)) {
       return message;
     }
