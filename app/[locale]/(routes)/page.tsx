@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import { Link } from '@/i18n/navigation';
-import { Github, Heart } from 'lucide-react';
+import { ExternalLink, Heart } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
 
 import { buildAgentConfigReadiness } from '@/app/lib/agents/storage';
@@ -168,7 +168,7 @@ export default async function Home() {
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 break-all text-muted-foreground transition-colors hover:text-foreground md:justify-end"
             >
-              <Github className="h-3.5 w-3.5 shrink-0" />
+              <ExternalLink className="h-3.5 w-3.5 shrink-0" />
               <span>canvascoding/canvas-notebook</span>
             </a>
           </div>

@@ -358,10 +358,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
     // Touch selection helpers
     const getTouchRow = (clientY: number) => {
       const rect = container.getBoundingClientRect();
-      const core = term as unknown as {
-        _core?: { _renderService?: { dimensions?: { actualCellHeight?: number } } };
-      };
-      const cellHeight = core._core?._renderService?.dimensions?.actualCellHeight;
+      const cellHeight = container.clientHeight / term.rows;
       if (!cellHeight || cellHeight <= 0) return null;
       const viewportRow = Math.floor((clientY - rect.top) / cellHeight);
       const clampedRow = Math.max(0, Math.min(term.rows - 1, viewportRow));

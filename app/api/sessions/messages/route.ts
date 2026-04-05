@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages, piSessions, piMessages } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -18,11 +18,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Try PI session first
+    // Try PI session first (ownership enforced)
     const dbPiSessions = await db
       .select()
       .from(piSessions)
-      .where(eq(piSessions.sessionId, sessionId))
+      .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)))
       .limit(1);
 
     if (dbPiSessions.length > 0) {
@@ -44,11 +44,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fallback to legacy
+    // Fallback to legacy (ownership enforced)
     const dbAiSessions = await db
       .select()
       .from(aiSessions)
-      .where(eq(aiSessions.sessionId, sessionId))
+      .where(and(eq(aiSessions.sessionId, sessionId), eq(aiSessions.userId, session.user.id)))
       .limit(1);
 
     if (dbAiSessions.length === 0) {

@@ -3,7 +3,7 @@ import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages, user, piSessions, piMessages } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
 import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
 import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig } from '@/app/lib/agents/storage';
@@ -68,8 +68,10 @@ export async function GET(request: NextRequest) {
   const legacyModelFilter = resolveRequestedModel(searchParams.get('model'));
 
   try {
-    const whereClause = legacyModelFilter ? eq(aiSessions.model, legacyModelFilter) : undefined;
-    
+    const whereClause = legacyModelFilter
+      ? and(eq(aiSessions.model, legacyModelFilter), eq(aiSessions.userId, session.user.id))
+      : eq(aiSessions.userId, session.user.id);
+
     const [legacySessions, newPiSessions] = await Promise.all([
       db
         .select({
@@ -101,6 +103,7 @@ export async function GET(request: NextRequest) {
         })
         .from(piSessions)
         .leftJoin(user, eq(piSessions.userId, user.id))
+        .where(eq(piSessions.userId, session.user.id))
         .orderBy(desc(piSessions.createdAt))
         .limit(100)
     ]);
@@ -242,7 +245,7 @@ export async function PATCH(request: NextRequest) {
     const updatedPi = await db
       .update(piSessions)
       .set({ title: title.slice(0, 120), updatedAt: new Date() })
-      .where(eq(piSessions.sessionId, sessionId))
+      .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)))
       .returning();
 
     if (updatedPi.length > 0) {
@@ -256,7 +259,7 @@ export async function PATCH(request: NextRequest) {
     const updatedLegacy = await db
       .update(aiSessions)
       .set({ title: title.slice(0, 120) })
-      .where(eq(aiSessions.sessionId, sessionId))
+      .where(and(eq(aiSessions.sessionId, sessionId), eq(aiSessions.userId, session.user.id)))
       .returning();
 
     if (updatedLegacy.length === 0) {
@@ -290,11 +293,24 @@ export async function DELETE(request: NextRequest) {
 
   try {
     if (shouldDeleteAll) {
-      // Delete everything
-      await db.delete(piMessages);
-      await db.delete(piSessions);
-      await db.delete(aiMessages);
-      await db.delete(aiSessions);
+      // Delete only the current user's sessions
+      const userPiSessions = await db
+        .select({ id: piSessions.id })
+        .from(piSessions)
+        .where(eq(piSessions.userId, session.user.id));
+      if (userPiSessions.length > 0) {
+        await db.delete(piMessages).where(inArray(piMessages.piSessionDbId, userPiSessions.map(s => s.id)));
+      }
+      await db.delete(piSessions).where(eq(piSessions.userId, session.user.id));
+
+      const userAiSessions = await db
+        .select({ id: aiSessions.id })
+        .from(aiSessions)
+        .where(eq(aiSessions.userId, session.user.id));
+      if (userAiSessions.length > 0) {
+        await db.delete(aiMessages).where(inArray(aiMessages.aiSessionDbId, userAiSessions.map(s => s.id)));
+      }
+      await db.delete(aiSessions).where(eq(aiSessions.userId, session.user.id));
 
       return NextResponse.json({
         success: true,
@@ -302,16 +318,18 @@ export async function DELETE(request: NextRequest) {
       });
     }
 
-    // Try deleting PI session
-    const piSess = await db.select({ id: piSessions.id }).from(piSessions).where(eq(piSessions.sessionId, sessionId!));
+    // Try deleting PI session (ownership enforced)
+    const piSess = await db.select({ id: piSessions.id }).from(piSessions)
+      .where(and(eq(piSessions.sessionId, sessionId!), eq(piSessions.userId, session.user.id)));
     if (piSess.length > 0) {
       await db.delete(piMessages).where(eq(piMessages.piSessionDbId, piSess[0].id));
       await db.delete(piSessions).where(eq(piSessions.id, piSess[0].id));
       return NextResponse.json({ success: true, deleted: sessionId });
     }
 
-    // Fallback to legacy
-    const aiSess = await db.select({ id: aiSessions.id }).from(aiSessions).where(eq(aiSessions.sessionId, sessionId!));
+    // Fallback to legacy (ownership enforced)
+    const aiSess = await db.select({ id: aiSessions.id }).from(aiSessions)
+      .where(and(eq(aiSessions.sessionId, sessionId!), eq(aiSessions.userId, session.user.id)));
     if (aiSess.length > 0) {
       await db.delete(aiMessages).where(eq(aiMessages.aiSessionDbId, aiSess[0].id));
       await db.delete(aiSessions).where(eq(aiSessions.id, aiSess[0].id));
