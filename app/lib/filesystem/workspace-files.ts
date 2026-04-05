@@ -29,12 +29,15 @@ export function validatePath(userPath: string): string {
   return normalizedPath;
 }
 
-function isImageGenerationMetadataFile(filePath: string, fileName: string): boolean {
-  // Hide JSON metadata files in image-generation/generations directory
-  if (filePath.includes('image-generation/generations') && fileName.endsWith('.json')) {
-    return true;
-  }
-  return false;
+function isAppOutputMetadataFile(filePath: string, fileName: string): boolean {
+  if (!fileName.endsWith('.json')) return false;
+  // Hide JSON metadata files in app output directories
+  const APP_OUTPUT_DIRS = [
+    'image-generation/generations',
+    'veo-studio/video-generation',
+    'nano-banana-ad-localizer/localizations',
+  ];
+  return APP_OUTPUT_DIRS.some((dir) => filePath.includes(dir));
 }
 
 export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> {
@@ -52,9 +55,9 @@ export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> 
           return false;
         }
 
-        // Hide image generation metadata JSON files
+        // Hide app output metadata JSON files
         const entryPath = path.join(dirPath, entry.name);
-        if (isImageGenerationMetadataFile(entryPath, entry.name)) {
+        if (isAppOutputMetadataFile(entryPath, entry.name)) {
           return false;
         }
 
