@@ -1,8 +1,42 @@
 #!/bin/sh
 set -eu
 
+# ─── Progress display helpers ──────────────────────────────────────────────
+STARTUP_LOG="/data/logs/startup.log"
+_step_num=0
+_step_total=0
+_step_label=""
+
+_progress_bar() {
+  if [ "$_step_total" -le 0 ]; then return; fi
+  _pct=$(( _step_num * 100 / _step_total ))
+  _filled=$(( _step_num * 20 / _step_total ))
+  _bar="" _i=0
+  while [ $_i -lt $_filled ]; do _bar="${_bar}█"; _i=$((_i+1)); done
+  while [ $_i -lt 20 ];        do _bar="${_bar}░"; _i=$((_i+1)); done
+  printf '  [%s] %3d%%' "$_bar" "$_pct"
+}
+
+step() {
+  _step_num=$((_step_num + 1))
+  _step_label="$1"
+  printf '\r\033[K  \342\206\222 [%d/%d] %s' "$_step_num" "$_step_total" "$_step_label"
+}
+
+step_ok() {
+  printf '\r\033[K  \342\234\223 [%d/%d] %s\n' "$_step_num" "$_step_total" "$_step_label"
+  _progress_bar
+}
+
+step_fail() {
+  printf '\r\033[K  \342\234\227 [%d/%d] %s \342\200\224 FAILED\n' "$_step_num" "$_step_total" "$_step_label"
+  printf '\n  Full log: %s\n\n' "$STARTUP_LOG"
+  tail -n 30 "$STARTUP_LOG" >&2
+}
+# ───────────────────────────────────────────────────────────────────────────
+
 fatal_startup() {
-  echo "[entrypoint] ERROR: $1"
+  printf '\n\n  [entrypoint] ERROR: %s\n' "$1" >&2
   exit 1
 }
 
@@ -30,109 +64,19 @@ prepare_writable_dir() {
   fi
 
   if command -v sudo >/dev/null 2>&1; then
-    echo "[entrypoint] Fixing permissions for ${target_dir}..."
     if sudo mkdir -p "$target_dir" && sudo chown -R "$owner" "$target_dir"; then
       return 0
     fi
   fi
 
-  echo "[entrypoint] WARNING: Could not prepare writable directory ${target_dir}."
   return 1
 }
 
-# Ensure required data directories exist (critical for container persistence)
-echo "[entrypoint] Ensuring data directories exist..."
+# ─── Pre-compute all flags ────────────────────────────────────────────────
 export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
-mkdir -p /data/canvas-agent
-mkdir -p /data/pi-oauth-states
-mkdir -p /data/secrets
-mkdir -p /data/skills
-mkdir -p /data/workspace
-mkdir -p /data/temp/skills
-echo "[entrypoint] Data directories ready."
-
-echo "[entrypoint] Preparing skills runtime..."
-if node scripts/prepare-skills-runtime.js; then
-  echo "[entrypoint] Skills runtime prepared."
-else
-  fatal_startup "Skills runtime preparation failed."
-fi
-
-# Runtime bootstrap must happen in the container because /home/node is volume-mounted
-# and not available during image build.
-echo "[entrypoint] Bootstrapping agent runtime in /data/canvas-agent..."
-if npx tsx scripts/bootstrap-agent-runtime.ts; then
-  echo "[entrypoint] Agent runtime bootstrap finished."
-else
-  fatal_startup "Agent runtime bootstrap failed."
-fi
-
-# Preferred flag name: AI_CLI_AUTO_INSTALL (legacy fallback: CODEX_AUTO_INSTALL)
 auto_install="${AI_CLI_AUTO_INSTALL:-${CODEX_AUTO_INSTALL:-true}}"
-
-if [ -n "${OLLAMA_MODELS:-}" ]; then
-  prepare_writable_dir "${OLLAMA_MODELS}" || true
-fi
-
-if [ "$auto_install" = "true" ]; then
-  install_ai_cli_if_missing() {
-    command_name="$1"
-    package_name="$2"
-    display_name="$3"
-
-    if command -v "$command_name" >/dev/null 2>&1; then
-      echo "[entrypoint] ${display_name} already available: $($command_name --version 2>/dev/null || echo 'unknown version')."
-      return 0
-    fi
-
-    echo "[entrypoint] Installing ${display_name}..."
-    if npm i -g "$package_name"; then
-      echo "[entrypoint] ${display_name} install finished (user scope)."
-      return 0
-    fi
-
-    echo "[entrypoint] ${display_name} user-scope install failed."
-    if command -v sudo >/dev/null 2>&1; then
-      echo "[entrypoint] Retrying ${display_name} install with sudo/global scope..."
-      if sudo npm i -g "$package_name"; then
-        echo "[entrypoint] ${display_name} install finished (sudo/global scope)."
-        return 0
-      fi
-      echo "[entrypoint] WARNING: ${display_name} install failed after sudo retry. Continuing startup."
-      return 1
-    fi
-
-    echo "[entrypoint] WARNING: sudo not found, skipping ${display_name} retry. Continuing startup."
-    return 1
-  }
-
-  install_ai_cli_if_missing codex @openai/codex@latest "Codex CLI" || true
-  install_ai_cli_if_missing claude @anthropic-ai/claude-code@latest "Claude Code CLI" || true
-else
-  echo "[entrypoint] Skipping CLI auto-install (AI_CLI_AUTO_INSTALL=${auto_install})"
-fi
-
 ollama_auto_install="${OLLAMA_CLI_AUTO_INSTALL:-true}"
-if [ "$ollama_auto_install" = "true" ]; then
-  if command -v ollama >/dev/null 2>&1; then
-    echo "[entrypoint] Ollama CLI already available: $(ollama --version 2>/dev/null || echo 'unknown version')."
-  elif ! command -v curl >/dev/null 2>&1; then
-    echo "[entrypoint] WARNING: curl not found, cannot install Ollama CLI automatically."
-  else
-    echo "[entrypoint] Installing Ollama CLI..."
-    tmp_script="$(mktemp)"
-    if curl -fsSL https://ollama.com/install.sh > "$tmp_script" && OLLAMA_NO_START=1 sh "$tmp_script"; then
-      echo "[entrypoint] Ollama CLI install finished."
-    else
-      echo "[entrypoint] WARNING: Ollama CLI install failed. Continuing startup."
-    fi
-    rm -f "$tmp_script"
-  fi
-else
-  echo "[entrypoint] Skipping Ollama CLI auto-install (OLLAMA_CLI_AUTO_INSTALL=${ollama_auto_install})"
-fi
 
-# Install Bun and qmd for optional workspace search
 if [ -n "${QMD_ENABLED:-}" ]; then
   if env_flag_enabled "$QMD_ENABLED"; then
     qmd_enabled=true
@@ -147,6 +91,99 @@ else
   fi
 fi
 
+# ─── Dynamic step count ───────────────────────────────────────────────────
+_step_total=3
+if [ "$auto_install" = "true" ]; then _step_total=$((_step_total+2)); fi
+if [ "$ollama_auto_install" = "true" ]; then _step_total=$((_step_total+1)); fi
+if [ "$qmd_enabled" = "true" ]; then _step_total=$((_step_total+3)); fi
+
+# ─── Init log ─────────────────────────────────────────────────────────────
+mkdir -p /data/logs
+: > "$STARTUP_LOG"
+printf 'Canvas Notebook initializing...\n\n'
+
+# ─── Step 1: Data directories ─────────────────────────────────────────────
+step "Preparing data directories"
+{
+  mkdir -p /data/canvas-agent
+  mkdir -p /data/pi-oauth-states
+  mkdir -p /data/secrets
+  mkdir -p /data/skills
+  mkdir -p /data/workspace
+  mkdir -p /data/temp/skills
+} >> "$STARTUP_LOG" 2>&1
+step_ok
+
+if [ -n "${OLLAMA_MODELS:-}" ]; then
+  prepare_writable_dir "${OLLAMA_MODELS}" >> "$STARTUP_LOG" 2>&1 || true
+fi
+
+# ─── Step 2: Skills runtime ───────────────────────────────────────────────
+step "Skills runtime"
+if node scripts/prepare-skills-runtime.js >> "$STARTUP_LOG" 2>&1; then
+  step_ok
+else
+  step_fail
+  fatal_startup "Skills runtime preparation failed."
+fi
+
+# ─── Step 3: Agent runtime bootstrap ─────────────────────────────────────
+step "Agent runtime bootstrap"
+if npx tsx scripts/bootstrap-agent-runtime.ts >> "$STARTUP_LOG" 2>&1; then
+  step_ok
+else
+  step_fail
+  fatal_startup "Agent runtime bootstrap failed."
+fi
+
+# ─── Steps 4-5: AI CLI tools ─────────────────────────────────────────────
+if [ "$auto_install" = "true" ]; then
+  install_ai_cli_if_missing() {
+    _cmd="$1"
+    _pkg="$2"
+    _lbl="$3"
+    step "$_lbl"
+    if command -v "$_cmd" >/dev/null 2>&1; then
+      step_ok; return 0
+    fi
+    if npm i -g "$_pkg" >> "$STARTUP_LOG" 2>&1; then
+      step_ok; return 0
+    fi
+    if command -v sudo >/dev/null 2>&1; then
+      if sudo npm i -g "$_pkg" >> "$STARTUP_LOG" 2>&1; then
+        step_ok; return 0
+      fi
+    fi
+    # Non-fatal: show ok but log warning
+    printf '[warning] %s install failed — see %s\n' "$_lbl" "$STARTUP_LOG" >> "$STARTUP_LOG" 2>&1
+    step_ok
+  }
+  install_ai_cli_if_missing codex  @openai/codex@latest            "Codex CLI"
+  install_ai_cli_if_missing claude @anthropic-ai/claude-code@latest "Claude Code CLI"
+fi
+
+# ─── Step: Ollama CLI ─────────────────────────────────────────────────────
+if [ "$ollama_auto_install" = "true" ]; then
+  step "Ollama CLI"
+  if command -v ollama >/dev/null 2>&1; then
+    step_ok
+  elif ! command -v curl >/dev/null 2>&1; then
+    printf '[warning] curl not found, skipping Ollama CLI install\n' >> "$STARTUP_LOG" 2>&1
+    step_ok
+  else
+    tmp_script="$(mktemp)"
+    if curl -fsSL https://ollama.com/install.sh > "$tmp_script" 2>> "$STARTUP_LOG" \
+        && OLLAMA_NO_START=1 sh "$tmp_script" >> "$STARTUP_LOG" 2>&1; then
+      step_ok
+    else
+      printf '[warning] Ollama CLI install failed — continuing startup\n' >> "$STARTUP_LOG" 2>&1
+      step_ok
+    fi
+    rm -f "$tmp_script"
+  fi
+fi
+
+# ─── QMD steps ────────────────────────────────────────────────────────────
 if [ "$qmd_enabled" = "true" ]; then
   export BUN_INSTALL="${BUN_INSTALL:-/data/cache/.bun}"
   export PATH="${BUN_INSTALL}/bin:$PATH"
@@ -197,20 +234,15 @@ EOF
     collection_mask="$3"
 
     if qmd collection list 2>/dev/null | grep -q "^${collection_name} "; then
-      echo "[entrypoint] qmd collection already present: ${collection_name}"
       return 0
     fi
 
-    echo "[entrypoint] Creating qmd collection ${collection_name}..."
-    qmd collection add "$collection_path" --name "$collection_name" --mask "$collection_mask" 2>/dev/null
+    qmd collection add "$collection_path" --name "$collection_name" --mask "$collection_mask" >> "$STARTUP_LOG" 2>&1
   }
 
   prepare_qmd_derived_docx() {
-    echo "[qmd-derived] Preparing DOCX-derived markdown artifacts..."
     mkdir -p "$QMD_DERIVED_DOCX_ROOT"
-    if ! node ./scripts/qmd-prepare-derived-docx.mjs; then
-      echo "[qmd-derived] WARNING: DOCX preprocessing failed. Continuing with direct text collections only."
-    fi
+    node ./scripts/qmd-prepare-derived-docx.mjs >> "$STARTUP_LOG" 2>&1 || true
   }
 
   qmd_cli_ready() {
@@ -221,143 +253,131 @@ EOF
     qmd_cli_ready && qmd collection list >/dev/null 2>&1
   }
 
-  # Install Bun if not present
+  # ─── Step: Bun ──────────────────────────────────────────────────────────
+  step "Bun runtime"
   if [ ! -x "${BUN_INSTALL}/bin/bun" ]; then
-    echo "[entrypoint] Installing Bun..."
-    if curl -fsSL https://bun.sh/install | bash; then
-      echo "[entrypoint] Bun installed successfully."
+    if curl -fsSL https://bun.sh/install 2>> "$STARTUP_LOG" | bash >> "$STARTUP_LOG" 2>&1; then
+      step_ok
     else
+      step_fail
       fatal_startup "Bun installation failed."
     fi
   else
-    echo "[entrypoint] Bun already available."
+    step_ok
   fi
 
-  # Install or repair qmd
-  qmd_needs_install=false
+  # ─── Step: qmd ──────────────────────────────────────────────────────────
+  step "qmd setup"
   qmd_install_path="${BUN_INSTALL}/install/global/node_modules/@tobilu/qmd"
-  
+  qmd_needs_install=false
+
   if ! command -v qmd >/dev/null 2>&1; then
-    echo "[entrypoint] qmd not found, needs installation."
     qmd_needs_install=true
   elif ! qmd_cli_ready; then
-    echo "[entrypoint] qmd command exists but not working (missing dist/), needs rebuild."
     qmd_needs_install=true
   elif [ ! -d "$qmd_install_path/dist" ]; then
-    echo "[entrypoint] qmd dist/ directory missing, needs rebuild."
     qmd_needs_install=true
   fi
-  
+
   if [ "$qmd_needs_install" = "true" ]; then
-    echo "[entrypoint] Installing qmd from npm..."
-    if bun install -g @tobilu/qmd; then
-      echo "[entrypoint] qmd package installed, building from source..."
+    if bun install -g @tobilu/qmd >> "$STARTUP_LOG" 2>&1; then
       if [ -d "$qmd_install_path" ]; then
         mkdir -p /data/cache/qmd
-        echo "[entrypoint] Capturing qmd build output in ${QMD_BUILD_LOG_PATH}..."
-        if ! (cd "$qmd_install_path" && bun install && bun run build) >"$QMD_BUILD_LOG_PATH" 2>&1; then
-          echo "[entrypoint] ERROR: qmd build failed. Last 200 log lines:"
-          tail -n 200 "$QMD_BUILD_LOG_PATH" 2>/dev/null || cat "$QMD_BUILD_LOG_PATH" 2>/dev/null || true
+        if ! (cd "$qmd_install_path" && bun install && bun run build) > "$QMD_BUILD_LOG_PATH" 2>&1; then
+          cat "$QMD_BUILD_LOG_PATH" >> "$STARTUP_LOG" 2>/dev/null || true
+          step_fail
           fatal_startup "qmd build failed. Full log: ${QMD_BUILD_LOG_PATH}"
         fi
         if qmd_cli_ready; then
-          echo "[entrypoint] qmd built and working successfully."
+          step_ok
         else
-          echo "[entrypoint] ERROR: qmd CLI still not working after build. Last 200 log lines:"
-          tail -n 200 "$QMD_BUILD_LOG_PATH" 2>/dev/null || cat "$QMD_BUILD_LOG_PATH" 2>/dev/null || true
+          cat "$QMD_BUILD_LOG_PATH" >> "$STARTUP_LOG" 2>/dev/null || true
+          step_fail
           fatal_startup "qmd build finished but the CLI is still not working."
         fi
       else
+        step_fail
         fatal_startup "qmd install path ${qmd_install_path} not found after installation."
       fi
     else
+      step_fail
       fatal_startup "qmd installation failed."
     fi
   else
-    echo "[entrypoint] qmd already available: $(qmd --version 2>/dev/null || echo 'unknown version')."
+    step_ok
   fi
 
   write_qmd_runtime_status null false null
 
-  # Initialize workspace collections if qmd is working
+  # ─── Step: qmd collections ──────────────────────────────────────────────
+  step "qmd workspace collections"
   if qmd_indexing_ready; then
     if qmd collection list 2>/dev/null | grep -q "^workspace "; then
-      echo "[entrypoint] Removing legacy qmd workspace collection..."
-      qmd collection remove workspace >/dev/null 2>&1 || true
+      qmd collection remove workspace >> "$STARTUP_LOG" 2>&1 || true
     fi
 
     prepare_qmd_derived_docx
 
     if ! ensure_qmd_collection "$QMD_TEXT_COLLECTION_NAME" /data/workspace "$QMD_TEXT_COLLECTION_MASK"; then
+      step_fail
       fatal_startup "Failed to create qmd workspace-text collection."
     fi
     if ! ensure_qmd_collection "$QMD_DERIVED_COLLECTION_NAME" "$QMD_DERIVED_DOCX_ROOT" "$QMD_DERIVED_COLLECTION_MASK"; then
+      step_fail
       fatal_startup "Failed to create qmd workspace-derived collection."
     fi
 
-    qmd context add "qmd://${QMD_TEXT_COLLECTION_NAME}" "Canvas Studios workspace text files, notes, code, and structured documents." 2>/dev/null || true
-    qmd context add "qmd://${QMD_DERIVED_COLLECTION_NAME}" "Derived searchable document text extracted from workspace DOCX files. Always map results back to the original workspace document path." 2>/dev/null || true
+    qmd context add "qmd://${QMD_TEXT_COLLECTION_NAME}" \
+      "Canvas Studios workspace text files, notes, code, and structured documents." >> "$STARTUP_LOG" 2>&1 || true
+    qmd context add "qmd://${QMD_DERIVED_COLLECTION_NAME}" \
+      "Derived searchable document text extracted from workspace DOCX files. Always map results back to the original workspace document path." >> "$STARTUP_LOG" 2>&1 || true
 
-    # Run initial update
-    echo "[qmd-indexer] Running initial qmd update..."
-    if ! qmd update 2>/dev/null; then
+    if qmd update >> "$STARTUP_LOG" 2>&1; then
+      write_qmd_runtime_status "\"$(date -Iseconds)\"" true null
+    else
       write_qmd_runtime_status null false null
+      step_fail
       fatal_startup "Initial qmd update failed."
     fi
-    write_qmd_runtime_status "\"$(date -Iseconds)\"" true null
+    step_ok
 
-    # Start background indexing loops
-    echo "[qmd-indexer] Starting background indexing loops..."
-
-    # Loop 1: Update every 30 minutes
+    # Background indexing loops (silent)
     (
       while true; do
         sleep 1800
         prepare_qmd_derived_docx
-        echo "[qmd-indexer] Running qmd update at $(date)..."
-        if qmd update 2>/dev/null; then
+        if qmd update >> "$STARTUP_LOG" 2>&1; then
           write_qmd_runtime_status "\"$(date -Iseconds)\"" true null
         else
           write_qmd_runtime_status "\"$(date -Iseconds)\"" false null
-          echo "[qmd-indexer] Update completed with warnings at $(date)."
         fi
       done
     ) &
 
-    # Loop 2: Embed 30 minutes after start, then daily at 01:00
     (
-      echo "[qmd-indexer] Waiting 30 minutes for initial embed..."
       sleep 1800
-
-      echo "[qmd-indexer] Running initial qmd embed at $(date)..."
-      qmd embed 2>/dev/null &
+      qmd embed >> "$STARTUP_LOG" 2>&1 &
       write_qmd_runtime_status "\"$(date -Iseconds)\"" true "\"$(date -Iseconds)\""
 
       while true; do
-        # Calculate minutes until 01:00
         current_hour=$(date +%-H)
         current_min=$(date +%-M)
         minutes_until_1am=$(( (24 - current_hour + 1) % 24 * 60 - current_min ))
         if [ $minutes_until_1am -le 0 ]; then
           minutes_until_1am=$((minutes_until_1am + 1440))
         fi
-
-        echo "[qmd-indexer] Next embed at 01:00, sleeping ${minutes_until_1am} minutes..."
         sleep $((minutes_until_1am * 60))
-
-        echo "[qmd-indexer] Running scheduled qmd embed at $(date)..."
-        qmd embed 2>/dev/null &
+        qmd embed >> "$STARTUP_LOG" 2>&1 &
         write_qmd_runtime_status "\"$(date -Iseconds)\"" true "\"$(date -Iseconds)\""
-
-        # Wait until next day
         sleep 86400
       done
     ) &
   else
+    step_fail
     fatal_startup "qmd is not working properly after setup."
   fi
-else
-  echo "[entrypoint] Skipping qmd setup (QMD_ENABLED=${QMD_ENABLED:-unset}, QMD_AUTO_INSTALL=${QMD_AUTO_INSTALL:-unset})"
 fi
+
+printf '\n\n  Canvas Notebook ready.\n\n'
 
 exec "$@"

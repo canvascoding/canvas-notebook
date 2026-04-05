@@ -4,11 +4,16 @@ on:
   push:
     tags:
       - "v*"
+  schedule:
+    # Weekly rebuild on Mondays at 04:00 UTC to pick up fresh base image packages
+    - cron: "0 4 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -52,6 +57,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -60,7 +66,9 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          provenance: mode=max
+          sbom: true
+          no-cache: true
           cache-to: type=gha,mode=max
 
       - name: Trigger EasyPanel deploy webhook

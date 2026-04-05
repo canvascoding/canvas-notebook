@@ -607,7 +607,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   );
   runtimeRef.current = runtime;
 
-  agent.subscribe(async (event, _signal) => {
+  agent.subscribe(async (event) => {
     runtime.onAgentEvent(event);
   });
 

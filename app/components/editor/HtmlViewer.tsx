@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { CodeEditor } from './CodeEditor';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 
@@ -14,12 +13,7 @@ interface HtmlViewerProps {
 }
 
 export function HtmlViewer({ path, value, onChange, viewMode, refreshKey, lastSavedAt }: HtmlViewerProps) {
-  const [iframeKey, setIframeKey] = useState(0);
   const previewUrl = toMediaUrl(path);
-
-  useEffect(() => {
-    setIframeKey((k) => k + 1);
-  }, [lastSavedAt, refreshKey]);
 
   if (viewMode === 'code') {
     return <CodeEditor value={value} onChange={onChange} readOnly={false} />;
@@ -27,7 +21,7 @@ export function HtmlViewer({ path, value, onChange, viewMode, refreshKey, lastSa
 
   return (
     <iframe
-      key={iframeKey}
+      key={`${lastSavedAt}-${refreshKey}`}
       src={previewUrl}
       sandbox="allow-scripts allow-same-origin"
       className="h-full w-full border-0 bg-white"
