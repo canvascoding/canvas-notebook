@@ -12,7 +12,9 @@ const path = require('path');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
-const { startAutomationScheduler } = require('./server/automation-scheduler');
+// automation-scheduler is loaded via dynamic import() — its dependency chain
+// (@mariozechner/pi-agent-core → @mariozechner/pi-ai) is ESM-only and cannot
+// be loaded via synchronous CJS require().
 const { prepareSkillsRuntime } = require('./server/skills-runtime');
 const { auth } = require('./app/lib/auth');
 const {
@@ -264,14 +266,19 @@ try {
   console.error('[Startup] Stack trace:', error.stack);
 }
 
-try {
-  console.log('[Startup] Calling startAutomationScheduler()...');
-  startAutomationScheduler();
-  console.log('[Startup] startAutomationScheduler() completed');
-} catch (error) {
-  console.error('[Startup] ERROR in startAutomationScheduler():', error.message);
+import('./server/automation-scheduler.js').then(({ startAutomationScheduler }) => {
+  try {
+    console.log('[Startup] Calling startAutomationScheduler()...');
+    startAutomationScheduler();
+    console.log('[Startup] startAutomationScheduler() completed');
+  } catch (error) {
+    console.error('[Startup] ERROR in startAutomationScheduler():', error.message);
+    console.error('[Startup] Stack trace:', error.stack);
+  }
+}).catch(error => {
+  console.error('[Startup] ERROR loading automation-scheduler:', error.message);
   console.error('[Startup] Stack trace:', error.stack);
-}
+});
 
 console.log('[Startup] Runtime setup complete');
 
