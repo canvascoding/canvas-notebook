@@ -421,7 +421,7 @@
     "footer": {
       "madeWith": "Made with",
       "byCanvasCoding": "by Canvas Coding",
-      "version": "v. {version}"
+      "version": "v.{version}"
     }
   },
   "terminal": {
