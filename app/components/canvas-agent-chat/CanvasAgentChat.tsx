@@ -52,10 +52,10 @@ import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-se
 interface Attachment {
   name: string;
   contentKind: 'image' | 'document';
-  // image
+  // image & file
   path?: string;
   mimeType?: string;
-  // document
+  // document (for text-based docs)
   text?: string;
   originalMimeType?: string;
 }
@@ -202,7 +202,14 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
         data: attachment.path!,
         mimeType: attachment.mimeType!,
       });
+    } else if (attachment.path) {
+      // File-based documents (PDF, DOCX) - provide path for the AI to read
+      content.push({
+        type: 'text',
+        text: `--- Datei: ${attachment.name} ---\nPfad: ${attachment.path}\nTyp: ${attachment.originalMimeType || 'document'}\n\n[Die Datei wurde gespeichert und ist über den Pfad lesbar]\n--- Ende: ${attachment.name} ---`,
+      });
     } else {
+      // Text-based documents - include content directly
       content.push({
         type: 'text',
         text: `--- Dateiinhalt: ${attachment.name} ---\n${attachment.text ?? ''}\n--- Ende: ${attachment.name} ---`,
@@ -1439,7 +1446,11 @@ export default function CanvasAgentChat({
         setUploadError(data.error ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.');
       } else if (data.contentKind === 'image') {
         setAttachments((prev) => [...prev, { name: data.name, contentKind: 'image', path: data.path, mimeType: data.mimeType }]);
+      } else if (data.path) {
+        // File-based document (PDF, DOCX) - saved to disk and path returned
+        setAttachments((prev) => [...prev, { name: data.name, contentKind: 'document', path: data.path, originalMimeType: data.originalMimeType }]);
       } else {
+        // Text-based document - content included directly
         setAttachments((prev) => [...prev, { name: data.name, contentKind: 'document', text: data.text, originalMimeType: data.originalMimeType }]);
       }
     } catch (err) {

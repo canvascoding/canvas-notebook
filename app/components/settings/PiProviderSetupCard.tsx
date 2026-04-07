@@ -528,7 +528,7 @@ export function PiProviderSetupCard({
                     <option value="">{t('provider.selectModel')}</option>
                     {(discovery[piConfigDraft.activeProvider]?.models || []).map((model) => (
                       <option key={model.id} value={model.id}>
-                        {model.name || model.id} {model.supportsVision ? '👁️' : ''}
+                        {model.name || model.id}
                       </option>
                     ))}
                     <option value="custom">{t('provider.customModelOption')}</option>
@@ -552,10 +552,6 @@ export function PiProviderSetupCard({
                       </p>
                     </div>
                   )}
-
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t('provider.visionLegendWithCustom')}
-                  </p>
                 </>
               ) : (
                 <>
@@ -569,7 +565,7 @@ export function PiProviderSetupCard({
                     <option value="">{t('provider.selectModel')}</option>
                     {(discovery[piConfigDraft.activeProvider]?.models || []).map((model) => (
                       <option key={model.id} value={model.id}>
-                        {model.name || model.id} {model.supportsVision ? '👁️' : ''}
+                        {model.name || model.id}
                       </option>
                     ))}
                     {!discovery[piConfigDraft.activeProvider] && (
@@ -578,7 +574,6 @@ export function PiProviderSetupCard({
                       </option>
                     )}
                   </select>
-                  <p className="mt-1 text-xs text-muted-foreground">{t('provider.visionLegend')}</p>
                 </>
               )}
             </div>

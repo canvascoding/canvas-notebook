@@ -14,7 +14,7 @@ import {
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
-import { filterImagesForNonVisionModel, normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
+import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { createCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { resolveActivePiModel, resolvePiModel } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
@@ -140,13 +140,9 @@ function getMessageSignature(message: Extract<AgentMessage, { role: 'user' }>): 
 
 function sanitizeUserMessage(
   message: Extract<AgentMessage, { role: 'user' }>,
-  model: Model<Api>,
 ): Extract<AgentMessage, { role: 'user' }> {
-  if (model.input?.includes('image')) {
-    return message;
-  }
-
-  return filterImagesForNonVisionModel([message])[0] as Extract<AgentMessage, { role: 'user' }>;
+  // Pass through all messages without filtering - let the model handle vision capabilities
+  return message;
 }
 
 function toPercent(used: number, available: number): number {
@@ -260,7 +256,7 @@ class LivePiRuntime {
       throw new Error('No active agent run to queue a follow-up message.');
     }
 
-    const sanitized = sanitizeUserMessage(message, this.model);
+    const sanitized = sanitizeUserMessage(message);
     const entry = this.createQueueEntry(sanitized);
     this.followUpQueue.push(entry);
     this.touch();
@@ -274,7 +270,7 @@ class LivePiRuntime {
       throw new Error('No active agent run to steer.');
     }
 
-    const sanitized = sanitizeUserMessage(message, this.model);
+    const sanitized = sanitizeUserMessage(message);
     const entry = this.createQueueEntry(sanitized);
     this.steeringQueue.push(entry);
     this.touch();
@@ -284,7 +280,7 @@ class LivePiRuntime {
   }
 
   async replace(message: Extract<AgentMessage, { role: 'user' }>) {
-    const sanitized = sanitizeUserMessage(message, this.model);
+    const sanitized = sanitizeUserMessage(message);
 
     if (!this.agent.state.isStreaming) {
       this.startPrompt(sanitized);
@@ -383,7 +379,7 @@ class LivePiRuntime {
   }
 
   startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
-    const sanitized = sanitizeUserMessage(message, this.model);
+    const sanitized = sanitizeUserMessage(message);
     this.touch();
     this.abortRequested = false;
     this.publishStatus();

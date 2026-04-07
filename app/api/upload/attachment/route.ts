@@ -118,30 +118,40 @@ export async function POST(request: NextRequest) {
 
     // --- PDF ---
     if (contentType === PDF_TYPE || ext === '.pdf') {
-      const text = await extractPdfText(buffer);
-      if (!text.trim()) {
-        return NextResponse.json(
-          { success: false, error: 'PDF enthält keinen extrahierbaren Text (möglicherweise gescannt/nur Bilder).' },
-          { status: 422 },
-        );
-      }
+      const DATA = process.env.DATA ?? path.join(process.cwd(), 'data');
+      const uploadsDir = path.join(DATA, 'user-uploads');
+      await fs.mkdir(uploadsDir, { recursive: true });
+
+      const baseName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').replace(/\.[^.]+$/, '');
+      const fileName = `${Date.now()}_${baseName}.pdf`;
+      const filePath = path.join(uploadsDir, fileName);
+      await fs.writeFile(filePath, buffer);
+
       return NextResponse.json({
         success: true,
         name: file.name,
         contentKind: 'document',
-        text,
+        path: filePath,
         originalMimeType: PDF_TYPE,
       });
     }
 
     // --- Word (.docx) ---
     if (contentType === DOCX_TYPE || ext === '.docx') {
-      const text = await extractDocxText(buffer);
+      const DATA = process.env.DATA ?? path.join(process.cwd(), 'data');
+      const uploadsDir = path.join(DATA, 'user-uploads');
+      await fs.mkdir(uploadsDir, { recursive: true });
+
+      const baseName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').replace(/\.[^.]+$/, '');
+      const fileName = `${Date.now()}_${baseName}.docx`;
+      const filePath = path.join(uploadsDir, fileName);
+      await fs.writeFile(filePath, buffer);
+
       return NextResponse.json({
         success: true,
         name: file.name,
         contentKind: 'document',
-        text,
+        path: filePath,
         originalMimeType: DOCX_TYPE,
       });
     }

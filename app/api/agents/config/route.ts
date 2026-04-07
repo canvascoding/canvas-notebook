@@ -8,7 +8,7 @@ import {
   readPiRuntimeConfig,
   writePiRuntimeConfig,
 } from '@/app/lib/agents/storage';
-import { getPiModels, getPiProviders, modelSupportsVision } from '@/app/lib/pi/model-resolver';
+import { getPiModels, getPiProviders } from '@/app/lib/pi/model-resolver';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 
 async function requireSession(request: NextRequest) {
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     const readiness = await buildAgentConfigReadiness();
     const engine = getActiveAiAgentEngine();
 
-    // Discovery metadata with vision support
+    // Discovery metadata - all models now support files/images
     const providers = getPiProviders();
     const discovery = Object.fromEntries(
       providers.map(p => {
@@ -54,8 +54,8 @@ export async function GET(request: NextRequest) {
         const customModel = p === 'ollama' ? piConfig.providers.ollama?.ollamaCustomModel : undefined;
         return [p, { 
           models: getPiModels(p, customModel).map(m => ({
-            ...m,
-            supportsVision: modelSupportsVision(m.id) || (m.input?.includes('image') ?? false),
+            id: m.id,
+            name: m.name,
           })),
         }];
       })
