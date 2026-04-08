@@ -19,7 +19,6 @@ import {
   broadcastToSession,
   broadcastToUser,
 } from './websocket-broadcast';
-import { getExistingPiRuntime } from '@/app/lib/pi/live-runtime';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 
 // Message Types
@@ -183,20 +182,8 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
 
-      // Send current runtime status
-      try {
-        const runtime = await getExistingPiRuntime(message.sessionId, userId);
-        if (runtime) {
-          const status = runtime.getStatus();
-          ws.send(JSON.stringify({
-            type: 'runtime_status',
-            sessionId: message.sessionId,
-            status,
-          } as ServerMessage));
-        }
-      } catch (error) {
-        console.error('[WebSocket] Error getting runtime status:', error);
-      }
+      // Runtime status will be pushed by PI Runtime automatically
+      // No need to fetch it here
 
       break;
     }
@@ -275,19 +262,24 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      // Forward to PI Runtime
+      // Forward to PI Runtime via API endpoint
+      // The WebSocket server doesn't directly manage PI Runtimes
+      // Instead, we use the existing /api/stream endpoint
       try {
-        const runtime = await getExistingPiRuntime(message.sessionId, userId);
-        if (runtime) {
-          runtime.startPrompt(userMessage);
-          console.log(`[WebSocket] Message sent to session ${message.sessionId}`);
-        } else {
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'Session not found or not active',
-            code: 'SESSION_NOT_FOUND',
-          } as ServerMessage));
+        const response = await fetch('http://localhost:3000/api/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: message.sessionId,
+            message: userMessage,
+          }),
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
         }
+        
+        console.log(`[WebSocket] Message sent to session ${message.sessionId}`);
       } catch (error) {
         console.error('[WebSocket] Error sending message:', error);
         ws.send(JSON.stringify({
@@ -319,19 +311,9 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      try {
-        const runtime = await getExistingPiRuntime(message.sessionId, userId);
-        if (runtime) {
-          const status = runtime.getStatus();
-          ws.send(JSON.stringify({
-            type: 'runtime_status',
-            sessionId: message.sessionId,
-            status,
-          } as ServerMessage));
-        }
-      } catch (error) {
-        console.error('[WebSocket] Error getting status:', error);
-      }
+      // Runtime status will be sent via PI Runtime events
+      // This is just a placeholder for future implementation
+      console.log('[WebSocket] Status request for session:', message.sessionId);
       break;
     }
 
