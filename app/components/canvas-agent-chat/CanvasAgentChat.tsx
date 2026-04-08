@@ -49,6 +49,7 @@ import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
+import { useWebSocket } from '@/app/hooks/useWebSocket';
 
 interface Attachment {
   name: string;
@@ -534,6 +535,13 @@ export default function CanvasAgentChat({
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
+  
+  // WebSocket integration (only if enabled)
+  const isWebSocketEnabled = typeof window !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true';
+  const { connected: wsConnected, subscribe, unsubscribe, sendMessage, markAsRead } = useWebSocket({
+    autoConnect: isWebSocketEnabled,
+  });
+  
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -645,8 +653,12 @@ export default function CanvasAgentChat({
     setIsUserActiveInChat(isChatRoute && isViewingSession);
   }, [pathname, showHistory]);
 
-  // BroadcastChannel for Multi-Tab communication
+  // BroadcastChannel for Multi-Tab communication (fallback for SSE mode)
   useEffect(() => {
+    if (isWebSocketEnabled) {
+      return; // Skip BroadcastChannel when WebSocket is enabled
+    }
+    
     channelRef.current = new BroadcastChannel('canvas-chat-unread');
     
     channelRef.current.onmessage = (event) => {
@@ -676,7 +688,37 @@ export default function CanvasAgentChat({
     };
     
     return () => channelRef.current?.close();
-  }, [isUserActiveInChat, router, sessionBasePath, t]);
+  }, [isUserActiveInChat, isWebSocketEnabled, router, sessionBasePath, t]);
+
+  // Session subscription for WebSocket
+  useEffect(() => {
+    if (!isWebSocketEnabled || !wsConnected || !sessionId) {
+      return;
+    }
+
+    subscribe(sessionId);
+    
+    // Mark as read via WebSocket
+    if (isUserActiveInChat) {
+      markAsRead(sessionId);
+      // Also update global state for provider
+      if (typeof window !== 'undefined') {
+        window.__setCurrentSession?.(sessionId);
+        window.__setUserActive?.(isUserActiveInChat);
+      }
+    }
+
+    return () => {
+      unsubscribe(sessionId);
+    };
+  }, [isWebSocketEnabled, wsConnected, sessionId, isUserActiveInChat, subscribe, unsubscribe, markAsRead]);
+
+  // Update global WebSocket state when user activity changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__setUserActive?.(isUserActiveInChat);
+    }
+  }, [isUserActiveInChat]);
 
   // Create session on mount if not in history view
   useEffect(() => {
@@ -1306,6 +1348,15 @@ export default function CanvasAgentChat({
     setAttachments([]);
 
     const targetSessionId = await ensureSession();
+    
+    // Use WebSocket if enabled
+    if (isWebSocketEnabled && wsConnected) {
+      appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
+      sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>);
+      return;
+    }
+    
+    // Fallback to SSE
     const currentPhase = runtimeStatusRef.current?.phase || 'idle';
 
     if (currentPhase === 'idle') {
@@ -1335,7 +1386,7 @@ export default function CanvasAgentChat({
       prev.map((message) => (message.role === 'user' && message.status === 'sending' ? { ...message, status: 'aborting' } : message)),
     );
     await postControl(targetSessionId, 'replace', userMessage);
-  }, [appendOptimisticUserMessage, attachments, ensureSession, input, openRuntimeStream, postControl, scanForImageReferences]);
+  }, [appendOptimisticUserMessage, attachments, ensureSession, input, isWebSocketEnabled, wsConnected, sendMessage, openRuntimeStream, postControl, scanForImageReferences]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -1504,9 +1555,13 @@ export default function CanvasAgentChat({
       if (statusPayload?.success && statusPayload.status) {
         setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
         lastCompactionMarkerRef.current = (statusPayload.status as RuntimeStatus).lastCompactionAt || null;
-        if ((statusPayload.status as RuntimeStatus).phase !== 'idle') {
+      if ((statusPayload.status as RuntimeStatus).phase !== 'idle') {
+        // For WebSocket mode, subscription happens via useEffect
+        // For SSE mode, open the stream
+        if (!isWebSocketEnabled) {
           void openRuntimeStream(session.sessionId);
         }
+      }
       } else {
         setRuntimeStatus(null);
       }
@@ -1514,7 +1569,7 @@ export default function CanvasAgentChat({
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [openRuntimeStream, resetStreamConnection, setRuntimeStatusWithReconciliation, t]);
+  }, [isWebSocketEnabled, openRuntimeStream, resetStreamConnection, setRuntimeStatusWithReconciliation, t]);
 
   const deleteSession = useCallback(async (id: string) => {
     if (!confirm(t('deleteSessionConfirm'))) return;

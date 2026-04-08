@@ -502,6 +502,21 @@ class LivePiRuntime {
     this.lastPersistedLength = allMessages.length;
     this.publishStatus();
 
+    // Broadcast session update via WebSocket (if enabled)
+    if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
+      try {
+        const { broadcastSessionUpdate, broadcastNotification } = await import('@/server/websocket-server');
+        const lastMessage = allMessages[allMessages.length - 1];
+        if (lastMessage && lastMessage.role === 'assistant') {
+          const lastMessageAt = new Date().toISOString();
+          broadcastSessionUpdate(this.sessionId, lastMessageAt);
+          broadcastNotification(this.userId, this.sessionId, this.sessionId, 'new_response');
+        }
+      } catch (error) {
+        console.error('[LiveRuntime] Error broadcasting via WebSocket:', error);
+      }
+    }
+
     if (this.pendingReplace) {
       const replacement = this.pendingReplace.message;
       this.pendingReplace = null;

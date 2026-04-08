@@ -1,6 +1,6 @@
 'use client';
 
-import { ThemeProvider } from 'next-themes';
+import { ThemeProvider as NextThemesProvider } from 'next-themes';
 import type { ReactNode } from 'react';
 
 interface ThemeProviderProps {
@@ -9,13 +9,14 @@ interface ThemeProviderProps {
 
 export function AppThemeProvider({ children }: ThemeProviderProps) {
   return (
-    <ThemeProvider
+    <NextThemesProvider
       attribute="class"
       defaultTheme="light"
       enableSystem
       disableTransitionOnChange
+      enableColorScheme={false}
     >
       {children}
-    </ThemeProvider>
+    </NextThemesProvider>
   );
 }

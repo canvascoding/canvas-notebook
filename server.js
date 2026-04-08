@@ -317,8 +317,21 @@ app
       handle(req, res);
     });
 
-    // Terminal service now runs as separate process
-    // WebSocket upgrade handling removed - using SSE via API routes instead
+    // WebSocket Server for Chat
+    let wss = null;
+    if (process.env.WEBSOCKET_ENABLED === 'true') {
+      console.log('[Startup] Initializing WebSocket Server...');
+      try {
+        const { createWebSocketServer } = require('./server/websocket-server');
+        wss = createWebSocketServer(server);
+        console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+      } catch (error) {
+        console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
+        console.error('[Startup] Stack trace:', error.stack);
+      }
+    } else {
+      console.log('[Startup] WebSocket Server disabled (WEBSOCKET_ENABLED=false)');
+    }
 
     server.listen(port, (err) => {
       if (err) throw err;

@@ -39,6 +39,11 @@
     "test:e2e": "playwright test --pass-with-no-tests",
     "pretest:all": "npm run todos:sync:agent",
     "test:all": "node scripts/test-all.mjs",
+    "test:websocket:connection": "node scripts/test-websocket-connection.js",
+    "test:websocket:multitab": "node scripts/test-websocket-multitab.js",
+    "test:websocket:read-unread": "node scripts/test-websocket-read-unread.js",
+    "test:websocket:toast": "node scripts/test-websocket-toast.js",
+    "test:websocket:load": "node scripts/test-websocket-load.js",
     "setup": "node scripts/setup.mjs",
     "container:rebuild": "node scripts/setup.mjs"
   },
@@ -115,7 +120,7 @@
     "tsx": "^4.21.0",
     "turndown": "^7.2.0",
     "turndown-plugin-gfm": "^1.0.2",
-    "ws": "^8.19.0",
+    "ws": "^8.20.0",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.9"
   },

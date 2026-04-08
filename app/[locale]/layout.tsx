@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import "../globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
+import { WebsocketProviderWrapper } from '@/app/components/WebsocketProviderWrapper';
 import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
 import {routing} from '@/i18n/routing';
@@ -90,8 +91,10 @@ export default async function LocaleLayout({
       >
         <NextIntlClientProvider messages={messages}>
           <AppThemeProvider>
-            {children}
-            <Toaster richColors position="top-right" />
+            <WebsocketProviderWrapper>
+              {children}
+              <Toaster richColors position="top-right" />
+            </WebsocketProviderWrapper>
           </AppThemeProvider>
         </NextIntlClientProvider>
       </body>

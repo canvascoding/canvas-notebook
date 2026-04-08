@@ -72,6 +72,177 @@
           "multiTabSync": "Database-backed sync works across multiple browser tabs/devices"
         }
       }
+    },
+    {
+      "id": "10",
+      "content": "Feature: Enhanced toast notifications with multi-tab support",
+      "status": "completed",
+      "priority": "high",
+      "details": {
+        "changes": [
+          "Page visibility tracking using document.visibilityState API",
+          "Route & activity tracking (pathname changes, showHistory state)",
+          "Session creation on component mount (not just on first message)",
+          "BroadcastChannel 'canvas-chat-unread' for multi-tab communication",
+          "Dynamic toast duration: 4s (visible) or 10s (tab was hidden)",
+          "Toast shows on ALL routes (home, settings, terminal, etc.)",
+          "Session title stored from user input before AI responds",
+          "Proper cleanup on component unmount"
+        ],
+        "behavior": {
+          "toastTrigger": "message_end event when AI response completes",
+          "toastDuration": "4s if tab visible, 10s if tab was hidden",
+          "toastPosition": "top-right",
+          "toastAction": "Opens session in current tab (relative route: /chat or /notebook)",
+          "multiTab": "BroadcastChannel sends toast to all tabs, each tab decides to show based on active session",
+          "suppressCondition": "Only suppress if user is actively viewing the EXACT session where AI responded"
+        },
+        "testScenarios": {
+          "1": "User writes message, AI responds, user in same session → NO toast (live)",
+          "2": "User writes message, switches to history while AI thinks → Toast after 4s",
+          "3": "User writes message, navigates to / (home) → Toast after 4s",
+          "4": "User writes message, navigates to /settings → Toast after 4s",
+          "5": "User writes message, tab becomes hidden → Toast after 10s on return",
+          "6": "User has 2 tabs open, AI responds in Tab A → Toast in Tab B (different session)",
+          "7": "User on home page, AI responds → Toast with 'Open session' link",
+          "8": "User clicks toast action → Opens session in current tab",
+          "9": "User on /chat?session=A, AI responds in Session B → Toast (wrong session)",
+          "10": "User on /chat?session=A, AI responds in Session A → NO toast (correct session)"
+        }
+      }
+    },
+    {
+      "id": "11",
+      "content": "WebSocket Migration: Install dependencies (ws, @types/ws)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 1: WebSocket Server"
+    },
+    {
+      "id": "12",
+      "content": "WebSocket Migration: Create server/websocket-auth.ts (better-auth Cookie middleware)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 1: WebSocket Server"
+    },
+    {
+      "id": "13",
+      "content": "WebSocket Migration: Create server/websocket-broadcast.ts (In-Memory Broadcasting)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 1: WebSocket Server"
+    },
+    {
+      "id": "14",
+      "content": "WebSocket Migration: Create server/websocket-server.ts (Hauptlogik)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 1: WebSocket Server"
+    },
+    {
+      "id": "15",
+      "content": "WebSocket Migration: Integrate WebSocket-Server in server.js (Upgrade-Handler)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 1: WebSocket Server"
+    },
+    {
+      "id": "16",
+      "content": "WebSocket Migration: Add WEBSOCKET_ENABLED feature flag to .env.local",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 1: WebSocket Server"
+    },
+    {
+      "id": "17",
+      "content": "WebSocket Migration: Create app/lib/websocket/client.ts (Client-Klasse mit Auto-Reconnect)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "18",
+      "content": "WebSocket Migration: Create app/hooks/useWebSocket.ts (React Hook)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "19",
+      "content": "WebSocket Migration: Create app/components/websocket-provider.tsx (Root-Provider für Toasts)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "20",
+      "content": "WebSocket Migration: Integrate WebSocket-Provider in app/layout.tsx",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "21",
+      "content": "WebSocket Migration: Connect PI Runtime Events to WebSocket (Event-Publishing)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "22",
+      "content": "WebSocket Migration: Implement Read/Unread über WebSocket (mark_read Message)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "23",
+      "content": "WebSocket Migration: Implement Toast-Notifications über WebSocket (notification Message)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "24",
+      "content": "WebSocket Migration: Migrate CanvasAgentChat.tsx (SSE → WebSocket)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 3: CanvasAgentChat Migration"
+    },
+    {
+      "id": "25",
+      "content": "WebSocket Migration: Create testing scripts (test:websocket:connection, multitab, read-unread, toast, load)",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "26",
+      "content": "WebSocket Migration: Add npm scripts for WebSocket tests",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Week 2: Event Integration"
+    },
+    {
+      "id": "27",
+      "content": "WebSocket Migration: Create Playwright E2E tests (tests/e2e/websocket.spec.ts)",
+      "status": "pending",
+      "priority": "high",
+      "phase": "Week 3: CanvasAgentChat Migration"
+    },
+    {
+      "id": "28",
+      "content": "WebSocket Migration: Test parallel operation (WEBSOCKET_ENABLED=true/false)",
+      "status": "pending",
+      "priority": "high",
+      "phase": "Week 3: CanvasAgentChat Migration"
+    },
+    {
+      "id": "29",
+      "content": "WebSocket Migration: Documentation update (CLAUDE.md, AGENTS.md)",
+      "status": "pending",
+      "priority": "medium",
+      "phase": "Week 3: CanvasAgentChat Migration"
     }
   ]
 }
