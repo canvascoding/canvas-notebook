@@ -258,8 +258,6 @@
     "auto": "Auto",
     "toolInput": "Input",
     "scrollToBottom": "Scroll to bottom",
-    "imageModelWarningTitle": "Warning:",
-    "imageModelWarningBody": "The current model does not support images. Attached images will be ignored.",
     "activeToolPrefix": "Active:",
     "imageMessage": "Image message",
     "steerAction": "Steer",

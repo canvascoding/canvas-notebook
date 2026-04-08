@@ -2311,12 +2311,6 @@ export default function CanvasAgentChat({
         className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 px-3 pt-3"
         style={{ paddingBottom: isMobile ? 'calc(env(safe-area-inset-bottom) + 0.75rem)' : '0.75rem' }}
       >
-        {attachments.some((a) => a.contentKind === 'image') && !currentModelSupportsVision() && (
-          <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-600">
-            <strong>{t('imageModelWarningTitle')}</strong> {t('imageModelWarningBody')}
-          </div>
-        )}
-
         {uploadError && (
           <div className="mb-2 flex items-center justify-between border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
             <span>{uploadError}</span>
