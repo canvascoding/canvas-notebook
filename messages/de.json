@@ -289,6 +289,8 @@
     "unreadResponse": "Neue Antwort",
     "newResponseReceived": "Neue Antwort erhalten",
     "markAsRead": "Als gelesen",
+    "newResponseReady": "Neue Antwort bereit",
+    "openSession": "Session öffnen",
     "currentModelLabel": "Modell: {model}",
     "composerPlaceholderMobile": "Frag nach Kampagnen, Dateien oder Skills...",
     "composerPlaceholderCompact": "Frag nach Projekt, Dateien oder Skills. Mit @ referenzierst du Dateien und mit / Skills.",

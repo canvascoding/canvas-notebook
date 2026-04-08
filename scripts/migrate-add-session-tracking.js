@@ -84,10 +84,11 @@ try {
   );
   console.log('[Migration] ✓ Existing sessions initialized');
   
-  // Set lastViewedAt to createdAt for all existing sessions (mark as read)
-  console.log('[Migration] Marking existing sessions as read...');
+  // Set lastViewedAt = lastMessageAt (or createdAt if no messages) for all existing sessions
+  // This marks all existing sessions as "read" so they don't show unread indicators
+  console.log('[Migration] Initializing last_viewed_at for existing sessions...');
   execSync(
-    `sqlite3 "${DB_PATH}" "UPDATE pi_sessions SET last_viewed_at = createdAt WHERE last_viewed_at IS NULL;"`,
+    `sqlite3 "${DB_PATH}" "UPDATE pi_sessions SET last_viewed_at = COALESCE(last_message_at, createdAt) WHERE last_viewed_at IS NULL;"`,
     { encoding: 'utf-8' }
   );
   console.log('[Migration] ✓ Existing sessions marked as read');

@@ -289,6 +289,8 @@
     "unreadResponse": "New response",
     "newResponseReceived": "New response received",
     "markAsRead": "Mark as read",
+    "newResponseReady": "New response ready",
+    "openSession": "Open session",
     "currentModelLabel": "Model: {model}",
     "composerPlaceholderMobile": "Ask about campaigns, files, or skills...",
     "composerPlaceholderCompact": "Ask about a project, files, or skills. Use @ for files and / for skills.",

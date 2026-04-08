@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS pi_sessions (
   title TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  summary_text TEXT,
+  summary_updated_at INTEGER,
+  summary_through_timestamp INTEGER,
+  last_message_at INTEGER,
+  last_viewed_at INTEGER,
   FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 
@@ -193,27 +198,21 @@ if (tableNames.has('pi_sessions')) {
   const piSessionColumns = new Set(
     (sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as Array<{ name: string }>).map((c) => c.name),
   );
-  if (!piSessionColumns.has('summary_text')) {
+  if (!piSessionColumns.has('last_message_at')) {
     try {
-      sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_text TEXT');
+      sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN last_message_at INTEGER');
     } catch {
       // Column might already exist, ignore
     }
   }
-  if (!piSessionColumns.has('summary_updated_at')) {
+  if (!piSessionColumns.has('last_viewed_at')) {
     try {
-      sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_updated_at INTEGER');
+      sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN last_viewed_at INTEGER');
     } catch {
       // Column might already exist, ignore
     }
   }
-  if (!piSessionColumns.has('summary_through_timestamp')) {
-    try {
-      sqlite.exec('ALTER TABLE pi_sessions ADD COLUMN summary_through_timestamp INTEGER');
-    } catch {
-      // Column might already exist, ignore
-    }
-  }
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_pi_sessions_last_message ON pi_sessions(last_message_at);');
 }
 
 if (tableNames.has('automation_jobs')) {

@@ -37,13 +37,14 @@ import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
+import { toast } from 'sonner';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
@@ -529,6 +530,7 @@ export default function CanvasAgentChat({
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
   const pathname = usePathname();
+  const router = useRouter();
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
@@ -981,18 +983,42 @@ export default function CanvasAgentChat({
       currentAssistantIdRef.current = null;
       
       // Update lastMessageAt in database when AI response completes
-      // Only if this is the active session being viewed
-      if (sessionIdRef.current) {
+      const targetSessionId = streamSessionRef.current;
+      if (targetSessionId) {
         const now = new Date();
         void fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            sessionId: sessionIdRef.current, 
+            sessionId: targetSessionId, 
             lastMessageAt: now.toISOString() 
           }),
         }).catch(err => console.error('Failed to update lastMessageAt', err));
       }
+      
+      // Show toast notification if user is NOT currently viewing this session
+      // This includes: user is in different session, in history view, or on different page
+      const isViewingCurrentSession = !showHistory && sessionIdRef.current === targetSessionId;
+      
+      if (!isViewingCurrentSession && targetSessionId) {
+        // Find session title for toast
+        const session = history.find(s => s.sessionId === targetSessionId);
+        const sessionTitle = session ? getSessionDisplayTitle(session.title, t('newChatTitle')) : t('newChatTitle');
+        
+        toast.info(t('newResponseReady'), {
+          description: sessionTitle,
+          action: {
+            label: t('openSession'),
+            onClick: () => {
+              // Navigate to session in current tab, relative to current route
+              router.push(`${sessionBasePath}?session=${targetSessionId}`);
+            },
+          },
+          duration: 4000, // 4 seconds
+          position: 'top-right',
+        });
+      }
+      
       return;
     }
 
