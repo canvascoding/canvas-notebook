@@ -20,7 +20,12 @@ import {
   broadcastToUser,
 } from './websocket-broadcast';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { subscribeToPiRuntimeEvents, sendMessageViaRuntime } from './websocket-runtime-bridge';
+import { subscribeToPiRuntimeEvents, unsubscribeFromPiRuntimeEvents, sendMessageViaRuntime, initializeWebSocketBridge } from './websocket-runtime-bridge';
+
+// Initialize WebSocket bridge on module load
+if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
+  initializeWebSocketBridge();
+}
 
 // Message Types
 interface ClientMessage {
@@ -183,12 +188,10 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
 
-      // Subscribe to PI Runtime events for this session
-      try {
-        subscribeToPiRuntimeEvents(message.sessionId, userId);
-      } catch (error) {
+      // Subscribe to PI Runtime events for this session (async)
+      subscribeToPiRuntimeEvents(message.sessionId, userId).catch((error) => {
         console.error('[WebSocket] Error subscribing to PI Runtime events:', error);
-      }
+      });
 
       break;
     }

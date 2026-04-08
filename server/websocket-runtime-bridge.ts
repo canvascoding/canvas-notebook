@@ -1,133 +1,104 @@
 /**
  * WebSocket Runtime Bridge
  * 
- * Connects PI Runtime events to WebSocket clients.
- * This bridges the gap between the PI Runtime and WebSocket server.
+ * Connects PI Runtime events to WebSocket clients via the global event emitter.
+ * This avoids circular dependencies and server-only import issues.
  */
 
-import { getExistingPiRuntime, getOrCreatePiRuntime } from '@/app/lib/pi/live-runtime';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import { getPiRuntimeEventEmitter } from '@/app/lib/pi/runtime-event-emitter';
 import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdate } from './websocket-server';
 
+// Track which sessions are subscribed
+const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
+
 /**
- * Subscribe to PI Runtime events and broadcast to WebSocket clients
+ * Initialize WebSocket event listener for PI Runtime events
+ */
+export function initializeWebSocketBridge(): void {
+  console.log('[WebSocket Bridge] Initializing event bridge...');
+  
+  const emitter = getPiRuntimeEventEmitter();
+  
+  emitter.onAgentEvent((data) => {
+    const { sessionId, userId, event } = data;
+    
+    console.log(`[WebSocket Bridge] Received event for session ${sessionId}:`, event.type);
+    
+    // Broadcast to all WebSocket clients subscribed to this session
+    broadcastAgentEvent(sessionId, event);
+    
+    // Handle specific events
+    if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      // Update lastMessageAt in database (already done in live-runtime, but broadcast here)
+      broadcastSessionUpdate(sessionId, new Date().toISOString());
+      broadcastNotification(userId, sessionId, sessionId, 'new_response');
+    }
+  });
+  
+  console.log('[WebSocket Bridge] Event bridge initialized');
+}
+
+/**
+ * Subscribe to PI Runtime events for a session
  */
 export function subscribeToPiRuntimeEvents(sessionId: string, userId: string): void {
-  console.log(`[WebSocket Bridge] Subscribing to PI Runtime events for session ${sessionId}`);
+  console.log(`[WebSocket Bridge] Subscription requested for session ${sessionId}, user ${userId}`);
   
-  // Get or create runtime
-  const runtime = getOrCreatePiRuntime(sessionId, userId);
+  if (!subscribedSessions.has(sessionId)) {
+    subscribedSessions.set(sessionId, new Set());
+  }
   
-  // Store original event handler
-  const originalOnAgentEvent = runtime.onAgentEvent.bind(runtime);
+  subscribedSessions.get(sessionId)!.add(userId);
   
-  // Override event handler to broadcast via WebSocket
-  runtime.onAgentEvent = (event) => {
-    // Call original handler
-    originalOnAgentEvent(event);
-    
-    // Broadcast to WebSocket clients
-    broadcastAgentEvent(sessionId, event as unknown as Record<string, unknown>);
-    
-    // Handle specific events for additional broadcasting
-    if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      // Update lastMessageAt in database and broadcast
-      void updateSessionLastMessageAt(sessionId, userId);
-      
-      // Update session title if AI generated one
-      void updateSessionTitle(sessionId, userId, event.message);
-    }
-  };
-  
-  console.log(`[WebSocket Bridge] Event subscription active for session ${sessionId}`);
+  console.log(`[WebSocket Bridge] Active subscribers for session ${sessionId}:`, subscribedSessions.get(sessionId)!.size);
 }
 
 /**
- * Update session lastMessageAt in database
+ * Unsubscribe from PI Runtime events
  */
-async function updateSessionLastMessageAt(sessionId: string, userId: string): Promise<void> {
-  try {
-    const { db } = await import('@/app/lib/db');
-    const { piSessions } = await import('@/app/lib/db/schema');
-    const { and, eq } = await import('drizzle-orm');
+export function unsubscribeFromPiRuntimeEvents(sessionId: string, userId: string): void {
+  const subscribers = subscribedSessions.get(sessionId);
+  
+  if (subscribers) {
+    subscribers.delete(userId);
     
-    const now = new Date();
+    if (subscribers.size === 0) {
+      subscribedSessions.delete(sessionId);
+    }
     
-    await db.update(piSessions)
-      .set({ lastMessageAt: now, updatedAt: now })
-      .where(and(
-        eq(piSessions.sessionId, sessionId),
-        eq(piSessions.userId, userId)
-      ));
-    
-    // Broadcast session update
-    broadcastSessionUpdate(sessionId, now.toISOString());
-    
-    // Broadcast notification
-    broadcastNotification(userId, sessionId, sessionId, 'new_response');
-    
-    console.log(`[WebSocket Bridge] Updated lastMessageAt for session ${sessionId}`);
-  } catch (error) {
-    console.error('[WebSocket Bridge] Error updating lastMessageAt:', error);
+    console.log(`[WebSocket Bridge] Unsubscribed user ${userId} from session ${sessionId}`);
   }
 }
 
 /**
- * Update session title in database when AI generates one
- */
-async function updateSessionTitle(
-  sessionId: string,
-  userId: string,
-  message: AgentMessage
-): Promise<void> {
-  try {
-    // Check if message contains title generation
-    const messageText = JSON.stringify(message.content);
-    
-    // Look for title in message metadata or content
-    // This is a placeholder - actual implementation depends on how AI generates titles
-    if (messageText.includes('title') || messageText.includes('Title')) {
-      const { db } = await import('@/app/lib/db');
-      const { piSessions } = await import('@/app/lib/db/schema');
-      const { and, eq } = await import('drizzle-orm');
-      
-      // Extract title from message (simplified - would need proper parsing)
-      const potentialTitle = messageText.slice(0, 120); // Limit to 120 chars
-      
-      await db.update(piSessions)
-        .set({ 
-          title: potentialTitle,
-          updatedAt: new Date()
-        })
-        .where(and(
-          eq(piSessions.sessionId, sessionId),
-          eq(piSessions.userId, userId)
-        ));
-      
-      console.log(`[WebSocket Bridge] Updated session title for session ${sessionId}`);
-    }
-  } catch (error) {
-    console.error('[WebSocket Bridge] Error updating session title:', error);
-  }
-}
-
-/**
- * Send message via PI Runtime
+ * Send message via PI Runtime HTTP API
+ * This is a fallback - ideally messages should go through WebSocket directly
  */
 export async function sendMessageViaRuntime(
   sessionId: string,
   userId: string,
-  message: Extract<AgentMessage, { role: 'user' }>
+  message: { role: 'user'; content: unknown; timestamp: number }
 ): Promise<void> {
-  console.log(`[WebSocket Bridge] Sending message to session ${sessionId}`);
+  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via HTTP API`);
   
-  const runtime = await getOrCreatePiRuntime(sessionId, userId);
-  
-  // Subscribe to events if not already done
-  subscribeToPiRuntimeEvents(sessionId, userId);
-  
-  // Send message
-  runtime.startPrompt(message);
-  
-  console.log(`[WebSocket Bridge] Message sent to PI Runtime for session ${sessionId}`);
+  try {
+    // Forward to existing /api/stream endpoint
+    const response = await fetch('http://localhost:3000/api/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        message,
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    console.log(`[WebSocket Bridge] Message sent to session ${sessionId}`);
+  } catch (error) {
+    console.error('[WebSocket Bridge] Error sending message:', error);
+    throw error;
+  }
 }

@@ -321,16 +321,6 @@ app
     let wss = null;
     const isWebSocketEnabled = process.env.WEBSOCKET_ENABLED === 'true';
     
-    // Inject WebSocket enabled flag into HTML for client-side detection
-    const originalHandle = handle;
-    handle = (req, res, parsedUrl) => {
-      // Set header to indicate WebSocket is enabled
-      if (isWebSocketEnabled) {
-        res.setHeader('X-WebSocket-Enabled', 'true');
-      }
-      return originalHandle(req, res, parsedUrl);
-    };
-    
     if (isWebSocketEnabled) {
       console.log('[Startup] Initializing WebSocket Server...');
       try {
