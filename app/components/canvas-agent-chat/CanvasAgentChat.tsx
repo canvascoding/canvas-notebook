@@ -550,6 +550,7 @@ export default function CanvasAgentChat({
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
+  const [isUserActiveInChat, setIsUserActiveInChat] = useState(false);
 
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
@@ -590,6 +591,8 @@ export default function CanvasAgentChat({
   const previousMessageCountRef = useRef(0);
   const isAtBottomRef = useRef(true);
   const referenceRequestIdRef = useRef(0);
+  const pageVisibleRef = useRef(true);
+  const channelRef = useRef<BroadcastChannel | null>(null);
 
   const getTextareaBaseHeight = useCallback(() => (
     isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
@@ -623,6 +626,64 @@ export default function CanvasAgentChat({
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
   }, [runtimeStatus]);
+
+  // Page Visibility Tracking - detect if tab is active or in background
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      pageVisibleRef.current = document.visibilityState === 'visible';
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  // Route & Activity Tracking - detect if user is in chat/notebook route
+  useEffect(() => {
+    const isChatRoute = pathname.includes('/chat') || pathname.includes('/notebook');
+    const isViewingSession = !showHistory && sessionIdRef.current !== null;
+    
+    setIsUserActiveInChat(isChatRoute && isViewingSession);
+  }, [pathname, showHistory]);
+
+  // BroadcastChannel for Multi-Tab communication
+  useEffect(() => {
+    channelRef.current = new BroadcastChannel('canvas-chat-unread');
+    
+    channelRef.current.onmessage = (event) => {
+      const { type, sessionId, sessionTitle: broadcastTitle } = event.data;
+      
+      if (type === 'new-response' && sessionId !== sessionIdRef.current) {
+        // Show toast in this tab too (only if not viewing this session)
+        const isViewingCurrentSession = isUserActiveInChat && sessionIdRef.current === sessionId;
+        
+        if (!isViewingCurrentSession) {
+          const wasHidden = !pageVisibleRef.current;
+          const duration = wasHidden ? 10000 : 4000;
+          
+          toast.info(t('newResponseReady'), {
+            description: broadcastTitle,
+            action: {
+              label: t('openSession'),
+              onClick: () => {
+                router.push(`${sessionBasePath}?session=${sessionId}`);
+              },
+            },
+            duration,
+            position: 'top-right',
+          });
+        }
+      }
+    };
+    
+    return () => channelRef.current?.close();
+  }, [isUserActiveInChat, router, sessionBasePath, t]);
+
+  // Create session on mount if not in history view
+  useEffect(() => {
+    if (!sessionIdRef.current && !showHistory && messages.length === 0) {
+      void ensureSession();
+    }
+  }, []);
 
   useLayoutEffect(() => {
     syncTextareaHeight();
@@ -928,10 +989,14 @@ export default function CanvasAgentChat({
 
     const nextSessionId = createSessionPayload.session.sessionId as string;
     setSessionId(nextSessionId);
-    setSessionTitle(createSessionPayload.session.title || null);
+    
+    // Use input as temporary title if available, otherwise use default
+    const tempTitle = input.trim().slice(0, 50) || createSessionPayload.session.title || t('newChatTitle');
+    setSessionTitle(tempTitle);
+    
     sessionIdRef.current = nextSessionId;
     return nextSessionId;
-  }, []);
+  }, [input, t]);
 
   const createAssistantBubble = useCallback((message?: AgentMessage) => {
     const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -998,24 +1063,36 @@ export default function CanvasAgentChat({
       
       // Show toast notification if user is NOT currently viewing this session
       // This includes: user is in different session, in history view, or on different page
-      const isViewingCurrentSession = !showHistory && sessionIdRef.current === targetSessionId;
+      const isViewingCurrentSession = isUserActiveInChat && sessionIdRef.current === targetSessionId;
       
       if (!isViewingCurrentSession && targetSessionId) {
         // Find session title for toast
         const session = history.find(s => s.sessionId === targetSessionId);
-        const sessionTitle = session ? getSessionDisplayTitle(session.title, t('newChatTitle')) : t('newChatTitle');
+        const displayTitle = session 
+          ? getSessionDisplayTitle(session.title, t('newChatTitle')) 
+          : (sessionTitle || t('newChatTitle'));
+        
+        // Calculate duration based on visibility
+        const wasHidden = !pageVisibleRef.current;
+        const duration = wasHidden ? 10000 : 4000; // 10s if hidden, 4s if visible
         
         toast.info(t('newResponseReady'), {
-          description: sessionTitle,
+          description: displayTitle,
           action: {
             label: t('openSession'),
             onClick: () => {
-              // Navigate to session in current tab, relative to current route
               router.push(`${sessionBasePath}?session=${targetSessionId}`);
             },
           },
-          duration: 4000, // 4 seconds
+          duration,
           position: 'top-right',
+        });
+        
+        // Broadcast to other tabs
+        channelRef.current?.postMessage({
+          type: 'new-response',
+          sessionId: targetSessionId,
+          sessionTitle: displayTitle,
         });
       }
       
@@ -1304,6 +1381,14 @@ export default function CanvasAgentChat({
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
   }, [appendCompactionBreak, appendSystemMessage, postControl, t]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      channelRef.current?.close();
+      streamAbortRef.current?.abort();
+    };
+  }, []);
 
   const startNewChat = useCallback(() => {
     resetStreamConnection();
