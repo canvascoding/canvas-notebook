@@ -505,12 +505,23 @@ class LivePiRuntime {
     // Broadcast session update via WebSocket (if enabled)
     if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
       try {
-        const { broadcastSessionUpdate, broadcastNotification } = await import('@/server/websocket-server');
-        const lastMessage = allMessages[allMessages.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant') {
-          const lastMessageAt = new Date().toISOString();
-          broadcastSessionUpdate(this.sessionId, lastMessageAt);
-          broadcastNotification(this.userId, this.sessionId, this.sessionId, 'new_response');
+        // Dynamic import with error handling for server-only module
+        const websocketModule = await import('@/server/websocket-server').catch((err) => {
+          // Ignore server-only errors during development
+          if (err.message?.includes('server-only')) {
+            return null;
+          }
+          throw err;
+        });
+        
+        if (websocketModule) {
+          const { broadcastSessionUpdate, broadcastNotification } = websocketModule;
+          const lastMessage = allMessages[allMessages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant') {
+            const lastMessageAt = new Date().toISOString();
+            broadcastSessionUpdate(this.sessionId, lastMessageAt);
+            broadcastNotification(this.userId, this.sessionId, this.sessionId, 'new_response');
+          }
         }
       } catch (error) {
         console.error('[LiveRuntime] Error broadcasting via WebSocket:', error);

@@ -114,6 +114,7 @@
     "rehype-highlight": "^7.0.2",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
+    "server-only": "^0.0.1",
     "sharp": "^0.34.5",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
