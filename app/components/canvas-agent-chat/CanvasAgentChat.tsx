@@ -696,20 +696,28 @@ export default function CanvasAgentChat({
       return;
     }
 
+    // Subscribe to session for receiving events
     subscribe(sessionId);
     
-    // Mark as read via WebSocket
+    console.log(`[CanvasAgentChat] Subscribed to session ${sessionId}`);
+    
+    // Mark as read via WebSocket when user is active in chat
     if (isUserActiveInChat) {
       markAsRead(sessionId);
-      // Also update global state for provider
-      if (typeof window !== 'undefined') {
-        window.__setCurrentSession?.(sessionId);
-        window.__setUserActive?.(isUserActiveInChat);
-      }
+    }
+    
+    // Update global state for provider
+    if (typeof window !== 'undefined') {
+      window.__setCurrentSession?.(sessionId);
+      window.__setUserActive?.(isUserActiveInChat);
     }
 
     return () => {
       unsubscribe(sessionId);
+      console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
+      if (typeof window !== 'undefined') {
+        window.__setCurrentSession?.(null);
+      }
     };
   }, [isWebSocketEnabled, wsConnected, sessionId, isUserActiveInChat, subscribe, unsubscribe, markAsRead]);
 
@@ -1349,14 +1357,14 @@ export default function CanvasAgentChat({
 
     const targetSessionId = await ensureSession();
     
-    // Use WebSocket if enabled
+    // Use WebSocket if enabled and connected
     if (isWebSocketEnabled && wsConnected) {
       appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
       sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>);
       return;
     }
     
-    // Fallback to SSE
+    // Fallback to SSE if WebSocket not available
     const currentPhase = runtimeStatusRef.current?.phase || 'idle';
 
     if (currentPhase === 'idle') {
@@ -1555,16 +1563,20 @@ export default function CanvasAgentChat({
       if (statusPayload?.success && statusPayload.status) {
         setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
         lastCompactionMarkerRef.current = (statusPayload.status as RuntimeStatus).lastCompactionAt || null;
-      if ((statusPayload.status as RuntimeStatus).phase !== 'idle') {
-        // For WebSocket mode, subscription happens via useEffect
-        // For SSE mode, open the stream
-        if (!isWebSocketEnabled) {
-          void openRuntimeStream(session.sessionId);
+        if ((statusPayload.status as RuntimeStatus).phase !== 'idle') {
+          // For WebSocket mode, subscription happens via useEffect
+          // For SSE mode, open the stream
+          if (!isWebSocketEnabled) {
+            void openRuntimeStream(session.sessionId);
+          }
         }
-      }
       } else {
         setRuntimeStatus(null);
       }
+      
+      // Hide history view after loading session
+      setShowHistory(false);
+      
     } catch (err) {
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);

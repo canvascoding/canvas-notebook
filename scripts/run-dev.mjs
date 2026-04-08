@@ -144,6 +144,9 @@ async function main() {
     process.exit(skillsSetup.status ?? 1);
   }
 
+  // Track all child processes for cleanup
+  const childProcesses = [];
+
   // Start terminal service first
   console.log('[dev] Starting terminal service on port 3457...');
   const terminalService = spawn('npx', ['tsx', 'server/terminal-service.ts'], {
@@ -151,6 +154,7 @@ async function main() {
     env: childEnv,
     stdio: 'inherit',
   });
+  childProcesses.push(terminalService);
 
   // Wait for terminal service to start
   await new Promise(resolve => setTimeout(resolve, 2000));
@@ -162,34 +166,58 @@ async function main() {
     env: childEnv,
     stdio: 'inherit',
   });
+  childProcesses.push(child);
+
+  const cleanupAndExit = (signal, code) => {
+    console.log(`[dev] ${signal} received, shutting down all services...`);
+    
+    // Kill all child processes
+    childProcesses.forEach((proc, index) => {
+      if (!proc.killed) {
+        console.log(`[dev] Stopping process ${index + 1}/${childProcesses.length}...`);
+        proc.kill('SIGTERM');
+      }
+    });
+    
+    // Wait a bit for graceful shutdown, then force kill
+    setTimeout(() => {
+      childProcesses.forEach((proc) => {
+        if (!proc.killed) {
+          proc.kill('SIGKILL');
+        }
+      });
+      process.exit(code ?? 0);
+    }, 2000);
+  };
 
   const forwardSignal = (signal) => {
-    if (!child.killed) {
-      child.kill(signal);
-    }
-    if (!terminalService.killed) {
-      terminalService.kill(signal);
-    }
+    cleanupAndExit(signal, null);
   };
 
   process.on('SIGINT', forwardSignal);
   process.on('SIGTERM', forwardSignal);
+  process.on('SIGHUP', forwardSignal);
+  process.on('exit', () => {
+    // Ensure cleanup on exit
+    childProcesses.forEach((proc) => {
+      if (!proc.killed) {
+        proc.kill('SIGTERM');
+      }
+    });
+  });
 
   child.on('exit', (code, signal) => {
-    if (!terminalService.killed) {
-      terminalService.kill('SIGTERM');
-    }
-    if (signal) {
-      process.kill(process.pid, signal);
-      return;
-    }
-    process.exit(code ?? 0);
+    console.log('[dev] Next.js server exited');
+    cleanupAndExit('EXIT', code ?? 0);
   });
 
   terminalService.on('exit', (code) => {
     console.log(`[dev] Terminal service exited with code ${code}`);
-    if (!child.killed) {
-      child.kill('SIGTERM');
+    // Don't exit immediately - Next.js might still be running
+    // Only exit if both services are down
+    const allExited = childProcesses.every(p => p.killed);
+    if (allExited) {
+      process.exit(code ?? 0);
     }
   });
 }

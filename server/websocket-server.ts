@@ -20,6 +20,7 @@ import {
   broadcastToUser,
 } from './websocket-broadcast';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import { subscribeToPiRuntimeEvents, sendMessageViaRuntime } from './websocket-runtime-bridge';
 
 // Message Types
 interface ClientMessage {
@@ -182,8 +183,12 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
 
-      // Runtime status will be pushed by PI Runtime automatically
-      // No need to fetch it here
+      // Subscribe to PI Runtime events for this session
+      try {
+        subscribeToPiRuntimeEvents(message.sessionId, userId);
+      } catch (error) {
+        console.error('[WebSocket] Error subscribing to PI Runtime events:', error);
+      }
 
       break;
     }
@@ -262,24 +267,10 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      // Forward to PI Runtime via API endpoint
-      // The WebSocket server doesn't directly manage PI Runtimes
-      // Instead, we use the existing /api/stream endpoint
+      // Send message via PI Runtime bridge
       try {
-        const response = await fetch('http://localhost:3000/api/stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: message.sessionId,
-            message: userMessage,
-          }),
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        
-        console.log(`[WebSocket] Message sent to session ${message.sessionId}`);
+        await sendMessageViaRuntime(message.sessionId, userId, userMessage);
+        console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime`);
       } catch (error) {
         console.error('[WebSocket] Error sending message:', error);
         ws.send(JSON.stringify({

@@ -210,6 +210,20 @@
       "phase": "Week 3: CanvasAgentChat Migration"
     },
     {
+      "id": "30",
+      "content": "WebSocket Migration: Fix WebSocket indicator showing Disconnected when connected",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes"
+    },
+    {
+      "id": "31",
+      "content": "WebSocket Migration: Fix toast showing when user is already in the session",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes"
+    },
+    {
       "id": "25",
       "content": "WebSocket Migration: Create testing scripts (test:websocket:connection, multitab, read-unread, toast, load)",
       "status": "completed",
