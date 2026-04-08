@@ -1045,8 +1045,15 @@ export default function CanvasAgentChat({
     setSessionTitle(tempTitle);
     
     sessionIdRef.current = nextSessionId;
+    
+    // Subscribe to session via WebSocket immediately
+    if (isWebSocketEnabled && wsConnected && nextSessionId) {
+      subscribe(nextSessionId);
+      console.log(`[CanvasAgentChat] Auto-subscribed to new session ${nextSessionId}`);
+    }
+    
     return nextSessionId;
-  }, [input, t]);
+  }, [input, t, isWebSocketEnabled, wsConnected, subscribe]);
 
   const createAssistantBubble = useCallback((message?: AgentMessage) => {
     const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1097,22 +1104,39 @@ export default function CanvasAgentChat({
       syncPiMessage(assistantId, event.message);
       currentAssistantIdRef.current = null;
       
-      // Update lastMessageAt in database when AI response completes
-      const targetSessionId = streamSessionRef.current;
-      if (targetSessionId) {
-        const now = new Date();
-        void fetch('/api/sessions', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            sessionId: targetSessionId, 
-            lastMessageAt: now.toISOString() 
-          }),
-        }).catch(err => console.error('Failed to update lastMessageAt', err));
+      // Update session title from AI response if available
+      const assistantMessage = event.message;
+      if (assistantMessage && assistantMessage.content) {
+        const contentText = JSON.stringify(assistantMessage.content);
+        // Check if content contains title information
+        if (contentText.includes('title') || contentText.includes('Title')) {
+          // Extract potential title (simplified)
+          const potentialTitle = contentText.slice(0, 120);
+          setSessionTitle(potentialTitle);
+          console.log('[CanvasAgentChat] Updated session title from AI response');
+        }
+      }
+      
+      // For WebSocket mode, lastMessageAt is updated by server
+      // For SSE mode, update it manually
+      if (!isWebSocketEnabled) {
+        const targetSessionId = streamSessionRef.current;
+        if (targetSessionId) {
+          const now = new Date();
+          void fetch('/api/sessions', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              sessionId: targetSessionId, 
+              lastMessageAt: now.toISOString() 
+            }),
+          }).catch(err => console.error('Failed to update lastMessageAt', err));
+        }
       }
       
       // Show toast notification if user is NOT currently viewing this session
       // This includes: user is in different session, in history view, or on different page
+      const targetSessionId = streamSessionRef.current || sessionIdRef.current;
       const isViewingCurrentSession = isUserActiveInChat && sessionIdRef.current === targetSessionId;
       
       if (!isViewingCurrentSession && targetSessionId) {
@@ -1138,12 +1162,14 @@ export default function CanvasAgentChat({
           position: 'top-right',
         });
         
-        // Broadcast to other tabs
-        channelRef.current?.postMessage({
-          type: 'new-response',
-          sessionId: targetSessionId,
-          sessionTitle: displayTitle,
-        });
+        // Broadcast to other tabs only in SSE mode (WebSocket handles it server-side)
+        if (!isWebSocketEnabled && channelRef.current) {
+          channelRef.current.postMessage({
+            type: 'new-response',
+            sessionId: targetSessionId,
+            sessionTitle: displayTitle,
+          });
+        }
       }
       
       return;

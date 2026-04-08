@@ -33,6 +33,9 @@ export function subscribeToPiRuntimeEvents(sessionId: string, userId: string): v
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
       // Update lastMessageAt in database and broadcast
       void updateSessionLastMessageAt(sessionId, userId);
+      
+      // Update session title if AI generated one
+      void updateSessionTitle(sessionId, userId, event.message);
     }
   };
   
@@ -66,6 +69,45 @@ async function updateSessionLastMessageAt(sessionId: string, userId: string): Pr
     console.log(`[WebSocket Bridge] Updated lastMessageAt for session ${sessionId}`);
   } catch (error) {
     console.error('[WebSocket Bridge] Error updating lastMessageAt:', error);
+  }
+}
+
+/**
+ * Update session title in database when AI generates one
+ */
+async function updateSessionTitle(
+  sessionId: string,
+  userId: string,
+  message: AgentMessage
+): Promise<void> {
+  try {
+    // Check if message contains title generation
+    const messageText = JSON.stringify(message.content);
+    
+    // Look for title in message metadata or content
+    // This is a placeholder - actual implementation depends on how AI generates titles
+    if (messageText.includes('title') || messageText.includes('Title')) {
+      const { db } = await import('@/app/lib/db');
+      const { piSessions } = await import('@/app/lib/db/schema');
+      const { and, eq } = await import('drizzle-orm');
+      
+      // Extract title from message (simplified - would need proper parsing)
+      const potentialTitle = messageText.slice(0, 120); // Limit to 120 chars
+      
+      await db.update(piSessions)
+        .set({ 
+          title: potentialTitle,
+          updatedAt: new Date()
+        })
+        .where(and(
+          eq(piSessions.sessionId, sessionId),
+          eq(piSessions.userId, userId)
+        ));
+      
+      console.log(`[WebSocket Bridge] Updated session title for session ${sessionId}`);
+    }
+  } catch (error) {
+    console.error('[WebSocket Bridge] Error updating session title:', error);
   }
 }
 
