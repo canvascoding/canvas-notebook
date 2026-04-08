@@ -115,6 +115,12 @@ if [ "$qmd_enabled" = "true" ]; then _step_total=$((_step_total+3)); fi
 
 # ─── Init log ─────────────────────────────────────────────────────────────
 mkdir -p /data/logs
+
+# Runtime logging configuration
+export LOG_FILE="${LOG_FILE:-/data/logs/runtime.log}"
+export LOG_TO_STDOUT="${LOG_TO_STDOUT:-true}"
+export LOG_LEVEL="${LOG_LEVEL:-info}"
+
 : > "$STARTUP_LOG"
 cat << 'BANNER'
 

@@ -63,10 +63,33 @@ const sessions = new Map<string, TerminalSession>();
 const authenticatedClients = new Set<net.Socket>();
 
 // Logging
-const debug = process.env.TERMINAL_DEBUG === 'true';
+const LOG_LEVELS: Record<string, number> = { off: 0, error: 1, warn: 2, info: 3, debug: 4 };
+const getLogLevel = (): string => {
+  const envLevel = process.env.LOG_LEVEL?.toLowerCase();
+  if (envLevel && LOG_LEVELS[envLevel] !== undefined) return envLevel;
+  return process.env.NODE_ENV === 'production' ? 'info' : 'debug';
+};
+const shouldLogToStdout = (): boolean => {
+  if (process.env.LOG_TO_STDOUT !== undefined) {
+    return process.env.LOG_TO_STDOUT.toLowerCase() === 'true';
+  }
+  return process.env.NODE_ENV !== 'production';
+};
+const logLevel = getLogLevel();
 function log(...args: unknown[]) {
-  if (debug) {
-    console.log('[Terminal Service]', ...args);
+  if (LOG_LEVELS[logLevel] < LOG_LEVELS.debug) return;
+  const timestamp = new Date().toISOString();
+  const message = `[${timestamp}] [Terminal Service] ${args.join(' ')}`;
+  if (shouldLogToStdout()) {
+    console.log(message);
+  }
+}
+function logError(...args: unknown[]) {
+  if (LOG_LEVELS[logLevel] < LOG_LEVELS.error) return;
+  const timestamp = new Date().toISOString();
+  const message = `[${timestamp}] [Terminal Service] ${args.join(' ')}`;
+  if (shouldLogToStdout()) {
+    console.error(message);
   }
 }
 
@@ -514,7 +537,7 @@ function handleMessage(client: net.Socket, message: Message): void {
       }
     }
   } catch (error: unknown) {
-    log('Error handling message:', error);
+    logError('Error handling message:', error);
     const errorMessage = error instanceof Error ? error.message : 'Internal error';
     sendError(client, id, 500, errorMessage);
   }

@@ -62,6 +62,12 @@ fi
 
 # ─── Init log ─────────────────────────────────────────────────────────────
 mkdir -p /data/logs
+
+# Runtime logging configuration
+export LOG_FILE="${LOG_FILE:-/data/logs/runtime.log}"
+export LOG_TO_STDOUT="${LOG_TO_STDOUT:-true}"
+export LOG_LEVEL="${LOG_LEVEL:-info}"
+
 printf 'Canvas Notebook starting...\n\n'
 
 # Generate terminal auth token if not exists

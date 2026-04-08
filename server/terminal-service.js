@@ -30,10 +30,33 @@ const sessions = new Map();
 const authenticatedClients = new Set();
 
 // Logging
-const debug = process.env.TERMINAL_DEBUG === 'true';
+const LOG_LEVELS = { off: 0, error: 1, warn: 2, info: 3, debug: 4 };
+const getLogLevel = () => {
+  const envLevel = process.env.LOG_LEVEL?.toLowerCase();
+  if (envLevel && LOG_LEVELS[envLevel] !== undefined) return envLevel;
+  return process.env.NODE_ENV === 'production' ? 'info' : 'debug';
+};
+const shouldLogToStdout = () => {
+  if (process.env.LOG_TO_STDOUT !== undefined) {
+    return process.env.LOG_TO_STDOUT.toLowerCase() === 'true';
+  }
+  return process.env.NODE_ENV !== 'production';
+};
+const logLevel = getLogLevel();
 function log(...args) {
-  if (debug) {
-    console.log('[Terminal Service]', ...args);
+  if (LOG_LEVELS[logLevel] < LOG_LEVELS.debug) return;
+  const timestamp = new Date().toISOString();
+  const message = `[${timestamp}] [Terminal Service] ${args.join(' ')}`;
+  if (shouldLogToStdout()) {
+    console.log(message);
+  }
+}
+function logError(...args) {
+  if (LOG_LEVELS[logLevel] < LOG_LEVELS.error) return;
+  const timestamp = new Date().toISOString();
+  const message = `[${timestamp}] [Terminal Service] ${args.join(' ')}`;
+  if (shouldLogToStdout()) {
+    console.error(message);
   }
 }
 
@@ -412,7 +435,7 @@ function handleMessage(client, message) {
       }
     }
   } catch (error) {
-    log('Error handling message:', error);
+    logError('Error handling message:', error);
     sendError(client, id, 500, error.message || 'Internal error');
   }
 }

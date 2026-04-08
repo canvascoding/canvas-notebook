@@ -3,48 +3,48 @@
     {
       "id": "1",
       "content": "Create unified upload handler (app/lib/filesystem/upload-handler.ts)",
-      "status": "in_progress",
+      "status": "completed",
       "priority": "high"
     },
     {
       "id": "2",
       "content": "Refactor upload API route (app/api/upload/attachment/route.ts)",
-      "status": "pending",
+      "status": "completed",
       "priority": "high"
     },
     {
       "id": "3",
       "content": "Create file access API (app/api/files/[id]/route.ts)",
-      "status": "pending",
+      "status": "completed",
       "priority": "high"
     },
     {
       "id": "4",
       "content": "Update chat component attachments (CanvasAgentChat.tsx)",
-      "status": "pending",
+      "status": "completed",
       "priority": "high"
     },
     {
       "id": "5",
       "content": "Update agent context with MediaPath (stream/route.ts)",
-      "status": "pending",
+      "status": "completed",
       "priority": "high"
     },
     {
       "id": "6",
       "content": "Test upload functionality",
-      "status": "pending",
+      "status": "completed",
       "priority": "high"
     },
     {
       "id": "7",
       "content": "Commit changes",
-      "status": "pending",
+      "status": "completed",
       "priority": "high"
     },
     {
       "id": "8",
-      "content": "Automation Prompt Optimization - Add execution context to system prompt and automation prompt",
+      "content": "Fix: Resolve API file references in message normalization",
       "status": "completed",
       "priority": "high"
     }

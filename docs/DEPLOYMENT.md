@@ -52,6 +52,33 @@ Ensure these are set. Local dev uses `.env.local`, Docker/Compose should use `.e
 
 `DATA` should point to persistent storage. Workspace files, SQLite database, and skills are stored under this path (e.g., `/data/workspace`, `/data/sqlite.db`, `/data/skills`).
 
+## Logging Configuration
+
+Runtime logging can be configured via environment variables:
+
+- `LOG_LEVEL` - Controls verbosity: `off` | `error` | `warn` | `info` | `debug` (default: `info` in production, `debug` in dev)
+- `LOG_TO_STDOUT` - Write logs to stdout/stderr for Docker logging: `true` | `false` (default: `true` in dev, `false` in production)
+- `LOG_FILE` - Custom log file path (default: `/data/logs/runtime.log` in production)
+
+**Examples:**
+
+```bash
+# Production with verbose logs to stdout (for Docker)
+LOG_LEVEL=debug
+LOG_TO_STDOUT=true
+
+# Production with minimal logging (only errors)
+LOG_LEVEL=error
+LOG_TO_STDOUT=false
+
+# See logs in production
+docker exec <container> tail -f /data/logs/runtime.log
+# Or via systemd
+journalctl -u canvas-notebook.service -f
+```
+
+Startup logs are always written to `/data/logs/startup.log`.
+
 ## Docker / EasyPanel
 - Do not override the image `ENTRYPOINT` or startup command with `next-server`, `node server.js`, or a platform default.
 - The image bootstrap path is responsible for creating or synchronizing the bootstrap admin before Next.js starts.
