@@ -52,12 +52,11 @@ import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-se
 interface Attachment {
   name: string;
   contentKind: 'image' | 'document';
-  // image & file
-  path?: string;
+  // File ID for accessing via /api/files/[id]
+  id: string;
   mimeType?: string;
-  // document (for text-based docs)
-  text?: string;
-  originalMimeType?: string;
+  // document category
+  category?: string;
 }
 
 interface ChatMessage {
@@ -196,23 +195,21 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
   }
 
   for (const attachment of attachments) {
+    // Build the API URL for accessing the file
+    const fileApiUrl = `/api/files/${encodeURIComponent(attachment.id)}`;
+    
     if (attachment.contentKind === 'image') {
       content.push({
         type: 'image',
-        data: attachment.path!,
+        data: fileApiUrl,
         mimeType: attachment.mimeType!,
       });
-    } else if (attachment.path) {
-      // File-based documents (PDF, DOCX) - provide path for the AI to read
-      content.push({
-        type: 'text',
-        text: `--- Datei: ${attachment.name} ---\nPfad: ${attachment.path}\nTyp: ${attachment.originalMimeType || 'document'}\n\n[Die Datei wurde gespeichert und ist über den Pfad lesbar]\n--- Ende: ${attachment.name} ---`,
-      });
     } else {
-      // Text-based documents - include content directly
+      // All non-image files - provide file reference info
+      // The agent will need to fetch and process the file
       content.push({
         type: 'text',
-        text: `--- Dateiinhalt: ${attachment.name} ---\n${attachment.text ?? ''}\n--- Ende: ${attachment.name} ---`,
+        text: `--- Datei: ${attachment.name} ---\nFile ID: ${attachment.id}\nAPI URL: ${fileApiUrl}\nTyp: ${attachment.mimeType || attachment.category || 'document'}\nKategorie: ${attachment.category || 'other'}\n\n[Diese Datei wurde hochgeladen und ist über die File ID zugänglich]\n--- Ende: ${attachment.name} ---`,
       });
     }
   }
@@ -269,11 +266,18 @@ function extractImageAttachments(content: unknown): Attachment[] | undefined {
 
   const attachments = content.reduce<Attachment[]>((result, part, index) => {
     if (isImagePart(part)) {
+      // For images, use the data as the ID (could be file ID or data URL)
+      // In the new system, data should be a file ID like "name---uuid.ext"
+      const imageId = part.data.startsWith('/api/files/') 
+        ? part.data.replace('/api/files/', '') 
+        : part.data;
+      
       result.push({
         name: `attachment-${index + 1}`,
         contentKind: 'image',
-        path: part.data,
+        id: imageId,
         mimeType: part.mimeType,
+        category: 'image',
       });
     }
     return result;
@@ -1151,48 +1155,10 @@ export default function CanvasAgentChat({
   }, []);
 
   const scanForImageReferences = useCallback(async (text: string): Promise<Attachment[]> => {
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
-    const escapedExtensions = imageExtensions.map((ext) => ext.replace(/\./g, '\\.'));
-    const quotedPattern = `"([^"]*(?:${escapedExtensions.join('|')}))"`;
-    const unquotedPattern = `\\b([\\w\\-./]+(?:${escapedExtensions.join('|')}))\\b`;
-    const foundAttachments: Attachment[] = [];
-    const processedPaths = new Set<string>();
-
-    const collectAttachment = async (path: string) => {
-      if (processedPaths.has(path) || attachments.some((attachment) => attachment.path === path)) {
-        return;
-      }
-
-      processedPaths.add(path);
-      try {
-        const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
-        if (!res.ok) return;
-        const contentType = res.headers.get('content-type') || 'application/octet-stream';
-        if (!contentType.startsWith('image/')) return;
-        foundAttachments.push({
-          name: path.split('/').pop() || path,
-          contentKind: 'image',
-          path,
-          mimeType: contentType,
-        });
-      } catch {
-        // ignore
-      }
-    };
-
-    const quotedRegex = new RegExp(quotedPattern, 'gi');
-    let match;
-    while ((match = quotedRegex.exec(text)) !== null) {
-      await collectAttachment(match[1]);
-    }
-
-    const unquotedRegex = new RegExp(unquotedPattern, 'gi');
-    while ((match = unquotedRegex.exec(text)) !== null) {
-      await collectAttachment(match[1]);
-    }
-
-    return foundAttachments;
-  }, [attachments]);
+    // This function is disabled for now - it would need a different approach
+    // with the new ID-based system. Images need to be explicitly uploaded.
+    return [];
+  }, []);
 
   const handleControlAction = useCallback(async (
     action: 'send' | 'steer' | 'replace',
@@ -1444,14 +1410,21 @@ export default function CanvasAgentChat({
       const data = await res.json();
       if (!res.ok || !data.success) {
         setUploadError(data.error ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.');
-      } else if (data.contentKind === 'image') {
-        setAttachments((prev) => [...prev, { name: data.name, contentKind: 'image', path: data.path, mimeType: data.mimeType }]);
-      } else if (data.path) {
-        // File-based document (PDF, DOCX) - saved to disk and path returned
-        setAttachments((prev) => [...prev, { name: data.name, contentKind: 'document', path: data.path, originalMimeType: data.originalMimeType }]);
       } else {
-        // Text-based document - content included directly
-        setAttachments((prev) => [...prev, { name: data.name, contentKind: 'document', text: data.text, originalMimeType: data.originalMimeType }]);
+        // New unified response format - all file types use same structure
+        const uploadedFile = data.file;
+        const isImage = uploadedFile.category === 'image';
+        
+        setAttachments((prev) => [
+          ...prev,
+          {
+            name: uploadedFile.originalName,
+            contentKind: isImage ? 'image' : 'document',
+            id: uploadedFile.id,
+            mimeType: uploadedFile.mimeType,
+            category: uploadedFile.category,
+          },
+        ]);
       }
     } catch (err) {
       console.error('Upload failed', err);

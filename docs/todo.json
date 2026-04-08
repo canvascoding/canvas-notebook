@@ -1,83 +1,46 @@
 {
-  "updatedAt": "2026-04-05T21:44:00+02:00",
-  "items": [
+  "todos": [
     {
-      "id": "automation-run-chat-sessions",
-      "title": "Automationen pro Run mit eigener Chat-Session und History-Verknuepfung ausstatten",
-      "status": "done",
-      "notes": "Automationen starten jetzt pro Run sofort eine eigene PI-Session mit kurzem auto-Session-Key, persistieren die Session direkt und aktualisieren sie auch im Fehlerfall. Run now dispatcht die Ausfuehrung sofort ohne Scheduler-Wartezeit, stale running-Runs blockieren neue Starts nicht mehr, und die Automations-App zeigt Session-Titel, Deep-Links nach /chat und den read-only Chatverlauf des ausgewaehlten Runs an. Verifiziert mit npm run lint, zweimal npm run build sowie einem sichtbaren Playwright-Lauf auf localhost:3000 gegen die frisch gebaute App (tests/automationen.spec.ts --headed)."
+      "id": "1",
+      "content": "Create unified upload handler (app/lib/filesystem/upload-handler.ts)",
+      "status": "in_progress",
+      "priority": "high"
     },
     {
-      "id": "home-footer-github-version-tag",
-      "title": "Startseiten-Footer mit GitHub-Icon und Versions-Tag-Link ausstatten",
-      "status": "done",
-      "notes": "Repo-Link im Home-Footer wurde auf GitHub-Icon umgestellt. Die Versionsanzeige ist jetzt kurz als v. <version> gehalten und verlinkt dynamisch auf die GitHub-Release-Seite des passenden Tags. Auf Mobile ist der Footer auf eine einzelne Zeile verdichtet; links steht by + Herz + Canvas Coding, rechts nur GitHub-Logo + Version, damit kein Umbruch entsteht. Keine Tests ausgefuehrt."
+      "id": "2",
+      "content": "Refactor upload API route (app/api/upload/attachment/route.ts)",
+      "status": "pending",
+      "priority": "high"
     },
     {
-      "id": "notebook-chat-split-button-fullscreen",
-      "title": "Desktop-Chat im Notebook als Split Button mit Side Panel und Vollbild erweitern",
-      "status": "done",
-      "notes": "Desktop-AI-Chat im Notebook ist jetzt ein Split Button. Hauptklick behaelt das Side Panel als Default, das Dropdown oeffnet Side Panel oder Vollbild mit derselben Chat-Instanz und ohne Draft-Verlust. Verifiziert mit npm run build sowie einem Playwright-Desktop-Check auf localhost:3000 per Session-Cookie-Login. Gemessene Chat-Breiten: Side initial ca. 297px, geschlossen ca. 22px Restbox, Side ueber Dropdown ca. 264px, Vollbild ca. 1094px, Rueckkehr ins Side Panel ca. 298px. Fuer den gruernen Build wurde zusaetzlich ein Syntaxfehler in app/lib/skills/skill-icons.tsx korrigiert."
+      "id": "3",
+      "content": "Create file access API (app/api/files/[id]/route.ts)",
+      "status": "pending",
+      "priority": "high"
     },
     {
-      "id": "chat-slash-skill-references",
-      "title": "Slash-Skill-Referenzen im Chat-Composer wie @-Mentions einfuehren",
-      "status": "done",
-      "notes": "Der Chat-Composer nutzt jetzt einen gemeinsamen Referenz-Picker fuer @-Dateien und /-Skills. /-Treffer laden nur aktive Skills, rendern Skill-Icons und fuegen /skill-name statt @\"...\" ein. /api/skills und die Einzel-Enable/Disable-Routen spiegeln den Runtime-Status jetzt korrekt, explizite /skill-name-Referenzen werden im Skill-Prompt als starke Praeferenz behandelt, und die Chat-Texte nennen jetzt @ fuer Dateien sowie / fuer Skills. Verifiziert mit zweimal npm run build sowie BASE_URL=http://localhost:3000 E2E_EXTERNAL_SERVER=1 npx playwright test tests/chat-file-reference-picker.spec.ts gegen die vorhandene lokale Instanz."
+      "id": "4",
+      "content": "Update chat component attachments (CanvasAgentChat.tsx)",
+      "status": "pending",
+      "priority": "high"
     },
     {
-      "id": "fix-browser-tools-dynamic-skill-bridge",
-      "title": "Browser-Tools fuer Agent und Container-Shell robust anbinden",
-      "status": "done",
-      "notes": "Dynamic-Skill-Inputs unterstuetzen jetzt legacy-prompt, none und strukturierte Parameter mit argv-Bindings. browser-tools verwenden explizite Inputs fuer browser-start/browser-nav/browser-content/browser-eval, browser-screenshot laeuft arglos, und Login-Shells im Container bekommen /data/skills/bin ueber /etc/profile.d auf den PATH. Verifiziert mit npm run test:browser-start, npm run test:skills:runtime, npm run test:pi:tools, zweimal npm run build, Container-Recreate sowie einem Playwright-Check in der Container-App, bei dem browser_start mit {} lief, danach browser_nav/browser_eval ausgefuehrt wurden und als Titel Example Domain zurueckkam."
+      "id": "5",
+      "content": "Update agent context with MediaPath (stream/route.ts)",
+      "status": "pending",
+      "priority": "high"
     },
     {
-      "id": "portable-skill-wrappers",
-      "title": "Skill-Wrapper runtime-portabel statt host-spezifisch machen",
-      "status": "done",
-      "notes": "Generierte Wrapper loesen den Launcher jetzt zur Laufzeit ueber CANVAS_SKILLS_LAUNCHER_PATH oder CANVAS_APP_ROOT auf, statt absolute Entwicklerpfade einzubrennen. Container- und Dev-Starts setzen CANVAS_APP_ROOT explizit, Seed-Dokumente und Skill-Creator verankern weiter /data/secrets/Canvas-Integrations.env und verbieten manuelles Editieren von /data/skills/bin."
+      "id": "6",
+      "content": "Test upload functionality",
+      "status": "pending",
+      "priority": "high"
     },
     {
-      "id": "quiet-skill-startup-logs",
-      "title": "Skill-Startup ohne /usr/local/bin-Warnungen beruhigen",
-      "status": "done",
-      "notes": "Die Skill-Runtime verwendet im Container standardmaessig nur noch /data/skills/bin. Globale Wrapper sind jetzt opt-in, nicht mehr Docker-Default, und bei nicht beschreibbarem Ziel gibt es hoechstens eine einzelne Skip-Warnung. start-services.sh bereitet die Runtime nur noch bei fehlendem oder leerem Bin-Verzeichnis nach."
-    },
-    {
-      "id": "fix-browser-start-container-runtime",
-      "title": "browser-start fuer Container-Laufzeit robust machen",
-      "status": "done",
-      "notes": "browser-start loest Chromium jetzt priorisiert ueber CHROMIUM_PATH, dann Puppeteer und dann Systempfade auf. Container-/No-Display-Laeufe starten headless mit Docker-sicheren Flags, --profile ist ausserhalb lokaler macOS-Desktop-Laeufe abgesichert, die Browser-Tools-Doku wurde angepasst und verifiziert mit npm run test:browser-start, npm run test:skills:runtime, npm run build sowie einem Playwright-UI-Check auf localhost:3000/en/skills."
-    },
-    {
-      "id": "fix-docker-skills-runtime-copy",
-      "title": "Runner-Image fuer Skills-Runtime vervollstaendigen",
-      "status": "done",
-      "notes": "Das Runner-Image kopiert jetzt auch server/skills-runtime.js. Damit kann scripts/prepare-skills-runtime.js im Container starten, statt mit MODULE_NOT_FOUND auf ../server/skills-runtime abzubrechen."
-    },
-    {
-      "id": "skill-runtime-manifest-first",
-      "title": "Skill-Runtime auf manifest-first Direct Commands umbauen",
-      "status": "done",
-      "notes": "Der zentrale skill-Dispatcher wurde durch manifest-basierte Direct Commands ersetzt. Startup und Wrapper-Generierung laufen jetzt ueber die neue Skill-Runtime, Automation-Tools nutzen direkte Services, Skill-Dokus und Seed-Prompts verankern /data/secrets/Canvas-Integrations.env als zentrale Secret-Quelle, und verifiziert wurde mit npm run build, npm run test:skills:runtime, npm run test:pi:tools sowie einem Playwright-UI-Check auf localhost:3000."
-    },
-    {
-      "id": "debug-qmd-entrypoint-failure",
-      "title": "Entrypoint-Logging fuer qmd-Rebuild verbessern",
-      "status": "done",
-      "notes": "Der qmd-Build im Docker-Entrypoint schreibt jetzt nach /data/cache/qmd/qmd-build.log und gibt bei Fehlern die letzten 200 Zeilen direkt ins Container-Log aus."
-    },
-    {
-      "id": "qmd-env-toggle-and-rg-tool",
-      "title": "QMD per Env abschaltbar machen und rg als Agent-Tool einbauen",
-      "status": "done",
-      "notes": "QMD wird jetzt zentral über QMD_ENABLED gesteuert und ist standardmäßig deaktiviert, qmd/qmd_search werden bei Bedarf ausgeblendet, ripgrep ist im Runner-Image installiert und der Agent-Prompt bevorzugt rg/glob/find/ls/read statt qmd."
-    },
-    {
-      "id": "fix-chat-new-session-title-fallback",
-      "title": "Automatische Chat-Titel fuer neue Sessions korrekt behandeln",
-      "status": "done",
-      "notes": "Automatische Session-Titel werden jetzt zentral erkannt. Neue Sessions speichern keinen lokalisierten Platzhalter mehr, 'New chat'/'Neuer Chat' werden in der UI sauber lokalisiert angezeigt und nach der ersten Nachricht korrekt durch den abgeleiteten Titel ersetzt. Verifiziert mit npm run build sowie UI-Checks auf localhost:3000 in EN und DE."
+      "id": "7",
+      "content": "Commit changes",
+      "status": "pending",
+      "priority": "high"
     }
   ]
 }
