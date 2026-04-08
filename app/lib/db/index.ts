@@ -247,6 +247,21 @@ if (tableNames.has('automation_runs')) {
       // Column might already exist, ignore
     }
   }
+  // New columns for storing metadata in DB instead of files
+  if (!automationRunColumns.has('events_log')) {
+    try {
+      sqlite.exec('ALTER TABLE automation_runs ADD COLUMN events_log TEXT');
+    } catch {
+      // Column might already exist, ignore
+    }
+  }
+  if (!automationRunColumns.has('metadata_json')) {
+    try {
+      sqlite.exec('ALTER TABLE automation_runs ADD COLUMN metadata_json TEXT');
+    } catch {
+      // Column might already exist, ignore
+    }
+  }
 }
 
 // Onboarding completion log

@@ -81,10 +81,7 @@ function buildOutputPaths(job: AutomationJobRecord, run: AutomationRunRecord) {
 
   return {
     outputDir,
-    logPath: path.posix.join(outputDir, 'events.log'),
-    promptPath: path.posix.join(outputDir, 'prompt.md'),
     resultPath: path.posix.join(outputDir, 'result.md'),
-    metadataPath: path.posix.join(outputDir, 'run.json'),
     errorPath: path.posix.join(outputDir, 'error.txt'),
   };
 }
@@ -124,26 +121,6 @@ function createAutomationErrorMessage(message: string, provider: Provider, model
   };
 }
 
-async function writeRunMetadata(
-  metadataPath: string,
-  job: AutomationJobRecord,
-  run: AutomationRunRecord,
-  extra: Record<string, unknown>,
-) {
-  await writeFile(
-    metadataPath,
-    JSON.stringify(
-      {
-        job,
-        run,
-        ...extra,
-      },
-      null,
-      2,
-    ),
-  );
-}
-
 export async function executeAutomationRun(runId: string): Promise<void> {
   const run = await getAutomationRun(runId);
   if (!run) {
@@ -152,7 +129,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
   const job = await getAutomationJob(run.jobId);
   if (!job) {
-    await markAutomationRunFinished(runId, { status: 'failed', errorMessage: 'Automation job not found.' });
+    await markAutomationRunFinished(runId, { 
+      status: 'failed', 
+      errorMessage: 'Automation job not found.',
+      eventsLog: [],
+      metadataJson: { provider: 'unknown', model: 'unknown', status: 'failed' },
+    });
     return;
   }
 
@@ -169,23 +151,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     effectiveTargetOutputPath,
     runArtifactDir: outputPaths.outputDir,
   });
-  await writeFile(outputPaths.promptPath, promptText);
-  await writeFile(outputPaths.logPath, '');
 
   const piSessionId = buildAutomationSessionId(run.id);
   const piSessionTitle = buildAutomationSessionTitle(job.name);
-  const startedRun = await markAutomationRunStarted(run.id, {
-    outputDir: outputPaths.outputDir,
-    targetOutputPath: job.targetOutputPath,
-    effectiveTargetOutputPath,
-    logPath: outputPaths.logPath,
-    resultPath: outputPaths.resultPath,
-    piSessionId,
-  });
-
-  if (!startedRun) {
-    return;
-  }
+  
+  // Start collecting events before run starts
+  const events: string[] = [];
+  let finalMessages: AgentMessage[] = [];
 
   const piConfig = await readPiRuntimeConfig();
   const provider = piConfig.activeProvider;
@@ -210,8 +182,20 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     messages: [],
     tools,
   };
-  const events: string[] = [];
-  let finalMessages: AgentMessage[] = [];
+
+  const startedRun = await markAutomationRunStarted(run.id, {
+    outputDir: outputPaths.outputDir,
+    targetOutputPath: job.targetOutputPath,
+    effectiveTargetOutputPath,
+    logPath: '', // No longer used - events stored in DB
+    resultPath: outputPaths.resultPath,
+    piSessionId,
+    eventsLog: [],
+  });
+
+  if (!startedRun) {
+    return;
+  }
 
   try {
     await savePiSession(
@@ -237,7 +221,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     }
 
     const assistantText = extractAssistantText(finalMessages);
-    await writeFile(outputPaths.logPath, `${events.join('\n')}\n`);
     await writeFile(outputPaths.resultPath, assistantText || 'Run completed without assistant text output.');
     await savePiSession(
       piSessionId,
@@ -248,13 +231,16 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       undefined,
       { titleOverride: piSessionTitle },
     );
-    await markAutomationRunFinished(run.id, { status: 'success' });
-    await writeRunMetadata(outputPaths.metadataPath, job, startedRun, {
-      provider,
-      model: model.id,
+    await markAutomationRunFinished(run.id, {
       status: 'success',
-      targetOutputPath: job.targetOutputPath,
-      effectiveTargetOutputPath,
+      eventsLog: events,
+      metadataJson: {
+        provider,
+        model: model.id,
+        status: 'success',
+        targetOutputPath: job.targetOutputPath,
+        effectiveTargetOutputPath,
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Automation run failed.';
@@ -263,7 +249,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       ? finalMessages
       : [promptMessage, createAutomationErrorMessage(message, model.provider, model.id, model.api)];
 
-    await writeFile(outputPaths.logPath, `${events.join('\n')}\n`);
     await writeFile(outputPaths.resultPath, `Automation failed: ${message}\n`);
     await writeFile(outputPaths.errorPath, message);
     await savePiSession(
@@ -277,8 +262,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     );
 
     if (retryAt) {
-      await markAutomationRunRetryScheduled(run.id, retryAt, message);
-      await writeRunMetadata(outputPaths.metadataPath, job, startedRun, {
+      await markAutomationRunRetryScheduled(run.id, retryAt, message, events, {
         provider,
         model: model.id,
         status: 'retry_scheduled',
@@ -290,14 +274,18 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       return;
     }
 
-    await markAutomationRunFinished(run.id, { status: 'failed', errorMessage: message });
-    await writeRunMetadata(outputPaths.metadataPath, job, startedRun, {
-      provider,
-      model: model.id,
+    await markAutomationRunFinished(run.id, {
       status: 'failed',
-      error: message,
-      targetOutputPath: job.targetOutputPath,
-      effectiveTargetOutputPath,
+      errorMessage: message,
+      eventsLog: events,
+      metadataJson: {
+        provider,
+        model: model.id,
+        status: 'failed',
+        error: message,
+        targetOutputPath: job.targetOutputPath,
+        effectiveTargetOutputPath,
+      },
     });
   }
 }

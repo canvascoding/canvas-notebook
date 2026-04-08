@@ -143,6 +143,9 @@ function mapRunRow(
     piSessionTitle: sessionMetadata?.title ?? null,
     hasPersistedSession: Boolean(row.piSessionId && sessionMetadata),
     createdAt: row.createdAt.toISOString(),
+    // Parse metadata from JSON strings
+    eventsLog: row.eventsLog ? (JSON.parse(row.eventsLog) as string[]) : null,
+    metadataJson: row.metadataJson ? (JSON.parse(row.metadataJson) as Record<string, unknown>) : null,
   };
 }
 
@@ -504,6 +507,7 @@ export async function markAutomationRunStarted(
     logPath: string;
     resultPath: string;
     piSessionId: string;
+    eventsLog: string[];
   },
 ): Promise<AutomationRunRecord | null> {
   const [updated] = await db
@@ -519,6 +523,7 @@ export async function markAutomationRunStarted(
       resultPath: values.resultPath,
       errorMessage: null,
       piSessionId: values.piSessionId,
+      eventsLog: JSON.stringify(values.eventsLog),
     })
     .where(
       and(
@@ -535,6 +540,8 @@ export async function markAutomationRunRetryScheduled(
   runId: string,
   nextAttemptAt: Date,
   errorMessage: string,
+  eventsLog: string[],
+  metadataJson: Record<string, unknown>,
 ): Promise<AutomationRunRecord | null> {
   const current = await db.query.automationRuns.findFirst({
     where: eq(automationRuns.id, runId),
@@ -551,6 +558,8 @@ export async function markAutomationRunRetryScheduled(
       errorMessage,
       finishedAt: new Date(),
       attemptNumber: current.attemptNumber + 1,
+      eventsLog: JSON.stringify(eventsLog),
+      metadataJson: JSON.stringify(metadataJson),
     })
     .where(eq(automationRuns.id, runId))
     .returning();
@@ -571,6 +580,8 @@ export async function markAutomationRunFinished(
   values: {
     status: 'success' | 'failed';
     errorMessage?: string | null;
+    eventsLog: string[];
+    metadataJson: Record<string, unknown>;
   },
 ): Promise<AutomationRunRecord | null> {
   const current = await db.query.automationRuns.findFirst({
@@ -587,6 +598,8 @@ export async function markAutomationRunFinished(
       status: values.status,
       errorMessage: values.errorMessage ?? null,
       finishedAt: now,
+      eventsLog: JSON.stringify(values.eventsLog),
+      metadataJson: JSON.stringify(values.metadataJson),
     })
     .where(eq(automationRuns.id, runId))
     .returning();

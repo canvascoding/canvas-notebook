@@ -75,6 +75,9 @@ export type AutomationRunRecord = {
   piSessionTitle: string | null;
   hasPersistedSession: boolean;
   createdAt: string;
+  // Metadata stored in DB instead of files
+  eventsLog: string[] | null; // Parsed from JSON string
+  metadataJson: Record<string, unknown> | null; // Parsed from JSON string
 };
 
 export type CreateAutomationJobInput = {

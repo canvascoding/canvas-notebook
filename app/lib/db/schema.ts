@@ -155,5 +155,8 @@ export const automationRuns = sqliteTable("automation_runs", {
   resultPath: text("result_path"),
   errorMessage: text("error_message"),
   piSessionId: text("pi_session_id"),
+  // Metadata stored in DB instead of files
+  eventsLog: text("events_log"), // JSON array of event strings (replaces events.log file)
+  metadataJson: text("metadata_json"), // JSON with provider, model, status, etc. (replaces run.json)
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
