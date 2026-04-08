@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { ImageContent, Message, ToolResultMessage, UserMessage } from '@mariozechner/pi-ai';
 import { getWorkspacePath } from '../utils/workspace-manager';
+import { findFilePath } from '../filesystem/upload-handler';
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -105,6 +106,23 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
   if (rawData.startsWith('file://')) {
     console.log('[Message Normalization] Detected file:// URL');
     return loadImageDataFromFile(fileURLToPath(rawData), part.mimeType);
+  }
+
+  // Check if it's an API file reference (e.g., /api/files/{id})
+  if (rawData.startsWith('/api/files/')) {
+    console.log('[Message Normalization] Detected API file reference');
+    const fileId = rawData.replace('/api/files/', '');
+    try {
+      const filePath = await findFilePath(fileId);
+      if (filePath) {
+        console.log(`[Message Normalization] Resolved API file to: ${filePath}`);
+        return loadImageDataFromFile(filePath, part.mimeType);
+      } else {
+        console.warn(`[Message Normalization] File not found for ID: ${fileId}`);
+      }
+    } catch (error) {
+      console.warn(`[Message Normalization] Failed to resolve API file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   // Check if it's base64 first (before treating as file path)
