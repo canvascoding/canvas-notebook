@@ -1,5 +1,76 @@
 # TOOLS
 
+## Web Content Extraction Strategy (IMPORTANT)
+
+When extracting content from websites, follow this priority order:
+
+### 1. web_fetch (ALWAYS TRY FIRST)
+
+**Purpose**: Fetch and extract readable content from URLs using HTTP requests.
+
+**Advantages**:
+- Extremely fast (<1s per URL)
+- Minimal resource usage (~50MB RAM total)
+- Reliable and stable
+- Can process up to 10 URLs in one call
+
+**Limitations**:
+- Cannot execute JavaScript (no SPAs, dashboards requiring JS)
+- Only works with static HTML content
+
+**When to use**: For 80% of all websites - always start here:
+- Documentation sites
+- Blog posts and articles
+- News websites
+- Static HTML pages
+- GitHub repositories (raw HTML)
+- Wikipedia and reference sites
+
+**Parameters**:
+- `urls`: Array of URLs to fetch (max 10)
+- `timeout`: Seconds per URL (default: 15, max: 60)
+- `max_content_length`: Characters per page (default: 10000, max: 50000)
+
+**Decision Flow**:
+1. Always call `web_fetch` first with the URLs
+2. Check the results - successful URLs will have content
+3. If result says "JavaScript required" or content is insufficient → proceed to step 4
+4. Use `browser-content` or `browser-tools` ONLY for URLs that failed with JS requirement
+
+### 2. browser-content (FALLBACK - Use Sparingly)
+
+**Purpose**: Extract content using a real Chromium browser instance.
+
+**WARNING**: 
+- High resource usage (1-3GB RAM)
+- Slow startup (5-15s per URL)
+- May timeout or crash on resource-constrained containers
+- Only use when absolutely necessary
+
+**When to use**:
+- JavaScript-heavy Single Page Applications (SPAs)
+- Dashboards requiring JS execution
+- Sites with lazy-loaded content
+- Interactive web apps
+- Only if `web_fetch` explicitly failed with "JavaScript required"
+
+**Never use browser-tools when**:
+- The site works fine with `web_fetch` (wastes resources)
+- You only need static HTML content
+- Processing multiple URLs (will overwhelm the container)
+
+### 3. browser-tools Suite (Last Resort)
+
+**Commands**: `browser-start`, `browser-nav`, `browser-screenshot`, `browser-eval`
+
+**When to use**:
+- Sites requiring user interaction (clicks, scrolling)
+- Multi-step navigation
+- Screenshot capture needed
+- Complex browser automation
+
+**IMPORTANT**: Browser tools consume significant resources. The container may become unresponsive or crash if overused.
+
 ## Workspace Search And Inspection
 
 Use the normal file tools for workspace search and inspection:
@@ -69,6 +140,55 @@ For complete documentation, parameter details, and examples:
 - /data/skills/video-generation/SKILL.md
 - /data/skills/ad-localization/SKILL.md
 
+## Workflow Automation
+
+### What Are Automations
+
+Automations are scheduled tasks that execute prompts/scripts automatically at specified times. They run in the background and deliver results to configured output paths.
+
+### Creating vs. Executing Automations
+
+**CRITICAL DISTINCTION:**
+
+1. **Creating a New Automation** (User requests in chat):
+   - When the user says: "Create an automation...", "Set up a scheduled task...", "Automate this..."
+   - Use the `workflow-automation` skill to create a new job
+   - The skill handles: name, prompt, schedule, output paths
+
+2. **Executing an Automation** (Scheduled/Manual trigger):
+   - When a message arrives with prefix "Automation name: ..." or similar automation context
+   - **DO NOT** create a new automation
+   - **IMMEDIATELY EXECUTE** the task described in the prompt
+   - This is an execution context, not a creation request
+
+### Automation Creation Flow
+
+When user wants to create an automation:
+```
+User: "Create a daily automation that summarizes my work"
+→ Use workflow-automation skill
+→ Provide: name, prompt, schedule (daily/weekly/once/interval)
+→ Skill creates the job in the database
+→ Job will be triggered automatically at scheduled times
+```
+
+### Automation Execution Flow
+
+When automation is triggered (scheduled or manual):
+```
+System → Agent: "Automation name: Daily Summary\nTask: [prompt]"
+→ Agent executes the task immediately
+→ Write results to configured output path
+→ DO NOT create a new automation
+```
+
+### Key Rules
+
+- **NEVER** create an automation when you receive an automation execution message
+- **ALWAYS** execute the task when the message contains automation context
+- Use `workflow-automation` skill ONLY when user explicitly asks to create/manage automations in chat
+- Automation execution messages come with pre-configured context (name, preferred skill, output paths)
+
 ## Trigger Phrases (When to use which skill)
 
 **image_generation:**
@@ -91,6 +211,13 @@ For complete documentation, parameter details, and examples:
 - "adapt for country..."
 - "lokalisiere diese Anzeige"
 - "übersetze für Markt..."
+
+**workflow-automation** (ONLY for creation/management in chat):
+- "create an automation"
+- "set up a scheduled task"
+- "automate this"
+- "schedule a daily report"
+- "manage my automations"
 
 ## Skill Creator
 

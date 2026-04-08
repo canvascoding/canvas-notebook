@@ -41,6 +41,12 @@
       "content": "Commit changes",
       "status": "pending",
       "priority": "high"
+    },
+    {
+      "id": "8",
+      "content": "Automation Prompt Optimization - Add execution context to system prompt and automation prompt",
+      "status": "completed",
+      "priority": "high"
     }
   ]
 }

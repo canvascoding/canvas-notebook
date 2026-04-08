@@ -10,6 +10,12 @@ type BuildAutomationPromptInput = Pick<
 
 export function buildAutomationPrompt(input: BuildAutomationPromptInput): string {
   const sections = [
+    'AUTOMATION EXECUTION CONTEXT',
+    '─────────────────────────────────',
+    'This automation is being EXECUTED now (not created).',
+    'The user has already configured this automation. Your task is to execute the prompt below.',
+    'DO NOT create a new automation - execute the task as described.',
+    '',
     `Automation name: ${input.name}`,
     `Preferred skill hint: ${input.preferredSkill}`,
   ];
