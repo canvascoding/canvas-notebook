@@ -187,6 +187,7 @@ function buildWithProgress() {
     let currentDesc = 'Starting build...';
     let completed = 0;
     let total = 0;
+    let lastActivity = Date.now();
 
     const steps = new Map(); // id → { desc, done }
 
@@ -196,13 +197,20 @@ function buildWithProgress() {
       const bar = '█'.repeat(filled) + '░'.repeat(20 - filled);
       const pctStr = `${Math.round(pct * 100)}%`.padStart(4);
       const elapsed = Math.round((Date.now() - start) / 1000);
-      const desc = currentDesc.slice(0, 55);
+      const desc = currentDesc.slice(0, 45);
       process.stdout.write(`\r\x1b[K  ${SPINNER[frame]} [${bar}] ${pctStr}  ${desc}  (${elapsed}s)`);
     }
 
     const spinnerInterval = setInterval(() => {
       frame = (frame + 1) % SPINNER.length;
       renderBar();
+      
+      // Check for timeout - no activity for 5 minutes
+      if (Date.now() - lastActivity > 300000) {
+        clearInterval(spinnerInterval);
+        proc.kill();
+        reject(new Error('Build timed out - no activity for 5 minutes'));
+      }
     }, 100);
 
     const proc = spawn('docker', ['compose', 'build', '--no-cache', '--progress=plain'], {
@@ -210,20 +218,23 @@ function buildWithProgress() {
       env: process.env,
     });
 
+    let stdoutBuffer = '';
     let stderrBuffer = '';
     let capturedOutput = '';
 
-    const startRe = /^#(\d+) \[([^\]]+)\] (.+)/;
-    const doneRe  = /^#(\d+) (DONE|CACHED)/;
+    const stepRe = /^#(\d+) \[([^\]]+)\] (.+)/;
+    const doneRe  = /^#(\d+) (DONE|CACHED|ERROR)/i;
 
     function processLine(line) {
+      lastActivity = Date.now();
       capturedOutput += line + '\n';
 
-      const startMatch = line.match(startRe);
-      if (startMatch) {
-        const id = parseInt(startMatch[1]);
-        const stageInfo = startMatch[2];
-        const action = startMatch[3];
+      // Docker buildkit output format: #N [stage] description
+      const stepMatch = line.match(stepRe);
+      if (stepMatch) {
+        const id = parseInt(stepMatch[1]);
+        const stageInfo = stepMatch[2];
+        const action = stepMatch[3];
         if (!steps.has(id)) steps.set(id, { desc: `[${stageInfo}] ${action}`, done: false });
         if (id > total) total = id;
         currentDesc = `[${stageInfo}] ${action}`;
@@ -231,6 +242,7 @@ function buildWithProgress() {
         return;
       }
 
+      // Check for step completion
       const doneMatch = line.match(doneRe);
       if (doneMatch) {
         const id = parseInt(doneMatch[1]);
@@ -241,7 +253,21 @@ function buildWithProgress() {
           renderBar();
         }
       }
+      
+      // Also look for progress indicators in other formats
+      if (line.includes('progress=') || line.includes('transferring') || line.includes('exporting')) {
+        currentDesc = line.trim().slice(0, 45);
+        renderBar();
+      }
     }
+
+    // Process both stdout and stderr
+    proc.stdout.on('data', chunk => {
+      stdoutBuffer += chunk.toString();
+      const lines = stdoutBuffer.split('\n');
+      stdoutBuffer = lines.pop() ?? '';
+      for (const line of lines) processLine(line);
+    });
 
     proc.stderr.on('data', chunk => {
       stderrBuffer += chunk.toString();
@@ -251,6 +277,7 @@ function buildWithProgress() {
     });
 
     proc.on('close', code => {
+      if (stdoutBuffer) processLine(stdoutBuffer);
       if (stderrBuffer) processLine(stderrBuffer);
       clearInterval(spinnerInterval);
       process.stdout.write('\r\x1b[K');
@@ -261,7 +288,7 @@ function buildWithProgress() {
         resolve();
       } else {
         fail('Build failed. Docker output:');
-        console.error(capturedOutput.slice(-3000));
+        console.error(capturedOutput.slice(-3000) || '(no output captured)');
         reject(new Error(`docker compose build exited with code ${code}`));
       }
     });
