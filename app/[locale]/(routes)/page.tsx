@@ -13,6 +13,7 @@ import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { LanguageSwitcher } from '@/app/components/language-switcher';
+import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
 
 type AgentSetupCardState = {
   providerLabel: string;
@@ -186,14 +187,20 @@ export default async function Home() {
                 </svg>
                 <span className="hidden sm:inline">canvascoding/canvas-notebook</span>
               </a>
-              <a
-                href={releaseTagUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {tHome('footer.version', { version: releaseVersion })}
-              </a>
+              <div className="flex items-center gap-1">
+                <a
+                  href={releaseTagUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {tHome('footer.version', { version: releaseVersion })}
+                </a>
+                <VersionUpdateIndicator
+                  currentVersion={releaseVersion}
+                  repositoryUrl={repositoryUrl}
+                />
+              </div>
             </div>
           </div>
         </footer>
