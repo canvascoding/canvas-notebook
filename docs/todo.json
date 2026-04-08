@@ -47,6 +47,31 @@
       "content": "Fix: Resolve API file references in message normalization",
       "status": "completed",
       "priority": "high"
+    },
+    {
+      "id": "9",
+      "content": "Feature: Unread AI response indicator in session history",
+      "status": "completed",
+      "priority": "high",
+      "details": {
+        "changes": [
+          "Added lastMessageAt and lastViewedAt columns to piSessions schema",
+          "Updated session-store.ts with markPiSessionAsRead and updatePiSessionLastMessageAt helpers",
+          "Extended /api/sessions GET to include hasUnread flag",
+          "Extended /api/sessions PATCH to support markAsRead and lastMessageAt updates",
+          "Added blue dot indicator in session history for unread responses",
+          "Added unread banner in chat when entering session with unread AI responses",
+          "Added translations: unreadResponse, newResponseReceived, markAsRead (de/en)",
+          "Created migration script: scripts/migrate-add-session-tracking.js"
+        ],
+        "behavior": {
+          "unreadIndicator": "Blue dot appears left of session title when AI responded and user hasn't opened session yet",
+          "markAsRead": "Session marked as read when user clicks on it in history",
+          "banner": "Shows 'New response received' banner when entering session with unread messages",
+          "lastMessageAtUpdate": "Updated when AI response completes (message_end event)",
+          "multiTabSync": "Database-backed sync works across multiple browser tabs/devices"
+        }
+      }
     }
   ]
 }

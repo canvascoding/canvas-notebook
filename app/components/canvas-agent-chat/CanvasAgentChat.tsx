@@ -87,6 +87,10 @@ interface AISession {
   title: string;
   model: string;
   createdAt: string;
+  engine?: 'legacy' | 'pi';
+  lastMessageAt?: string | null;
+  lastViewedAt?: string | null;
+  hasUnread?: boolean;
   creator?: {
     name?: string | null;
     email?: string | null;
@@ -542,6 +546,8 @@ export default function CanvasAgentChat({
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
+  const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
+  const [showUnreadBanner, setShowUnreadBanner] = useState(false);
 
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
@@ -973,6 +979,20 @@ export default function CanvasAgentChat({
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
       syncPiMessage(assistantId, event.message);
       currentAssistantIdRef.current = null;
+      
+      // Update lastMessageAt in database when AI response completes
+      // Only if this is the active session being viewed
+      if (sessionIdRef.current) {
+        const now = new Date();
+        void fetch('/api/sessions', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            sessionId: sessionIdRef.current, 
+            lastMessageAt: now.toISOString() 
+          }),
+        }).catch(err => console.error('Failed to update lastMessageAt', err));
+      }
       return;
     }
 
@@ -1295,6 +1315,31 @@ export default function CanvasAgentChat({
     setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
     setShowHistory(false);
     toolMessageIdsRef.current = {};
+
+    // Check if session has unread messages and show banner
+    if (session.hasUnread) {
+      setHasUnreadInCurrentSession(true);
+      setShowUnreadBanner(true);
+      // Mark as read in database
+      try {
+        await fetch('/api/sessions', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: session.sessionId, markAsRead: true }),
+        });
+        setHasUnreadInCurrentSession(false);
+        setShowUnreadBanner(false);
+        // Update history state to reflect read status
+        setHistory(prev => prev.map(s => 
+          s.sessionId === session.sessionId ? { ...s, hasUnread: false, lastViewedAt: new Date().toISOString() } : s
+        ));
+      } catch (err) {
+        console.error('Failed to mark session as read', err);
+      }
+    } else {
+      setHasUnreadInCurrentSession(false);
+      setShowUnreadBanner(false);
+    }
 
     try {
       const [messagesResponse, statusResponse] = await Promise.all([
@@ -2074,6 +2119,26 @@ export default function CanvasAgentChat({
       </div>
 
       <div className="relative flex-1">
+        {/* Unread Banner - shows when entering a session with unread AI responses */}
+        {showUnreadBanner && hasUnreadInCurrentSession && (
+          <div className="absolute top-0 left-0 right-0 z-30 flex justify-center">
+            <div className="flex items-center gap-3 rounded-b-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2 backdrop-blur-sm shadow-lg">
+              <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">{t('newResponseReceived')}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnreadBanner(false);
+                  setHasUnreadInCurrentSession(false);
+                }}
+                className="rounded px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-500/20"
+              >
+                {t('markAsRead')}
+              </button>
+            </div>
+          </div>
+        )}
+
         {showHistory && (
           <div className="absolute inset-0 z-20 space-y-1 overflow-y-auto bg-background p-2 pb-20">
             <div className="mb-2 flex items-center gap-2 border-b border-border px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -2082,14 +2147,23 @@ export default function CanvasAgentChat({
             {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">{t('noRecentSessions')}</div>}
             {history.map((session) => (
               <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
-                <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left">
-                  <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">
-                    {getSessionDisplayTitle(session.title, t('newChatTitle'))}
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                    <span>{new Date(session.createdAt).toLocaleString()}</span>
-                    <span>&bull;</span>
-                    <span>{session.model}</span>
+                <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
+                  {session.hasUnread && (
+                    <div 
+                      className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                      title={t('unreadResponse')}
+                      aria-label={t('unreadResponse')}
+                    />
+                  )}
+                  <div className="min-w-0 flex-1 text-left">
+                    <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">
+                      {getSessionDisplayTitle(session.title, t('newChatTitle'))}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                      <span>{new Date(session.createdAt).toLocaleString()}</span>
+                      <span>&bull;</span>
+                      <span>{session.model}</span>
+                    </div>
                   </div>
                 </button>
                 <button

@@ -86,6 +86,12 @@ export async function savePiSession(
       }
     : {};
 
+  // Find last assistant message timestamp for lastMessageAt
+  const lastAssistantMessage = messages
+    .filter(m => m.role === 'assistant')
+    .sort((a, b) => getAgentMessageTimestamp(b) - getAgentMessageTimestamp(a))[0];
+  const lastMessageAt = lastAssistantMessage ? new Date(getAgentMessageTimestamp(lastAssistantMessage)) : null;
+
   if (!session) {
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
@@ -95,6 +101,8 @@ export async function savePiSession(
       title: resolvedTitle,
       createdAt: new Date(),
       updatedAt: new Date(),
+      lastMessageAt: lastMessageAt,
+      lastViewedAt: null,
       ...summaryFields,
     }).returning({ id: piSessions.id });
     sessionDbId = inserted.id;
@@ -103,7 +111,12 @@ export async function savePiSession(
     const nextTitle = normalizedTitleOverride || (isAutomaticSessionTitle(session.title) ? derivedTitle : session.title);
 
     await db.update(piSessions)
-      .set({ updatedAt: new Date(), title: nextTitle, ...summaryFields })
+      .set({ 
+        updatedAt: new Date(), 
+        title: nextTitle, 
+        lastMessageAt: lastMessageAt,
+        ...summaryFields 
+      })
       .where(eq(piSessions.id, sessionDbId));
   }
 
@@ -196,4 +209,28 @@ export async function loadPiSessionWithSummary(
       summaryThroughTimestamp: session.summaryThroughTimestamp ?? null,
     },
   };
+}
+
+export async function markPiSessionAsRead(sessionId: string, userId: string): Promise<void> {
+  const session = await db.query.piSessions.findFirst({
+    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
+  });
+
+  if (session) {
+    await db.update(piSessions)
+      .set({ lastViewedAt: new Date() })
+      .where(eq(piSessions.id, session.id));
+  }
+}
+
+export async function updatePiSessionLastMessageAt(sessionId: string, userId: string, timestamp: Date): Promise<void> {
+  const session = await db.query.piSessions.findFirst({
+    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
+  });
+
+  if (session) {
+    await db.update(piSessions)
+      .set({ lastMessageAt: timestamp })
+      .where(eq(piSessions.id, session.id));
+  }
 }

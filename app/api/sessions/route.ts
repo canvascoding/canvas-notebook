@@ -19,6 +19,8 @@ type CreateSessionPayload = {
 type RenameSessionPayload = {
   sessionId?: string;
   title?: string;
+  markAsRead?: boolean;
+  lastMessageAt?: string;
 };
 
 function resolveRequestedModel(value: unknown): AgentId | null {
@@ -98,6 +100,8 @@ export async function GET(request: NextRequest) {
           model: piSessions.model,
           provider: piSessions.provider,
           createdAt: piSessions.createdAt,
+          lastMessageAt: piSessions.lastMessageAt,
+          lastViewedAt: piSessions.lastViewedAt,
           creatorName: user.name,
           creatorEmail: user.email,
         })
@@ -109,8 +113,13 @@ export async function GET(request: NextRequest) {
     ]);
 
     const combined = [
-      ...legacySessions.map(s => ({ ...s, engine: 'legacy' as const })),
-      ...newPiSessions.map(s => ({ ...s, engine: 'pi' as const }))
+      ...legacySessions.map(s => ({ ...s, engine: 'legacy' as const, lastMessageAt: null as Date | null, lastViewedAt: null as Date | null })),
+      ...newPiSessions.map(s => ({ 
+        ...s, 
+        engine: 'pi' as const,
+        lastMessageAt: s.lastMessageAt,
+        lastViewedAt: s.lastViewedAt
+      }))
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     return NextResponse.json({
@@ -123,6 +132,9 @@ export async function GET(request: NextRequest) {
         model: item.model,
         engine: item.engine,
         createdAt: item.createdAt,
+        lastMessageAt: item.lastMessageAt,
+        lastViewedAt: item.lastViewedAt,
+        hasUnread: item.engine === 'pi' && item.lastMessageAt !== null && item.lastViewedAt !== null && item.lastMessageAt.getTime() > item.lastViewedAt.getTime(),
         creator: {
           name: item.creatorName || null,
           email: item.creatorEmail || null,
@@ -232,11 +244,58 @@ export async function PATCH(request: NextRequest) {
     const payload = (await request.json()) as RenameSessionPayload;
     const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
     const title = typeof payload.title === 'string' ? payload.title.trim() : '';
+    const markAsRead = typeof payload.markAsRead === 'boolean' ? payload.markAsRead : false;
 
     if (!sessionId) {
       return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
     }
 
+    // Handle mark as read
+    if (markAsRead) {
+      const piSession = await db
+        .select({ id: piSessions.id })
+        .from(piSessions)
+        .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)));
+
+      if (piSession.length > 0) {
+        await db.update(piSessions)
+          .set({ lastViewedAt: new Date(), updatedAt: new Date() })
+          .where(eq(piSessions.id, piSession[0].id));
+        
+        return NextResponse.json({
+          success: true,
+          session: { sessionId, lastViewedAt: new Date() },
+        });
+      }
+
+      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
+    }
+
+    // Handle lastMessageAt update
+    if (payload.lastMessageAt) {
+      const piSession = await db
+        .select({ id: piSessions.id })
+        .from(piSessions)
+        .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)));
+
+      if (piSession.length > 0) {
+        await db.update(piSessions)
+          .set({ 
+            lastMessageAt: new Date(payload.lastMessageAt), 
+            updatedAt: new Date() 
+          })
+          .where(eq(piSessions.id, piSession[0].id));
+        
+        return NextResponse.json({
+          success: true,
+          session: { sessionId, lastMessageAt: new Date(payload.lastMessageAt) },
+        });
+      }
+
+      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
+    }
+
+    // Handle rename
     if (!title) {
       return NextResponse.json({ success: false, error: 'Title required' }, { status: 400 });
     }
