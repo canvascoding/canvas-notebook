@@ -47,7 +47,7 @@ function setCommonHeaders(response: NextResponse) {
     "img-src 'self' data: blob:",
     "media-src 'self' data: blob:",
     "font-src 'self' data: https://fonts.gstatic.com",
-    "connect-src 'self' ws: wss: https://o4511053822099456.ingest.de.sentry.io",
+    "connect-src 'self' ws: wss: https://o4511053822099456.ingest.de.sentry.io https://api.github.com",
     "worker-src 'self' blob:",
     "frame-ancestors 'self'",
   ].join('; ');
