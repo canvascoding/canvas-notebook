@@ -110,6 +110,7 @@ function MobileNotebookEmptyState({
 export function DashboardShell({ username }: DashboardShellProps) {
   const tNotebook = useTranslations('notebook');
   const tCommon = useTranslations('common');
+  const tChat = useTranslations('chat');
   const tNav = useTranslations('navigation');
   const searchParams = useSearchParams();
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
@@ -552,6 +553,9 @@ export function DashboardShell({ username }: DashboardShellProps) {
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <SheetTitle className="text-base">{tCommon('aiChat')}</SheetTitle>
+                    <SheetDescription className="sr-only">
+                      {tChat('metadataDescription')}
+                    </SheetDescription>
                   </div>
                   <Button
                     variant="ghost"

@@ -275,6 +275,19 @@
       "status": "pending",
       "priority": "medium",
       "phase": "Week 3: CanvasAgentChat Migration"
+    },
+    {
+      "id": "34",
+      "content": "Accessibility: Add missing description for mobile AI chat sheet",
+      "status": "completed",
+      "priority": "medium",
+      "phase": "Bug Fixes",
+      "details": {
+        "changes": [
+          "Added an sr-only SheetDescription to the mobile AI chat sheet in DashboardShell"
+        ],
+        "goal": "Prevent the Radix DialogContent warning about a missing Description while keeping the sheet accessible"
+      }
     }
   ]
 }
