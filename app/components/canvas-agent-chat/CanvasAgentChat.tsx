@@ -706,7 +706,7 @@ export default function CanvasAgentChat({
       markAsRead(sessionId);
     }
     
-    // Update global state for provider
+    // Update global state for provider (always, not just WebSocket mode)
     if (typeof window !== 'undefined') {
       window.__setCurrentSession?.(sessionId);
       window.__setUserActive?.(isUserActiveInChat);
@@ -715,9 +715,7 @@ export default function CanvasAgentChat({
     return () => {
       unsubscribe(sessionId);
       console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
-      if (typeof window !== 'undefined') {
-        window.__setCurrentSession?.(null);
-      }
+      // Don't reset on unmount - let the route change handle it
     };
   }, [isWebSocketEnabled, wsConnected, sessionId, isUserActiveInChat, subscribe, unsubscribe, markAsRead]);
 
@@ -727,6 +725,18 @@ export default function CanvasAgentChat({
       window.__setUserActive?.(isUserActiveInChat);
     }
   }, [isUserActiveInChat]);
+
+  // Reset global state when leaving chat route
+  useEffect(() => {
+    return () => {
+      // Cleanup when navigating away from chat
+      if (typeof window !== 'undefined') {
+        window.__setCurrentSession?.(null);
+        window.__setUserActive?.(false);
+        console.log('[CanvasAgentChat] Reset global state on route change');
+      }
+    };
+  }, []);
 
   // Create session on mount if not in history view
   useEffect(() => {

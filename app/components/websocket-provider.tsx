@@ -67,20 +67,21 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       // Check if user is viewing this session
       const isViewingCurrentSession = currentSessionRef.current === sessionId;
       
-      // Always mark as read if user is viewing the session
-      if (isViewingCurrentSession) {
-        console.log('[WebSocketProvider] User is viewing session', sessionId, '- suppressing toast');
-        return; // Don't show toast if user is in this session
-      }
-
       // Handle message_end event (AI response complete)
       if (agentEvent.type === 'message_end' && (agentEvent.message as Record<string, unknown>)?.role === 'assistant') {
         console.log('[WebSocketProvider] AI response complete in session:', sessionId);
+        
+        // Don't show toast if user is viewing this session
+        if (isViewingCurrentSession) {
+          console.log('[WebSocketProvider] User is viewing session', sessionId, '- suppressing toast');
+          return;
+        }
 
-        // Only show toast if tab is visible AND focused
+        // Check tab visibility and focus
         const isTabVisible = document.visibilityState === 'visible';
         const isTabFocused = document.hasFocus();
 
+        // Only show toast if tab is visible AND focused
         if (isTabVisible && isTabFocused) {
           toast.info(t('newResponseReady'), {
             description: sessionId, // TODO: Get session title from event
@@ -93,6 +94,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
             duration: 4000,
             position: 'top-right',
           });
+        } else {
+          console.log('[WebSocketProvider] Tab not visible/focused, suppressing toast');
         }
       }
     };
@@ -101,14 +104,17 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       const { sessionId, sessionTitle, notificationType } = event.detail;
       
       // Don't show notification if user is viewing this session
-      if (currentSessionRef.current === sessionId) {
+      const isViewingCurrentSession = currentSessionRef.current === sessionId;
+      if (isViewingCurrentSession) {
+        console.log('[WebSocketProvider] User viewing session', sessionId, '- suppressing notification');
         return;
       }
 
-      // Only show toast if tab is visible AND focused
+      // Check tab visibility and focus
       const isTabVisible = document.visibilityState === 'visible';
       const isTabFocused = document.hasFocus();
 
+      // Only show toast if tab is visible AND focused
       if (isTabVisible && isTabFocused) {
         switch (notificationType) {
           case 'new_response':
@@ -141,6 +147,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
             });
             break;
         }
+      } else {
+        console.log('[WebSocketProvider] Tab not visible/focused, suppressing notification');
       }
     };
 
