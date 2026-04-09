@@ -203,22 +203,37 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
     content.push({ type: 'text', text });
   }
 
+  // Build direct file paths using DATA environment variable
+  // This allows the agent to read files directly from the filesystem
+  const DATA_DIR = process.env.DATA || './data';
+  const UPLOAD_BASE = `${DATA_DIR}/user-uploads`;
+
   for (const attachment of attachments) {
-    // Build the API URL for accessing the file
-    const fileApiUrl = `/api/files/${encodeURIComponent(attachment.id)}`;
-    
     if (attachment.contentKind === 'image') {
+      // Images: Use API URL (will be converted to Base64 by message-normalization.ts)
+      // This keeps the existing image handling intact
       content.push({
         type: 'image',
-        data: fileApiUrl,
+        data: `/api/files/${encodeURIComponent(attachment.id)}`,
         mimeType: attachment.mimeType!,
       });
     } else {
-      // All non-image files - provide file reference info
-      // The agent will need to fetch and process the file
+      // Documents: Provide direct filesystem path
+      // Agent can read these files directly using tools or skills
+      const directFilePath = `${UPLOAD_BASE}/${attachment.category}/${attachment.id}`;
+      
       content.push({
         type: 'text',
-        text: `--- Datei: ${attachment.name} ---\nFile ID: ${attachment.id}\nAPI URL: ${fileApiUrl}\nTyp: ${attachment.mimeType || attachment.category || 'document'}\nKategorie: ${attachment.category || 'other'}\n\n[Diese Datei wurde hochgeladen und ist über die File ID zugänglich]\n--- Ende: ${attachment.name} ---`,
+        text: `--- Datei: ${attachment.name} ---
+Pfad: ${directFilePath}
+File ID: ${attachment.id}
+Typ: ${attachment.mimeType || attachment.category || 'document'}
+Kategorie: ${attachment.category || 'other'}
+
+[Agent-Hinweis: Diese Datei kann direkt vom Dateisystem gelesen werden.
+Verwende ein passendes Tool zum Lesen (z.B. read_file, pdf, docx-Skill).
+Dateityp erfordert ggf. spezielle Verarbeitung.]
+--- Ende: ${attachment.name} ---`,
       });
     }
   }
@@ -1765,46 +1780,63 @@ export default function CanvasAgentChat({
     }
   }, [t]);
 
-  const handleFileUpload = useCallback(async (file: File) => {
+  const handleFileUploadMultiple = useCallback(async (files: File[]) => {
     setIsUploading(true);
     setUploadError(null);
-    const formData = new FormData();
-    formData.append('file', file);
-
+    
     try {
+      const formData = new FormData();
+      files.forEach((file) => formData.append('file', file));
+      
       const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
       const data = await res.json();
+      
       if (!res.ok || !data.success) {
-        setUploadError(data.error ?? 'Upload fehlgeschlagen. Bitte erneut versuchen.');
-      } else {
-        // New unified response format - all file types use same structure
-        const uploadedFile = data.file;
+        throw new Error(data.error ?? 'Upload failed');
+      }
+      
+      // API now returns array of files
+      const uploadedFiles = data.files || [];
+      
+      const attachments: Attachment[] = uploadedFiles.map((uploadedFile: {
+        id: string;
+        originalName: string;
+        mimeType: string;
+        category: string;
+      }) => {
         const isImage = uploadedFile.category === 'image';
-        
-        setAttachments((prev) => [
-          ...prev,
-          {
-            name: uploadedFile.originalName,
-            contentKind: isImage ? 'image' : 'document',
-            id: uploadedFile.id,
-            mimeType: uploadedFile.mimeType,
-            category: uploadedFile.category,
-          },
-        ]);
+        return {
+          name: uploadedFile.originalName,
+          contentKind: isImage ? 'image' : 'document',
+          id: uploadedFile.id,
+          mimeType: uploadedFile.mimeType,
+          category: uploadedFile.category,
+        };
+      });
+      
+      setAttachments((prev) => [...prev, ...attachments]);
+      
+      // Show warning if some files failed
+      if (data.errors && data.errors.length > 0) {
+        setUploadError(`Einige Dateien konnten nicht hochgeladen werden: ${data.errors.join(', ')}`);
       }
     } catch (err) {
       console.error('Upload failed', err);
-      setUploadError('Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
+      setUploadError(err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
     } finally {
       setIsUploading(false);
     }
   }, []);
 
+  const handleFileUpload = useCallback(async (file: File) => {
+    await handleFileUploadMultiple([file]);
+  }, [handleFileUploadMultiple]);
+
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) handleFileUpload(file);
+    const files = Array.from(event.target.files || []);
+    if (files.length > 0) handleFileUploadMultiple(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [handleFileUpload]);
+  }, [handleFileUploadMultiple]);
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
@@ -2947,7 +2979,7 @@ export default function CanvasAgentChat({
               ? <Loader2 className="h-5 w-5 animate-spin" />
               : <Paperclip className="h-5 w-5" />}
           </button>
-          <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*,application/pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.html" />
+          <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*,application/pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.html" multiple />
           <div className="relative flex-1">
             <textarea
               ref={textareaRef}

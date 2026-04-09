@@ -42,25 +42,25 @@ const getLogFile = (): string | null => {
   return null;
 };
 
-const writeToFile = (message: string): void => {
+const writeToFile = async (message: string): Promise<void> => {
   const logFile = getLogFile();
   if (!logFile) return;
 
   try {
-    const fs = require('fs');
-    const path = require('path');
+    const fs = await import('fs');
+    const path = await import('path');
     const dir = path.dirname(logFile);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
     const timestamp = new Date().toISOString();
     fs.appendFileSync(logFile, `[${timestamp}] ${message}\n`);
-  } catch (error) {
+  } catch {
     // Silent fail - don't crash on logging errors
   }
 };
 
-const formatMessage = (level: string, module: string, args: any[]): string => {
+const formatMessage = (level: string, module: string, args: unknown[]): string => {
   const message = args.map(arg => 
     typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
   ).join(' ');
@@ -69,7 +69,7 @@ const formatMessage = (level: string, module: string, args: any[]): string => {
   return `[${level}] ${modulePrefix}${message}`;
 };
 
-const log = (level: LogLevel, module: string, args: any[]): void => {
+const log = (level: LogLevel, module: string, args: unknown[]): void => {
   const currentLevel = getLogLevel();
   
   if (LOG_LEVELS[level] > LOG_LEVELS[currentLevel]) {
@@ -91,21 +91,21 @@ const log = (level: LogLevel, module: string, args: any[]): void => {
   }
 
   if (process.env.NODE_ENV === 'production') {
-    writeToFile(message);
+    void writeToFile(message);
   }
 };
 
 export const logger = {
-  debug: (...args: any[]) => log('debug', '', args),
-  info: (...args: any[]) => log('info', '', args),
-  warn: (...args: any[]) => log('warn', '', args),
-  error: (...args: any[]) => log('error', '', args),
+  debug: (...args: unknown[]) => log('debug', '', args),
+  info: (...args: unknown[]) => log('info', '', args),
+  warn: (...args: unknown[]) => log('warn', '', args),
+  error: (...args: unknown[]) => log('error', '', args),
   
   module: (moduleName: string) => ({
-    debug: (...args: any[]) => log('debug', moduleName, args),
-    info: (...args: any[]) => log('info', moduleName, args),
-    warn: (...args: any[]) => log('warn', moduleName, args),
-    error: (...args: any[]) => log('error', moduleName, args),
+    debug: (...args: unknown[]) => log('debug', moduleName, args),
+    info: (...args: unknown[]) => log('info', moduleName, args),
+    warn: (...args: unknown[]) => log('warn', moduleName, args),
+    error: (...args: unknown[]) => log('error', moduleName, args),
   }),
 };
 

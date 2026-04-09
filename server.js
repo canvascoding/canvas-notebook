@@ -318,14 +318,13 @@ app
     });
 
     // WebSocket Server for Chat
-    let wss = null;
     const isWebSocketEnabled = process.env.WEBSOCKET_ENABLED === 'true';
     
     if (isWebSocketEnabled) {
       console.log('[Startup] Initializing WebSocket Server...');
       try {
         const { createWebSocketServer } = require('./server/websocket-server');
-        wss = createWebSocketServer(server);
+        createWebSocketServer(server);
         console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
       } catch (error) {
         console.error('[Startup] ERROR initializing WebSocket Server:', error.message);

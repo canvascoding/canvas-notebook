@@ -12,39 +12,57 @@ export async function POST(request: NextRequest) {
 
   try {
     const formData = await request.formData();
-    const file = formData.get('file') as File;
+    const files = formData.getAll('file') as File[];
 
-    if (!file) {
+    if (!files || files.length === 0) {
       return NextResponse.json({ success: false, error: 'No file provided' }, { status: 400 });
     }
 
     const maxBytes = MAX_FILE_SIZE_MB * 1024 * 1024;
-    if (file.size > maxBytes) {
+    const uploadedFiles = [];
+    const errors: string[] = [];
+
+    for (const file of files) {
+      if (file.size > maxBytes) {
+        errors.push(`${file.name}: File too large. Maximum size: ${MAX_FILE_SIZE_MB} MB`);
+        continue;
+      }
+
+      try {
+        // Convert file to buffer
+        const buffer = Buffer.from(await file.arrayBuffer());
+        
+        // Save using unified handler - ALL file types treated equally
+        const uploadedFile = await saveUploadBuffer(buffer, file.name, file.type);
+
+        uploadedFiles.push({
+          id: uploadedFile.id,
+          originalName: uploadedFile.originalName,
+          mimeType: uploadedFile.mimeType,
+          size: uploadedFile.size,
+          category: uploadedFile.category,
+        });
+      } catch (err) {
+        console.error(`Upload failed for ${file.name}`, err);
+        errors.push(`${file.name}: ${err instanceof Error ? err.message : 'Upload failed'}`);
+      }
+    }
+
+    if (uploadedFiles.length === 0) {
       return NextResponse.json(
-        { success: false, error: `File too large. Maximum size: ${MAX_FILE_SIZE_MB} MB` },
-        { status: 400 },
+        { success: false, error: errors.join('; ') || 'All uploads failed' },
+        { status: 500 },
       );
     }
 
-    // Convert file to buffer
-    const buffer = Buffer.from(await file.arrayBuffer());
-    
-    // Save using unified handler - ALL file types treated equally
-    const uploadedFile = await saveUploadBuffer(buffer, file.name, file.type);
-
     return NextResponse.json({
       success: true,
-      file: {
-        id: uploadedFile.id,
-        originalName: uploadedFile.originalName,
-        mimeType: uploadedFile.mimeType,
-        size: uploadedFile.size,
-        category: uploadedFile.category,
-      },
+      files: uploadedFiles,
+      errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
     console.error('[API] Attachment upload error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to process file';
+    const message = error instanceof Error ? error.message : 'Failed to process files';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

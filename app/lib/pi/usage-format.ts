@@ -28,7 +28,7 @@ export function formatUsageCompact(usage: Usage | undefined | null): string {
     return '';
   }
 
-  return `${usage.totalTokens} tok · ${formatCurrency(usage.cost.total)}`;
+  return `${usage.totalTokens} tok`; // · ${formatCurrency(usage.cost.total)}
 }
 
 export function formatUsageBreakdown(usage: Usage | undefined | null): string {

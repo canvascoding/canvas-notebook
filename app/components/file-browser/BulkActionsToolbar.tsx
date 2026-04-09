@@ -17,7 +17,6 @@ export function BulkActionsToolbar({ className }: BulkActionsToolbarProps) {
   const t = useTranslations('notebook');
   const {
     multiSelectPaths,
-    fileTree,
     clearMultiSelect,
     deletePath,
     downloadFile,

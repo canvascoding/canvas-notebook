@@ -40,6 +40,29 @@ See AGENTS.md for the complete directory structure diagram with Mermaid visualiz
 
 **Note:** You can update AGENTS.md to document the current workspace structure as you learn about user-specific folders.`;
 
+export const FILE_ACCESS_GUIDANCE = `
+## File Access for Uploaded Attachments
+
+When the user uploads files via the chat attachment feature (paperclip icon):
+
+### Image Files
+- Images are automatically converted to Base64 and embedded in the message
+- You can analyze them directly without additional file access
+
+### Document Files
+- Documents are provided with a direct filesystem path: \`/data/user-uploads/{category}/{fileId}\`
+- You MUST explicitly read these files using appropriate tools:
+  - **CSV/JSON/TXT/MD/XML/YAML**: Use \`read_file\` tool directly
+  - **PDF**: Use the \`pdf\` skill to read and extract content
+  - **DOCX**: Use the \`docx\` skill or external tools
+  - **Archives (ZIP, TAR, etc.)**: Extract first, then read contents
+  - **Spreadsheets**: Use appropriate parsing tools
+
+### Important
+- You cannot access uploaded files via HTTP API endpoints
+- Always use the provided filesystem path for direct access
+- Choose the right tool/skill based on the file type indicated in the prompt`;
+
 export const TEMP_DIRECTORY_GUIDANCE = `
 ## Temporary Files Directory
 
@@ -127,6 +150,9 @@ export function composeManagedAgentSystemPrompt(
   // Add file system guidance (compact)
   const fileSystemBlock = `\n\n${FILE_SYSTEM_GUIDANCE}`;
 
+  // Add file access guidance for uploaded attachments
+  const fileAccessBlock = `\n\n${FILE_ACCESS_GUIDANCE}`;
+
   // Add temp directory guidance
   const tempBlock = `\n\n${TEMP_DIRECTORY_GUIDANCE}`;
 
@@ -134,7 +160,7 @@ export function composeManagedAgentSystemPrompt(
   const memoryBlock = `\n\n${MEMORY_MANAGEMENT_GUIDANCE}`;
 
   return {
-    systemPrompt: [BASE_AGENT_SYSTEM_PROMPT, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileSearchBlock + fileSystemBlock + tempBlock + memoryBlock,
+    systemPrompt: [BASE_AGENT_SYSTEM_PROMPT, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileSearchBlock + fileSystemBlock + fileAccessBlock + tempBlock + memoryBlock,
     diagnostics: {
       loadedFiles: [...MANAGED_PROMPT_FILE_NAMES],
       includedFiles: includedSections.map((section) => section.fileName),

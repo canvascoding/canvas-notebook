@@ -20,7 +20,7 @@ import {
   broadcastToUser,
 } from './websocket-broadcast';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { subscribeToPiRuntimeEvents, unsubscribeFromPiRuntimeEvents, sendMessageViaRuntime, initializeWebSocketBridge, setUserActiveSession } from './websocket-runtime-bridge';
+import { subscribeToPiRuntimeEvents, sendMessageViaRuntime, initializeWebSocketBridge, setUserActiveSession } from './websocket-runtime-bridge';
 
 // Initialize WebSocket bridge on module load
 if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
@@ -418,13 +418,15 @@ export function broadcastNotification(
   userId: string,
   sessionId: string,
   sessionTitle: string,
-  notificationType: 'new_response' | 'tool_complete' | 'error'
+  notificationType: 'new_response' | 'tool_complete' | 'error',
+  messagePreview?: string
 ): void {
   broadcastToUser(userId, {
     type: 'notification',
     sessionId,
     sessionTitle,
     notificationType,
+    messagePreview,
     timestamp: Date.now(),
   });
 }

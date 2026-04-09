@@ -12,6 +12,7 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { Button } from '@/components/ui/button';
+import ChatPageClient from './chat-client';
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('chat');
@@ -30,7 +31,8 @@ export default async function ChatPage() {
   const username = session?.user?.name || session?.user?.email || 'User';
 
   return (
-    <div className="fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-background text-foreground">
+    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
+      <ChatPageClient />
       <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
         <div className="mx-auto flex h-full items-center justify-between px-4">
           <div className="flex items-center gap-2">
@@ -58,7 +60,7 @@ export default async function ChatPage() {
           </div>
         </div>
       </header>
-      <main className="flex-1 min-h-0">
+      <main className="flex-1 min-h-0 overflow-hidden">
         <CanvasAgentChat 
           initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
           showSkillsLink={true}

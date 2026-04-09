@@ -131,15 +131,10 @@ cat << 'BANNER'
   ╚██████╗██║  ██║██║ ╚████║ ╚████╔╝ ██║  ██║███████║
    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝  ╚═══╝  ╚═╝  ╚═╝╚══════╝
 
-   _  _  ___  _____  ___  ___   ___   ___  _  __
-  | \| |/ _ \|_   _|| __|| _ ) / _ \ / _ \| |/ /
-  | .` || (_) |  | |  | _||  _ \| (_) || (_) || ' <
-  |_|\_| \___/  |_|  |___||___/\___/ \___/ |_|\_\
-
   https://github.com/canvascoding/canvas-notebook
 
 BANNER
-printf 'Canvas Notebook initializing...\n\n'
+printf 'Canvas initializing...\n\n'
 
 # ─── Step 1: Data directories ─────────────────────────────────────────────
 step "Preparing data directories"

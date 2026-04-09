@@ -30,7 +30,7 @@ interface UseWebSocketReturn {
   getStatus: (sessionId: string) => void;
 }
 
-export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
+export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSocketReturn, 'client'> & { client: () => WebSocketClient } {
   const {
     autoConnect = true,
     onConnected,
@@ -109,10 +109,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     clientRef.current?.getStatus(sessionId);
   }, []);
 
+  const getClient = () => {
+    if (!clientRef.current) {
+      throw new Error('WebSocket client not initialized');
+    }
+    return clientRef.current;
+  };
+
   return {
     connected,
     error,
-    client: clientRef.current!,
+    client: getClient,
     subscribe,
     unsubscribe,
     sendMessage,

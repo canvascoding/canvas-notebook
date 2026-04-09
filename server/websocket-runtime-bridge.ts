@@ -49,7 +49,11 @@ export function initializeWebSocketBridge(): void {
     broadcastAgentEvent(sessionId, event);
     
     // Handle specific events
-    if (event.type === 'message_end' && (event as unknown as { message?: { role?: string } }).message?.role === 'assistant') {
+    if (event.type === 'message_end' && (event as unknown as { message?: { role?: string; content?: string } }).message?.role === 'assistant') {
+      const assistantMessage = event as unknown as { message?: { role?: string; content?: string } };
+      const messageContent = assistantMessage.message?.content || '';
+      const messagePreview = messageContent.length > 70 ? messageContent.slice(0, 70) + '...' : messageContent;
+      
       // Check if user is currently viewing this session
       const isUserViewing = isUserViewingSession(userId, sessionId);
       
@@ -57,7 +61,7 @@ export function initializeWebSocketBridge(): void {
         // User is NOT viewing this session → mark as unread
         // Broadcast to USER (all tabs/devices)
         broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
-        broadcastNotification(userId, sessionId, sessionId, 'new_response');
+        broadcastNotification(userId, sessionId, sessionId, 'new_response', messagePreview);
         console.log(`[WebSocket Bridge] AI response in session ${sessionId}: User ${userId} NOT viewing → marked as unread`);
       } else {
         // User IS viewing this session → no toast needed, but still update lastMessageAt

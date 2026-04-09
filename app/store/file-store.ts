@@ -298,14 +298,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   selectNode: (node: FileNode, ctrlOrMeta = false, shiftKey = false) => {
-    const { isMultiSelectMode, multiSelectPaths, lastSelectedPath, fileTree } = get();
+    const { isMultiSelectMode, lastSelectedPath } = get();
 
     if (shiftKey && lastSelectedPath) {
       // Shift+Click: Select range from last selected to current
       if (!isMultiSelectMode) {
         set({ isMultiSelectMode: true, multiSelectPaths: [lastSelectedPath] });
       }
-      get().selectRange(lastSelectedPath, node.path, fileTree);
+      get().selectRange(lastSelectedPath, node.path, get().fileTree);
       set({ lastSelectedPath: node.path });
     } else if (ctrlOrMeta) {
       // Ctrl/Meta: Toggle selection

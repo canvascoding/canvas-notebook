@@ -252,7 +252,7 @@ export async function saveUploadBuffer(
   
   // Detect MIME type from buffer
   const fileType = await fileTypeFromBuffer(buffer);
-  let detectedMimeType = fileType?.mime;
+  const detectedMimeType = fileType?.mime;
   
   // Use provided MIME type as fallback, or detect from extension
   let mimeType = detectedMimeType || providedMimeType || 'application/octet-stream';

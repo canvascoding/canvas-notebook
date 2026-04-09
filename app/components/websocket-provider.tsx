@@ -103,8 +103,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       }
     };
 
-    const handleNotification = (event: CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string }>) => {
-      const { sessionId, sessionTitle, notificationType } = event.detail;
+    const handleNotification = (event: CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string; messagePreview?: string }>) => {
+      const { sessionId, sessionTitle, notificationType, messagePreview } = event.detail;
       
       // Don't show notification if user is viewing THIS EXACT session
       const isViewingCurrentSession = currentSessionRef.current === sessionId;
@@ -120,10 +120,14 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       // Only show toast if tab is visible AND focused
       if (isTabVisible && isTabFocused) {
         console.log('[WebSocketProvider] Showing notification for session', sessionId);
+        
+        // Truncate session title for mobile-friendly display
+        const truncatedTitle = sessionTitle.length > 30 ? sessionTitle.slice(0, 30) + '...' : sessionTitle;
+        
         switch (notificationType) {
           case 'new_response':
-            toast.info(t('newResponseReady'), {
-              description: sessionTitle,
+            toast.info(truncatedTitle, {
+              description: messagePreview || t('newResponseReady'),
               action: {
                 label: t('openSession'),
                 onClick: () => {
@@ -194,10 +198,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     return () => {
-      delete (window as any).__websocketSubscribe;
-      delete (window as any).__websocketUnsubscribe;
-      delete (window as any).__setCurrentSession;
-      delete (window as any).__setUserActive;
+      delete window.__websocketSubscribe;
+      delete window.__websocketUnsubscribe;
+      delete window.__setCurrentSession;
+      delete window.__setUserActive;
     };
   }, []);
 

@@ -7,17 +7,6 @@
  * - Logging in Browser Console
  */
 
-type WebSocketEventMap = {
-  'agent_event': CustomEvent<{ sessionId: string; event: Record<string, unknown> }>;
-  'runtime_status': CustomEvent<{ sessionId: string; status: Record<string, unknown> }>;
-  'notification': CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string }>;
-  'session_updated': CustomEvent<{ sessionId: string; lastMessageAt: string }>;
-  'session_read': CustomEvent<{ sessionId: string }>;
-  'connected': CustomEvent<undefined>;
-  'disconnected': CustomEvent<{ reason?: string }>;
-  'error': CustomEvent<{ error: string; code?: string }>;
-};
-
 export class WebSocketClient extends EventTarget {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
@@ -193,7 +182,7 @@ export class WebSocketClient extends EventTarget {
         break;
 
       case 'agent_event':
-        this.dispatchEvent(new CustomEvent('agent_event', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; event: Record<string, unknown> }>('agent_event', {
           detail: {
             sessionId: message.sessionId as string,
             event: message.event as Record<string, unknown>,
@@ -202,7 +191,7 @@ export class WebSocketClient extends EventTarget {
         break;
 
       case 'runtime_status':
-        this.dispatchEvent(new CustomEvent('runtime_status', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; status: Record<string, unknown> }>('runtime_status', {
           detail: {
             sessionId: message.sessionId as string,
             status: message.status as Record<string, unknown>,
@@ -211,17 +200,18 @@ export class WebSocketClient extends EventTarget {
         break;
 
       case 'notification':
-        this.dispatchEvent(new CustomEvent('notification', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string; messagePreview?: string }>('notification', {
           detail: {
             sessionId: message.sessionId as string,
             sessionTitle: message.sessionTitle as string,
             notificationType: message.notificationType as string,
+            messagePreview: message.messagePreview as string | undefined,
           },
         }));
         break;
 
       case 'session_updated':
-        this.dispatchEvent(new CustomEvent('session_updated', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; lastMessageAt: string }>('session_updated', {
           detail: {
             sessionId: message.sessionId as string,
             lastMessageAt: message.lastMessageAt as string,
@@ -230,7 +220,7 @@ export class WebSocketClient extends EventTarget {
         break;
 
       case 'session_read':
-        this.dispatchEvent(new CustomEvent('session_read', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string }>('session_read', {
           detail: {
             sessionId: message.sessionId as string,
           },
@@ -243,7 +233,7 @@ export class WebSocketClient extends EventTarget {
 
       case 'error':
         console.error('[WebSocket] Server error:', message.error);
-        this.dispatchEvent(new CustomEvent('error', {
+        this.dispatchEvent(new CustomEvent<{ error: string; code?: string }>('error', {
           detail: { error: message.error as string, code: message.code as string },
         }));
         break;

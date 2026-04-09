@@ -206,7 +206,7 @@ async function main() {
     });
   });
 
-  child.on('exit', (code, signal) => {
+  child.on('exit', (code) => {
     console.log('[dev] Next.js server exited');
     cleanupAndExit('EXIT', code ?? 0);
   });
