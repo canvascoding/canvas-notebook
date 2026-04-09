@@ -142,13 +142,23 @@ export class WebSocketClient extends EventTarget {
   }
 
   /**
-   * Send message to a session
+   * Send message to a session with context
    */
-  sendMessage(sessionId: string, message: Record<string, unknown>): void {
+  sendMessage(
+    sessionId: string,
+    message: Record<string, unknown>,
+    context?: {
+      activeFilePath?: string | null;
+      userTimeZone?: string;
+      currentTime?: string;
+      workingDirectory?: string;
+    }
+  ): void {
     this.send({
       type: 'send_message',
       sessionId,
       message,
+      ...(context || {}),
     });
   }
 

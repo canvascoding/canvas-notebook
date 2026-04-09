@@ -1386,7 +1386,19 @@ export default function CanvasAgentChat({
     // Use WebSocket if enabled and connected
     if (isWebSocketEnabled && wsConnected) {
       appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
-      sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>);
+      
+      // Get user's timezone and current time from browser
+      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const currentTime = new Date().toISOString();
+      const activeFilePath = currentFile?.path ?? null;
+      
+      // Send message with full context
+      sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>, {
+        activeFilePath,
+        userTimeZone,
+        currentTime,
+      });
+      
       return;
     }
     
@@ -1420,7 +1432,7 @@ export default function CanvasAgentChat({
       prev.map((message) => (message.role === 'user' && message.status === 'sending' ? { ...message, status: 'aborting' } : message)),
     );
     await postControl(targetSessionId, 'replace', userMessage);
-  }, [appendOptimisticUserMessage, attachments, ensureSession, input, isWebSocketEnabled, wsConnected, sendMessage, openRuntimeStream, postControl, scanForImageReferences]);
+  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, isWebSocketEnabled, wsConnected, sendMessage, openRuntimeStream, postControl, scanForImageReferences]);
 
   const handleSend = useCallback(async () => {
     try {

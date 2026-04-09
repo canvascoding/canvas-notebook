@@ -72,23 +72,30 @@ export function unsubscribeFromPiRuntimeEvents(sessionId: string, userId: string
 
 /**
  * Send message via PI Runtime HTTP API
- * This is a fallback - ideally messages should go through WebSocket directly
+ * Forwards message with full context (activeFilePath, timezone, etc.)
  */
 export async function sendMessageViaRuntime(
   sessionId: string,
   userId: string,
-  message: { role: 'user'; content: unknown; timestamp: number }
+  message: { role: 'user'; content: unknown; timestamp: number },
+  context?: {
+    activeFilePath?: string | null;
+    userTimeZone?: string;
+    currentTime?: string;
+    workingDirectory?: string;
+  }
 ): Promise<void> {
   console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via HTTP API`);
   
   try {
-    // Forward to existing /api/stream endpoint
+    // Forward to existing /api/stream endpoint with full context
     const response = await fetch('http://localhost:3000/api/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sessionId,
         message,
+        ...context,
       }),
     });
     
@@ -96,7 +103,7 @@ export async function sendMessageViaRuntime(
       throw new Error(`HTTP ${response.status}`);
     }
     
-    console.log(`[WebSocket Bridge] Message sent to session ${sessionId}`);
+    console.log(`[WebSocket Bridge] Message sent to session ${sessionId} with context:`, context);
   } catch (error) {
     console.error('[WebSocket Bridge] Error sending message:', error);
     throw error;

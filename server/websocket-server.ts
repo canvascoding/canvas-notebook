@@ -270,10 +270,18 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      // Send message via PI Runtime bridge
+      // Extract context from message
+      const context = {
+        activeFilePath: message.activeFilePath as string | null | undefined,
+        userTimeZone: message.userTimeZone as string | undefined,
+        currentTime: message.currentTime as string | undefined,
+        workingDirectory: message.workingDirectory as string | undefined,
+      };
+
+      // Send message via PI Runtime bridge with context
       try {
-        await sendMessageViaRuntime(message.sessionId, userId, userMessage);
-        console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime`);
+        await sendMessageViaRuntime(message.sessionId, userId, userMessage, context);
+        console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime with context:`, context);
       } catch (error) {
         console.error('[WebSocket] Error sending message:', error);
         ws.send(JSON.stringify({
