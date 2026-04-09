@@ -62,6 +62,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveName, setMoveName] = useState(node.name);
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
+  const [isMovingMultiple, setIsMovingMultiple] = useState(false);
 
   // State for Rename Dialog
   const [renameOpen, setRenameOpen] = useState(false);
@@ -76,8 +77,15 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   // Check if file is a markdown file
   const isMarkdown = node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name);
 
-  const { createPath, deletePath, renamePath, downloadFile, fileTree } =
-    useFileStore();
+  const { 
+    createPath, 
+    deletePath, 
+    renamePath, 
+    downloadFile, 
+    fileTree,
+    multiSelectPaths,
+    clearMultiSelect,
+  } = useFileStore();
   const parentPath = useMemo(() => {
     if (node.type === 'directory') {
       return node.path;
@@ -125,6 +133,23 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     setMoveName(node.name);
     setMoveTarget(getParentPath(node.path));
     setMoveExpandedDirs(new Set()); // Collapse all on open
+    setIsMovingMultiple(false);
+    setMoveOpen(true);
+  };
+
+  const handleMoveMultiple = () => {
+    if (multiSelectPaths.length === 0) return;
+    
+    const hasProtected = multiSelectPaths.some(path => isProtectedAppOutputFolder(path));
+    if (hasProtected) {
+      toast.error(t('protectedFolderMove'));
+      return;
+    }
+    
+    setOpen(false);
+    setMoveTarget('.');
+    setMoveExpandedDirs(new Set());
+    setIsMovingMultiple(true);
     setMoveOpen(true);
   };
 
@@ -202,23 +227,52 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   };
 
   const handleConfirmMove = async () => {
-    const trimmedName = moveName.trim();
-    if (!trimmedName) {
-      toast.error(t('pleaseEnterName'));
-      return;
+    if (isMovingMultiple) {
+      // Move multiple files to target directory
+      const pathsToMove = [...multiSelectPaths];
+      let successCount = 0;
+      
+      for (const path of pathsToMove) {
+        const name = path.split('/').pop() || path;
+        const destination = moveTarget === '.' ? name : `${moveTarget}/${name}`;
+        
+        if (path === destination) {
+          successCount++;
+          continue;
+        }
+        
+        try {
+          await renamePath(path, destination);
+          successCount++;
+        } catch (error) {
+          console.error(`Failed to move ${path}:`, error);
+        }
+      }
+      
+      clearMultiSelect();
+      toast.success(t('moveMultipleSuccess', { count: successCount }));
+    } else {
+      // Move single file
+      const trimmedName = moveName.trim();
+      if (!trimmedName) {
+        toast.error(t('pleaseEnterName'));
+        return;
+      }
+      const destination = moveTarget === '.' ? trimmedName : `${moveTarget}/${trimmedName}`;
+      if (destination === node.path) {
+        setMoveOpen(false);
+        return;
+      }
+      if (node.type === 'directory' && destination.startsWith(`${node.path}/`)) {
+        toast.error(t('moveIntoSelf'));
+        return;
+      }
+      await renamePath(node.path, destination);
     }
-    const destination = moveTarget === '.' ? trimmedName : `${moveTarget}/${trimmedName}`;
-    if (destination === node.path) {
-      setMoveOpen(false);
-      return;
-    }
-    if (node.type === 'directory' && destination.startsWith(`${node.path}/`)) {
-      toast.error(t('moveIntoSelf'));
-      return;
-    }
-    await renamePath(node.path, destination);
     setMoveOpen(false);
   };
+
+  const showMultiSelectOptions = multiSelectPaths.length > 0;
 
   return (
     <>
@@ -247,6 +301,15 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={6}>
+          {showMultiSelectOptions && (
+            <>
+              <DropdownMenuItem onSelect={handleMoveMultiple}>
+                <Move className="h-4 w-4" />
+                {t('moveMultiple', { count: multiSelectPaths.length })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem onSelect={handleNewFile}>
             <FilePlus className="h-4 w-4" />
             {t('newFile')}
@@ -264,10 +327,12 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             <Pencil className="h-4 w-4" />
             {t('rename')}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handleMove} disabled={isProtectedOutputFolder}>
-            <Move className="h-4 w-4" />
-            {t('move')}
-          </DropdownMenuItem>
+          {!showMultiSelectOptions && (
+            <DropdownMenuItem onSelect={handleMove} disabled={isProtectedOutputFolder}>
+              <Move className="h-4 w-4" />
+              {t('move')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={handleDownload}>
             <Download className="h-4 w-4" />
             {t('download')}

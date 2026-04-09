@@ -56,7 +56,8 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
   const handleSelect = useCallback(
     (event: React.MouseEvent) => {
       const ctrlOrMeta = event.ctrlKey || event.metaKey;
-      selectNode(node, ctrlOrMeta);
+      const shiftKey = event.shiftKey;
+      selectNode(node, ctrlOrMeta, shiftKey);
       if (node.type === 'file') {
         loadFile(node.path, true);
         window.dispatchEvent(

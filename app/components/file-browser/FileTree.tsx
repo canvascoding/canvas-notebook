@@ -11,6 +11,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
 import { FileTreeNode } from './FileTreeNode';
+import { BulkActionsToolbar } from './BulkActionsToolbar';
+import { BulkMoveDialog } from './BulkMoveDialog';
 
 export function FileTree() {
   const t = useTranslations('notebook');
@@ -19,12 +21,30 @@ export function FileTree() {
     isLoadingTree,
     treeError,
     loadFileTree,
+    currentDirectory,
+    selectAllInDirectory,
+    clearMultiSelect,
   } = useFileStore();
 
   useEffect(() => {
     // Load file tree on mount
     loadFileTree();
   }, [loadFileTree]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+        event.preventDefault();
+        selectAllInDirectory(currentDirectory);
+      }
+      if (event.key === 'Escape') {
+        clearMultiSelect();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentDirectory, selectAllInDirectory, clearMultiSelect]);
 
   // Filter tree based on search query
   const filterTree = (nodes: FileNodeType[], query: string): FileNodeType[] => {
@@ -88,7 +108,7 @@ export function FileTree() {
   }
 
   return (
-    <div className="h-full overflow-y-auto py-2">
+    <div className="relative h-full overflow-y-auto py-2">
       <SidebarGroup className="p-0">
         <SidebarGroupContent>
           <SidebarMenu className="space-y-0.5">
@@ -107,6 +127,9 @@ export function FileTree() {
           </p>
         </div>
       )}
+
+      <BulkActionsToolbar />
+      <BulkMoveDialog />
     </div>
   );
 }

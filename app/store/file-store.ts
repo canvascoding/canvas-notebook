@@ -80,12 +80,13 @@ interface FileStoreState {
   // Multi-select
   isMultiSelectMode: boolean;
   multiSelectPaths: string[];
+  lastSelectedPath: string | null;
 
   // Actions
   loadFileTree: (path?: string, depth?: number, noCache?: boolean) => Promise<void>;
   loadFile: (path: string, noCache?: boolean) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
-  selectNode: (node: FileNode, ctrlOrMeta?: boolean) => void;
+  selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean) => void;
   createPath: (path: string, type: 'file' | 'directory') => Promise<void>;
   deletePath: (path: string | string[]) => Promise<void>;
   renamePath: (oldPath: string, newPath: string) => Promise<void>;
@@ -100,6 +101,9 @@ interface FileStoreState {
   clearMultiSelect: () => void;
   toggleMultiSelectMode: () => void;
   toggleMultiSelectPath: (path: string) => void;
+  setLastSelectedPath: (path: string | null) => void;
+  selectRange: (startPath: string, endPath: string, currentTree: FileNode[]) => void;
+  selectAllInDirectory: (dirPath: string) => void;
 }
 
 export const useFileStore = create<FileStoreState>((set, get) => ({
@@ -123,6 +127,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   // Multi-select state
   isMultiSelectMode: false,
   multiSelectPaths: [],
+  lastSelectedPath: null,
 
   // Actions
   loadFileTree: async (path = '.', depth?: number, noCache = false) => {
@@ -292,20 +297,28 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  selectNode: (node: FileNode, ctrlOrMeta = false) => {
-    const { isMultiSelectMode } = get();
+  selectNode: (node: FileNode, ctrlOrMeta = false, shiftKey = false) => {
+    const { isMultiSelectMode, multiSelectPaths, lastSelectedPath, fileTree } = get();
 
-    if (ctrlOrMeta) {
-      // If Ctrl/Meta is pressed, toggle multi-select mode and add/remove current node
+    if (shiftKey && lastSelectedPath) {
+      // Shift+Click: Select range from last selected to current
       if (!isMultiSelectMode) {
-        // Here, we also clear any existing selection when entering multi-select mode
+        set({ isMultiSelectMode: true, multiSelectPaths: [lastSelectedPath] });
+      }
+      get().selectRange(lastSelectedPath, node.path, fileTree);
+      set({ lastSelectedPath: node.path });
+    } else if (ctrlOrMeta) {
+      // Ctrl/Meta: Toggle selection
+      if (!isMultiSelectMode) {
         set({ selectedNode: null, multiSelectPaths: [] });
         get().toggleMultiSelectMode();
       }
       get().toggleMultiSelectPath(node.path);
+      set({ lastSelectedPath: node.path });
     } else if (isMultiSelectMode) {
-      // If in multi-select mode, a regular click toggles selection for this node
+      // In multi-select mode, regular click toggles
       get().toggleMultiSelectPath(node.path);
+      set({ lastSelectedPath: node.path });
     } else {
       // Standard single selection
       const nextDir =
@@ -317,9 +330,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       set({
         selectedNode: { path: node.path, type: node.type, name: node.name },
         currentDirectory: nextDir || '.',
-        // When switching from multi-select to single select, clear multi-select paths
         multiSelectPaths: [],
         isMultiSelectMode: false,
+        lastSelectedPath: node.path,
       });
     }
   },
@@ -583,6 +596,68 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   clearMultiSelect: () => {
-    set({ isMultiSelectMode: false, multiSelectPaths: [] });
+    set({ isMultiSelectMode: false, multiSelectPaths: [], lastSelectedPath: null });
+  },
+
+  setLastSelectedPath: (path: string | null) => {
+    set({ lastSelectedPath: path });
+  },
+
+  selectRange: (startPath: string, endPath: string, currentTree: FileNode[]) => {
+    const flattenTree = (nodes: FileNode[], result: string[] = []): string[] => {
+      for (const node of nodes) {
+        result.push(node.path);
+        if (node.children) {
+          flattenTree(node.children, result);
+        }
+      }
+      return result;
+    };
+
+    const allPaths = flattenTree(currentTree);
+    const startIndex = allPaths.indexOf(startPath);
+    const endIndex = allPaths.indexOf(endPath);
+
+    if (startIndex === -1 || endIndex === -1) return;
+
+    const start = Math.min(startIndex, endIndex);
+    const end = Math.max(startIndex, endIndex);
+    const rangePaths = allPaths.slice(start, end + 1);
+
+    set((state) => {
+      const newMultiSelectPaths = Array.from(
+        new Set([...state.multiSelectPaths, ...rangePaths])
+      );
+      return { multiSelectPaths: newMultiSelectPaths };
+    });
+  },
+
+  selectAllInDirectory: (dirPath: string) => {
+    const { fileTree } = get();
+    
+    const findDirectory = (nodes: FileNode[], path: string): FileNode | null => {
+      for (const node of nodes) {
+        if (node.path === path) return node;
+        if (node.children) {
+          const found = findDirectory(node.children, path);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const dir = dirPath === '.' ? { children: fileTree } : findDirectory(fileTree, dirPath);
+    if (dir && dir.children) {
+      const childPaths = dir.children.map((child) => child.path);
+      set((state) => {
+        const newMultiSelectPaths = Array.from(
+          new Set([...state.multiSelectPaths, ...childPaths])
+        );
+        return { 
+          multiSelectPaths: newMultiSelectPaths,
+          isMultiSelectMode: newMultiSelectPaths.length > 0,
+        };
+      });
+    }
   },
 }));
