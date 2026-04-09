@@ -4,7 +4,6 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import {
-  Plus,
   History,
   Search,
   Eye,
@@ -36,10 +35,10 @@ export interface AISession {
 interface SessionSidebarProps {
   currentSessionId?: string | null;
   onSessionSelect: (session: AISession) => void;
-  onNewChat: () => void;
   sidebarWidth: number;
   isMobile?: boolean;
   onClose?: () => void;
+  onToggleSidebar?: () => void;
 }
 
 type SessionGroup = 'today' | 'last7' | 'last14' | 'last30' | 'older';
@@ -47,10 +46,10 @@ type SessionGroup = 'today' | 'last7' | 'last14' | 'last30' | 'older';
 export function SessionSidebar({
   currentSessionId,
   onSessionSelect,
-  onNewChat,
   sidebarWidth,
   isMobile = false,
   onClose,
+  onToggleSidebar,
 }: SessionSidebarProps) {
   const t = useTranslations('chat');
   const [history, setHistory] = useState<AISession[]>([]);
@@ -203,15 +202,17 @@ export function SessionSidebar({
               <ChevronLeft size={16} />
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onNewChat}
-            className="gap-1.5"
-          >
-            <Plus size={16} />
-            {!isMobile && <span className="text-xs font-medium">{t('newChatShort')}</span>}
-          </Button>
+          {!isMobile && onToggleSidebar && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onToggleSidebar}
+              className="shrink-0"
+              title={t('collapseSidebar')}
+            >
+              <ChevronLeft size={16} />
+            </Button>
+          )}
         </div>
         {!isMobile && (
           <Link

@@ -75,14 +75,20 @@ export default function ChatLayout({ children }: ChatLayoutProps) {
       setMobileSidebarOpen((prev) => !prev);
     };
 
+    const handleToggleSidebar = () => {
+      setSidebarVisible((prev) => !prev);
+    };
+
     window.addEventListener('chat-session-selected', handleSessionSelect as EventListener);
     window.addEventListener('chat-new-session', handleNewSession);
     window.addEventListener('chat-toggle-mobile-sidebar', handleToggleMobileSidebar);
+    window.addEventListener('chat-toggle-sidebar', handleToggleSidebar);
     
     return () => {
       window.removeEventListener('chat-session-selected', handleSessionSelect as EventListener);
       window.removeEventListener('chat-new-session', handleNewSession);
       window.removeEventListener('chat-toggle-mobile-sidebar', handleToggleMobileSidebar);
+      window.removeEventListener('chat-toggle-sidebar', handleToggleSidebar);
     };
   }, []);
 
@@ -101,12 +107,12 @@ export default function ChatLayout({ children }: ChatLayoutProps) {
     document.body.style.userSelect = 'auto';
   }, []);
 
-  const startResizing = useCallback(() => {
+  const startResizing = useCallback((e: React.MouseEvent) => {
     isResizing.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     sidebarResizeRef.current = {
-      startX: window.innerWidth - sidebarWidth,
+      startX: e.clientX,
       startWidth: sidebarWidth,
     };
   }, [sidebarWidth]);
@@ -153,7 +159,7 @@ export default function ChatLayout({ children }: ChatLayoutProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Main Content Area */}
+      {/* Chat Content (with integrated header) */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Desktop Sidebar */}
         {isDesktop && sidebarVisible && (
@@ -162,9 +168,9 @@ export default function ChatLayout({ children }: ChatLayoutProps) {
               key={sessionKey}
               currentSessionId={currentSessionId}
               onSessionSelect={handleSessionSelect}
-              onNewChat={handleNewChat}
               sidebarWidth={sidebarWidth}
               isMobile={false}
+              onToggleSidebar={() => setSidebarVisible((prev) => !prev)}
             />
             {/* Resize Handle */}
             <div
@@ -199,22 +205,10 @@ export default function ChatLayout({ children }: ChatLayoutProps) {
               sidebarWidth={window.innerWidth}
               isMobile={true}
               onClose={() => setMobileSidebarOpen(false)}
+              onToggleSidebar={() => setMobileSidebarOpen(false)}
             />
           </SheetContent>
         </Sheet>
-      )}
-
-      {/* Mobile Toggle Button (rendered by page, but we provide event) */}
-      {isMobile && (
-        <button
-          onClick={() => setMobileSidebarOpen(true)}
-          className="fixed bottom-4 left-4 z-50 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg md:hidden"
-          aria-label="Open session history"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
-        </button>
       )}
     </div>
   );

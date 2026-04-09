@@ -247,6 +247,8 @@
     "noSessionYet": "Noch keine Session",
     "backToChat": "Zurück zum Chat",
     "openHistory": "Verlauf öffnen",
+    "toggleSidebar": "Seitenleiste umschalten",
+    "collapseSidebar": "Seitenleiste einklappen",
     "queue": "Queue",
     "steer": "Steer",
     "tool": "Tool",

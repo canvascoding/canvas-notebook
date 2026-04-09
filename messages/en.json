@@ -247,6 +247,8 @@
     "noSessionYet": "No session yet",
     "backToChat": "Back to chat",
     "openHistory": "Open history",
+    "toggleSidebar": "Toggle sidebar",
+    "collapseSidebar": "Collapse sidebar",
     "queue": "Queue",
     "steer": "Steer",
     "tool": "Tool",

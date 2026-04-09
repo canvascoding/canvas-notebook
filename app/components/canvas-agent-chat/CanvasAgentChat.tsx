@@ -35,12 +35,19 @@ import {
   Search,
   Eye,
   EyeOff,
+  ArrowLeft,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
+import Image from 'next/image';
+import { Button } from '@/components/ui/button';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
+import { LanguageSwitcher } from '@/app/components/language-switcher';
+import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { LogoutButton } from '@/app/components/LogoutButton';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -530,6 +537,7 @@ export default function CanvasAgentChat({
   showSkillsLink = false,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
+  const tCommon = useTranslations('common');
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
   const pathname = usePathname();
@@ -2071,8 +2079,37 @@ export default function CanvasAgentChat({
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
+      {/* Main Navigation Header - Full Width */}
+      <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
+        <div className="mx-auto flex h-full items-center justify-between px-4">
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
+              <Link href="/">
+                <ArrowLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">{tCommon('suite')}</span>
+              </Link>
+            </Button>
+            <Image src="/logo.jpg" alt={tCommon('logoAlt')} width={32} height={32} className="shrink-0 border border-border" />
+            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
+          </div>
+          <div className="flex items-center gap-1.5 md:gap-4">
+            <NotebookNavButton />
+            <LanguageSwitcher />
+            <ThemeToggle />
+            <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
+              <Link href="/usage">{t('usage')}</Link>
+            </Button>
+            <div className="hidden lg:flex flex-col items-end shrink-0">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{t('userLabel')}</span>
+              <span className="text-xs text-foreground/90">{username}</span>
+            </div>
+            <LogoutButton />
+          </div>
+        </div>
+      </header>
+
+      {/* Compact Header Row */}
       <div className="z-10 border-b border-border bg-background/95">
-        {/* Compact Header Row */}
         <div className="flex items-center justify-between px-3 py-1.5">
           <div className="flex min-w-0 items-center gap-2">
             {showHistory ? (
@@ -2088,13 +2125,12 @@ export default function CanvasAgentChat({
             ) : (
               <button
                 type="button"
-                aria-label={t('openHistory')}
+                aria-label={t('toggleSidebar')}
                 onClick={() => {
-                  setShowHistory(true);
-                  void fetchHistory();
+                  window.dispatchEvent(new CustomEvent('chat-toggle-sidebar'));
                 }}
                 className="relative border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
-                title={t('openHistory')}
+                title={t('toggleSidebar')}
               >
                 <History size={18} />
                 {totalUnreadCount > 0 && (
