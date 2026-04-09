@@ -252,6 +252,7 @@
     "collapseSidebar": "Seitenleiste einklappen",
     "user": "Benutzer",
     "openNotebook": "Notebook öffnen",
+    "loadingSessions": "Lade Sessions...",
     "queue": "Queue",
     "steer": "Steer",
     "tool": "Tool",
