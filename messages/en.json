@@ -251,6 +251,7 @@
     "toggleSidebar": "Toggle sidebar",
     "collapseSidebar": "Collapse sidebar",
     "user": "User",
+    "openNotebook": "Open Notebook",
     "queue": "Queue",
     "steer": "Steer",
     "tool": "Tool",
