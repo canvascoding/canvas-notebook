@@ -17,22 +17,23 @@ function clampSidebarWidth(width: number) {
   return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width));
 }
 
+function getInitialSidebarWidth() {
+  const storedWidth = Number(window.localStorage.getItem('canvas.chatSidebarWidth'));
+  if (Number.isFinite(storedWidth)) {
+    return clampSidebarWidth(storedWidth);
+  }
+  return SIDEBAR_DEFAULT;
+}
+
 export default function ChatLayout({ children }: ChatLayoutProps) {
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
   const isResizing = useRef(false);
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessionKey, setSessionKey] = useState(0);
-
-  // Load saved sidebar width
-  useEffect(() => {
-    const storedWidth = Number(window.localStorage.getItem('canvas.chatSidebarWidth'));
-    if (!Number.isFinite(storedWidth)) return;
-    setSidebarWidth(clampSidebarWidth(storedWidth));
-  }, []);
 
   // Save sidebar width
   useEffect(() => {

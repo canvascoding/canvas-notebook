@@ -395,22 +395,6 @@ function getSessionDisplayLabel(sessionTitle: string | null, fallbackTitle: stri
   return getSessionDisplayTitle(sessionTitle, fallbackTitle);
 }
 
-function formatToolArgs(args: unknown): string {
-  if (args === undefined) {
-    return '';
-  }
-
-  if (typeof args === 'string') {
-    return args;
-  }
-
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
-}
-
 function buildQueuedMessageKey(text: string, attachmentCount: number): string {
   return `${text.trim()}::${attachmentCount}`;
 }
@@ -978,35 +962,6 @@ export default function CanvasAgentChat({
     reconcileQueuedMessages(status);
   }, [reconcileQueuedMessages]);
 
-  const updateAssistantMessage = useCallback((id: string, content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => {
-    setMessages((prev) =>
-      prev.map((message) =>
-        message.id === id
-          ? { ...message, content: message.content ? content : normalizeMessageStart(content), type: type || message.type, status: status || message.status }
-          : message,
-      ),
-    );
-  }, []);
-
-  const syncPiMessage = useCallback((id: string, piMessage: AgentMessage) => {
-    setMessages((prev) =>
-      prev.map((message) => {
-        if (message.id !== id) return message;
-
-        const nextContent = extractPiMessageText(piMessage);
-        const isAssistantError = piMessage.role === 'assistant' && (piMessage.stopReason === 'error' || piMessage.stopReason === 'aborted');
-
-        return {
-          ...message,
-          content: nextContent || message.content,
-          status: isAssistantError ? 'error' : 'sent',
-          type: isAssistantError ? 'system' : message.type,
-          piMessage,
-        };
-      }),
-    );
-  }, []);
-
   const appendSystemMessage = useCallback((content: string) => {
     setMessages((prev) => [
       ...prev,
@@ -1166,157 +1121,11 @@ export default function CanvasAgentChat({
     return nextSessionId;
   }, [input, t, isWebSocketEnabled, wsConnected, subscribe]);
 
-  const createAssistantBubble = useCallback((message?: AgentMessage) => {
-    const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    currentAssistantIdRef.current = assistantId;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: assistantId,
-        role: 'assistant',
-        content: extractPiMessageText(message),
-        status: 'sending',
-        piMessage: message,
-      },
-    ]);
-    return assistantId;
-  }, []);
-
   const handleStreamEvent = useCallback((event: ChatEvent) => {
-    if (event.type === 'runtime_status' && event.status) {
-      setRuntimeStatusWithReconciliation(event.status);
-      return;
-    }
-
-    if (event.type === 'context_compacted' && event.timestamp && event.kind) {
-      appendCompactionBreak(event.kind, event.timestamp, event.omittedMessageCount || 0);
-      return;
-    }
-
-    if (event.type === 'message_start' && event.message?.role === 'assistant') {
-      createAssistantBubble(event.message);
-      return;
-    }
-
-    if (event.type === 'message_update') {
-      const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
-      if (event.message?.role === 'assistant') {
-        syncPiMessage(assistantId, event.message);
-      }
-
-      if (event.assistantMessageEvent?.type === 'text_delta') {
-        updateAssistantMessage(assistantId, event.assistantMessageEvent.delta || '', undefined, 'sending');
-      }
-      return;
-    }
-
-    if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
-      syncPiMessage(assistantId, event.message);
-      currentAssistantIdRef.current = null;
-      
-      // Update session title from AI response if available
-      const assistantMessage = event.message;
-      if (assistantMessage && assistantMessage.content) {
-        const contentText = JSON.stringify(assistantMessage.content);
-        // Check if content contains title information
-        if (contentText.includes('title') || contentText.includes('Title')) {
-          // Extract potential title (simplified)
-          const potentialTitle = contentText.slice(0, 120);
-          setSessionTitle(potentialTitle);
-          console.log('[CanvasAgentChat] Updated session title from AI response');
-        }
-      }
-      
-      // For WebSocket mode, lastMessageAt is updated by server
-      // For SSE mode, update it manually
-      if (!isWebSocketEnabled) {
-        const targetSessionId = streamSessionRef.current;
-        if (targetSessionId) {
-          const now = new Date();
-          void fetch('/api/sessions', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              sessionId: targetSessionId, 
-              lastMessageAt: now.toISOString() 
-            }),
-          }).catch(err => console.error('Failed to update lastMessageAt', err));
-        }
-      }
-      
-      // Show toast notification if user is NOT currently viewing this session
-      // This includes: user is in different session, in history view, or on different page
-      const targetSessionId = streamSessionRef.current || sessionIdRef.current;
-      const isViewingCurrentSession = isUserActiveInChat && sessionIdRef.current === targetSessionId;
-      
-      if (!isViewingCurrentSession && targetSessionId) {
-        // Find session title for toast
-        const session = history.find(s => s.sessionId === targetSessionId);
-        const displayTitle = session 
-          ? getSessionDisplayTitle(session.title, t('newChatTitle')) 
-          : (sessionTitle || t('newChatTitle'));
-        
-        // Calculate duration based on visibility
-        const wasHidden = !pageVisibleRef.current;
-        const duration = wasHidden ? 10000 : 4000; // 10s if hidden, 4s if visible
-        
-        toast.info(t('newResponseReady'), {
-          description: displayTitle,
-          action: {
-            label: t('openSession'),
-            onClick: () => {
-              router.push(`${sessionBasePath}?session=${targetSessionId}`);
-            },
-          },
-          duration,
-          position: 'top-right',
-        });
-        
-        // Broadcast to other tabs only in SSE mode (WebSocket handles it server-side)
-        if (!isWebSocketEnabled && channelRef.current) {
-          channelRef.current.postMessage({
-            type: 'new-response',
-            sessionId: targetSessionId,
-            sessionTitle: displayTitle,
-          });
-        }
-      }
-      
-      return;
-    }
-
-    if (event.type === 'tool_execution_start') {
+    if (event.type === 'tool_result') {
+      const { toolCallId, text } = event;
       upsertToolMessage({
-        assistantMessageId: currentAssistantIdRef.current,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName || t('tool'),
-        toolArgs: formatToolArgs(event.args),
-        status: 'sending',
-        type: 'tool_use',
-      });
-      return;
-    }
-
-    if (event.type === 'tool_execution_update') {
-      upsertToolMessage({
-        assistantMessageId: currentAssistantIdRef.current,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName || t('tool'),
-        content: extractToolResultText(event.partialResult?.content),
-        status: 'sending',
-        type: 'tool_use',
-      });
-      return;
-    }
-
-    if (event.type === 'tool_execution_end') {
-      const text = extractToolResultText(event.result?.content);
-      upsertToolMessage({
-        assistantMessageId: currentAssistantIdRef.current,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName || t('tool'),
-        content: text,
+        toolCallId,
         status: 'sent',
         type: 'tool_result',
         piMessage: {
@@ -1331,7 +1140,7 @@ export default function CanvasAgentChat({
     if (event.type === 'error') {
       appendSystemMessage(t('errorMessage', { message: event.error || t('unknownError') }));
     }
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, setRuntimeStatusWithReconciliation, syncPiMessage, t, updateAssistantMessage, upsertToolMessage]);
+  }, [appendSystemMessage, t, upsertToolMessage]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
@@ -1464,7 +1273,7 @@ export default function CanvasAgentChat({
     return id;
   }, []);
 
-  const scanForImageReferences = useCallback(async (text: string): Promise<Attachment[]> => {
+  const scanForImageReferences = useCallback(async (): Promise<Attachment[]> => {
     // This function is disabled for now - it would need a different approach
     // with the new ID-based system. Images need to be explicitly uploaded.
     return [];
@@ -2049,13 +1858,7 @@ export default function CanvasAgentChat({
     }
   }, [agentConfig]);
 
-  const currentModelSupportsVision = useCallback(() => {
-    if (!agentConfig) return false;
-    const activeProvider = agentConfig.piConfig.activeProvider;
-    const modelId = agentConfig.piConfig.providers[activeProvider]?.model;
-    if (!modelId) return false;
-    return agentConfig.discovery[activeProvider]?.models.find((model) => model.id === modelId)?.supportsVision || false;
-  }, [agentConfig]);
+
 
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
