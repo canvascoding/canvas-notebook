@@ -46,6 +46,33 @@
   --radius-4xl: var(--radius);
 }
 
+/* Sonner Toast Close Button Styling */
+[data-sonner-toast] [data-close-button] {
+  color: var(--primary) !important;
+  background: var(--primary) !important;
+  border: none !important;
+  opacity: 1 !important;
+  width: 20px !important;
+  height: 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+  transition: all 0.2s ease !important;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  background: var(--primary) !important;
+  opacity: 0.8 !important;
+  transform: scale(1.1) !important;
+}
+
+[data-sonner-toast] [data-close-button] svg {
+  width: 14px !important;
+  height: 14px !important;
+  color: var(--primary-foreground) !important;
+}
+
 :root {
   --radius: 0px;
   --background: oklch(0.98 0.006 247);

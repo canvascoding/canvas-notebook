@@ -738,6 +738,28 @@ export default function CanvasAgentChat({
     };
   }, []);
 
+  // Listen for session-updated events to update history unread status
+  useEffect(() => {
+    if (!isWebSocketEnabled) return;
+
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string }>) => {
+      const { sessionId, lastMessageAt } = event.detail;
+      console.log('[CanvasAgentChat] Session updated (history):', sessionId, lastMessageAt);
+      
+      // Update history state to reflect new lastMessageAt
+      setHistory(prev => prev.map(session => 
+        session.sessionId === sessionId 
+          ? { ...session, lastMessageAt, hasUnread: sessionId !== sessionIdRef.current }
+          : session
+      ));
+    };
+
+    window.addEventListener('session-updated', handleSessionUpdated as EventListener);
+    return () => {
+      window.removeEventListener('session-updated', handleSessionUpdated as EventListener);
+    };
+  }, [isWebSocketEnabled]);
+
   // Create session on mount if not in history view
   useEffect(() => {
     if (!sessionIdRef.current && !showHistory && messages.length === 0) {

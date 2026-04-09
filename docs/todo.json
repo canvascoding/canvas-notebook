@@ -224,6 +224,24 @@
       "phase": "Bug Fixes"
     },
     {
+      "id": "32",
+      "content": "WebSocket Migration: Fix unread indicator in history list not updating on new messages",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "changes": [
+          "Added session-updated event listener in CanvasAgentChat.tsx",
+          "Broadcast session updates to USER (all tabs) instead of just session subscribers",
+          "History list now updates hasUnread flag when new message arrives in different session"
+        ],
+        "behavior": {
+          "historyUpdate": "When AI responds in session B, user viewing session A sees blue dot appear in history for session B",
+          "broadcastTarget": "broadcastSessionUpdateToUser sends to all user's connections, not just session subscribers"
+        }
+      }
+    },
+    {
       "id": "25",
       "content": "WebSocket Migration: Create testing scripts (test:websocket:connection, multitab, read-unread, toast, load)",
       "status": "completed",

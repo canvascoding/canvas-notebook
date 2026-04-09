@@ -426,3 +426,18 @@ export function broadcastSessionUpdate(
     lastMessageAt,
   });
 }
+
+/**
+ * Broadcast session update to all of user's connections (all tabs/devices)
+ */
+export function broadcastSessionUpdateToUser(
+  userId: string,
+  sessionId: string,
+  lastMessageAt: string
+): void {
+  broadcastToUser(userId, {
+    type: 'session_updated',
+    sessionId,
+    lastMessageAt,
+  });
+}

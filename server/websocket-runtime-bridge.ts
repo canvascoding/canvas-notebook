@@ -6,7 +6,7 @@
  */
 
 import { getPiRuntimeEventEmitter } from '@/app/lib/pi/runtime-event-emitter';
-import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdate } from './websocket-server';
+import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUser } from './websocket-server';
 
 // Track which sessions are subscribed
 const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
@@ -30,7 +30,8 @@ export function initializeWebSocketBridge(): void {
     // Handle specific events
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
       // Update lastMessageAt in database (already done in live-runtime, but broadcast here)
-      broadcastSessionUpdate(sessionId, new Date().toISOString());
+      // Broadcast to USER (all tabs/devices), not just session subscribers
+      broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
       broadcastNotification(userId, sessionId, sessionId, 'new_response');
     }
   });

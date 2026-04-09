@@ -64,16 +64,18 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: Record<string, unknown> }>) => {
       const { sessionId, event: agentEvent } = event.detail;
       
-      // Check if user is viewing this session
+      // Check if user is viewing THIS EXACT session
       const isViewingCurrentSession = currentSessionRef.current === sessionId;
       
       // Handle message_end event (AI response complete)
       if (agentEvent.type === 'message_end' && (agentEvent.message as Record<string, unknown>)?.role === 'assistant') {
         console.log('[WebSocketProvider] AI response complete in session:', sessionId);
+        console.log('[WebSocketProvider] currentSessionRef:', currentSessionRef.current, 'event sessionId:', sessionId);
+        console.log('[WebSocketProvider] isViewingCurrentSession:', isViewingCurrentSession);
         
-        // Don't show toast if user is viewing this session
+        // Don't show toast if user is viewing THIS EXACT session
         if (isViewingCurrentSession) {
-          console.log('[WebSocketProvider] User is viewing session', sessionId, '- suppressing toast');
+          console.log('[WebSocketProvider] User is viewing THIS session - suppressing toast');
           return;
         }
 
@@ -83,6 +85,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
         // Only show toast if tab is visible AND focused
         if (isTabVisible && isTabFocused) {
+          console.log('[WebSocketProvider] Showing toast for session', sessionId);
           toast.info(t('newResponseReady'), {
             description: sessionId, // TODO: Get session title from event
             action: {
@@ -103,10 +106,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     const handleNotification = (event: CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string }>) => {
       const { sessionId, sessionTitle, notificationType } = event.detail;
       
-      // Don't show notification if user is viewing this session
+      // Don't show notification if user is viewing THIS EXACT session
       const isViewingCurrentSession = currentSessionRef.current === sessionId;
       if (isViewingCurrentSession) {
-        console.log('[WebSocketProvider] User viewing session', sessionId, '- suppressing notification');
+        console.log('[WebSocketProvider] User viewing THIS session', sessionId, '- suppressing notification');
         return;
       }
 
@@ -116,6 +119,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
       // Only show toast if tab is visible AND focused
       if (isTabVisible && isTabFocused) {
+        console.log('[WebSocketProvider] Showing notification for session', sessionId);
         switch (notificationType) {
           case 'new_response':
             toast.info(t('newResponseReady'), {
@@ -152,12 +156,25 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       }
     };
 
+    // Handle session_updated events (for updating history unread status)
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string }>) => {
+      const { sessionId, lastMessageAt } = event.detail;
+      console.log('[WebSocketProvider] Session updated:', sessionId, lastMessageAt);
+      
+      // Dispatch custom event for CanvasAgentChat to update history
+      window.dispatchEvent(new CustomEvent('session-updated', {
+        detail: { sessionId, lastMessageAt }
+      }));
+    };
+
     window.addEventListener('agent_event', handleAgentEvent as EventListener);
     window.addEventListener('notification', handleNotification as EventListener);
+    window.addEventListener('session_updated', handleSessionUpdated as EventListener);
 
     return () => {
       window.removeEventListener('agent_event', handleAgentEvent as EventListener);
       window.removeEventListener('notification', handleNotification as EventListener);
+      window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
     };
   }, [connected, router, t]);
 
@@ -184,24 +201,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
   }, []);
 
-  return (
-    <>
-      {children}
-      <div className="fixed bottom-4 right-4 z-50 text-xs text-muted-foreground">
-        {connected ? (
-          <span className="flex items-center gap-1 text-green-600">
-            <span className="inline-block h-2 w-2 rounded-full bg-green-600 animate-pulse" />
-            Connected
-          </span>
-        ) : (
-          <span className="flex items-center gap-1 text-red-600">
-            <span className="inline-block h-2 w-2 rounded-full bg-red-600" />
-            Disconnected
-          </span>
-        )}
-      </div>
-    </>
-  );
+  return <>{children}</>;
 }
 
 // Global types for window extensions
