@@ -264,7 +264,7 @@ export function AutomationsClient() {
   const [isRefreshingRuns, setIsRefreshingRuns] = useState(false);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
   const [isDirectoryPickerOpen, setIsDirectoryPickerOpen] = useState(false);
-  const [isLogSectionOpen, setIsLogSectionOpen] = useState(true);
+  const [isLogSectionOpen, setIsLogSectionOpen] = useState(false);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) || null,

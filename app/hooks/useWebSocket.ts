@@ -20,7 +20,12 @@ interface UseWebSocketReturn {
   client: WebSocketClient;
   subscribe: (sessionId: string) => void;
   unsubscribe: (sessionId: string) => void;
-  sendMessage: (sessionId: string, message: Record<string, unknown>) => void;
+  sendMessage: (sessionId: string, message: Record<string, unknown>, context?: {
+    activeFilePath?: string | null;
+    userTimeZone?: string;
+    currentTime?: string;
+    workingDirectory?: string;
+  }) => void;
   markAsRead: (sessionId: string) => void;
   getStatus: (sessionId: string) => void;
 }
@@ -85,8 +90,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, []);
 
   // Send message
-  const sendMessage = useCallback((sessionId: string, message: Record<string, unknown>) => {
-    clientRef.current?.sendMessage(sessionId, message);
+  const sendMessage = useCallback((sessionId: string, message: Record<string, unknown>, context?: {
+    activeFilePath?: string | null;
+    userTimeZone?: string;
+    currentTime?: string;
+    workingDirectory?: string;
+  }) => {
+    clientRef.current?.sendMessage(sessionId, message, context);
   }, []);
 
   // Mark as read

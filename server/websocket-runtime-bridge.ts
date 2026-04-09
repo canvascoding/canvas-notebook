@@ -11,6 +11,27 @@ import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUse
 // Track which sessions are subscribed
 const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
 
+// Track which session each user is currently viewing
+const userActiveSessions = new Map<string, string>(); // userId -> sessionId they're viewing
+
+/**
+ * Check if user is currently viewing a specific session
+ */
+export function isUserViewingSession(userId: string, sessionId: string): boolean {
+  return userActiveSessions.get(userId) === sessionId;
+}
+
+/**
+ * Set user's active session
+ */
+export function setUserActiveSession(userId: string, sessionId: string | null): void {
+  if (sessionId === null) {
+    userActiveSessions.delete(userId);
+  } else {
+    userActiveSessions.set(userId, sessionId);
+  }
+}
+
 /**
  * Initialize WebSocket event listener for PI Runtime events
  */
@@ -28,11 +49,20 @@ export function initializeWebSocketBridge(): void {
     broadcastAgentEvent(sessionId, event);
     
     // Handle specific events
-    if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      // Update lastMessageAt in database (already done in live-runtime, but broadcast here)
-      // Broadcast to USER (all tabs/devices), not just session subscribers
-      broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
-      broadcastNotification(userId, sessionId, sessionId, 'new_response');
+    if (event.type === 'message_end' && (event as unknown as { message?: { role?: string } }).message?.role === 'assistant') {
+      // Check if user is currently viewing this session
+      const isUserViewing = isUserViewingSession(userId, sessionId);
+      
+      if (!isUserViewing) {
+        // User is NOT viewing this session → mark as unread
+        // Broadcast to USER (all tabs/devices)
+        broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
+        broadcastNotification(userId, sessionId, sessionId, 'new_response');
+        console.log(`[WebSocket Bridge] AI response in session ${sessionId}: User ${userId} NOT viewing → marked as unread`);
+      } else {
+        // User IS viewing this session → no toast needed, but still update lastMessageAt
+        console.log(`[WebSocket Bridge] AI response in session ${sessionId}: User ${userId} IS viewing → live update only`);
+      }
     }
   });
   
@@ -42,7 +72,7 @@ export function initializeWebSocketBridge(): void {
 /**
  * Subscribe to PI Runtime events for a session
  */
-export function subscribeToPiRuntimeEvents(sessionId: string, userId: string): void {
+export async function subscribeToPiRuntimeEvents(sessionId: string, userId: string): Promise<void> {
   console.log(`[WebSocket Bridge] Subscription requested for session ${sessionId}, user ${userId}`);
   
   if (!subscribedSessions.has(sessionId)) {

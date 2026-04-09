@@ -744,6 +744,44 @@ export default function CanvasAgentChat({
     };
   }, []);
 
+  // Handle tab visibility change - mark session as "not viewing" when tab is hidden
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && sessionIdRef.current) {
+        // User left tab → mark as not viewing
+        window.__setCurrentSession?.(null);
+        window.__setUserActive?.(false);
+        console.log('[CanvasAgentChat] Tab hidden, marking session as not viewed');
+      } else if (document.visibilityState === 'visible' && sessionIdRef.current) {
+        // User returned to tab → mark as viewing again
+        window.__setCurrentSession?.(sessionIdRef.current);
+        window.__setUserActive?.(true);
+        console.log('[CanvasAgentChat] Tab visible, marking session as viewed');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Handle beforeunload - mark session as not viewed when closing tab
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (typeof window !== 'undefined') {
+        window.__setCurrentSession?.(null);
+        window.__setUserActive?.(false);
+        console.log('[CanvasAgentChat] Tab closing, marking session as not viewed');
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   // Listen for session-updated events to update history unread status
   useEffect(() => {
     if (!isWebSocketEnabled) return;
@@ -774,12 +812,7 @@ export default function CanvasAgentChat({
     };
   }, [isWebSocketEnabled]);
 
-  // Create session on mount if not in history view
-  useEffect(() => {
-    if (!sessionIdRef.current && !showHistory && messages.length === 0) {
-      void ensureSession();
-    }
-  }, []);
+  // Session is created on-demand when user sends first message
 
   useLayoutEffect(() => {
     syncTextareaHeight();
@@ -848,7 +881,7 @@ export default function CanvasAgentChat({
         setLatestSession(sessions[0] || null);
         
         // Calculate total unread count
-        const unreadCount = sessions.filter(s => s.hasUnread).length;
+        const unreadCount = sessions.filter((s: AISession) => s.hasUnread).length;
         setTotalUnreadCount(unreadCount);
 
         if (sessionIdRef.current) {
