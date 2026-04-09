@@ -368,29 +368,29 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={handleUploadFolderClick}
-                      aria-label={t('uploadFolder')}
-                    >
-                      <FolderPlus className="h-4 w-4 text-primary" />
-                    </Button>
+                    <DropdownMenu modal={false}>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={t('upload')}
+                        >
+                          <Upload className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" sideOffset={8}>
+                        <DropdownMenuItem onSelect={handleUploadClick}>
+                          <Upload className="h-4 w-4" />
+                          {t('uploadFile')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={handleUploadFolderClick}>
+                          <FolderPlus className="h-4 w-4 text-primary" />
+                          {t('uploadFolder')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TooltipTrigger>
-                  <TooltipContent>{t('uploadFolder')}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={handleUploadClick}
-                      aria-label={t('uploadFile')}
-                    >
-                      <Upload className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('uploadFile')}</TooltipContent>
+                  <TooltipContent>{t('upload')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
