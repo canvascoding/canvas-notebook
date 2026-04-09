@@ -3,7 +3,7 @@
 import React, { FormEvent, useState, useRef, useCallback, useEffect } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
-import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree } from 'lucide-react';
+import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
@@ -14,8 +14,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface Attachment {
   name: string;
-  path: string;
-  type: string;
+  contentKind: 'image' | 'document';
+  id: string;
+  mimeType?: string;
+  category?: string;
 }
 
 interface FilePickerFile {
@@ -129,26 +131,64 @@ export function HomeChatPrompt() {
     };
   }, [tChat]);
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
+  const handleFileUploadMultiple = useCallback(async (files: File[]) => {
+    setIsUploading(true);
+    setUploadError(null);
+    
     try {
-      const res = await fetch('/api/upload/screenshot', { method: 'POST', body: formData });
+      const formData = new FormData();
+      files.forEach((file) => formData.append('file', file));
+      
+      const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
       const data = await res.json();
-      if (data.success) {
-        setAttachments((prev) => [...prev, { name: data.name, path: data.path, type: file.type }]);
+      
+      if (!res.ok || !data.success) {
+        throw new Error(data.error ?? 'Upload failed');
+      }
+      
+      const uploadedFiles = data.files || [];
+      
+      const attachments: Attachment[] = uploadedFiles.map((uploadedFile: {
+        id: string;
+        originalName: string;
+        mimeType: string;
+        category: string;
+      }) => {
+        const isImage = uploadedFile.category === 'image';
+        return {
+          name: uploadedFile.originalName,
+          contentKind: isImage ? 'image' : 'document',
+          id: uploadedFile.id,
+          mimeType: uploadedFile.mimeType,
+          category: uploadedFile.category,
+        };
+      });
+      
+      setAttachments((prev) => [...prev, ...attachments]);
+      
+      if (data.errors && data.errors.length > 0) {
+        setUploadError(`Einige Dateien konnten nicht hochgeladen werden: ${data.errors.join(', ')}`);
       }
     } catch (err) {
       console.error('Upload failed', err);
+      setUploadError(err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
+    } finally {
+      setIsUploading(false);
     }
   }, []);
 
+  const handleFileUpload = useCallback(async (file: File) => {
+    await handleFileUploadMultiple([file]);
+  }, [handleFileUploadMultiple]);
+
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) handleFileUpload(file);
+    const files = Array.from(event.target.files || []);
+    if (files.length > 0) handleFileUploadMultiple(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [handleFileUpload]);
+  }, [handleFileUploadMultiple]);
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
@@ -362,7 +402,12 @@ export function HomeChatPrompt() {
             <div className="flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
               {attachments.map((attachment, index) => (
                 <div key={index} className="flex items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
-                  <ImageIcon className="h-3.5 w-3.5" /> {attachment.name}
+                  {attachment.contentKind === 'image' ? (
+                    <ImageIcon className="h-3.5 w-3.5" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5" />
+                  )}
+                  {attachment.name}
                   <button 
                     type="button"
                     onClick={() => removeAttachment(index)} 
@@ -373,6 +418,17 @@ export function HomeChatPrompt() {
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Upload Status */}
+          {isUploading && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {tChat('uploadingFiles')}
+            </div>
+          )}
+          {uploadError && (
+            <div className="text-xs text-destructive">{uploadError}</div>
           )}
 
           <div className="relative">
@@ -436,7 +492,6 @@ export function HomeChatPrompt() {
                 ref={fileInputRef} 
                 onChange={onFileChange} 
                 className="hidden" 
-                accept="image/*" 
               />
             </div>
 
