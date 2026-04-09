@@ -93,7 +93,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
             },
             duration: 4000,
             position: 'top-right',
-            closeButton: true,
           });
         } else {
           console.log('[WebSocketProvider] Tab not visible/focused, suppressing toast');
@@ -129,7 +128,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
               },
               duration: 4000,
               position: 'top-right',
-              closeButton: true,
             });
             break;
 
@@ -138,7 +136,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
               description: sessionTitle,
               duration: 3000,
               position: 'top-right',
-              closeButton: true,
             });
             break;
 
@@ -147,7 +144,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
               description: sessionTitle,
               duration: 5000,
               position: 'top-right',
-              closeButton: true,
             });
             break;
         }
