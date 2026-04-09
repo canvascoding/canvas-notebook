@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -32,6 +32,9 @@ import {
   FileText,
   FolderTree,
   Settings,
+  Search,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
@@ -551,6 +554,8 @@ export default function CanvasAgentChat({
   const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [showMobileActionPanel, setShowMobileActionPanel] = useState(false);
   const [history, setHistory] = useState<AISession[]>([]);
+  const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
+  const [historyUnreadOnly, setHistoryUnreadOnly] = useState<boolean>(false);
   const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
@@ -559,6 +564,7 @@ export default function CanvasAgentChat({
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [isUserActiveInChat, setIsUserActiveInChat] = useState(false);
+  const [totalUnreadCount, setTotalUnreadCount] = useState(0);
 
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
@@ -747,11 +753,19 @@ export default function CanvasAgentChat({
       console.log('[CanvasAgentChat] Session updated (history):', sessionId, lastMessageAt);
       
       // Update history state to reflect new lastMessageAt
-      setHistory(prev => prev.map(session => 
-        session.sessionId === sessionId 
-          ? { ...session, lastMessageAt, hasUnread: sessionId !== sessionIdRef.current }
-          : session
-      ));
+      setHistory(prev => {
+        const updated = prev.map(session => 
+          session.sessionId === sessionId 
+            ? { ...session, lastMessageAt, hasUnread: sessionId !== sessionIdRef.current }
+            : session
+        );
+        
+        // Recalculate unread count
+        const unreadCount = updated.filter(s => s.hasUnread).length;
+        setTotalUnreadCount(unreadCount);
+        
+        return updated;
+      });
     };
 
     window.addEventListener('session-updated', handleSessionUpdated as EventListener);
@@ -832,6 +846,10 @@ export default function CanvasAgentChat({
         const sessions = data.sessions || [];
         setHistory(sessions);
         setLatestSession(sessions[0] || null);
+        
+        // Calculate total unread count
+        const unreadCount = sessions.filter(s => s.hasUnread).length;
+        setTotalUnreadCount(unreadCount);
 
         if (sessionIdRef.current) {
           const currentSession = sessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
@@ -843,6 +861,19 @@ export default function CanvasAgentChat({
     } catch (err) {
       console.error('Failed to fetch history', err);
     }
+  }, []);
+
+  const getSessionTimeGroup = useCallback((dateString: string): 'today' | 'last7' | 'last14' | 'last30' | 'older' => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'today';
+    if (diffDays <= 7) return 'last7';
+    if (diffDays <= 14) return 'last14';
+    if (diffDays <= 30) return 'last30';
+    return 'older';
   }, []);
 
   const resetStreamConnection = useCallback(() => {
@@ -1402,6 +1433,10 @@ export default function CanvasAgentChat({
       return;
     }
 
+    if (showHistory) {
+      setShowHistory(false);
+    }
+
     const autoAttachments = override ? [] : await scanForImageReferences(rawText);
     const messageAttachments = [...baseAttachments, ...autoAttachments];
     const userMessage: Extract<AgentMessage, { role: 'user' }> = {
@@ -1464,7 +1499,7 @@ export default function CanvasAgentChat({
       prev.map((message) => (message.role === 'user' && message.status === 'sending' ? { ...message, status: 'aborting' } : message)),
     );
     await postControl(targetSessionId, 'replace', userMessage);
-  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, isWebSocketEnabled, wsConnected, sendMessage, openRuntimeStream, postControl, scanForImageReferences]);
+  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, isWebSocketEnabled, wsConnected, sendMessage, openRuntimeStream, postControl, scanForImageReferences, showHistory]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -1570,9 +1605,14 @@ export default function CanvasAgentChat({
         setHasUnreadInCurrentSession(false);
         setShowUnreadBanner(false);
         // Update history state to reflect read status
-        setHistory(prev => prev.map(s => 
-          s.sessionId === session.sessionId ? { ...s, hasUnread: false, lastViewedAt: new Date().toISOString() } : s
-        ));
+        setHistory(prev => {
+          const updated = prev.map(s => 
+            s.sessionId === session.sessionId ? { ...s, hasUnread: false, lastViewedAt: new Date().toISOString() } : s
+          );
+          // Decrement unread count
+          setTotalUnreadCount(prev => Math.max(0, prev - 1));
+          return updated;
+        });
       } catch (err) {
         console.error('Failed to mark session as read', err);
       }
@@ -2090,6 +2130,43 @@ export default function CanvasAgentChat({
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
 
+  const filteredHistory = useMemo(() => {
+    let filtered = [...history];
+    
+    if (historyUnreadOnly) {
+      filtered = filtered.filter(s => s.hasUnread);
+    }
+    
+    if (historySearchQuery.trim()) {
+      const query = historySearchQuery.toLowerCase();
+      filtered = filtered.filter(s => 
+        s.title?.toLowerCase().includes(query) || 
+        s.sessionId.toLowerCase().includes(query)
+      );
+    }
+    
+    filtered.sort((a, b) => {
+      const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : new Date(a.createdAt).getTime();
+      const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : new Date(b.createdAt).getTime();
+      return bTime - aTime;
+    });
+    
+    const grouped = {
+      today: [] as AISession[],
+      last7: [] as AISession[],
+      last14: [] as AISession[],
+      last30: [] as AISession[],
+      older: [] as AISession[],
+    };
+    
+    filtered.forEach(session => {
+      const group = getSessionTimeGroup(session.createdAt);
+      grouped[group].push(session);
+    });
+    
+    return grouped;
+  }, [history, historySearchQuery, historyUnreadOnly, getSessionTimeGroup]);
+
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
     setShowHistory(false);
@@ -2148,10 +2225,15 @@ export default function CanvasAgentChat({
                   setShowHistory(true);
                   void fetchHistory();
                 }}
-                className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
+                className="relative border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
                 title={t('openHistory')}
               >
                 <History size={18} />
+                {totalUnreadCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
+                    {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
+                  </span>
+                )}
               </button>
             )}
             <div className="min-w-0">
@@ -2388,50 +2470,129 @@ export default function CanvasAgentChat({
         )}
 
         {showHistory && (
-          <div className="absolute inset-0 z-20 space-y-1 overflow-y-auto bg-background p-2 pb-20">
-            <div className="mb-2 flex items-center gap-2 border-b border-border px-2 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              <History size={10} /> {t('sessions')}
-            </div>
-            {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">{t('noRecentSessions')}</div>}
-            {history.map((session) => (
-              <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
-                <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
-                  {session.hasUnread && (
-                    <div 
-                      className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
-                      title={t('unreadResponse')}
-                      aria-label={t('unreadResponse')}
-                    />
-                  )}
-                  <div className="min-w-0 flex-1 text-left">
-                    <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">
-                      {getSessionDisplayTitle(session.title, t('newChatTitle'))}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                      <span>{new Date(session.createdAt).toLocaleString()}</span>
-                      <span>&bull;</span>
-                      <span>{session.model}</span>
-                    </div>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void renameSession(session)}
-                  className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-                  title={t('renameSession')}
-                >
-                  <Pencil size={15} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void deleteSession(session.sessionId)}
-                  className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-                  title={t('deleteSession')}
-                >
-                  <Trash2 size={15} />
-                </button>
+          <div className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-background">
+            {/* Filter Header */}
+            <div className="shrink-0 space-y-2 border-b border-border p-3">
+              <div className="flex items-center gap-2">
+                <History size={14} className="text-muted-foreground" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  {t('sessions')}
+                </span>
               </div>
-            ))}
+              
+              {/* Search Input */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={historySearchQuery}
+                  onChange={(e) => setHistorySearchQuery(e.target.value)}
+                  placeholder={t('searchSessions')}
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 pl-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <Search 
+                  size={14} 
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" 
+                />
+              </div>
+              
+              {/* Unread Toggle */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHistoryUnreadOnly(!historyUnreadOnly)}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                    historyUnreadOnly 
+                      ? 'border-primary/30 bg-primary/15 text-primary' 
+                      : 'border-border bg-muted/30 text-muted-foreground'
+                  }`}
+                >
+                  {historyUnreadOnly ? <Eye size={12} /> : <EyeOff size={12} />}
+                  {historyUnreadOnly ? t('filterUnreadOnly') : t('filterAllSessions')}
+                </button>
+                {isMobile && (
+                  <button
+                    type="button"
+                    onClick={() => setShowHistory(false)}
+                    className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors"
+                  >
+                    <ChevronLeft size={12} />
+                    {t('backToChat')}
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            {/* Scrollable Session List */}
+            <div className="flex-1 overflow-y-auto p-2 pb-20">
+              {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">{t('noRecentSessions')}</div>}
+              
+              {Object.entries(filteredHistory).map(([group, sessions]) => {
+                if (sessions.length === 0) return null;
+                
+                const groupLabels = {
+                  today: t('groupToday'),
+                  last7: t('groupLast7Days'),
+                  last14: t('groupLast14Days'),
+                  last30: t('groupLast30Days'),
+                  older: t('groupOlder'),
+                };
+                
+                return (
+                  <div key={group} className="mb-4">
+                    <div className="mb-2 px-2 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+                      {groupLabels[group as keyof typeof groupLabels]} ({sessions.length})
+                    </div>
+                    {sessions.map((session) => (
+                      <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
+                        <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
+                          {session.hasUnread && (
+                            <div 
+                              className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                              title={t('unreadResponse')}
+                              aria-label={t('unreadResponse')}
+                            />
+                          )}
+                          <div className="min-w-0 flex-1 text-left">
+                            <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">
+                              {getSessionDisplayTitle(session.title, t('newChatTitle'))}
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                              <span>{new Date(session.createdAt).toLocaleString()}</span>
+                              <span>&bull;</span>
+                              <span>{session.model}</span>
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void renameSession(session)}
+                          className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
+                          title={t('renameSession')}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteSession(session.sessionId)}
+                          className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                          title={t('deleteSession')}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              
+              {Object.values(filteredHistory).every(group => group.length === 0) && (
+                <div className="p-8 text-center text-sm italic text-muted-foreground">
+                  {historySearchQuery || historyUnreadOnly 
+                    ? t('noSessionsFoundWithFilter')
+                    : t('noRecentSessions')}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
