@@ -18,6 +18,7 @@
     "apiKeyRequired": "API key required",
     "geminiApiKeyRequired": "This app requires a GEMINI_API_KEY. Please configure it in the Integrations tab.",
     "goToIntegrations": "Go to Integrations",
+    "logoAlt": "Canvas Notebook Logo",
     "assetPicker": {
       "imageTitle": "Select image",
       "videoTitle": "Select video",

@@ -18,6 +18,9 @@ function clampSidebarWidth(width: number) {
 }
 
 function getInitialSidebarWidth() {
+  if (typeof window === 'undefined') {
+    return SIDEBAR_DEFAULT;
+  }
   const storedWidth = Number(window.localStorage.getItem('canvas.chatSidebarWidth'));
   if (Number.isFinite(storedWidth)) {
     return clampSidebarWidth(storedWidth);

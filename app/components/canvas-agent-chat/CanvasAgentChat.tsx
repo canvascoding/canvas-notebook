@@ -2101,7 +2101,7 @@ export default function CanvasAgentChat({
             </Button>
             <div className="hidden lg:flex flex-col items-end shrink-0">
               <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{t('userLabel')}</span>
-              <span className="text-xs text-foreground/90">{username}</span>
+              <span className="text-xs text-foreground/90">{t('user')}</span>
             </div>
             <LogoutButton />
           </div>
