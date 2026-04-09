@@ -570,6 +570,8 @@ export function DashboardShell({ username }: DashboardShellProps) {
               <div className="min-h-0 flex-1 overflow-hidden flex flex-col">
                 <CanvasAgentChat
                   initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
+                  hideNavHeader={true}
+                  chatContainerWidth={chatWidth}
                 />
               </div>
             </SheetContent>
@@ -650,6 +652,8 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     <div className="flex flex-col w-full h-full relative">
                       <CanvasAgentChat
                         initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
+                        hideNavHeader={true}
+                        chatContainerWidth={isDesktopChatFullscreen ? window.innerWidth : chatWidth}
                       />
                     </div>
                   </div>

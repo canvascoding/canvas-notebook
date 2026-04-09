@@ -1,5 +1,9 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import type { PiRuntimeStatus } from '@/app/lib/pi/live-runtime';
+import dotenv from 'dotenv';
+import path from 'node:path';
+
+dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
@@ -171,6 +175,38 @@ test.describe('PI Chat E2E', () => {
       const text = await assistantMessages.last().textContent();
       return (text || '').replace(/\s+/g, ' ').trim();
     }, { timeout: 60000 }).toContain(marker);
+  });
+
+  test('should send a chat prompt over WebSocket without surfacing an HTTP 401 runtime error', async ({ page }) => {
+    const consoleMessages: string[] = [];
+    page.on('console', (message) => {
+      consoleMessages.push(message.text());
+    });
+
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    const input = page.getByTestId('chat-input');
+    await input.fill('Antworte kurz, damit ich den WebSocket-Versand pruefen kann.');
+    await input.press('Enter');
+
+    await expect(page.getByTestId('chat-message-user')).toHaveCount(1, { timeout: 15000 });
+
+    const websocket401 = () =>
+      consoleMessages.find(
+        (text) => text.includes('[WebSocket] Server error:') && text.includes('HTTP 401'),
+      ) || null;
+
+    await expect.poll(websocket401, { timeout: 15000 }).toBeNull();
+
+    const assistantMessages = page.getByTestId('chat-message-assistant');
+    await expect(assistantMessages.first()).toBeVisible({ timeout: 60000 });
+    await expect.poll(async () => {
+      const text = await assistantMessages.last().textContent();
+      return (text || '').trim().length;
+    }, { timeout: 60000 }).toBeGreaterThan(0);
+
+    expect(websocket401()).toBeNull();
   });
 
   test('should render markdown and tool output separately in the chat UI', async ({ page }) => {

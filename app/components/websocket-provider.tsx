@@ -28,6 +28,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   useEffect(() => {
     clientRef.current = getWebSocketClient();
     const client = clientRef.current;
+    setConnected(client.isConnected());
 
     const handleConnected = () => {
       console.log('[WebSocketProvider] Connected');
@@ -40,6 +41,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     const handleError = (event: CustomEvent<{ error: string; code?: string }>) => {
+      if (event.detail.code === 'AUTH_ERROR') {
+        console.warn('[WebSocketProvider] WebSocket auth unavailable:', event.detail.error);
+        return;
+      }
+
       console.error('[WebSocketProvider] Error:', event.detail);
     };
 
@@ -47,7 +53,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     client.addEventListener('disconnected', handleDisconnected as EventListener);
     client.addEventListener('error', handleError as EventListener);
 
-    client.connect().catch(console.error);
+    client.connect().catch((error) => {
+      if ((error as { code?: string })?.code !== 'AUTH_ERROR') {
+        console.error('[WebSocketProvider] Failed to connect:', error);
+      }
+    });
 
     return () => {
       client.removeEventListener('connected', handleConnected as EventListener);

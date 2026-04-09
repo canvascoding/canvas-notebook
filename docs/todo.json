@@ -277,6 +277,34 @@
       "phase": "Week 3: CanvasAgentChat Migration"
     },
     {
+      "id": "33",
+      "content": "WebSocket Migration: Fix chat auth loop and graceful degradation",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "changes": [
+          "Replaced manual WebSocket cookie parsing with better-auth session resolution",
+          "Made the WebSocket client auth-aware and stopped reconnect loops after AUTH_ERROR",
+          "Centralized auto-connect ownership in WebSocketProvider",
+          "Silenced subscribe/unsubscribe spam while the socket is unauthorized or disconnected",
+          "Added a calm read-only notice in chat when live updates are unavailable"
+        ],
+        "verification": {
+          "build": "npm run build",
+          "uiPositive": "Authenticated Playwright check navigated /notebook -> /chat with a created session and showed zero auth or cannot-send console errors",
+          "uiNegative": "Unauthenticated Playwright check on /login showed a single auth rejection without reconnect attempts or cannot-send spam"
+        }
+      }
+    },
+    {
+      "id": "35",
+      "content": "WebSocket Migration: Fix send_message runtime auth 401 in direct chat flow",
+      "status": "in_progress",
+      "priority": "high",
+      "phase": "Bug Fixes"
+    },
+    {
       "id": "34",
       "content": "Accessibility: Add missing description for mobile AI chat sheet",
       "status": "completed",

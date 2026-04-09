@@ -49,7 +49,6 @@ export function SessionSidebar({
   sidebarWidth,
   isMobile = false,
   onClose,
-  onToggleSidebar,
 }: SessionSidebarProps) {
   const t = useTranslations('chat');
   const [history, setHistory] = useState<AISession[]>([]);
@@ -202,17 +201,7 @@ export function SessionSidebar({
               <ChevronLeft size={16} />
             </Button>
           )}
-          {!isMobile && onToggleSidebar && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onToggleSidebar}
-              className="shrink-0"
-              title={t('collapseSidebar')}
-            >
-              <ChevronLeft size={16} />
-            </Button>
-          )}
+          <span className="text-sm font-semibold text-foreground">{t('sessionHistory')}</span>
         </div>
         {!isMobile && (
           <Link

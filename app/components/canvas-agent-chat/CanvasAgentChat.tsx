@@ -41,7 +41,7 @@ import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
-import { usePathname, useSearchParams, useRouter } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
@@ -54,7 +54,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
-import { toast } from 'sonner';
+// Removed unused toast import
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
@@ -112,6 +112,7 @@ interface AISession {
 interface ChatEvent {
   type: string;
   message?: AgentMessage;
+  text?: string;
   assistantMessageEvent?: {
     type?: string;
     delta?: string;
@@ -168,6 +169,8 @@ interface CanvasAgentChatProps {
   initialPrompt?: string | null;
   initialPromptStorageKey?: string;
   showSkillsLink?: boolean;
+  hideNavHeader?: boolean;
+  chatContainerWidth?: number;
 }
 
 const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ className?: string }>> = {
@@ -535,21 +538,41 @@ export default function CanvasAgentChat({
   initialPrompt,
   initialPromptStorageKey,
   showSkillsLink = false,
+  hideNavHeader = false,
+  chatContainerWidth,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
   const pathname = usePathname();
-  const router = useRouter();
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
+
+  // Container width detection for history layout
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+  const HISTORY_BREAKPOINT = 650;
+  const effectiveContainerWidth = chatContainerWidth ?? measuredWidth;
+  const shouldShowHistoryAsOverlay = isMobile || effectiveContainerWidth < HISTORY_BREAKPOINT;
+
+  useEffect(() => {
+    if (chatContainerWidth !== undefined) return;
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setMeasuredWidth(containerRef.current.clientWidth);
+      }
+    };
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, [chatContainerWidth]);
   
-  // WebSocket integration (only if enabled)
-  const isWebSocketEnabled = typeof window !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true';
-  const { connected: wsConnected, subscribe, unsubscribe, sendMessage, markAsRead } = useWebSocket({
-    autoConnect: isWebSocketEnabled,
+  // WebSocket integration - always enabled
+  const isWebSocketEnabled = true;
+  const { connected: wsConnected, error: wsError, subscribe, unsubscribe, sendMessage, markAsRead } = useWebSocket({
+    autoConnect: false,
   });
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -563,6 +586,9 @@ export default function CanvasAgentChat({
   const [history, setHistory] = useState<AISession[]>([]);
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
   const [historyUnreadOnly, setHistoryUnreadOnly] = useState<boolean>(false);
+  const [historySidebarWidth, setHistorySidebarWidth] = useState(280);
+  const historyResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const isHistoryResizing = useRef(false);
   const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
@@ -572,6 +598,7 @@ export default function CanvasAgentChat({
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [isUserActiveInChat, setIsUserActiveInChat] = useState(false);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
@@ -593,6 +620,7 @@ export default function CanvasAgentChat({
   // Upload states
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const isWebSocketUnavailable = wsError?.code === 'AUTH_ERROR';
 
   const referencePickerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -659,53 +687,18 @@ export default function CanvasAgentChat({
   }, []);
 
   // Route & Activity Tracking - detect if user is in chat/notebook route
+  // User is active if they're on the chat/notebook route AND have a session open
+  // Note: showHistory state doesn't affect "active" status - user is still viewing the session
   useEffect(() => {
     const isChatRoute = pathname.includes('/chat') || pathname.includes('/notebook');
-    const isViewingSession = !showHistory && sessionIdRef.current !== null;
+    const isViewingSession = sessionIdRef.current !== null;
     
     setIsUserActiveInChat(isChatRoute && isViewingSession);
-  }, [pathname, showHistory]);
-
-  // BroadcastChannel for Multi-Tab communication (fallback for SSE mode)
-  useEffect(() => {
-    if (isWebSocketEnabled) {
-      return; // Skip BroadcastChannel when WebSocket is enabled
-    }
-    
-    channelRef.current = new BroadcastChannel('canvas-chat-unread');
-    
-    channelRef.current.onmessage = (event) => {
-      const { type, sessionId, sessionTitle: broadcastTitle } = event.data;
-      
-      if (type === 'new-response' && sessionId !== sessionIdRef.current) {
-        // Show toast in this tab too (only if not viewing this session)
-        const isViewingCurrentSession = isUserActiveInChat && sessionIdRef.current === sessionId;
-        
-        if (!isViewingCurrentSession) {
-          const wasHidden = !pageVisibleRef.current;
-          const duration = wasHidden ? 10000 : 4000;
-          
-          toast.info(t('newResponseReady'), {
-            description: broadcastTitle,
-            action: {
-              label: t('openSession'),
-              onClick: () => {
-                router.push(`${sessionBasePath}?session=${sessionId}`);
-              },
-            },
-            duration,
-            position: 'top-right',
-          });
-        }
-      }
-    };
-    
-    return () => channelRef.current?.close();
-  }, [isUserActiveInChat, isWebSocketEnabled, router, sessionBasePath, t]);
+  }, [pathname]);
 
   // Session subscription for WebSocket
   useEffect(() => {
-    if (!isWebSocketEnabled || !wsConnected || !sessionId) {
+    if (!wsConnected || !sessionId) {
       return;
     }
 
@@ -719,7 +712,7 @@ export default function CanvasAgentChat({
       markAsRead(sessionId);
     }
     
-    // Update global state for provider (always, not just WebSocket mode)
+    // Update global state for provider
     if (typeof window !== 'undefined') {
       window.__setCurrentSession?.(sessionId);
       window.__setUserActive?.(isUserActiveInChat);
@@ -728,9 +721,8 @@ export default function CanvasAgentChat({
     return () => {
       unsubscribe(sessionId);
       console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
-      // Don't reset on unmount - let the route change handle it
     };
-  }, [isWebSocketEnabled, wsConnected, sessionId, isUserActiveInChat, subscribe, unsubscribe, markAsRead]);
+  }, [wsConnected, sessionId, isUserActiveInChat, subscribe, unsubscribe, markAsRead]);
 
   // Update global WebSocket state when user activity changes
   useEffect(() => {
@@ -879,6 +871,7 @@ export default function CanvasAgentChat({
   }, [messages, scrollToBottom]);
 
   const fetchHistory = useCallback(async () => {
+    setIsLoadingHistory(true);
     try {
       const res = await fetch('/api/sessions');
       const data = await res.json();
@@ -900,6 +893,8 @@ export default function CanvasAgentChat({
       }
     } catch (err) {
       console.error('Failed to fetch history', err);
+    } finally {
+      setIsLoadingHistory(false);
     }
   }, []);
 
@@ -1147,8 +1142,103 @@ export default function CanvasAgentChat({
 
     if (event.type === 'error') {
       appendSystemMessage(t('errorMessage', { message: event.error || t('unknownError') }));
+      return;
     }
-  }, [appendSystemMessage, t, upsertToolMessage]);
+
+    // Handle assistant messages
+    if (event.type === 'message' && event.message) {
+      const message = event.message;
+      if (message.role === 'assistant') {
+        // Update or append assistant message
+        setMessages((prev) => {
+          const lastMessage = prev[prev.length - 1];
+          // Check if we should update the last assistant message or add a new one
+          if (lastMessage && lastMessage.role === 'assistant' && lastMessage.status === 'pending') {
+            // Update existing assistant message
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...lastMessage,
+                content: typeof message.content === 'string' 
+                  ? message.content 
+                  : JSON.stringify(message.content),
+                piMessage: message,
+                status: 'sent',
+              } as ChatMessage,
+            ];
+          }
+          // Add new assistant message
+          return [
+            ...prev,
+            {
+              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              role: 'assistant',
+              content: typeof message.content === 'string' 
+                ? message.content 
+                : JSON.stringify(message.content),
+              status: 'sent',
+              piMessage: message,
+            } as ChatMessage,
+          ];
+        });
+      }
+      return;
+    }
+
+    // Handle message delta events (for streaming content)
+    if (event.type === 'message_delta' && event.assistantMessageEvent) {
+      const delta = event.assistantMessageEvent.delta;
+      if (delta) {
+        setMessages((prev) => {
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant') {
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...lastMessage,
+                content: lastMessage.content + delta,
+              },
+            ];
+          }
+          return prev;
+        });
+      }
+      return;
+    }
+
+    // Handle runtime status updates
+    if (event.type === 'runtime_status' && event.status) {
+      setRuntimeStatus(event.status);
+      return;
+    }
+
+    // Handle context compaction events
+    if (event.type === 'context_compacted' && event.timestamp && event.kind) {
+      appendCompactionBreak(
+        event.kind,
+        event.timestamp,
+        event.omittedMessageCount || 0
+      );
+      return;
+    }
+
+    // Handle messages array (bulk update)
+    if (event.type === 'messages' && event.messages) {
+      const newMessages = event.messages.map((msg: AgentMessage, index: number) => ({
+        id: `stream-${Date.now()}-${index}`,
+        role: msg.role as ChatMessage['role'],
+        content: 'content' in msg
+          ? typeof msg.content === 'string'
+            ? msg.content
+            : JSON.stringify(msg.content)
+          : '',
+        status: 'sent' as const,
+        piMessage: msg,
+      }));
+      setMessages((prev) => [...prev, ...newMessages]);
+      return;
+    }
+  }, [appendSystemMessage, t, upsertToolMessage, setRuntimeStatus, appendCompactionBreak, setMessages]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
@@ -1230,6 +1320,21 @@ export default function CanvasAgentChat({
     }
   }, [appendSystemMessage, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection, t]);
 
+  // Listen for WebSocket agent events
+  useEffect(() => {
+    const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: ChatEvent }>) => {
+      const { sessionId: eventSessionId, event: agentEvent } = event.detail;
+      if (eventSessionId === sessionIdRef.current) {
+        handleStreamEvent(agentEvent);
+      }
+    };
+    
+    window.addEventListener('agent_event', handleAgentEvent as EventListener);
+    return () => {
+      window.removeEventListener('agent_event', handleAgentEvent as EventListener);
+    };
+  }, [handleStreamEvent]);
+
   const postControl = useCallback(async (
     targetSessionId: string,
     action: 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact',
@@ -1281,7 +1386,7 @@ export default function CanvasAgentChat({
     return id;
   }, []);
 
-  const scanForImageReferences = useCallback(async (): Promise<Attachment[]> => {
+  const scanForImageReferences = useCallback(async (_text?: string): Promise<Attachment[]> => {
     // This function is disabled for now - it would need a different approach
     // with the new ID-based system. Images need to be explicitly uploaded.
     return [];
@@ -1298,7 +1403,8 @@ export default function CanvasAgentChat({
       return;
     }
 
-    if (showHistory) {
+    // Close history when sending message (always on mobile, conditionally on desktop)
+    if (showHistory && (isMobile || shouldShowHistoryAsOverlay)) {
       setShowHistory(false);
     }
 
@@ -1315,56 +1421,23 @@ export default function CanvasAgentChat({
 
     const targetSessionId = await ensureSession();
     
-    // Use WebSocket if enabled and connected
-    if (isWebSocketEnabled && wsConnected) {
-      appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
-      
-      // Get user's timezone and current time from browser
-      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const currentTime = new Date().toISOString();
-      const activeFilePath = currentFile?.path ?? null;
-      
-      // Send message with full context
-      sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>, {
-        activeFilePath,
-        userTimeZone,
-        currentTime,
-      });
-      
-      return;
-    }
+    // Use WebSocket to send message
+    appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
     
-    // Fallback to SSE if WebSocket not available
-    const currentPhase = runtimeStatusRef.current?.phase || 'idle';
-
-    if (currentPhase === 'idle') {
-      appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
-      await openRuntimeStream(targetSessionId, userMessage);
-      return;
-    }
-
-    if (!streamAbortRef.current || streamSessionRef.current !== targetSessionId) {
-      void openRuntimeStream(targetSessionId);
-    }
-
-    if (action === 'send') {
-      appendOptimisticUserMessage(rawText, messageAttachments, 'queued_follow_up', 'follow_up', userMessage);
-      await postControl(targetSessionId, 'follow_up', userMessage);
-      return;
-    }
-
-    if (action === 'steer') {
-      appendOptimisticUserMessage(rawText, messageAttachments, 'queued_steering', 'steer', userMessage);
-      await postControl(targetSessionId, 'steer', userMessage);
-      return;
-    }
-
-    appendOptimisticUserMessage(rawText, messageAttachments, 'sending', undefined, userMessage);
-    setMessages((prev) =>
-      prev.map((message) => (message.role === 'user' && message.status === 'sending' ? { ...message, status: 'aborting' } : message)),
-    );
-    await postControl(targetSessionId, 'replace', userMessage);
-  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, isWebSocketEnabled, wsConnected, sendMessage, openRuntimeStream, postControl, scanForImageReferences, showHistory]);
+    // Get user's timezone and current time from browser
+    const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const currentTime = new Date().toISOString();
+    const activeFilePath = currentFile?.path ?? null;
+    
+    // Send message with full context
+    sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>, {
+      activeFilePath,
+      userTimeZone,
+      currentTime,
+    });
+    
+    return;
+  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, sendMessage, showHistory, isMobile, shouldShowHistoryAsOverlay, scanForImageReferences]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -1413,9 +1486,11 @@ export default function CanvasAgentChat({
 
   // Cleanup on unmount
   useEffect(() => {
+    const channel = channelRef.current;
+    const streamAbort = streamAbortRef.current;
     return () => {
-      channelRef.current?.close();
-      streamAbortRef.current?.abort();
+      channel?.close();
+      streamAbort?.abort();
     };
   }, []);
 
@@ -1430,7 +1505,10 @@ export default function CanvasAgentChat({
     lastCompactionMarkerRef.current = null;
     userStartedNewChatRef.current = true;
     setMessages([]);
-    setShowHistory(false);
+    // Always close history on mobile when starting new chat, conditionally on desktop
+    if (isMobile || shouldShowHistoryAsOverlay) {
+      setShowHistory(false);
+    }
     setShowMobileDetails(false);
     setShowMobileActionPanel(false);
     if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
@@ -1440,7 +1518,7 @@ export default function CanvasAgentChat({
       setActiveModel(DEFAULT_MODEL_ID);
     }
     toolMessageIdsRef.current = {};
-  }, [agentConfig, resetStreamConnection]);
+  }, [agentConfig, resetStreamConnection, isMobile, shouldShowHistoryAsOverlay]);
 
   const loadSession = useCallback(async (session: AISession) => {
     resetStreamConnection();
@@ -1453,7 +1531,10 @@ export default function CanvasAgentChat({
     setShowMobileActionPanel(false);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
     setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
-    setShowHistory(false);
+    // Always close history on mobile, conditionally on desktop
+    if (isMobile || shouldShowHistoryAsOverlay) {
+      setShowHistory(false);
+    }
     toolMessageIdsRef.current = {};
 
     // Check if session has unread messages and show banner
@@ -1549,14 +1630,16 @@ export default function CanvasAgentChat({
         setRuntimeStatus(null);
       }
       
-      // Hide history view after loading session
-      setShowHistory(false);
+      // Hide history view after loading session (always on mobile, conditionally on desktop)
+      if (isMobile || shouldShowHistoryAsOverlay) {
+        setShowHistory(false);
+      }
       
     } catch (err) {
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [isWebSocketEnabled, openRuntimeStream, resetStreamConnection, setRuntimeStatusWithReconciliation, t]);
+  }, [isWebSocketEnabled, openRuntimeStream, resetStreamConnection, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay]);
 
   const deleteSession = useCallback(async (id: string) => {
     if (!confirm(t('deleteSessionConfirm'))) return;
@@ -1914,6 +1997,13 @@ export default function CanvasAgentChat({
     void fetchHistory();
   }, [fetchHistory, initialPrompt, requestedSessionId]);
 
+  // Fetch history when showing history panel and it's empty (mobile bug fix)
+  useEffect(() => {
+    if (showHistory && history.length === 0 && !isLoadingHistory) {
+      void fetchHistory();
+    }
+  }, [showHistory, history.length, fetchHistory, isLoadingHistory]);
+
   useEffect(() => {
     if (initialPrompt?.trim()) return;
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
@@ -2045,22 +2135,29 @@ export default function CanvasAgentChat({
 
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
-    setShowHistory(false);
+    // Always close history on mobile when applying starter prompt
+    if (isMobile || shouldShowHistoryAsOverlay) {
+      setShowHistory(false);
+    }
     setShowMobileActionPanel(false);
     textareaRef.current?.focus();
-  }, []);
+  }, [shouldShowHistoryAsOverlay, isMobile]);
 
   const composerPlaceholder = isMobile
     ? t('composerPlaceholderMobile')
     : isCompactComposer
       ? t('composerPlaceholderCompact')
       : t('composerPlaceholderDefault');
+  const composerPlaceholderText = isWebSocketUnavailable
+    ? t('liveUpdatesUnavailable')
+    : composerPlaceholder;
   const composerHint =
     runtimeStatus?.phase !== 'idle'
       ? isMobile
         ? t('composerHintBusyMobile')
         : t('composerHintBusyDesktop')
       : t('composerHintIdle');
+  const composerDisabled = isUploading || isWebSocketUnavailable;
   const activeReferenceKind = activeReferenceMatch?.kind;
   const referencePickerHeader = activeReferenceKind === 'skill'
     ? isLoadingReferenceItems
@@ -2077,9 +2174,43 @@ export default function CanvasAgentChat({
       ? t('noFilesFoundMatching', { query: activeReferenceMatch.query })
       : t('noFilesInWorkspace');
 
+  const startHistoryResizing = useCallback((e: React.MouseEvent) => {
+    isHistoryResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    historyResizeRef.current = {
+      startX: e.clientX,
+      startWidth: historySidebarWidth,
+    };
+  }, [historySidebarWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isHistoryResizing.current || !historyResizeRef.current) return;
+      const nextWidth = Math.min(400, Math.max(220, historyResizeRef.current.startWidth + (e.clientX - historyResizeRef.current.startX)));
+      setHistorySidebarWidth(nextWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isHistoryResizing.current) {
+        isHistoryResizing.current = false;
+        historyResizeRef.current = null;
+        document.body.style.cursor = 'default';
+        document.body.style.userSelect = 'auto';
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
-      {/* Main Navigation Header - Full Width */}
+    <div ref={containerRef} className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
+      {!hideNavHeader && (
       <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
         <div className="mx-auto flex h-full items-center justify-between px-4">
           <div className="flex items-center gap-2">
@@ -2107,6 +2238,7 @@ export default function CanvasAgentChat({
           </div>
         </div>
       </header>
+      )}
 
       {/* Compact Header Row */}
       <div className="z-10 border-b border-border bg-background/95">
@@ -2126,9 +2258,7 @@ export default function CanvasAgentChat({
               <button
                 type="button"
                 aria-label={t('toggleSidebar')}
-                onClick={() => {
-                  window.dispatchEvent(new CustomEvent('chat-toggle-sidebar'));
-                }}
+                onClick={() => setShowHistory(true)}
                 className="relative border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
                 title={t('toggleSidebar')}
               >
@@ -2141,9 +2271,7 @@ export default function CanvasAgentChat({
               </button>
             )}
             <div className="min-w-0">
-              {showHistory ? (
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('history')}</span>
-              ) : isMobile ? (
+              {isMobile ? (
                 <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('canvasChatLabel')}</span>
               ) : (
                 <div className="flex min-w-0 items-center gap-1.5">
@@ -2156,7 +2284,7 @@ export default function CanvasAgentChat({
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                     <span className="min-w-0 truncate max-w-[120px]">{sessionDisplayLabel}</span>
                   </div>
-                  {/* Model Badge */}
+                  {/* Model Badge *} */}
                   <div
                     data-testid="chat-model-badge"
                     title={t('currentModelLabel', { model: activeModel })}
@@ -2195,69 +2323,47 @@ export default function CanvasAgentChat({
         </div>
 
         {/* Compact Status Bar */}
-        {!showHistory && (
-          <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <ChatRuntimeActivityBadge status={runtimeStatus} />
-                
-                {/* Queue Badge */}
-                {runtimeStatus && totalQueuedMessages > 0 && (
-                  <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                    {t('queuedCount', { count: totalQueuedMessages })}
-                  </span>
-                )}
-                
-                {/* Summary Badge */}
-                {!isMobile && runtimeStatus?.includedSummary && (
-                  <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {t('summary')}
-                  </span>
-                )}
-                
-                {/* Active Tool Badge */}
-                {!isMobile && runtimeStatus?.activeTool && (
-                  <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
-                    <Wrench size={10} />
-                    {runtimeStatus.activeTool.name}
-                  </span>
-                )}
-              </div>
+        <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <ChatRuntimeActivityBadge status={runtimeStatus} />
               
-              {/* Right: Action Buttons */}
-              <div className="ml-auto flex flex-wrap items-center gap-1.5">
-                {!isMobile ? (
-                  <span
-                    data-testid="chat-context-meter"
-                    className="inline-flex items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                  >
-                    {contextLabel}
-                  </span>
-                ) : null}
-                {!isMobile && (
-                  <>
-                    <button
-                      type="button"
-                      data-testid="chat-stop"
-                      onClick={() => void handleStop()}
-                      disabled={!runtimeStatus?.canAbort}
-                      className="border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {t('stop')}
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="chat-compact"
-                      onClick={() => void handleCompact()}
-                      disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                      className="border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {t('compact')}
-                    </button>
-                  </>
-                )}
-                {isMobile && (
+              {/* Queue Badge */}
+              {runtimeStatus && totalQueuedMessages > 0 && (
+                <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                  {t('queuedCount', { count: totalQueuedMessages })}
+                </span>
+              )}
+              
+              {/* Summary Badge */}
+              {!isMobile && runtimeStatus?.includedSummary && (
+                <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {t('summary')}
+                </span>
+              )}
+              
+              {/* Active Tool Badge */}
+              {!isMobile && runtimeStatus?.activeTool && (
+                <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
+                  <Wrench size={10} />
+                  {runtimeStatus.activeTool.name}
+                </span>
+              )}
+            </div>
+            
+            {/* Right: Action Buttons */}
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              {!isMobile ? (
+                <span
+                  data-testid="chat-context-meter"
+                  className="inline-flex items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                >
+                  {contextLabel}
+                </span>
+              ) : null}
+              {!isMobile && (
+                <>
                   <button
                     type="button"
                     data-testid="chat-stop"
@@ -2267,92 +2373,239 @@ export default function CanvasAgentChat({
                   >
                     {t('stop')}
                   </button>
-                )}
-                {isMobile && (
                   <button
                     type="button"
-                    data-testid="chat-mobile-details-toggle"
-                    onClick={() => setShowMobileDetails((current) => !current)}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
+                    data-testid="chat-compact"
+                    onClick={() => void handleCompact()}
+                    disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                    className="border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {t('details')}
-                    {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    {t('compact')}
                   </button>
+                </>
+              )}
+              {isMobile && (
+                <button
+                  type="button"
+                  data-testid="chat-stop"
+                  onClick={() => void handleStop()}
+                  disabled={!runtimeStatus?.canAbort}
+                  className="border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {t('stop')}
+                </button>
+              )}
+              {isMobile && (
+                <button
+                  type="button"
+                  data-testid="chat-mobile-details-toggle"
+                  onClick={() => setShowMobileDetails((current) => !current)}
+                  className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
+                >
+                  {t('details')}
+                  {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                </button>
+              )}
+            </div>
+          </div>
+          
+          {/* Context Progress Bar - Slim */}
+          <div className="mt-1.5 flex items-center gap-2">
+            <div className="flex-1 h-1 overflow-hidden rounded-full bg-black/5 dark:bg-gray-700">
+              <div
+                data-testid="chat-context-progress"
+                className={`h-full rounded-full transition-all ${
+                  runtimeStatus?.phase === 'aborting'
+                    ? 'bg-rose-400'
+                    : runtimeStatus?.phase === 'running_tool'
+                      ? 'bg-amber-400'
+                      : 'bg-cyan-400'
+                }`}
+                style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
+              />
+            </div>
+          </div>
+          
+          {/* Mobile Details Panel */}
+          {isMobile && showMobileDetails && (
+            <div data-testid="chat-mobile-details-panel" className="mt-2 space-y-2 border-t border-border/50 pt-2">
+              <div className="flex flex-wrap gap-1.5">
+                <div
+                  data-testid="chat-session-id"
+                  title={sessionId || t('newChatTitle')}
+                  className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
+                >
+                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
+                  <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
+                </div>
+                <div
+                  data-testid="chat-model-badge"
+                  title={t('currentModelLabel', { model: activeModel })}
+                  className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] text-foreground"
+                >
+                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('modelLabel')}</span>
+                  <span className="max-w-[120px] truncate font-mono text-[9px]">{activeModel}</span>
+                </div>
+                {runtimeStatus?.includedSummary && (
+                  <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {t('summary')}
+                  </span>
+                )}
+                {runtimeStatus?.activeTool && (
+                  <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
+                    <Wrench size={9} />
+                    {runtimeStatus.activeTool.name}
+                  </span>
                 )}
               </div>
-            </div>
-            
-            {/* Context Progress Bar - Slim */}
-            <div className="mt-1.5 flex items-center gap-2">
-              <div className="flex-1 h-1 overflow-hidden rounded-full bg-black/5 dark:bg-gray-700">
-                <div
-                  data-testid="chat-context-progress"
-                  className={`h-full rounded-full transition-all ${
-                    runtimeStatus?.phase === 'aborting'
-                      ? 'bg-rose-400'
-                      : runtimeStatus?.phase === 'running_tool'
-                        ? 'bg-amber-400'
-                        : 'bg-cyan-400'
-                  }`}
-                  style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
-                />
+              <div data-testid="chat-context-meter" className="text-[10px] text-muted-foreground">
+                {contextLabel}
               </div>
-            </div>
-            
-            {/* Mobile Details Panel */}
-            {isMobile && showMobileDetails && (
-              <div data-testid="chat-mobile-details-panel" className="mt-2 space-y-2 border-t border-border/50 pt-2">
-                <div className="flex flex-wrap gap-1.5">
-                  <div
-                    data-testid="chat-session-id"
-                    title={sessionId || t('newChatTitle')}
-                    className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
-                  >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
-                    <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
+              {totalQueuedMessages > 0 && (
+                <div data-testid="chat-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
+                  <div className="mb-1 font-medium text-foreground">{t('queuedCount', { count: totalQueuedMessages })}</div>
+                  <div className="flex flex-wrap gap-1 text-muted-foreground">
+                    {queuePreview.map((entry) => (
+                      <span key={entry.id} className="border border-border/60 bg-muted/40 px-1.5 py-0.5">
+                        {entry.text || t('imageMessage')}
+                      </span>
+                    ))}
                   </div>
-                  <div
-                    data-testid="chat-model-badge"
-                    title={t('currentModelLabel', { model: activeModel })}
-                    className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] text-foreground"
-                  >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('modelLabel')}</span>
-                    <span className="max-w-[120px] truncate font-mono text-[9px]">{activeModel}</span>
-                  </div>
-                  {runtimeStatus?.includedSummary && (
-                    <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {t('summary')}
-                    </span>
-                  )}
-                  {runtimeStatus?.activeTool && (
-                    <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
-                      <Wrench size={9} />
-                      {runtimeStatus.activeTool.name}
-                    </span>
-                  )}
                 </div>
-                <div data-testid="chat-context-meter" className="text-[10px] text-muted-foreground">
-                  {contextLabel}
-                </div>
-                {totalQueuedMessages > 0 && (
-                  <div data-testid="chat-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
-                    <div className="mb-1 font-medium text-foreground">{t('queuedCount', { count: totalQueuedMessages })}</div>
-                    <div className="flex flex-wrap gap-1 text-muted-foreground">
-                      {queuePreview.map((entry) => (
-                        <span key={entry.id} className="border border-border/60 bg-muted/40 px-1.5 py-0.5">
-                          {entry.text || t('imageMessage')}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
                 )}
               </div>
             )}
-          </div>
-        )}
-      </div>
+           </div>
+         </div>
 
-      <div className="relative flex-1">
+        <div className="relative flex-1 flex min-h-0">
+        {showHistory && !shouldShowHistoryAsOverlay && (
+          <>
+            <div
+              className="flex-shrink-0 flex flex-col border-r border-border bg-card overflow-hidden"
+              style={{ width: `${historySidebarWidth}px` }}
+            >
+              <div className="shrink-0 space-y-2 border-b border-border p-3">
+                <div className="flex items-center gap-2">
+                  <History size={14} className="text-muted-foreground" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    {t('chatHistory')}
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={historySearchQuery}
+                    onChange={(e) => setHistorySearchQuery(e.target.value)}
+                    placeholder={t('searchSessions')}
+                    className="w-full rounded-md border border-border bg-background px-3 py-1.5 pl-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <Search
+                    size={14}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryUnreadOnly(!historyUnreadOnly)}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                      historyUnreadOnly
+                        ? 'border-primary/30 bg-primary/15 text-primary'
+                        : 'border-border bg-muted/30 text-muted-foreground'
+                    }`}
+                  >
+                    {historyUnreadOnly ? <Eye size={12} /> : <EyeOff size={12} />}
+                    {historyUnreadOnly ? t('filterUnreadOnly') : t('filterAllSessions')}
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2">
+                {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">{t('noRecentSessions')}</div>}
+                {Object.entries(filteredHistory).map(([group, sessions]) => {
+                  if (sessions.length === 0) return null;
+                  const groupLabels = {
+                    today: t('groupToday'),
+                    last7: t('groupLast7Days'),
+                    last14: t('groupLast14Days'),
+                    last30: t('groupLast30Days'),
+                    older: t('groupOlder'),
+                  };
+                  return (
+                    <div key={group} className="mb-4">
+                      <div className="mb-2 px-2 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+                        {groupLabels[group as keyof typeof groupLabels]} ({sessions.length})
+                      </div>
+                      {sessions.map((session) => {
+                        const isActive = sessionId === session.sessionId;
+                        return (
+                          <div key={session.id} className={`group mb-1 flex w-full items-center p-2 transition-all ${
+                            isActive
+                              ? 'border border-primary/30 bg-primary/10'
+                              : 'border border-transparent bg-muted/30 hover:border-border hover:bg-accent'
+                          }`}>
+                            <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
+                              {session.hasUnread && (
+                                <div
+                                  className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                                  title={t('unreadResponse')}
+                                  aria-label={t('unreadResponse')}
+                                />
+                              )}
+                              <div className="min-w-0 flex-1 text-left">
+                                <div className={`truncate text-sm font-medium ${
+                                  isActive ? 'text-primary' : 'text-foreground group-hover:text-primary'
+                                }`}>
+                                  {getSessionDisplayTitle(session.title, t('newChatTitle'))}
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                                  <span>{new Date(session.createdAt).toLocaleString()}</span>
+                                  <span>&bull;</span>
+                                  <span>{session.model}</span>
+                                </div>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void renameSession(session)}
+                              className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
+                              title={t('renameSession')}
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteSession(session.sessionId)}
+                              className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                              title={t('deleteSession')}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                {Object.values(filteredHistory).every(group => group.length === 0) && (
+                  <div className="p-8 text-center text-sm italic text-muted-foreground">
+                    {historySearchQuery || historyUnreadOnly
+                      ? t('noSessionsFoundWithFilter')
+                      : t('noRecentSessions')}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div
+              className="flex w-1 cursor-col-resize items-center justify-center bg-border transition-all hover:w-1.5 hover:bg-primary/60"
+              onMouseDown={startHistoryResizing}
+            >
+              <div className="h-8 w-0.5 bg-muted-foreground/60" />
+            </div>
+          </>
+        )}
+
+        <div className="relative flex-1 min-w-0 flex flex-col">
         {/* Unread Banner - shows when entering a session with unread AI responses */}
         {showUnreadBanner && hasUnreadInCurrentSession && (
           <div className="absolute top-0 left-0 right-0 z-30 flex justify-center">
@@ -2373,18 +2626,15 @@ export default function CanvasAgentChat({
           </div>
         )}
 
-        {showHistory && (
+        {showHistory && shouldShowHistoryAsOverlay && (
           <div className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-background">
-            {/* Filter Header */}
             <div className="shrink-0 space-y-2 border-b border-border p-3">
               <div className="flex items-center gap-2">
                 <History size={14} className="text-muted-foreground" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  {t('sessions')}
+                  {t('chatHistory')}
                 </span>
               </div>
-              
-              {/* Search Input */}
               <div className="relative">
                 <input
                   type="text"
@@ -2393,46 +2643,38 @@ export default function CanvasAgentChat({
                   placeholder={t('searchSessions')}
                   className="w-full rounded-md border border-border bg-background px-3 py-1.5 pl-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
-                <Search 
-                  size={14} 
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" 
+                <Search
+                  size={14}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
                 />
               </div>
-              
-              {/* Unread Toggle */}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setHistoryUnreadOnly(!historyUnreadOnly)}
                   className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
-                    historyUnreadOnly 
-                      ? 'border-primary/30 bg-primary/15 text-primary' 
+                    historyUnreadOnly
+                      ? 'border-primary/30 bg-primary/15 text-primary'
                       : 'border-border bg-muted/30 text-muted-foreground'
                   }`}
                 >
                   {historyUnreadOnly ? <Eye size={12} /> : <EyeOff size={12} />}
                   {historyUnreadOnly ? t('filterUnreadOnly') : t('filterAllSessions')}
                 </button>
-                {isMobile && (
-                  <button
-                    type="button"
-                    onClick={() => setShowHistory(false)}
-                    className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors"
-                  >
-                    <ChevronLeft size={12} />
-                    {t('backToChat')}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setShowHistory(false)}
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors"
+                >
+                  <ChevronLeft size={12} />
+                  {t('backToChat')}
+                </button>
               </div>
             </div>
-            
-            {/* Scrollable Session List */}
             <div className="flex-1 overflow-y-auto p-2 pb-20">
               {history.length === 0 && <div className="p-8 text-center text-sm italic text-muted-foreground">{t('noRecentSessions')}</div>}
-              
               {Object.entries(filteredHistory).map(([group, sessions]) => {
                 if (sessions.length === 0) return null;
-                
                 const groupLabels = {
                   today: t('groupToday'),
                   last7: t('groupLast7Days'),
@@ -2440,58 +2682,65 @@ export default function CanvasAgentChat({
                   last30: t('groupLast30Days'),
                   older: t('groupOlder'),
                 };
-                
                 return (
                   <div key={group} className="mb-4">
                     <div className="mb-2 px-2 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
                       {groupLabels[group as keyof typeof groupLabels]} ({sessions.length})
                     </div>
-                    {sessions.map((session) => (
-                      <div key={session.id} className="group mb-1 flex w-full items-center border border-transparent bg-muted/30 p-2 transition-all hover:border-border hover:bg-accent">
-                        <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
-                          {session.hasUnread && (
-                            <div 
-                              className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
-                              title={t('unreadResponse')}
-                              aria-label={t('unreadResponse')}
-                            />
-                          )}
-                          <div className="min-w-0 flex-1 text-left">
-                            <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">
-                              {getSessionDisplayTitle(session.title, t('newChatTitle'))}
+                    {sessions.map((session) => {
+                      const isActive = sessionId === session.sessionId;
+                      return (
+                        <div key={session.id} className={`group mb-1 flex w-full items-center p-2 transition-all ${
+                          isActive
+                            ? 'border border-primary/30 bg-primary/10'
+                            : 'border border-transparent bg-muted/30 hover:border-border hover:bg-accent'
+                        }`}>
+                          <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
+                            {session.hasUnread && (
+                              <div
+                                className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                                title={t('unreadResponse')}
+                                aria-label={t('unreadResponse')}
+                              />
+                            )}
+                            <div className="min-w-0 flex-1 text-left">
+                              <div className={`truncate text-sm font-medium ${
+                                isActive ? 'text-primary' : 'text-foreground group-hover:text-primary'
+                              }`}>
+                                {getSessionDisplayTitle(session.title, t('newChatTitle'))}
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                                <span>{new Date(session.createdAt).toLocaleString()}</span>
+                                <span>&bull;</span>
+                                <span>{session.model}</span>
+                              </div>
                             </div>
-                            <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                              <span>{new Date(session.createdAt).toLocaleString()}</span>
-                              <span>&bull;</span>
-                              <span>{session.model}</span>
-                            </div>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void renameSession(session)}
-                          className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-                          title={t('renameSession')}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deleteSession(session.sessionId)}
-                          className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-                          title={t('deleteSession')}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void renameSession(session)}
+                            className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
+                            title={t('renameSession')}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteSession(session.sessionId)}
+                            className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                            title={t('deleteSession')}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
-              
               {Object.values(filteredHistory).every(group => group.length === 0) && (
                 <div className="p-8 text-center text-sm italic text-muted-foreground">
-                  {historySearchQuery || historyUnreadOnly 
+                  {historySearchQuery || historyUnreadOnly
                     ? t('noSessionsFoundWithFilter')
                     : t('noRecentSessions')}
                 </div>
@@ -2707,6 +2956,13 @@ export default function CanvasAgentChat({
           </div>
         )}
 
+        {isWebSocketUnavailable && (
+          <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
+            <div className="font-medium">{t('liveUpdatesUnavailable')}</div>
+            <div className="mt-1 text-[11px] opacity-80">{t('liveUpdatesUnavailableDescription')}</div>
+          </div>
+        )}
+
         {attachments.length > 0 && (
           <div
             className={`mb-2 gap-2 border border-border bg-muted/60 p-2 ${
@@ -2750,7 +3006,7 @@ export default function CanvasAgentChat({
                   type="button"
                   data-testid="chat-steer"
                   onClick={() => void handleSteer()}
-                  disabled={!hasComposerContent}
+                  disabled={!hasComposerContent || isWebSocketUnavailable}
                 className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
               >
                   {t('steerAction')}
@@ -2759,7 +3015,7 @@ export default function CanvasAgentChat({
                   type="button"
                   data-testid="chat-send-now"
                   onClick={() => void handleNowSend()}
-                  disabled={!hasComposerContent}
+                  disabled={!hasComposerContent || isWebSocketUnavailable}
                 className="border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
               >
                   {t('sendNow')}
@@ -2789,7 +3045,7 @@ export default function CanvasAgentChat({
               type="button"
               data-testid="chat-steer"
               onClick={() => void handleSteer()}
-              disabled={!hasComposerContent}
+              disabled={!hasComposerContent || isWebSocketUnavailable}
               className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('steerAction')}
@@ -2798,7 +3054,7 @@ export default function CanvasAgentChat({
               type="button"
               data-testid="chat-send-now"
               onClick={() => void handleNowSend()}
-              disabled={!hasComposerContent}
+              disabled={!hasComposerContent || isWebSocketUnavailable}
               className="border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('sendNow')}
@@ -2810,7 +3066,7 @@ export default function CanvasAgentChat({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
+            disabled={composerDisabled}
             className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
             title={isUploading ? t('uploading') : t('attachImage')}
           >
@@ -2819,7 +3075,7 @@ export default function CanvasAgentChat({
               : <Paperclip className="h-5 w-5" />}
           </button>
           <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*,application/pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.html" multiple />
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-0">
             <textarea
               ref={textareaRef}
               data-testid="chat-input"
@@ -2828,8 +3084,9 @@ export default function CanvasAgentChat({
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={composerPlaceholder}
+              placeholder={composerPlaceholderText}
               style={{ height: `${textareaHeight}px` }}
+              disabled={isWebSocketUnavailable}
               className="w-full resize-none border border-border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm sm:placeholder:text-sm"
             />
 
@@ -2863,7 +3120,7 @@ export default function CanvasAgentChat({
             data-testid="chat-send"
             onClick={() => void handleSend()}
             className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
-            disabled={!hasComposerContent}
+            disabled={!hasComposerContent || isWebSocketUnavailable}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
               <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
@@ -2897,7 +3154,8 @@ export default function CanvasAgentChat({
             <Settings className="h-3 w-3" />
             <span>{t('settings')}</span>
           </Link>
-        </div>
+         </div>
+       </div>
       </div>
     </div>
   );

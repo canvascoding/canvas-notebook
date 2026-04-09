@@ -319,10 +319,15 @@ app
 
     // WebSocket Server for Chat
     const isWebSocketEnabled = process.env.WEBSOCKET_ENABLED === 'true';
-    
+
     if (isWebSocketEnabled) {
       console.log('[Startup] Initializing WebSocket Server...');
       try {
+        // Generate internal WebSocket secret for authenticated bridge
+        const { randomBytes } = require('crypto');
+        process.env.INTERNAL_WS_SECRET = randomBytes(32).toString('hex');
+        console.log('[Startup] Generated INTERNAL_WS_SECRET for WebSocket bridge');
+
         const { createWebSocketServer } = require('./server/websocket-server');
         createWebSocketServer(server);
         console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');

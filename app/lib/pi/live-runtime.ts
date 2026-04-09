@@ -73,6 +73,11 @@ export type RuntimeErrorEvent = {
 };
 
 export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | ContextCompactedEvent | RuntimeErrorEvent;
+export type PiRuntimePromptContext = {
+  activeFilePath?: string | null;
+  userTimeZone?: string;
+  currentTime?: string;
+};
 
 type RuntimeSubscriber = (event: PiRuntimeStreamEvent) => void;
 
@@ -151,6 +156,23 @@ function toPercent(used: number, available: number): number {
   }
 
   return Math.max(0, Math.min(100, Math.round((used / available) * 100)));
+}
+
+type PiRuntimePromptDispatchTarget = {
+  setTimeZoneContext: (timeZone: string, currentTime: string) => void;
+  setActiveFileContext: (path: string | null) => void;
+  startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
+};
+
+function applyPiRuntimePromptContext(
+  runtime: PiRuntimePromptDispatchTarget,
+  context?: PiRuntimePromptContext,
+) {
+  if (context?.userTimeZone && context.currentTime) {
+    runtime.setTimeZoneContext(context.userTimeZone, context.currentTime);
+  }
+
+  runtime.setActiveFileContext(context?.activeFilePath ?? null);
 }
 
 class LivePiRuntime {
@@ -421,6 +443,22 @@ class LivePiRuntime {
 
     this.publish(event);
     this.publishStatus();
+
+    // Broadcast all events to WebSocket clients via global emitter
+    if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
+      try {
+        void (async () => {
+          const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
+          const emitter = getPiRuntimeEventEmitter();
+          // Emit all events except agent_end (which triggers handleAgentEnd)
+          if (event.type !== 'agent_end') {
+            emitter.emitEvent(this.sessionId, this.userId, event as Record<string, unknown>);
+          }
+        })();
+      } catch {
+        // Non-critical: WebSocket emission failure should not break runtime
+      }
+    }
   }
 
   async transformContext(messages: AgentMessage[], signal?: AbortSignal) {
@@ -705,6 +743,19 @@ export async function getOrCreatePiRuntime(sessionId: string, userId: string) {
     store.runtimes.delete(key);
     throw error;
   }
+}
+
+export async function dispatchPiRuntimeUserMessage(
+  sessionId: string,
+  userId: string,
+  message: Extract<AgentMessage, { role: 'user' }>,
+  context?: PiRuntimePromptContext,
+  runtimeInstance?: PiRuntimePromptDispatchTarget,
+) {
+  const runtime = runtimeInstance ?? (await getOrCreatePiRuntime(sessionId, userId));
+  applyPiRuntimePromptContext(runtime, context);
+  runtime.startPrompt(message);
+  return runtime;
 }
 
 export async function getExistingPiRuntime(sessionId: string, userId: string) {
