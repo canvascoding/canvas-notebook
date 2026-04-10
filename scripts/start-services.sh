@@ -128,7 +128,8 @@ trap cleanup EXIT TERM INT
 
 # ─── Step 3: Next.js ─────────────────────────────────────────────────────
 step "Next.js startup"
-./node_modules/.bin/next start >> "$STARTUP_LOG" 2>&1 &
+# Use tsx to run server.js which loads TypeScript WebSocket server files
+npx tsx server.js >> "$STARTUP_LOG" 2>&1 &
 NEXT_PID=$!
 
 health_url="http://127.0.0.1:${PORT:-3000}/api/health"

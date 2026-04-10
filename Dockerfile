@@ -11,8 +11,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install -g npm@${NPM_VERSION}
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json package-lock.json .npmrc* ./
+RUN npm ci --legacy-peer-deps 2>&1 | tail -20 || npm ci
 
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
@@ -24,7 +24,8 @@ COPY . .
 RUN npm run build
 
 # Remove devDependencies after build to reduce size
-RUN npm prune --production
+# BUT keep tsx for running TypeScript server files at runtime
+RUN npm prune --production && npm install tsx
 
 FROM node:24-bookworm-slim AS runner
 WORKDIR /app
@@ -67,11 +68,11 @@ COPY --from=builder /app/app ./app
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
-# Copy runtime server entrypoints.
-# terminal-service.js stays as a deliberate JS artifact because the runner image executes it directly.
-COPY --from=builder /app/server/terminal-service.js ./server/terminal-service.js
-COPY --from=builder /app/server/load-app-env.js ./server/load-app-env.js
-COPY --from=builder /app/server/skills-runtime.js ./server/skills-runtime.js
+# Copy the main server.js file that initializes WebSocket server
+COPY --from=builder /app/server.js ./server.js
+
+# Copy runtime server TypeScript files (will be executed with tsx)
+COPY --from=builder /app/server ./server
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
