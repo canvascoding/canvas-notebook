@@ -23,7 +23,9 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { subscribeToPiRuntimeEvents, sendMessageViaRuntime, initializeWebSocketBridge, setUserActiveSession } from './websocket-runtime-bridge';
 
 // Initialize WebSocket bridge on module load
-if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
+// USE_SSE_FALLBACK: When set to 'true', don't initialize WebSocket bridge (use SSE instead)
+// Standard is WebSocket-only mode, so bridge is always initialized.
+if (typeof process !== 'undefined' && process.env.USE_SSE_FALLBACK !== 'true') {
   initializeWebSocketBridge();
 }
 

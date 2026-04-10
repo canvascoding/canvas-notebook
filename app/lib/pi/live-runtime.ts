@@ -441,10 +441,14 @@ class LivePiRuntime {
       void this.handleAgentEnd();
     }
 
-    // When WebSocket is enabled, only emit to WebSocket, not SSE
-    // This prevents duplicate events from SSE + WebSocket
-    if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
-      // Broadcast events to WebSocket clients via global emitter
+    // USE_SSE_FALLBACK: When set to 'true', use SSE. Otherwise (default), use WebSocket.
+    // Standard is WebSocket-only mode.
+    if (process.env.USE_SSE_FALLBACK === 'true') {
+      // SSE mode: Emit events via SSE (for clients using HTTP streaming)
+      this.publish(event);
+      this.publishStatus();
+    } else {
+      // WebSocket mode (default): Emit events via WebSocket only
       try {
         void (async () => {
           const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
@@ -459,10 +463,6 @@ class LivePiRuntime {
       }
       
       // Still publish status updates to local subscribers for UI updates
-      this.publishStatus();
-    } else {
-      // WebSocket disabled - use SSE as fallback
-      this.publish(event);
       this.publishStatus();
     }
   }
@@ -546,8 +546,9 @@ class LivePiRuntime {
     this.lastPersistedLength = allMessages.length;
     this.publishStatus();
 
-    // Broadcast session update via WebSocket Event Emitter
-    if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
+    // Broadcast session update via WebSocket Event Emitter (default mode)
+    // Only skip if USE_SSE_FALLBACK is explicitly set to true
+    if (process.env.USE_SSE_FALLBACK !== 'true') {
       try {
         const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
         const emitter = getPiRuntimeEventEmitter();
