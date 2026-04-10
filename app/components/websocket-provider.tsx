@@ -71,37 +71,14 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   useEffect(() => {
     if (!connected) return;
 
-    // Track processed agent events to prevent duplicates
-    const processedAgentEventsRef = new Set<string>();
-    const MAX_AGENT_EVENT_CACHE = 50;
-    
     const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: Record<string, unknown> }>) => {
       const { sessionId, event: agentEvent } = event.detail;
       
-      // Create unique event ID
-      const eventId = `${sessionId}-${agentEvent.timestamp || Date.now()}-${agentEvent.type}`;
-      
-      // Skip if already processed (prevents duplicates)
-      if (processedAgentEventsRef.has(eventId)) {
-        console.log('[WebSocketProvider] Skipping duplicate agent_event:', eventId);
-        return;
-      }
-      
-      // Add to processed set
-      processedAgentEventsRef.add(eventId);
-      
-      // Clean up old entries if cache is too large
-      if (processedAgentEventsRef.size > MAX_AGENT_EVENT_CACHE) {
-        const entries = Array.from(processedAgentEventsRef);
-        const toDelete = entries.slice(0, entries.length - MAX_AGENT_EVENT_CACHE);
-        toDelete.forEach(id => processedAgentEventsRef.delete(id));
-      }
-      
-      // Note: Toasts are now handled by the 'notification' event to avoid duplicates
+      // Note: Toasts are handled by the 'notification' event, not by agent_event
       // This handler only logs the event for debugging purposes
       if (agentEvent.type === 'message_end' && (agentEvent.message as Record<string, unknown>)?.role === 'assistant') {
         console.log('[WebSocketProvider] AI response complete in session:', sessionId);
-        console.log('[WebSocketProvider] Toast will be shown via notification event (not duplicated here)');
+        console.log('[WebSocketProvider] Toast will be shown via notification event');
       }
     };
 

@@ -1187,6 +1187,8 @@ export default function CanvasAgentChat({
     return assistantId;
   }, [setMessages]);
 
+
+
   const handleStreamEvent = useCallback((event: ChatEvent) => {
     if (event.type === 'runtime_status' && event.status) {
       setRuntimeStatusWithReconciliation(event.status);
@@ -1503,34 +1505,9 @@ export default function CanvasAgentChat({
   }, [appendSystemMessage, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection, t]);
 
   // Listen for WebSocket agent events
-  // Track processed events to prevent duplicates from SSE + WebSocket
-  const processedEventIdsRef = useRef<Set<string>>(new Set());
-  const MAX_EVENT_CACHE_SIZE = 100;
-  
   useEffect(() => {
     const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: ChatEvent }>) => {
       const { sessionId: eventSessionId, event: agentEvent } = event.detail;
-      
-      // Create unique event ID from sessionId, timestamp, and type
-      const eventId = `${eventSessionId}-${agentEvent?.timestamp || Date.now()}-${agentEvent?.type}`;
-      
-      // Skip if already processed (prevents duplicates from SSE + WebSocket)
-      if (processedEventIdsRef.current.has(eventId)) {
-        console.log('[CanvasAgentChat] Skipping duplicate event:', eventId);
-        return;
-      }
-      
-      // Add to processed set
-      processedEventIdsRef.current.add(eventId);
-      
-      // Clean up old entries if cache is too large
-      if (processedEventIdsRef.current.size > MAX_EVENT_CACHE_SIZE) {
-        const entriesToDelete = processedEventIdsRef.current.size - MAX_EVENT_CACHE_SIZE;
-        const entries = Array.from(processedEventIdsRef.current);
-        for (let i = 0; i < entriesToDelete; i++) {
-          processedEventIdsRef.current.delete(entries[i]);
-        }
-      }
       
       console.log('[CanvasAgentChat] Received agent_event:', eventSessionId, agentEvent?.type);
       console.log('[CanvasAgentChat] Current session:', sessionIdRef.current);

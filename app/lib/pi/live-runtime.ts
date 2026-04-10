@@ -441,11 +441,10 @@ class LivePiRuntime {
       void this.handleAgentEnd();
     }
 
-    this.publish(event);
-    this.publishStatus();
-
-    // Broadcast all events to WebSocket clients via global emitter
+    // When WebSocket is enabled, only emit to WebSocket, not SSE
+    // This prevents duplicate events from SSE + WebSocket
     if (typeof process !== 'undefined' && process.env.WEBSOCKET_ENABLED === 'true') {
+      // Broadcast events to WebSocket clients via global emitter
       try {
         void (async () => {
           const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
@@ -458,6 +457,13 @@ class LivePiRuntime {
       } catch {
         // Non-critical: WebSocket emission failure should not break runtime
       }
+      
+      // Still publish status updates to local subscribers for UI updates
+      this.publishStatus();
+    } else {
+      // WebSocket disabled - use SSE as fallback
+      this.publish(event);
+      this.publishStatus();
     }
   }
 
