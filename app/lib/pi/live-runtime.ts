@@ -546,39 +546,26 @@ class LivePiRuntime {
     this.lastPersistedLength = allMessages.length;
     this.publishStatus();
 
-    // Broadcast session update via WebSocket Event Emitter (default mode)
-    // Only skip if USE_SSE_FALLBACK is explicitly set to true
-    if (process.env.USE_SSE_FALLBACK !== 'true') {
+    // Update database with last message timestamp
+    // Note: message_end event is already broadcast by onAgentEvent, no need to emit again here
+    const lastMessage = allMessages[allMessages.length - 1];
+    if (lastMessage) {
       try {
-        const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
-        const emitter = getPiRuntimeEventEmitter();
+        const { db } = await import('@/app/lib/db');
+        const { piSessions } = await import('@/app/lib/db/schema');
+        const { and, eq } = await import('drizzle-orm');
         
-        const lastMessage = allMessages[allMessages.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant') {
-          // Emit event for WebSocket server to pick up
-          emitter.emitEvent(this.sessionId, this.userId, {
-            type: 'message_end',
-            message: lastMessage,
-            timestamp: Date.now(),
-          });
-          
-          // Update database
-          const { db } = await import('@/app/lib/db');
-          const { piSessions } = await import('@/app/lib/db/schema');
-          const { and, eq } = await import('drizzle-orm');
-          
-          const now = new Date();
-          await db.update(piSessions)
-            .set({ lastMessageAt: now, updatedAt: now })
-            .where(and(
-              eq(piSessions.sessionId, this.sessionId),
-              eq(piSessions.userId, this.userId)
-            ));
-          
-          console.log(`[LiveRuntime] Emitted message_end event for session ${this.sessionId}`);
-        }
+        const now = new Date();
+        await db.update(piSessions)
+          .set({ lastMessageAt: now, updatedAt: now })
+          .where(and(
+            eq(piSessions.sessionId, this.sessionId),
+            eq(piSessions.userId, this.userId)
+          ));
+        
+        console.log(`[LiveRuntime] Updated session ${this.sessionId} lastMessageAt`);
       } catch (error) {
-        console.error('[LiveRuntime] Error emitting WebSocket event:', error);
+        console.error('[LiveRuntime] Error updating database:', error);
       }
     }
 
