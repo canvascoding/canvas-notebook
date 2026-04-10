@@ -1,6 +1,6 @@
 /**
  * WebSocket Runtime Bridge
- *
+ * 
  * Connects PI Runtime events to WebSocket clients via the global event emitter.
  * This avoids circular dependencies and server-only import issues.
  */
@@ -106,8 +106,8 @@ export function unsubscribeFromPiRuntimeEvents(sessionId: string, userId: string
 }
 
 /**
- * Send message via HTTP POST to /api/stream with internal authentication.
- * This avoids the server-only import issue by using HTTP instead of direct function calls.
+ * Send message via PI Runtime HTTP API
+ * Forwards message with full context (activeFilePath, timezone, etc.)
  */
 export async function sendMessageViaRuntime(
   sessionId: string,
@@ -120,50 +120,28 @@ export async function sendMessageViaRuntime(
     workingDirectory?: string;
   }
 ): Promise<void> {
-  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via internal HTTP dispatch`);
-
-  const port = process.env.PORT || '3000';
-  const secret = process.env.INTERNAL_WS_SECRET;
-  if (!secret) {
-    throw new Error('INTERNAL_WS_SECRET not set - WebSocket bridge not initialized');
-  }
-
-  const controller = new AbortController();
-
+  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via HTTP API`);
+  
   try {
-    const response = await fetch(`http://localhost:${port}/api/stream`, {
+    // Forward to existing /api/stream endpoint with full context
+    const response = await fetch('http://localhost:3000/api/stream', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-WS-Secret': secret,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sessionId,
-        userId, // trusted because we supply the secret
+        userId,
         message,
-        messages: [message],
-        userTimeZone: context?.userTimeZone,
-        currentTime: context?.currentTime,
-        activeFilePath: context?.activeFilePath ?? null,
+        ...context,
       }),
-      signal: controller.signal,
     });
-
-    // Abort immediately after triggering - we don't need the response body
-    controller.abort();
-
+    
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-
-    console.log(`[WebSocket Bridge] Message dispatched to session ${sessionId}`);
+    
+    console.log(`[WebSocket Bridge] Message sent to session ${sessionId} with context:`, context);
   } catch (error) {
-    // Ignore AbortError since we intentionally abort after triggering
-    if ((error as Error).name === 'AbortError') {
-      console.log(`[WebSocket Bridge] Message dispatch triggered for session ${sessionId}`);
-      return;
-    }
-    console.error('[WebSocket Bridge] Error dispatching message:', error);
+    console.error('[WebSocket Bridge] Error sending message:', error);
     throw error;
   }
 }

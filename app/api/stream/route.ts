@@ -2,12 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 
 import { auth } from '@/app/lib/auth';
-import {
-  dispatchPiRuntimeUserMessage,
-  getOrCreatePiRuntime,
-  type PiRuntimePromptContext,
-  type PiRuntimeStreamEvent,
-} from '@/app/lib/pi/live-runtime';
+import { getOrCreatePiRuntime, type PiRuntimeStreamEvent } from '@/app/lib/pi/live-runtime';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export const runtime = 'nodejs';
@@ -47,32 +42,24 @@ function resolvePromptMessage(payload: unknown): Extract<AgentMessage, { role: '
 }
 
 export async function POST(request: NextRequest) {
-  // Internal WebSocket dispatch path (custom server -> Next.js)
-  const internalSecret = request.headers.get('x-internal-ws-secret');
-  const isInternal = internalSecret &&
-    internalSecret === process.env.INTERNAL_WS_SECRET &&
-    internalSecret.length > 0;
-
+  const payload = await request.json();
+  
+  // Check if this is an internal server-to-server call (has userId in body)
+  const bodyUserId = typeof payload?.userId === 'string' ? payload.userId.trim() : '';
   let userId: string;
-  let payload: unknown;
-
-  if (isInternal) {
-    // Trust request from the same Node.js process (localhost only)
-    const rawBody = await request.json() as { userId?: string };
-    const bodyUserId = typeof rawBody?.userId === 'string' ? rawBody.userId.trim() : '';
-    if (!bodyUserId) {
-      return NextResponse.json({ success: false, error: 'userId required for internal dispatch' }, { status: 400 });
-    }
+  
+  if (bodyUserId) {
+    // Internal call from WebSocket bridge - trust the userId from body
     userId = bodyUserId;
-    payload = rawBody;
+    console.log('[PI Stream] Internal server call with userId:', userId);
   } else {
+    // External browser call - require session auth
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
     userId = session.user.id;
-    payload = await request.json();
-
+    
     // Rate limit only applies to external browser requests
     const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'pi-stream' });
     if (!limited.ok) {
@@ -81,28 +68,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const sessionId = typeof (payload as { sessionId?: string })?.sessionId === 'string'
-      ? (payload as { sessionId: string }).sessionId.trim()
-      : '';
+    const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId.trim() : '';
     if (!sessionId) {
       return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
     }
 
-    // Extract prompt context from the client request.
-    const userTimeZone = typeof (payload as { userTimeZone?: string })?.userTimeZone === 'string'
-      ? (payload as { userTimeZone: string }).userTimeZone
-      : undefined;
-    const currentTime = typeof (payload as { currentTime?: string })?.currentTime === 'string'
-      ? (payload as { currentTime: string }).currentTime
-      : undefined;
-    const activeFilePath = typeof (payload as { activeFilePath?: string })?.activeFilePath === 'string'
-      ? (payload as { activeFilePath: string }).activeFilePath
-      : null;
-    const promptContext: PiRuntimePromptContext = {
-      userTimeZone,
-      currentTime,
-      activeFilePath,
-    };
+    // Extract timezone info from client
+    const userTimeZone = typeof payload?.userTimeZone === 'string' ? payload.userTimeZone : undefined;
+    const currentTime = typeof payload?.currentTime === 'string' ? payload.currentTime : undefined;
+    const activeFilePath = typeof payload?.activeFilePath === 'string' ? payload.activeFilePath : null;
 
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
     const promptMessage = resolvePromptMessage(payload);
@@ -110,6 +84,14 @@ export async function POST(request: NextRequest) {
     if (!promptMessage && !runtimeInstance.getStatus().canAbort) {
       return NextResponse.json({ success: false, error: 'Prompt message required when no run is active.' }, { status: 400 });
     }
+
+    // Set timezone context for this prompt
+    if (userTimeZone && currentTime) {
+      runtimeInstance.setTimeZoneContext(userTimeZone, currentTime);
+    }
+
+    // Set active file context for this prompt
+    runtimeInstance.setActiveFileContext(activeFilePath);
 
     const encoder = new TextEncoder();
 
@@ -160,18 +142,7 @@ export async function POST(request: NextRequest) {
         });
 
         if (promptMessage) {
-          void dispatchPiRuntimeUserMessage(
-            sessionId,
-            userId,
-            promptMessage,
-            promptContext,
-            runtimeInstance,
-          ).catch((error) => {
-            flushEvent({
-              type: 'error',
-              error: getErrorMessage(error),
-            });
-          });
+          runtimeInstance.startPrompt(promptMessage);
         }
 
         request.signal.addEventListener('abort', () => {

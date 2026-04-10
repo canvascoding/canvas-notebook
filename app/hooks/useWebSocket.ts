@@ -32,7 +32,7 @@ interface UseWebSocketReturn {
 
 export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSocketReturn, 'client'> & { client: () => WebSocketClient } {
   const {
-    autoConnect = false,
+    autoConnect = true,
     onConnected,
     onDisconnected,
     onError,
@@ -47,8 +47,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
     clientRef.current = getWebSocketClient();
 
     const client = clientRef.current;
-    setConnected(client.isConnected());
-    setError(client.getLastError());
 
     const handleConnected = () => {
       setConnected(true);
@@ -71,11 +69,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
     client.addEventListener('error', handleError as EventListener);
 
     if (autoConnect) {
-      client.connect().catch((connectError) => {
-        if ((connectError as { code?: string })?.code !== 'AUTH_ERROR') {
-          console.error('[useWebSocket] Connection failed:', connectError);
-        }
-      });
+      client.connect().catch(console.error);
     }
 
     return () => {

@@ -54,7 +54,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
-// Removed unused toast import
+import { toast } from 'sonner';
+import { useRouter } from '@/i18n/navigation';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
@@ -548,6 +549,7 @@ export default function CanvasAgentChat({
   const pathname = usePathname();
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const isMobile = useIsMobile();
+  const router = useRouter();
   const currentFile = useFileStore((s) => s.currentFile);
 
   // Container width detection for history layout
@@ -1124,7 +1126,207 @@ export default function CanvasAgentChat({
     return nextSessionId;
   }, [input, t, isWebSocketEnabled, wsConnected, subscribe]);
 
+  // Helper function to format tool arguments
+  const formatToolArgs = useCallback((args: unknown): string => {
+    if (args === undefined) {
+      return '';
+    }
+    if (typeof args === 'string') {
+      return args;
+    }
+    try {
+      return JSON.stringify(args, null, 2);
+    } catch {
+      return String(args);
+    }
+  }, []);
+
+  // Helper to update assistant message content
+  const updateAssistantMessage = useCallback((id: string, content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === id
+          ? { ...message, content: message.content ? content : normalizeMessageStart(content), type: type || message.type, status: status || message.status }
+          : message,
+      ),
+    );
+  }, [setMessages]);
+
+  // Helper to sync PI message to chat
+  const syncPiMessage = useCallback((id: string, piMessage: AgentMessage) => {
+    setMessages((prev) =>
+      prev.map((message) => {
+        if (message.id !== id) return message;
+        const nextContent = extractPiMessageText(piMessage);
+        const isAssistantError = piMessage.role === 'assistant' && (piMessage.stopReason === 'error' || piMessage.stopReason === 'aborted');
+        return {
+          ...message,
+          content: nextContent || message.content,
+          status: isAssistantError ? 'error' : 'sent',
+          type: isAssistantError ? 'system' : message.type,
+          piMessage,
+        };
+      }),
+    );
+  }, [setMessages]);
+
+  // Helper to create assistant message bubble
+  const createAssistantBubble = useCallback((message?: AgentMessage) => {
+    const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    currentAssistantIdRef.current = assistantId;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: assistantId,
+        role: 'assistant',
+        content: extractPiMessageText(message),
+        status: 'sending',
+        piMessage: message,
+      },
+    ]);
+    return assistantId;
+  }, [setMessages]);
+
   const handleStreamEvent = useCallback((event: ChatEvent) => {
+    if (event.type === 'runtime_status' && event.status) {
+      setRuntimeStatusWithReconciliation(event.status);
+      return;
+    }
+
+    if (event.type === 'context_compacted' && event.timestamp && event.kind) {
+      appendCompactionBreak(event.kind, event.timestamp, event.omittedMessageCount || 0);
+      return;
+    }
+
+    if (event.type === 'message_start' && event.message?.role === 'assistant') {
+      createAssistantBubble(event.message);
+      return;
+    }
+
+    if (event.type === 'message_update') {
+      const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
+      if (event.message?.role === 'assistant') {
+        syncPiMessage(assistantId, event.message);
+      }
+      if (event.assistantMessageEvent?.type === 'text_delta') {
+        updateAssistantMessage(assistantId, event.assistantMessageEvent.delta || '', undefined, 'sending');
+      }
+      return;
+    }
+
+    if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
+      syncPiMessage(assistantId, event.message);
+      currentAssistantIdRef.current = null;
+      
+      // Update session title from AI response if available
+      const assistantMessage = event.message;
+      if (assistantMessage && assistantMessage.content) {
+        const contentText = JSON.stringify(assistantMessage.content);
+        if (contentText.includes('title') || contentText.includes('Title')) {
+          const potentialTitle = contentText.slice(0, 120);
+          setSessionTitle(potentialTitle);
+          console.log('[CanvasAgentChat] Updated session title from AI response');
+        }
+      }
+      
+      // For WebSocket mode, lastMessageAt is updated by server
+      // For SSE mode, update it manually
+      if (!isWebSocketEnabled) {
+        const targetSessionId = streamSessionRef.current;
+        if (targetSessionId) {
+          const now = new Date();
+          void fetch('/api/sessions', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              sessionId: targetSessionId, 
+              lastMessageAt: now.toISOString() 
+            }),
+          }).catch(err => console.error('Failed to update lastMessageAt', err));
+        }
+      }
+      
+      // Show toast notification if user is NOT currently viewing this session
+      const targetSessionId = streamSessionRef.current || sessionIdRef.current;
+      const isViewingCurrentSession = isUserActiveInChat && sessionIdRef.current === targetSessionId;
+      
+      if (!isViewingCurrentSession && targetSessionId) {
+        const session = history.find(s => s.sessionId === targetSessionId);
+        const displayTitle = session 
+          ? getSessionDisplayTitle(session.title, t('newChatTitle')) 
+          : (sessionTitle || t('newChatTitle'));
+        
+        const wasHidden = !pageVisibleRef.current;
+        const duration = wasHidden ? 10000 : 4000;
+        
+        toast.info(t('newResponseReady'), {
+          description: displayTitle,
+          action: {
+            label: t('openSession'),
+            onClick: () => {
+              router.push(`${sessionBasePath}?session=${targetSessionId}`);
+            },
+          },
+          duration,
+          position: 'top-right',
+        });
+        
+        // Broadcast to other tabs only in SSE mode (WebSocket handles it server-side)
+        if (!isWebSocketEnabled && channelRef.current) {
+          channelRef.current.postMessage({
+            type: 'new-response',
+            sessionId: targetSessionId,
+            sessionTitle: displayTitle,
+          });
+        }
+      }
+      
+      return;
+    }
+
+    if (event.type === 'tool_execution_start') {
+      upsertToolMessage({
+        assistantMessageId: currentAssistantIdRef.current,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName || t('tool'),
+        toolArgs: formatToolArgs(event.args),
+        status: 'sending',
+        type: 'tool_use',
+      });
+      return;
+    }
+
+    if (event.type === 'tool_execution_update') {
+      upsertToolMessage({
+        assistantMessageId: currentAssistantIdRef.current,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName || t('tool'),
+        content: extractToolResultText(event.partialResult?.content),
+        status: 'sending',
+        type: 'tool_use',
+      });
+      return;
+    }
+
+    if (event.type === 'tool_execution_end') {
+      const text = extractToolResultText(event.result?.content);
+      upsertToolMessage({
+        assistantMessageId: currentAssistantIdRef.current,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName || t('tool'),
+        content: text,
+        status: 'sent',
+        type: 'tool_result',
+        piMessage: {
+          role: 'toolResult',
+          content: text ? [{ type: 'text', text }] : [],
+          timestamp: Date.now(),
+        } as AgentMessage,
+      });
+      return;
+    }
+
     if (event.type === 'tool_result') {
       const { toolCallId, text } = event;
       upsertToolMessage({
@@ -1149,12 +1351,9 @@ export default function CanvasAgentChat({
     if (event.type === 'message' && event.message) {
       const message = event.message;
       if (message.role === 'assistant') {
-        // Update or append assistant message
         setMessages((prev) => {
           const lastMessage = prev[prev.length - 1];
-          // Check if we should update the last assistant message or add a new one
           if (lastMessage && lastMessage.role === 'assistant' && lastMessage.status === 'pending') {
-            // Update existing assistant message
             return [
               ...prev.slice(0, -1),
               {
@@ -1167,7 +1366,6 @@ export default function CanvasAgentChat({
               } as ChatMessage,
             ];
           }
-          // Add new assistant message
           return [
             ...prev,
             {
@@ -1206,22 +1404,6 @@ export default function CanvasAgentChat({
       return;
     }
 
-    // Handle runtime status updates
-    if (event.type === 'runtime_status' && event.status) {
-      setRuntimeStatus(event.status);
-      return;
-    }
-
-    // Handle context compaction events
-    if (event.type === 'context_compacted' && event.timestamp && event.kind) {
-      appendCompactionBreak(
-        event.kind,
-        event.timestamp,
-        event.omittedMessageCount || 0
-      );
-      return;
-    }
-
     // Handle messages array (bulk update)
     if (event.type === 'messages' && event.messages) {
       const newMessages = event.messages.map((msg: AgentMessage, index: number) => ({
@@ -1238,7 +1420,7 @@ export default function CanvasAgentChat({
       setMessages((prev) => [...prev, ...newMessages]);
       return;
     }
-  }, [appendSystemMessage, t, upsertToolMessage, setRuntimeStatus, appendCompactionBreak, setMessages]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, history, isUserActiveInChat, isWebSocketEnabled, pageVisibleRef, router, sessionBasePath, sessionTitle, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, updateAssistantMessage, upsertToolMessage]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
@@ -1324,7 +1506,10 @@ export default function CanvasAgentChat({
   useEffect(() => {
     const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: ChatEvent }>) => {
       const { sessionId: eventSessionId, event: agentEvent } = event.detail;
+      console.log('[CanvasAgentChat] Received agent_event:', eventSessionId, agentEvent?.type);
+      console.log('[CanvasAgentChat] Current session:', sessionIdRef.current);
       if (eventSessionId === sessionIdRef.current) {
+        console.log('[CanvasAgentChat] Processing event for current session');
         handleStreamEvent(agentEvent);
       }
     };
@@ -1386,7 +1571,7 @@ export default function CanvasAgentChat({
     return id;
   }, []);
 
-  const scanForImageReferences = useCallback(async (_text?: string): Promise<Attachment[]> => {
+  const scanForImageReferences = useCallback(async (): Promise<Attachment[]> => {
     // This function is disabled for now - it would need a different approach
     // with the new ID-based system. Images need to be explicitly uploaded.
     return [];
@@ -1408,7 +1593,7 @@ export default function CanvasAgentChat({
       setShowHistory(false);
     }
 
-    const autoAttachments = override ? [] : await scanForImageReferences(rawText);
+    const autoAttachments = override ? [] : await scanForImageReferences();
     const messageAttachments = [...baseAttachments, ...autoAttachments];
     const userMessage: Extract<AgentMessage, { role: 'user' }> = {
       role: 'user',
