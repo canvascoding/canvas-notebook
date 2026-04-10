@@ -15,6 +15,8 @@ export class WebSocketClient extends EventTarget {
   private subscribedSessions = new Set<string>();
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private isManualDisconnect = false;
+  private messageQueue: Array<Record<string, unknown>> = [];
+  private isConnecting = false;
 
   constructor(baseUrl?: string) {
     super();
@@ -35,6 +37,20 @@ export class WebSocketClient extends EventTarget {
    * Connect to WebSocket server
    */
   connect(): Promise<void> {
+    if (this.isConnecting) {
+      return new Promise((resolve) => {
+        const checkConnected = () => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            resolve();
+          } else {
+            setTimeout(checkConnected, 100);
+          }
+        };
+        checkConnected();
+      });
+    }
+    
+    this.isConnecting = true;
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(this.baseUrl);
@@ -43,12 +59,16 @@ export class WebSocketClient extends EventTarget {
           console.log('[WebSocket] Connected');
           this.reconnectAttempts = 0;
           this.startPing();
+          this.isConnecting = false;
           this.dispatchEvent(new CustomEvent('connected'));
 
           // Re-subscribe to sessions
           for (const sessionId of this.subscribedSessions) {
             this.send({ type: 'subscribe_session', sessionId });
           }
+          
+          // Flush any queued messages
+          this.flushMessageQueue();
 
           resolve();
         };
@@ -65,6 +85,7 @@ export class WebSocketClient extends EventTarget {
 
         this.ws.onerror = (error) => {
           console.error('[WebSocket] Error:', error);
+          this.isConnecting = false;
           this.dispatchEvent(new CustomEvent('error', { detail: { error: 'Connection error' } }));
           reject(error);
         };
@@ -79,6 +100,7 @@ export class WebSocketClient extends EventTarget {
         };
       } catch (error) {
         console.error('[WebSocket] Connection error:', error);
+        this.isConnecting = false;
         reject(error);
       }
     });
@@ -104,12 +126,34 @@ export class WebSocketClient extends EventTarget {
    * Send message to server
    */
   send(message: Record<string, unknown>): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[WebSocket] Cannot send message - not connected');
+    // If connected, send immediately
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message));
       return;
     }
-
-    this.ws.send(JSON.stringify(message));
+    
+    // Queue message for later if not connected
+    console.log('[WebSocket] Connection not ready, queuing message:', message.type);
+    this.messageQueue.push(message);
+    
+    // Try to connect if not already connecting
+    if (!this.isConnecting && !this.isManualDisconnect) {
+      this.connect().catch(err => {
+        console.error('[WebSocket] Failed to auto-connect:', err);
+      });
+    }
+  }
+  
+  private flushMessageQueue(): void {
+    if (this.messageQueue.length === 0) return;
+    
+    console.log('[WebSocket] Flushing', this.messageQueue.length, 'queued messages');
+    while (this.messageQueue.length > 0) {
+      const message = this.messageQueue.shift();
+      if (message && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify(message));
+      }
+    }
   }
 
   /**

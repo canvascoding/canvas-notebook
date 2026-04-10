@@ -50,3 +50,33 @@ The user can use special prefixes in their messages to reference files and skill
 
 - **`@` followed by a file path** (e.g., `@/data/workspace/file.md` or `@src/index.ts`) — This refers to a specific file. The user wants you to read, analyze, or work with that file's content.
 - **`/` followed by a name** (e.g., `/context7-mcp` or `/vibe-security`) — This refers to a skill. The user wants to activate or reference a specific skill by name. Available skills include: `context7-mcp`, `find-skills`, `vibe-security`.
+
+## Referencing Files in Chat Responses
+
+When you reference files in your responses, **always use relative paths from the workspace root** and format them as Markdown links. This allows the user to click on them and open the file directly in the preview panel.
+
+### Rules for File References
+
+1. **Always use relative paths** — Never use `/data/workspace/` in your responses. Instead of `/data/workspace/src/components/Button.tsx`, use `src/components/Button.tsx`.
+2. **Format as Markdown links** — Use the syntax `[filename.ext](relative/path/to/file.ext)` so the file is clickable.
+3. **Be precise** — Always include the full relative path so the user knows exactly where the file is located.
+4. **Works for all file types** — This works for code files, documents, images, and any other files in the workspace.
+
+### Examples
+
+When you create or reference files, format them like this:
+
+✅ **Good:**
+- "Ich habe die Datei [Button.tsx](src/components/Button.tsx) erstellt."
+- "Die Konfiguration findest du in [package.json](package.json)."
+- "Dokumentation ist in [README.md](docs/README.md) verfügbar."
+- "Bild gespeichert unter [logo.png](assets/images/logo.png)."
+
+❌ **Avoid:**
+- "Ich habe die Datei `/data/workspace/src/components/Button.tsx` erstellt." (absolute path)
+- "Button.tsx ist jetzt fertig." (no path, not clickable)
+- "Die Datei liegt im components Ordner." (vague, not clickable)
+
+### Important
+
+The user sees the workspace as their base directory. Relative paths like `src/components/Button.tsx` automatically resolve to `/data/workspace/src/components/Button.tsx` internally. By using relative paths in your responses, the UI can render them as clickable links that open the file in the preview panel and highlight it in the file browser.

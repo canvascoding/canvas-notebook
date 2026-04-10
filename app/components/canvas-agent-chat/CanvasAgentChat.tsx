@@ -464,6 +464,74 @@ function getCompactBreakLabel(
   return baseLabel;
 }
 
+// Component for clickable file links in markdown
+function FileLink({ href, children }: { href: string; children: React.ReactNode }) {
+  const fileStore = useFileStore();
+  const fileTree = fileStore.fileTree;
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Normalize the path (remove leading/trailing slashes)
+    const normalizedPath = href.replace(/^\.\/|\/$/g, '');
+
+    if (!normalizedPath) return;
+
+    // Find the file node in the tree
+    const findNodeInTree = (nodes: typeof fileTree, path: string): typeof fileTree[0] | null => {
+      for (const node of nodes) {
+        if (node.path === path) return node;
+        if (node.children) {
+          const found = findNodeInTree(node.children, path);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const node = findNodeInTree(fileTree, normalizedPath);
+
+    if (node) {
+      // Select the node (this will expand directories in the file browser)
+      fileStore.selectNode(node);
+      
+      // If it's a file, load it
+      if (node.type === 'file') {
+        fileStore.loadFile(node.path);
+      }
+    } else {
+      // Try to load the file directly even if not in tree
+      fileStore.loadFile(normalizedPath);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className="cursor-pointer underline underline-offset-2 text-primary hover:text-primary/80 transition-colors"
+      title={`Open ${href}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Check if a URL looks like a file path
+function isFilePath(href: string): boolean {
+  // Skip external URLs, anchors, and empty strings
+  if (!href || href.startsWith('http') || href.startsWith('#') || href.startsWith('mailto:')) {
+    return false;
+  }
+  
+  // Check if it looks like a file path (has extension or is a relative path)
+  const hasExtension = /\.[^./\\]+$/.test(href);
+  const isRelativePath = !href.startsWith('/') && (href.includes('/') || hasExtension);
+  const isAbsoluteWorkspacePath = href.startsWith('/data/workspace/');
+  
+  return isRelativePath || isAbsoluteWorkspacePath;
+}
+
 function MarkdownMessage({ content, variant }: { content: string; variant: 'user' | 'assistant' | 'tool' }) {
   const sharedClasses =
     'break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
@@ -472,9 +540,32 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
       ? '[&_blockquote]:border-primary-foreground/40 [&_pre]:border-primary-foreground/20 [&_pre]:bg-primary-foreground/10 [&_code]:bg-primary-foreground/15 [&_th]:border-primary-foreground/20 [&_td]:border-primary-foreground/20'
       : '[&_blockquote]:border-border/80 [&_pre]:border-border [&_pre]:bg-background/80 [&_code]:bg-background/80 [&_th]:border-border [&_td]:border-border';
 
+  const components = {
+    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+      if (href && isFilePath(href)) {
+        return <FileLink href={href}>{children}</FileLink>;
+      }
+      // External links
+      return (
+        <a 
+          href={href} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="underline underline-offset-2"
+        >
+          {children}
+        </a>
+      );
+    },
+  };
+
   return (
     <div className={`${sharedClasses} ${toneClasses}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+      <ReactMarkdown 
+        remarkPlugins={[remarkGfm]} 
+        rehypePlugins={[rehypeHighlight]}
+        components={components}
+      >
         {content}
       </ReactMarkdown>
     </div>
