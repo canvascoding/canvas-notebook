@@ -318,7 +318,8 @@ app
     });
 
     // WebSocket Server for Chat
-    const isWebSocketEnabled = process.env.WEBSOCKET_ENABLED === 'true';
+    // Standard: WebSocket ist aktiviert (außer USE_SSE_FALLBACK=true)
+    const isWebSocketEnabled = process.env.USE_SSE_FALLBACK !== 'true';
 
     if (isWebSocketEnabled) {
       console.log('[Startup] Initializing WebSocket Server...');
@@ -331,7 +332,7 @@ app
         console.error('[Startup] Stack trace:', error.stack);
       }
     } else {
-      console.log('[Startup] WebSocket Server disabled (WEBSOCKET_ENABLED=false)');
+      console.log('[Startup] WebSocket Server disabled (USE_SSE_FALLBACK=true)');
     }
 
     server.listen(port, (err) => {
