@@ -129,7 +129,8 @@ trap cleanup EXIT TERM INT
 # ─── Step 3: Next.js ─────────────────────────────────────────────────────
 step "Next.js startup"
 # Use tsx to run server.js which loads TypeScript WebSocket server files
-npx tsx server.js >> "$STARTUP_LOG" 2>&1 &
+# Output directly to stdout (not redirected) so logs appear in docker logs
+npx tsx server.js &
 NEXT_PID=$!
 
 health_url="http://127.0.0.1:${PORT:-3000}/api/health"
