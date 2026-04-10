@@ -71,45 +71,37 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   useEffect(() => {
     if (!connected) return;
 
+    // Track processed agent events to prevent duplicates
+    const processedAgentEventsRef = new Set<string>();
+    const MAX_AGENT_EVENT_CACHE = 50;
+    
     const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: Record<string, unknown> }>) => {
       const { sessionId, event: agentEvent } = event.detail;
       
-      // Check if user is viewing THIS EXACT session
-      const isViewingCurrentSession = currentSessionRef.current === sessionId;
+      // Create unique event ID
+      const eventId = `${sessionId}-${agentEvent.timestamp || Date.now()}-${agentEvent.type}`;
       
-      // Handle message_end event (AI response complete)
+      // Skip if already processed (prevents duplicates)
+      if (processedAgentEventsRef.has(eventId)) {
+        console.log('[WebSocketProvider] Skipping duplicate agent_event:', eventId);
+        return;
+      }
+      
+      // Add to processed set
+      processedAgentEventsRef.add(eventId);
+      
+      // Clean up old entries if cache is too large
+      if (processedAgentEventsRef.size > MAX_AGENT_EVENT_CACHE) {
+        const entries = Array.from(processedAgentEventsRef);
+        const toDelete = entries.slice(0, entries.length - MAX_AGENT_EVENT_CACHE);
+        toDelete.forEach(id => processedAgentEventsRef.delete(id));
+      }
+      
+      // Note: Toasts are now handled by the 'notification' event to avoid duplicates
+      // This handler only logs the event for debugging purposes
       if (agentEvent.type === 'message_end' && (agentEvent.message as Record<string, unknown>)?.role === 'assistant') {
         console.log('[WebSocketProvider] AI response complete in session:', sessionId);
-        console.log('[WebSocketProvider] currentSessionRef:', currentSessionRef.current, 'event sessionId:', sessionId);
-        console.log('[WebSocketProvider] isViewingCurrentSession:', isViewingCurrentSession);
-        
-        // Don't show toast if user is viewing THIS EXACT session
-        if (isViewingCurrentSession) {
-          console.log('[WebSocketProvider] User is viewing THIS session - suppressing toast');
-          return;
-        }
-
-        // Check tab visibility and focus
-        const isTabVisible = document.visibilityState === 'visible';
-        const isTabFocused = document.hasFocus();
-
-        // Only show toast if tab is visible AND focused
-        if (isTabVisible && isTabFocused) {
-          console.log('[WebSocketProvider] Showing toast for session', sessionId);
-          toast.info(t('newResponseReady'), {
-            description: sessionId, // TODO: Get session title from event
-            action: {
-              label: t('openSession'),
-              onClick: () => {
-                router.push(`/notebook?session=${sessionId}`);
-              },
-            },
-            duration: 4000,
-            position: 'top-right',
-          });
-        } else {
-          console.log('[WebSocketProvider] Tab not visible/focused, suppressing toast');
-        }
+        console.log('[WebSocketProvider] Toast will be shown via notification event (not duplicated here)');
       }
     };
 

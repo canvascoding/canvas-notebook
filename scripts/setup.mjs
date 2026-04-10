@@ -363,13 +363,13 @@ async function main() {
   step(1, 'Checking Docker...');
   let dockerOk = false;
   try {
-    execSync('docker --version', { stdio: 'pipe' });
-    execSync('docker compose version', { stdio: 'pipe' });
+    execSync('docker --version', { stdio: 'pipe', timeout: 5000 });
+    execSync('docker compose version', { stdio: 'pipe', timeout: 5000 });
     dockerOk = true;
   } catch {
     // check if Docker is installed but not running
     try {
-      execSync('docker info', { stdio: 'pipe' });
+      execSync('docker info', { stdio: 'pipe', timeout: 5000 });
       dockerOk = true;
     } catch {
       dockerOk = false;
@@ -384,7 +384,7 @@ async function main() {
 
   // Verify Docker daemon is actually running
   try {
-    execSync('docker info', { stdio: 'pipe' });
+    execSync('docker info', { stdio: 'pipe', timeout: 5000 });
   } catch {
     fail('Docker is installed but not running.');
     console.log();
