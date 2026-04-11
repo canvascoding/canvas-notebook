@@ -7,6 +7,9 @@
 
 import { getPiRuntimeEventEmitter } from '@/app/lib/pi/runtime-event-emitter';
 import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUser } from './websocket-server';
+import { db } from '@/app/lib/db';
+import { piSessions } from '@/app/lib/db/schema';
+import { eq, and } from 'drizzle-orm';
 
 // Track which sessions are subscribed
 const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
@@ -40,7 +43,7 @@ export function initializeWebSocketBridge(): void {
   
   const emitter = getPiRuntimeEventEmitter();
   
-  emitter.onAgentEvent((data) => {
+  emitter.onAgentEvent(async (data) => {
     const { sessionId, userId, event } = data;
     
     console.log(`[WebSocket Bridge] Received event for session ${sessionId}:`, event.type);
@@ -61,7 +64,25 @@ export function initializeWebSocketBridge(): void {
         // User is NOT viewing this session → mark as unread
         // Broadcast to USER (all tabs/devices)
         broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
-        broadcastNotification(userId, sessionId, sessionId, 'new_response', messagePreview);
+        
+        // Fetch session title from database for the notification
+        try {
+          const session = await db.query.piSessions.findFirst({
+            where: and(
+              eq(piSessions.sessionId, sessionId),
+              eq(piSessions.userId, userId)
+            ),
+            columns: { title: true }
+          });
+          
+          const sessionTitle = session?.title || `Session ${sessionId.slice(0, 8)}`;
+          broadcastNotification(userId, sessionId, sessionTitle, 'new_response', messagePreview);
+        } catch (error) {
+          console.error(`[WebSocket Bridge] Failed to fetch session title:`, error);
+          // Fallback: use sessionId as title
+          broadcastNotification(userId, sessionId, sessionId, 'new_response', messagePreview);
+        }
+        
         console.log(`[WebSocket Bridge] AI response in session ${sessionId}: User ${userId} NOT viewing → marked as unread`);
       } else {
         // User IS viewing this session → no toast needed, but still update lastMessageAt

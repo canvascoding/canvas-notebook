@@ -200,6 +200,20 @@ function isTextPart(value: unknown): value is { type: 'text'; text: string } {
   return isRecord(value) && value.type === 'text' && typeof value.text === 'string';
 }
 
+// Helper to safely convert message content to string
+function contentToString(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (isTextPart(part) ? part.text : ''))
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+}
+
 function isImagePart(value: unknown): value is { type: 'image'; data: string; mimeType: string } {
   return isRecord(value) && value.type === 'image' && typeof value.data === 'string' && typeof value.mimeType === 'string';
 }
@@ -3124,7 +3138,7 @@ export default function CanvasAgentChat({
 
             const title = isUser ? t('you') : isTool ? (message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
             const bodyContent =
-              message.content ||
+              contentToString(message.content) ||
               (message.status === 'queued_follow_up'
                 ? t('queuedAfterCurrentRun')
                 : message.status === 'queued_steering'
