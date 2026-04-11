@@ -23,6 +23,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const isUserActiveRef = useRef(false);
   const clientRef = useRef<WebSocketClient | null>(null);
   const [connected, setConnected] = useState(false);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
   // Initialize WebSocket connection
   useEffect(() => {
@@ -67,41 +68,26 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
   }, []);
 
-  // Handle agent events
-  useEffect(() => {
-    if (!connected) return;
-
-    const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: Record<string, unknown> }>) => {
-      const { sessionId, event: agentEvent } = event.detail;
+  // Initialize BroadcastChannel for cross-tab notifications
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      broadcastChannelRef.current = new BroadcastChannel('canvas-notifications');
       
-      // Note: Toasts are handled by the 'notification' event, not by agent_event
-      // This handler only logs the event for debugging purposes
-      if (agentEvent.type === 'message_end' && (agentEvent.message as Record<string, unknown>)?.role === 'assistant') {
-        console.log('[WebSocketProvider] AI response complete in session:', sessionId);
-        console.log('[WebSocketProvider] Toast will be shown via notification event');
-      }
-    };
-
-    const handleNotification = (event: CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string; messagePreview?: string }>) => {
-      const { sessionId, sessionTitle, notificationType, messagePreview } = event.detail;
-      
-      // Don't show notification if user is viewing THIS EXACT session
-      const isViewingCurrentSession = currentSessionRef.current === sessionId;
-      if (isViewingCurrentSession) {
-        console.log('[WebSocketProvider] User viewing THIS session', sessionId, '- suppressing notification');
-        return;
-      }
-
-      // Check tab visibility and focus
-      const isTabVisible = document.visibilityState === 'visible';
-      const isTabFocused = document.hasFocus();
-
-      // Only show toast if tab is visible AND focused
-      if (isTabVisible && isTabFocused) {
-        console.log('[WebSocketProvider] Showing notification for session', sessionId);
+      // Listen for notifications from other tabs
+      broadcastChannelRef.current.onmessage = (event) => {
+        const { sessionId, sessionTitle, notificationType, messagePreview } = event.data;
         
-        // Truncate session title for mobile-friendly display
-        const truncatedTitle = sessionTitle.length > 30 ? sessionTitle.slice(0, 30) + '...' : sessionTitle;
+        // Check if this tab is viewing the session AND is focused
+        const isViewingThisSession = currentSessionRef.current === sessionId;
+        const isTabFocused = document.hasFocus();
+        const isTabVisible = document.visibilityState === 'visible';
+        
+        // Suppress only if viewing session in focused tab
+        if (isViewingThisSession && isTabFocused && isTabVisible) {
+          return;
+        }
+        
+        // Show toast (same logic as handleNotification)
+        const truncatedTitle = sessionTitle?.length > 30 ? sessionTitle.slice(0, 30) + '...' : sessionTitle;
         
         switch (notificationType) {
           case 'new_response':
@@ -134,10 +120,88 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
             });
             break;
         }
-      } else {
-        console.log('[WebSocketProvider] Tab not visible/focused, suppressing notification');
+      };
+    }
+
+    // Handle agent events
+  useEffect(() => {
+    if (!connected) return;
+
+    const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: Record<string, unknown> }>) => {
+      const { sessionId, event: agentEvent } = event.detail;
+      
+      // Note: Toasts are handled by the 'notification' event, not by agent_event
+      // This handler only logs the event for debugging purposes
+      if (agentEvent.type === 'message_end' && (agentEvent.message as Record<string, unknown>)?.role === 'assistant') {
+        console.log('[WebSocketProvider] AI response complete in session:', sessionId);
+        console.log('[WebSocketProvider] Toast will be shown via notification event');
       }
     };
+
+    const handleNotification = (event: CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string; messagePreview?: string }>) => {
+      const { sessionId, sessionTitle, notificationType, messagePreview } = event.detail;
+      
+      // Check if this tab is viewing the session AND is focused
+      const isViewingThisSession = currentSessionRef.current === sessionId;
+      const isTabFocused = document.hasFocus();
+      const isTabVisible = document.visibilityState === 'visible';
+      
+      // Suppress toast only if:
+      // 1. This tab is viewing the session AND
+      // 2. The tab is focused AND visible
+      if (isViewingThisSession && isTabFocused && isTabVisible) {
+        console.log('[WebSocketProvider] User viewing session', sessionId, 'in focused tab - suppressing notification');
+        return;
+      }
+
+      // Show toast in all other cases (different session OR tab not focused)
+      console.log('[WebSocketProvider] Showing notification for session', sessionId);
+      
+      // Truncate session title for mobile-friendly display
+      const truncatedTitle = sessionTitle.length > 30 ? sessionTitle.slice(0, 30) + '...' : sessionTitle;
+      
+      switch (notificationType) {
+        case 'new_response':
+          toast.info(truncatedTitle, {
+            description: messagePreview || t('newResponseReady'),
+            action: {
+              label: t('openSession'),
+              onClick: () => {
+                router.push(`/notebook?session=${sessionId}`);
+              },
+            },
+            duration: 4000,
+            position: 'top-right',
+          });
+          break;
+
+        case 'tool_complete':
+          toast.success('Tool execution complete', {
+            description: sessionTitle,
+            duration: 3000,
+            position: 'top-right',
+          });
+          break;
+
+        case 'error':
+          toast.error('Error in session', {
+            description: sessionTitle,
+            duration: 5000,
+            position: 'top-right',
+          });
+          break;
+      }
+    };
+
+    // Broadcast notifications to other tabs
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.postMessage({
+          sessionId,
+          sessionTitle,
+          notificationType,
+          messagePreview,
+        });
+      }
 
     // Handle session_updated events (for updating history unread status)
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string }>) => {
@@ -158,6 +222,12 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       window.removeEventListener('agent_event', handleAgentEvent as EventListener);
       window.removeEventListener('notification', handleNotification as EventListener);
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
+      
+      // Cleanup BroadcastChannel
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.close();
+        broadcastChannelRef.current = null;
+      }
     };
   }, [connected, router, t]);
 

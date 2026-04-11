@@ -1208,11 +1208,8 @@ export default function CanvasAgentChat({
     
     sessionIdRef.current = nextSessionId;
     
-    // Subscribe to session via WebSocket immediately
-    if (isWebSocketEnabled && wsConnected && nextSessionId) {
-      subscribe(nextSessionId);
-      console.log(`[CanvasAgentChat] Auto-subscribed to new session ${nextSessionId}`);
-    }
+    // Note: Subscription happens automatically via useEffect when sessionId changes
+    // No need to subscribe here manually to avoid double subscription
     
     return nextSessionId;
   }, [input, t, isWebSocketEnabled, wsConnected, subscribe]);
