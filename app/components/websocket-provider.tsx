@@ -69,6 +69,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   }, []);
 
   // Initialize BroadcastChannel for cross-tab notifications
+  useEffect(() => {
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       broadcastChannelRef.current = new BroadcastChannel('canvas-notifications');
       
@@ -122,6 +123,14 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         }
       };
     }
+    
+    return () => {
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.close();
+        broadcastChannelRef.current = null;
+      }
+    };
+  }, [router, t]);
 
     // Handle agent events
   useEffect(() => {
@@ -191,9 +200,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
           });
           break;
       }
-    };
-
-    // Broadcast notifications to other tabs
+      
+      // Broadcast notifications to other tabs
       if (broadcastChannelRef.current) {
         broadcastChannelRef.current.postMessage({
           sessionId,
@@ -202,6 +210,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
           messagePreview,
         });
       }
+    };
 
     // Handle session_updated events (for updating history unread status)
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string }>) => {

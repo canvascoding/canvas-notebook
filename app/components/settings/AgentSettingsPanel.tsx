@@ -3,12 +3,28 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2 } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { PiProviderSetupCard } from './PiProviderSetupCard';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 
@@ -127,6 +143,10 @@ export function AgentSettingsPanel() {
     'TOOLS.md': '',
   });
   const [activeFile, setActiveFile] = useState<ManagedFileName>('AGENTS.md');
+  const [filesResetting, setFilesResetting] = useState(false);
+
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetTarget, setResetTarget] = useState<'current' | 'all' | null>(null);
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -240,6 +260,68 @@ export function AgentSettingsPanel() {
     } finally {
       setFilesSaving(false);
     }
+  };
+
+  const resetFile = async () => {
+    if (!resetTarget) return;
+
+    setFilesResetting(true);
+    setFilesError(null);
+    setFilesSuccess(null);
+
+    try {
+      if (resetTarget === 'current') {
+        const payload = await fetchJson<{ fileName: ManagedFileName; content: string }>('/api/agents/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'reset',
+            fileName: activeFile,
+          }),
+        });
+
+        setFiles((current) => ({
+          ...(current || fileDrafts),
+          [payload.fileName]: payload.content,
+        }));
+        setFileDrafts((current) => ({
+          ...current,
+          [payload.fileName]: payload.content,
+        }));
+        setFilesSuccess(t('agentPanel.files.resetSuccess', { fileName: payload.fileName }));
+      } else {
+        const payload = await fetchJson<{ files: Array<{ fileName: ManagedFileName; content: string }> }>('/api/agents/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'reset',
+          }),
+        });
+
+        const newFiles: Record<ManagedFileName, string> = { ...fileDrafts };
+        for (const { fileName, content } of payload.files) {
+          newFiles[fileName] = content;
+        }
+
+        setFiles((current) => ({
+          ...(current || fileDrafts),
+          ...newFiles,
+        }));
+        setFileDrafts(newFiles);
+        setFilesSuccess(t('agentPanel.files.resetAllSuccess'));
+      }
+    } catch (error) {
+      setFilesError(error instanceof Error ? error.message : t('agentPanel.files.errors.reset'));
+    } finally {
+      setFilesResetting(false);
+      setResetDialogOpen(false);
+      setResetTarget(null);
+    }
+  };
+
+  const openResetDialog = (target: 'current' | 'all') => {
+    setResetTarget(target);
+    setResetDialogOpen(true);
   };
 
   const createSession = async () => {
@@ -475,19 +557,57 @@ export function AgentSettingsPanel() {
               {filesSuccess && <p className="text-sm text-primary">{filesSuccess}</p>}
 
               <div className="flex flex-wrap gap-2">
-                <Button data-testid="agent-managed-file-save" onClick={() => void saveActiveFile()} disabled={filesSaving}>
+                <Button data-testid="agent-managed-file-save" onClick={() => void saveActiveFile()} disabled={filesSaving || filesResetting}>
                   {filesSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   {t('agentPanel.files.save')}
                 </Button>
-                <Button variant="outline" onClick={() => void loadFiles()} disabled={filesLoading || filesSaving}>
+                <Button variant="outline" onClick={() => void loadFiles()} disabled={filesLoading || filesSaving || filesResetting}>
                   <RefreshCw className="mr-2 h-4 w-4" />
                   {t('agentPanel.files.reload')}
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" disabled={filesLoading || filesSaving || filesResetting}>
+                      {filesResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                      {t('agentPanel.files.reset')}
+                      <ChevronDown className="ml-2 h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => openResetDialog('current')}>
+                      {t('agentPanel.files.resetCurrentFile')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => openResetDialog('all')}>
+                      {t('agentPanel.files.resetAllFiles')}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </>
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {resetTarget === 'all' ? t('agentPanel.files.confirmResetAllTitle') : t('agentPanel.files.confirmResetTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {resetTarget === 'all' ? t('agentPanel.files.confirmResetAll') : t('agentPanel.files.confirmReset', { fileName: activeFile })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setResetDialogOpen(false); setResetTarget(null); }}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => void resetFile()}>
+              {t('agentPanel.files.reset')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardHeader>

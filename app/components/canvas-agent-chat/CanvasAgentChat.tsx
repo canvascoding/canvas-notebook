@@ -493,9 +493,29 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
     const node = findNodeInTree(fileTree, normalizedPath);
 
     if (node) {
-      // Select the node (this will expand directories in the file browser)
+      // Get all parent directories of the node
+      const getParentDirectories = (filePath: string): string[] => {
+        const parts = filePath.split('/');
+        const dirs: string[] = [];
+        // Build paths for all parent directories
+        for (let i = 1; i < parts.length; i++) {
+          const dirPath = parts.slice(0, i).join('/');
+          if (dirPath) dirs.push(dirPath);
+        }
+        return dirs;
+      };
+
+      // Expand all parent directories so the file is visible in the tree
+      const parentDirs = getParentDirectories(node.path);
+      parentDirs.forEach((dirPath) => {
+        if (!fileStore.expandedDirs.has(dirPath)) {
+          fileStore.toggleDirectory(dirPath);
+        }
+      });
+
+      // Select the node (this will mark it as active in the file browser)
       fileStore.selectNode(node);
-      
+
       // If it's a file, load it
       if (node.type === 'file') {
         fileStore.loadFile(node.path);

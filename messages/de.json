@@ -582,9 +582,19 @@
         "save": "Speichern",
         "reload": "Neu laden",
         "saved": "{fileName} gespeichert.",
+        "reset": "Zurücksetzen",
+        "resetCurrentFile": "Diese Datei zurücksetzen",
+        "resetAllFiles": "Alle Dateien zurücksetzen",
+        "resetSuccess": "{fileName} zurückgesetzt.",
+        "resetAllSuccess": "Alle Dateien zurückgesetzt.",
+        "confirmResetTitle": "Datei zurücksetzen?",
+        "confirmReset": "Möchtest du {fileName} wirklich auf den Standard-Prompt zurücksetzen?",
+        "confirmResetAllTitle": "Alle Dateien zurücksetzen?",
+        "confirmResetAll": "Möchtest du wirklich alle Dateien auf die Standard-Prompts zurücksetzen?",
         "errors": {
           "load": "Agent-Dateien konnten nicht geladen werden.",
-          "save": "Agent-Datei konnte nicht gespeichert werden."
+          "save": "Agent-Datei konnte nicht gespeichert werden.",
+          "reset": "Agent-Datei konnte nicht zurückgesetzt werden."
         }
       },
       "sessions": {

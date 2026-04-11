@@ -582,9 +582,19 @@
         "save": "Save",
         "reload": "Reload",
         "saved": "Saved {fileName}.",
+        "reset": "Reset",
+        "resetCurrentFile": "Reset current file",
+        "resetAllFiles": "Reset all files",
+        "resetSuccess": "Reset {fileName}.",
+        "resetAllSuccess": "All files reset.",
+        "confirmResetTitle": "Reset file?",
+        "confirmReset": "Are you sure you want to reset {fileName} to the default prompt?",
+        "confirmResetAllTitle": "Reset all files?",
+        "confirmResetAll": "Are you sure you want to reset all files to the default prompts?",
         "errors": {
           "load": "Failed to load agent files.",
-          "save": "Failed to save agent file."
+          "save": "Failed to save agent file.",
+          "reset": "Failed to reset agent file."
         }
       },
       "sessions": {
