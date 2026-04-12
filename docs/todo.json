@@ -379,6 +379,24 @@
           ]
         }
       }
+    },
+    {
+      "id": "40",
+      "content": "Fix /chat websocket subscription race so assistant messages stream and render reliably",
+      "status": "in_progress",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "currentState": [
+          "CanvasAgentChat waits for useWebSocket.connected before subscribing to session events",
+          "The shared WebSocket singleton can already be open before the hook mounts, leaving the local connected flag false",
+          "That blocks subscribe_session and mark_read on /chat, so agent events never reach the chat UI"
+        ],
+        "plannedFix": [
+          "Hydrate the hook's connected state from the already-open singleton on mount",
+          "Verify /chat receives runtime_status and agent_event updates again"
+        ]
+      }
     }
   ]
 }

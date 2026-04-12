@@ -47,6 +47,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
     clientRef.current = getWebSocketClient();
 
     const client = clientRef.current;
+    const isAlreadyConnected = client.isConnected();
 
     const handleConnected = () => {
       setConnected(true);
@@ -70,6 +71,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
 
     if (autoConnect) {
       client.connect().catch(console.error);
+    }
+
+    // If the shared singleton is already open, hydrate local state immediately.
+    // This avoids missing the one-time `connected` event when a component mounts
+    // after the provider has already established the WebSocket connection.
+    setConnected(isAlreadyConnected);
+    if (isAlreadyConnected) {
+      setError(null);
     }
 
     return () => {
