@@ -145,7 +145,7 @@ export function BulkMoveDialog() {
   const handleConfirmMove = async () => {
     setIsMoving(true);
     let successCount = 0;
-    let movedPaths: string[] = [];
+    const movedPaths: string[] = [];
     
     for (const path of multiSelectPaths) {
       const name = path.split('/').pop() || path;

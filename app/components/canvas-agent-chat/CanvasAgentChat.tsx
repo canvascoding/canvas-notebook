@@ -1241,7 +1241,7 @@ export default function CanvasAgentChat({
     // No need to subscribe here manually to avoid double subscription
 
     return nextSessionId;
-  }, [input, t, isWebSocketEnabled, wsConnected, subscribe, activeModel]);
+  }, [input, t, activeModel]);
 
   // Helper function to format tool arguments
   const formatToolArgs = useCallback((args: unknown): string => {
