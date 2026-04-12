@@ -51,8 +51,10 @@ export function initializeWebSocketBridge(): void {
     // Broadcast to all WebSocket clients subscribed to this session
     broadcastAgentEvent(sessionId, event);
     
-    // Handle specific events - AI response completed
-    if (event.type === 'message_end') {
+    // Handle message_saved event - this is emitted AFTER the message is saved to DB
+    if (event.type === 'message_saved') {
+      console.log(`[WebSocket Bridge] Received message_saved event for session ${sessionId}`);
+      
       // Check if user is currently viewing this session
       const isUserViewing = isUserViewingSession(userId, sessionId);
       
@@ -63,7 +65,7 @@ export function initializeWebSocketBridge(): void {
         
         // Fetch session info and last assistant message from database
         try {
-          // Get session info including ID for message lookup
+          // Get session info
           const session = await db.query.piSessions.findFirst({
             where: and(
               eq(piSessions.sessionId, sessionId),
@@ -115,7 +117,7 @@ export function initializeWebSocketBridge(): void {
           broadcastNotification(userId, sessionId, sessionId, 'new_response', '');
         }
       } else {
-        // User IS viewing this session → no toast needed, but still update lastMessageAt
+        // User IS viewing this session → no toast needed
         console.log(`[WebSocket Bridge] AI response in session ${sessionId}: User ${userId} IS viewing → live update only`);
       }
     }

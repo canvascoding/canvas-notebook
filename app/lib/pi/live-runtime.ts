@@ -547,7 +547,6 @@ class LivePiRuntime {
     this.publishStatus();
 
     // Update database with last message timestamp
-    // Note: message_end event is already broadcast by onAgentEvent, no need to emit again here
     const lastMessage = allMessages[allMessages.length - 1];
     if (lastMessage) {
       try {
@@ -566,6 +565,23 @@ class LivePiRuntime {
         console.log(`[LiveRuntime] Updated session ${this.sessionId} lastMessageAt`);
       } catch (error) {
         console.error('[LiveRuntime] Error updating database:', error);
+      }
+    }
+    
+    // Emit message_saved event AFTER everything is saved to database
+    // This allows notification system to read from DB without race conditions
+    if (lastMessage && lastMessage.role === 'assistant') {
+      try {
+        const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
+        const emitter = getPiRuntimeEventEmitter();
+        emitter.emitEvent(this.sessionId, this.userId, {
+          type: 'message_saved',
+          message: lastMessage,
+          timestamp: Date.now(),
+        });
+        console.log(`[LiveRuntime] Emitted message_saved event for session ${this.sessionId}`);
+      } catch (error) {
+        console.error('[LiveRuntime] Error emitting message_saved event:', error);
       }
     }
 
