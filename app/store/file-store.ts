@@ -89,7 +89,7 @@ interface FileStoreState {
   selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean) => void;
   createPath: (path: string, type: 'file' | 'directory') => Promise<void>;
   deletePath: (path: string | string[]) => Promise<void>;
-  renamePath: (oldPath: string, newPath: string) => Promise<void>;
+  renamePath: (oldPath: string, newPath: string, overwrite?: boolean) => Promise<void>;
   uploadFile: (file: File | File[], targetDir: string) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
   toggleDirectory: (path: string) => void;
@@ -427,7 +427,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  renamePath: async (oldPath: string, newPath: string) => {
+  renamePath: async (oldPath: string, newPath: string, overwrite = false) => {
     set({ treeError: null });
 
     try {
@@ -437,12 +437,23 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ oldPath, newPath }),
+        body: JSON.stringify({ oldPath, newPath, overwrite }),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to rename path');
+        // Create a more detailed error with additional fields
+        const err = new Error(error.error || 'Failed to rename path') as Error & {
+          code?: string;
+          type?: string;
+          sourcePath?: string;
+          destPath?: string;
+        };
+        err.code = error.code;
+        err.type = error.type;
+        err.sourcePath = error.sourcePath;
+        err.destPath = error.destPath;
+        throw err;
       }
 
       const { selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();

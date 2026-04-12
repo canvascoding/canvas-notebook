@@ -130,10 +130,78 @@ export async function deleteFile(filePath: string): Promise<void> {
   await fs.rm(fullPath, { recursive: true, force: true });
 }
 
-export async function renameFile(oldPath: string, newPath: string): Promise<void> {
+export interface RenameConflictError extends Error {
+  code: 'FILE_EXISTS' | 'DIRECTORY_EXISTS' | 'SOURCE_NOT_FOUND';
+  type: 'file' | 'directory';
+  sourcePath: string;
+  destPath: string;
+}
+
+export async function checkRenameConflict(oldPath: string, newPath: string): Promise<null | RenameConflictError> {
   const fullOldPath = validatePath(oldPath);
   const fullNewPath = validatePath(newPath);
-  await createDirectory(path.dirname(newPath));
+  
+  // Check if source exists
+  try {
+    await fs.access(fullOldPath);
+  } catch {
+    const error = new Error(`Source path does not exist: ${oldPath}`) as RenameConflictError;
+    error.code = 'SOURCE_NOT_FOUND';
+    error.type = 'file';
+    error.sourcePath = oldPath;
+    error.destPath = newPath;
+    return error;
+  }
+  
+  // Check if destination already exists
+  try {
+    const destStat = await fs.stat(fullNewPath);
+    const isSourceDirectory = (await fs.stat(fullOldPath)).isDirectory();
+    
+    if (destStat.isDirectory()) {
+      // Directory exists at destination - cannot overwrite
+      const error = new Error(`Directory already exists at destination: ${newPath}`) as RenameConflictError;
+      error.code = 'DIRECTORY_EXISTS';
+      error.type = 'directory';
+      error.sourcePath = oldPath;
+      error.destPath = newPath;
+      return error;
+    } else {
+      // File exists at destination
+      const error = new Error(`File already exists at destination: ${newPath}`) as RenameConflictError;
+      error.code = 'FILE_EXISTS';
+      error.type = isSourceDirectory ? 'directory' : 'file';
+      error.sourcePath = oldPath;
+      error.destPath = newPath;
+      return error;
+    }
+  } catch {
+    // Destination does not exist - no conflict
+    return null;
+  }
+}
+
+export async function renameFile(oldPath: string, newPath: string, overwrite = false): Promise<void> {
+  const fullOldPath = validatePath(oldPath);
+  const fullNewPath = validatePath(newPath);
+  
+  // Ensure parent directory exists
+  const parentDir = path.dirname(newPath);
+  if (parentDir && parentDir !== '.') {
+    await createDirectory(parentDir);
+  }
+  
+  // Check for conflicts
+  const conflict = await checkRenameConflict(oldPath, newPath);
+  if (conflict) {
+    if (conflict.code === 'FILE_EXISTS' && overwrite) {
+      // Delete existing file and proceed
+      await fs.unlink(fullNewPath);
+    } else {
+      throw conflict;
+    }
+  }
+  
   await fs.rename(fullOldPath, fullNewPath);
 }
 
