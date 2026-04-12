@@ -1,0 +1,34 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - button "Switch language" [ref=e4]:
+      - img
+      - generic [ref=e5]: Switch language
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - img "Canvas logo" [ref=e8]
+        - heading "Canvas Notebook" [level=1] [ref=e9]
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: Email
+          - textbox "Email" [ref=e13]:
+            - /placeholder: Enter email
+            - text: info@canvasstudios.store
+        - generic [ref=e14]:
+          - generic [ref=e15]: Password
+          - textbox "Password" [ref=e16]:
+            - /placeholder: Enter password
+            - text: Lukas2002#
+        - button "Login" [ref=e17]
+  - region "Notifications alt+T"
+  - generic [ref=e22] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e23]:
+      - img [ref=e24]
+    - generic [ref=e64]:
+      - button "Open issues overlay" [ref=e65]:
+        - generic [ref=e66]:
+          - generic [ref=e67]: "0"
+          - generic [ref=e68]: "1"
+        - generic [ref=e69]: Issue
+      - button "Collapse issues badge" [ref=e70]:
+        - img [ref=e71]
+  - alert [ref=e27]

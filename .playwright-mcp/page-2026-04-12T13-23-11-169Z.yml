@@ -1,0 +1,36 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - button "Switch language" [ref=e4]:
+      - img
+      - generic [ref=e5]: Switch language
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - img "Canvas logo" [ref=e8]
+        - heading "Canvas Notebook" [level=1] [ref=e9]
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: Email
+          - textbox "Email" [ref=e13]:
+            - /placeholder: Enter email
+            - text: info@canvasstudios.store
+        - generic [ref=e14]:
+          - generic [ref=e15]: Password
+          - textbox "Password" [ref=e16]:
+            - /placeholder: Enter password
+            - text: Lukas2002#
+        - button "Login" [ref=e17]
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=e44]:
+        - button "Close toast" [ref=e45] [cursor=pointer]:
+          - img [ref=e46]
+        - img [ref=e50]
+        - generic [ref=e55]: Invalid email or password
+  - button "Open Next.js Dev Tools" [ref=e56] [cursor=pointer]:
+    - generic [ref=e59]:
+      - text: Compiling
+      - generic [ref=e60]:
+        - generic [ref=e61]: .
+        - generic [ref=e62]: .
+        - generic [ref=e63]: .
+  - alert [ref=e27]

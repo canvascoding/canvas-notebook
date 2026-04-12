@@ -80,27 +80,28 @@ export function BulkActionsToolbar({ className }: BulkActionsToolbarProps) {
   return (
     <div
       className={cn(
-        'absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-background/95 px-4 py-2 shadow-lg backdrop-blur-sm',
+        'absolute bottom-4 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-lg border border-border bg-background/95 px-3 py-2 shadow-lg backdrop-blur-sm [@media(max-width:280px)]:flex-col',
         className
       )}
     >
-      <div className="flex items-center gap-2 text-sm font-medium">
+      <div className="flex items-center gap-2 text-sm font-medium shrink-0">
         <CheckSquare className="h-4 w-4 text-primary" />
         <span>{t('selectedCount', { count: selectedCount })}</span>
       </div>
 
-      <div className="mx-2 h-4 w-px bg-border" />
+      <div className="h-4 w-px bg-border shrink-0 hidden [@media(min-width:281px)]:block" />
 
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-center gap-1">
         <Button
           variant="ghost"
           size="sm"
           onClick={handleMove}
           disabled={hasProtected}
           className="h-8 px-2"
+          title={t('move')}
         >
-          <Move className="mr-1 h-4 w-4" />
-          {t('move')}
+          <Move className="h-4 w-4" />
+          <span className="ml-1">{t('move')}</span>
         </Button>
 
         <Button
@@ -108,9 +109,10 @@ export function BulkActionsToolbar({ className }: BulkActionsToolbarProps) {
           size="sm"
           onClick={handleDownload}
           className="h-8 px-2"
+          title={t('download')}
         >
-          <Download className="mr-1 h-4 w-4" />
-          {t('download')}
+          <Download className="h-4 w-4" />
+          <span className="ml-1">{t('download')}</span>
         </Button>
 
         <Button
@@ -119,19 +121,21 @@ export function BulkActionsToolbar({ className }: BulkActionsToolbarProps) {
           onClick={handleDelete}
           disabled={hasProtected}
           className="h-8 px-2 text-destructive hover:text-destructive"
+          title={t('delete')}
         >
-          <Trash2 className="mr-1 h-4 w-4" />
-          {t('delete')}
+          <Trash2 className="h-4 w-4" />
+          <span className="ml-1">{t('delete')}</span>
         </Button>
       </div>
 
-      <div className="mx-1 h-4 w-px bg-border" />
+      <div className="h-4 w-px bg-border shrink-0 hidden [@media(min-width:281px)]:block" />
 
       <Button
         variant="ghost"
         size="sm"
         onClick={clearMultiSelect}
-        className="h-8 px-2"
+        className="h-8 px-2 shrink-0"
+        title={t('cancel')}
       >
         <X className="h-4 w-4" />
       </Button>
