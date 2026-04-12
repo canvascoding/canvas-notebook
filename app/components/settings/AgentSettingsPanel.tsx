@@ -123,6 +123,7 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 export function AgentSettingsPanel() {
   const locale = useLocale();
   const t = useTranslations('settings');
+  const tCommon = useTranslations('common');
   const searchParams = useSearchParams();
 
   const [doctorResult, setDoctorResult] = useState<DoctorResult | null>(null);
@@ -600,7 +601,7 @@ export function AgentSettingsPanel() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => { setResetDialogOpen(false); setResetTarget(null); }}>
-              {t('common.cancel')}
+              {tCommon('cancel')}
             </AlertDialogCancel>
             <AlertDialogAction onClick={() => void resetFile()}>
               {t('agentPanel.files.reset')}

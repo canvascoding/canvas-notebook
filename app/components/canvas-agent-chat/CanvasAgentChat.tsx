@@ -1235,18 +1235,46 @@ export default function CanvasAgentChat({
 
     const nextSessionId = createSessionPayload.session.sessionId as string;
     setSessionId(nextSessionId);
-    
+
     // Use input as temporary title if available, otherwise use default
     const tempTitle = input.trim().slice(0, 50) || createSessionPayload.session.title || t('newChatTitle');
     setSessionTitle(tempTitle);
-    
+
     sessionIdRef.current = nextSessionId;
-    
+
+    // Add new session to history immediately so it appears in the sidebar
+    const newSession: AISession = {
+      id: Date.now(), // temporary id for local state
+      sessionId: nextSessionId,
+      title: tempTitle,
+      model: createSessionPayload.session.model || activeModel,
+      createdAt: new Date().toISOString(),
+      engine: createSessionPayload.session.engine || 'pi',
+      lastMessageAt: new Date().toISOString(),
+      hasUnread: false, // User just created it, so no unread messages
+      creator: createSessionPayload.session.creator,
+    };
+
+    setHistory((prevHistory) => {
+      // Check if session already exists (shouldn't happen, but safety check)
+      const exists = prevHistory.some(s => s.sessionId === nextSessionId);
+      if (exists) return prevHistory;
+
+      // Add new session at the beginning and re-sort by lastMessageAt
+      const updated = [newSession, ...prevHistory];
+      updated.sort((a, b) => {
+        const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : new Date(a.createdAt).getTime();
+        const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : new Date(b.createdAt).getTime();
+        return bTime - aTime;
+      });
+      return updated;
+    });
+
     // Note: Subscription happens automatically via useEffect when sessionId changes
     // No need to subscribe here manually to avoid double subscription
-    
+
     return nextSessionId;
-  }, [input, t, isWebSocketEnabled, wsConnected, subscribe]);
+  }, [input, t, isWebSocketEnabled, wsConnected, subscribe, activeModel]);
 
   // Helper function to format tool arguments
   const formatToolArgs = useCallback((args: unknown): string => {
