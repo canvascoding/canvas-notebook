@@ -572,7 +572,6 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                   hideNavHeader={true}
                   chatContainerWidth={chatWidth}
-                  isSurfaceVisible={mobileChatOpen}
                 />
               </div>
             </SheetContent>
@@ -655,7 +654,6 @@ export function DashboardShell({ username }: DashboardShellProps) {
                         initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                         hideNavHeader={true}
                         chatContainerWidth={isDesktopChatFullscreen ? window.innerWidth : chatWidth}
-                        isSurfaceVisible={chatVisible}
                       />
                     </div>
                   </div>

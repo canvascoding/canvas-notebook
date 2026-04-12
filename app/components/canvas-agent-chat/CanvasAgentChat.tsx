@@ -170,7 +170,6 @@ interface CanvasAgentChatProps {
   showSkillsLink?: boolean;
   hideNavHeader?: boolean;
   chatContainerWidth?: number;
-  isSurfaceVisible?: boolean;
 }
 
 const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ className?: string }>> = {
@@ -665,7 +664,6 @@ export default function CanvasAgentChat({
   showSkillsLink = false,
   hideNavHeader = false,
   chatContainerWidth,
-  isSurfaceVisible = true,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
@@ -722,10 +720,8 @@ export default function CanvasAgentChat({
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
-  const [isUserActiveInChat, setIsUserActiveInChat] = useState(false);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [isPageVisible, setIsPageVisible] = useState(true);
 
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
@@ -801,22 +797,6 @@ export default function CanvasAgentChat({
     runtimeStatusRef.current = runtimeStatus;
   }, [runtimeStatus]);
 
-  // Page Visibility Tracking - detect if tab is active or in background
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      setIsPageVisible(document.visibilityState === 'visible');
-    };
-    
-    handleVisibilityChange();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
-
-  useEffect(() => {
-    const isChatRoute = pathname.includes('/chat') || pathname.includes('/notebook');
-    setIsUserActiveInChat(Boolean(isChatRoute && isSurfaceVisible && isPageVisible && sessionId));
-  }, [isPageVisible, isSurfaceVisible, pathname, sessionId]);
-
   // Session subscription for WebSocket
   useEffect(() => {
     if (!wsConnected || !sessionId) {
@@ -829,51 +809,13 @@ export default function CanvasAgentChat({
     console.log(`[CanvasAgentChat] Subscribed to session ${sessionId}`);
     
     // Mark as read via WebSocket when user is active in chat
-    if (isUserActiveInChat) {
-      markAsRead(sessionId);
-    }
+    markAsRead(sessionId);
     
     return () => {
       unsubscribe(sessionId);
       console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
     };
-  }, [wsConnected, sessionId, isUserActiveInChat, subscribe, unsubscribe, markAsRead]);
-
-  // Update global WebSocket state when user activity changes
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.__setCurrentSession?.(isUserActiveInChat ? sessionIdRef.current : null);
-      window.__setUserActive?.(isUserActiveInChat);
-    }
-  }, [isUserActiveInChat, sessionId]);
-
-  // Reset global state when leaving chat route
-  useEffect(() => {
-    return () => {
-      // Cleanup when navigating away from chat
-      if (typeof window !== 'undefined') {
-        window.__setCurrentSession?.(null);
-        window.__setUserActive?.(false);
-        console.log('[CanvasAgentChat] Reset global state on route change');
-      }
-    };
-  }, []);
-
-  // Handle beforeunload - mark session as not viewed when closing tab
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (typeof window !== 'undefined') {
-        window.__setCurrentSession?.(null);
-        window.__setUserActive?.(false);
-        console.log('[CanvasAgentChat] Tab closing, marking session as not viewed');
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, []);
+  }, [wsConnected, sessionId, subscribe, unsubscribe, markAsRead]);
 
   // Listen for session-updated events to update history unread status
   useEffect(() => {

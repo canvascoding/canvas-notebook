@@ -53,27 +53,6 @@ function extractTextPreview(value: unknown): string {
 // Track which sessions are subscribed
 const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
 
-// Track which session each user is currently viewing
-const userActiveSessions = new Map<string, string>(); // userId -> sessionId they're viewing
-
-/**
- * Check if user is currently viewing a specific session
- */
-export function isUserViewingSession(userId: string, sessionId: string): boolean {
-  return userActiveSessions.get(userId) === sessionId;
-}
-
-/**
- * Set user's active session
- */
-export function setUserActiveSession(userId: string, sessionId: string | null): void {
-  if (sessionId === null) {
-    userActiveSessions.delete(userId);
-  } else {
-    userActiveSessions.set(userId, sessionId);
-  }
-}
-
 /**
  * Initialize WebSocket event listener for PI Runtime events
  */

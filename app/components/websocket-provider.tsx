@@ -40,10 +40,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const t = useTranslations('chat');
-  const currentSessionRef = useRef<string | null>(null);
-  const isUserActiveRef = useRef(false);
   const clientRef = useRef<WebSocketClient | null>(null);
-  const [connected, setConnected] = useState(false);
+  const [, setConnected] = useState(false);
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
 
   // Initialize WebSocket connection
@@ -89,34 +87,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
   }, []);
 
-  // Handle agent events
+  // Handle notification and session update events
   useEffect(() => {
-    if (!connected) return;
-
-    const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: Record<string, unknown> }>) => {
-      const { sessionId, event: agentEvent } = event.detail;
-      
-      // Note: Toasts are handled by the 'notification' event, not by agent_event
-      // This handler only logs the event for debugging purposes
-      if (agentEvent.type === 'message_end' && (agentEvent.message as Record<string, unknown>)?.role === 'assistant') {
-        console.log('[WebSocketProvider] AI response complete in session:', sessionId);
-        console.log('[WebSocketProvider] Toast will be shown via notification event');
-      }
-    };
-
     const handleNotification = (event: CustomEvent<NotificationDetail>) => {
       const { sessionId, sessionTitle, notificationType, messagePreview } = event.detail;
-      const isViewingThisSession = currentSessionRef.current === sessionId;
-      const isActivelyViewingThisSession =
-        isViewingThisSession &&
-        isUserActiveRef.current &&
-        document.hasFocus() &&
-        document.visibilityState === 'visible';
-
-      if (isActivelyViewingThisSession) {
-        console.log('[WebSocketProvider] User viewing session', sessionId, 'in focused tab - suppressing notification');
-        return;
-      }
 
       console.log('[WebSocketProvider] Showing notification for session', sessionId);
       const toastTitle = truncateText(sessionTitle, 60) || t('newChatTitle');
@@ -166,16 +140,14 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       }));
     };
 
-    window.addEventListener('agent_event', handleAgentEvent as EventListener);
     window.addEventListener('notification', handleNotification as EventListener);
     window.addEventListener('session_updated', handleSessionUpdated as EventListener);
 
     return () => {
-      window.removeEventListener('agent_event', handleAgentEvent as EventListener);
       window.removeEventListener('notification', handleNotification as EventListener);
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
     };
-  }, [connected, router, sessionBasePath, t]);
+  }, [router, sessionBasePath, t]);
 
   // Expose subscription methods globally for components to use
   useEffect(() => {
@@ -185,18 +157,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     window.__websocketUnsubscribe = (sessionId: string) => {
       clientRef.current?.unsubscribe(sessionId);
     };
-    window.__setCurrentSession = (sessionId: string | null) => {
-      currentSessionRef.current = sessionId;
-    };
-    window.__setUserActive = (isActive: boolean) => {
-      isUserActiveRef.current = isActive;
-    };
 
     return () => {
       delete window.__websocketSubscribe;
       delete window.__websocketUnsubscribe;
-      delete window.__setCurrentSession;
-      delete window.__setUserActive;
     };
   }, []);
 
@@ -208,7 +172,5 @@ declare global {
   interface Window {
     __websocketSubscribe?: (sessionId: string) => void;
     __websocketUnsubscribe?: (sessionId: string) => void;
-    __setCurrentSession?: (sessionId: string | null) => void;
-    __setUserActive?: (isActive: boolean) => void;
   }
 }

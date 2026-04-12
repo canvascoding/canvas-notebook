@@ -20,7 +20,7 @@ import {
   broadcastToUser,
 } from './websocket-broadcast';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { subscribeToPiRuntimeEvents, sendMessageViaRuntime, initializeWebSocketBridge, setUserActiveSession } from './websocket-runtime-bridge';
+import { subscribeToPiRuntimeEvents, sendMessageViaRuntime, initializeWebSocketBridge } from './websocket-runtime-bridge';
 
 // Initialize WebSocket bridge on module load
 // USE_SSE_FALLBACK: When set to 'true', don't initialize WebSocket bridge (use SSE instead)
@@ -194,9 +194,6 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
 
-      // Track user's active session
-      setUserActiveSession(userId, message.sessionId);
-
       // Subscribe to PI Runtime events for this session (async)
       subscribeToPiRuntimeEvents(message.sessionId, userId).catch((error) => {
         console.error('[WebSocket] Error subscribing to PI Runtime events:', error);
@@ -210,8 +207,6 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         unsubscribeFromSession(message.sessionId, ws);
         if (connection.sessionId === message.sessionId) {
           connection.sessionId = undefined;
-          // Clear user's active session
-          setUserActiveSession(userId, null);
         }
         console.log(`[WebSocket] User ${userId} unsubscribed from session ${message.sessionId}`);
       }
@@ -351,13 +346,6 @@ function handleDisconnect(connection: WebSocketConnection): void {
 
   if (sessionId) {
     unsubscribeFromSession(sessionId, ws);
-    // Clear user's active session if this was their last connection
-    const remainingUserConnections = Array.from(connections.values())
-      .filter(c => c.userId === userId && c !== connection);
-    
-    if (remainingUserConnections.length === 0) {
-      setUserActiveSession(userId, null);
-    }
   }
 
   connections.delete(ws);

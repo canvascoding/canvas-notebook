@@ -356,6 +356,29 @@
           "Removed manual string concatenation that triggered FORMATTING_ERROR at render time"
         ]
       }
+    },
+    {
+      "id": "39",
+      "content": "Simplify chat toast logic to always-on notifications across all routes and sessions",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "changes": [
+          "Removed toast suppression branches in WebSocketProvider so incoming notification events always render a toast",
+          "Removed connected-gated notification listener registration to avoid event races around connect timing",
+          "Removed CanvasAgentChat visibility/activity bridge wiring that only existed for toast suppression",
+          "Removed legacy isSurfaceVisible prop passing from DashboardShell and ChatShell",
+          "Removed server-side active-session tracking helpers that were no longer used by notification delivery"
+        ],
+        "verification": {
+          "manualTesting": "Pending user verification",
+          "checks": [
+            "npm run lint",
+            "npm run build"
+          ]
+        }
+      }
     }
   ]
 }
