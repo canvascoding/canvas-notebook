@@ -323,6 +323,26 @@
         ],
         "goal": "Prevent the Radix DialogContent warning about a missing Description while keeping the sheet accessible"
       }
+    },
+    {
+      "id": "37",
+      "content": "Fix global chat notifications to use session title and reply preview across app routes",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "changes": [
+          "Moved WebSocket-driven assistant reply notifications fully into the global WebSocketProvider",
+          "Removed duplicate in-chat toast handling so WebSocket notifications have a single display path",
+          "Added isSurfaceVisible to CanvasAgentChat so hidden notebook chat panels no longer suppress notifications",
+          "Passed real chat-surface visibility from DashboardShell and ChatShell",
+          "Always emit notification payloads from the WebSocket runtime bridge with DB session title and normalized assistant reply preview"
+        ],
+        "verification": {
+          "build": "npm run build",
+          "manualTesting": "Skipped on request; user will verify notification behavior manually"
+        }
+      }
     }
   ]
 }

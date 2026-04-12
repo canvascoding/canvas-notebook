@@ -53,6 +53,7 @@ export function ChatShell() {
             initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
             showSkillsLink={true}
             hideNavHeader={true}
+            isSurfaceVisible={true}
           />
         </div>
       </main>

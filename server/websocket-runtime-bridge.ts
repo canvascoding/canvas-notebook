@@ -11,6 +11,45 @@ import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 
+function normalizeNotificationPreview(value: string, maxLength = 140): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function extractTextPreview(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => extractTextPreview(entry))
+      .find((entry) => entry.length > 0) || '';
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+
+    if (typeof record.text === 'string') {
+      return record.text;
+    }
+
+    if (record.content !== undefined) {
+      return extractTextPreview(record.content);
+    }
+  }
+
+  return '';
+}
+
 // Track which sessions are subscribed
 const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
 
@@ -55,70 +94,53 @@ export function initializeWebSocketBridge(): void {
     if (event.type === 'message_saved') {
       console.log(`[WebSocket Bridge] Received message_saved event for session ${sessionId}`);
       
-      // Check if user is currently viewing this session
-      const isUserViewing = isUserViewingSession(userId, sessionId);
-      
-      if (!isUserViewing) {
-        // User is NOT viewing this session → mark as unread and send notification
-        // Broadcast to USER (all tabs/devices)
-        broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
-        
-        // Fetch session info and last assistant message from database
-        try {
-          // Get session info
-          const session = await db.query.piSessions.findFirst({
-            where: and(
-              eq(piSessions.sessionId, sessionId),
-              eq(piSessions.userId, userId)
-            ),
-            columns: { title: true, id: true }
-          });
-          
-          if (!session) {
-            console.error(`[WebSocket Bridge] Session not found: ${sessionId}`);
-            return;
-          }
-          
-          // Get the last assistant message from this session
-          const lastAssistantMessage = await db.query.piMessages.findFirst({
-            where: and(
-              eq(piMessages.piSessionDbId, session.id),
-              eq(piMessages.role, 'assistant')
-            ),
-            orderBy: [desc(piMessages.timestamp)],
-            columns: { content: true }
-          });
-          
-          // Extract message content from JSON
-          let messagePreview = '';
-          if (lastAssistantMessage?.content) {
-            try {
-              const parsedContent = JSON.parse(lastAssistantMessage.content);
-              // Handle both string content and object with content property
-              const rawContent = typeof parsedContent === 'string' 
-                ? parsedContent 
-                : parsedContent.content || '';
-              messagePreview = rawContent.length > 70 
-                ? rawContent.slice(0, 70) + '...' 
-                : rawContent;
-            } catch {
-              // Fallback: use raw content if JSON parsing fails
-              messagePreview = lastAssistantMessage.content.slice(0, 70);
-            }
-          }
-          
-          const sessionTitle = session.title || `Session ${sessionId.slice(0, 8)}`;
-          broadcastNotification(userId, sessionId, sessionTitle, 'new_response', messagePreview);
-          
-          console.log(`[WebSocket Bridge] AI response in session ${sessionId}: User ${userId} NOT viewing → notification sent with preview: "${messagePreview}"`);
-        } catch (error) {
-          console.error(`[WebSocket Bridge] Failed to fetch session/message data:`, error);
-          // Fallback: use sessionId as title and empty preview
-          broadcastNotification(userId, sessionId, sessionId, 'new_response', '');
+      // Broadcast to USER (all tabs/devices). The client decides whether to suppress
+      // the in-app notification when the matching session is already visible and focused.
+      broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
+
+      try {
+        const session = await db.query.piSessions.findFirst({
+          where: and(
+            eq(piSessions.sessionId, sessionId),
+            eq(piSessions.userId, userId)
+          ),
+          columns: { title: true, id: true }
+        });
+
+        if (!session) {
+          console.error(`[WebSocket Bridge] Session not found: ${sessionId}`);
+          return;
         }
-      } else {
-        // User IS viewing this session → no toast needed
-        console.log(`[WebSocket Bridge] AI response in session ${sessionId}: User ${userId} IS viewing → live update only`);
+
+        const lastAssistantMessage = await db.query.piMessages.findFirst({
+          where: and(
+            eq(piMessages.piSessionDbId, session.id),
+            eq(piMessages.role, 'assistant')
+          ),
+          orderBy: [desc(piMessages.timestamp)],
+          columns: { content: true }
+        });
+
+        let messagePreview = '';
+        if (lastAssistantMessage?.content) {
+          try {
+            messagePreview = normalizeNotificationPreview(
+              extractTextPreview(JSON.parse(lastAssistantMessage.content))
+            );
+          } catch {
+            messagePreview = normalizeNotificationPreview(lastAssistantMessage.content);
+          }
+        }
+
+        const sessionTitle = session.title || `Session ${sessionId.slice(0, 8)}`;
+        broadcastNotification(userId, sessionId, sessionTitle, 'new_response', messagePreview);
+
+        console.log(
+          `[WebSocket Bridge] AI response in session ${sessionId}: notification payload sent with title "${sessionTitle}" and preview "${messagePreview}"`
+        );
+      } catch (error) {
+        console.error(`[WebSocket Bridge] Failed to fetch session/message data:`, error);
+        broadcastNotification(userId, sessionId, sessionId, 'new_response', '');
       }
     }
   });

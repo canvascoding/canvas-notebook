@@ -54,8 +54,6 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
-import { toast } from 'sonner';
-import { useRouter } from '@/i18n/navigation';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
@@ -172,6 +170,7 @@ interface CanvasAgentChatProps {
   showSkillsLink?: boolean;
   hideNavHeader?: boolean;
   chatContainerWidth?: number;
+  isSurfaceVisible?: boolean;
 }
 
 const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ className?: string }>> = {
@@ -666,6 +665,7 @@ export default function CanvasAgentChat({
   showSkillsLink = false,
   hideNavHeader = false,
   chatContainerWidth,
+  isSurfaceVisible = true,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
@@ -674,7 +674,6 @@ export default function CanvasAgentChat({
   const pathname = usePathname();
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const isMobile = useIsMobile();
-  const router = useRouter();
   const currentFile = useFileStore((s) => s.currentFile);
 
   // Container width detection for history layout
@@ -726,6 +725,7 @@ export default function CanvasAgentChat({
   const [isUserActiveInChat, setIsUserActiveInChat] = useState(false);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isPageVisible, setIsPageVisible] = useState(true);
 
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
@@ -767,8 +767,6 @@ export default function CanvasAgentChat({
   const previousMessageCountRef = useRef(0);
   const isAtBottomRef = useRef(true);
   const referenceRequestIdRef = useRef(0);
-  const pageVisibleRef = useRef(true);
-  const channelRef = useRef<BroadcastChannel | null>(null);
 
   const getTextareaBaseHeight = useCallback(() => (
     isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
@@ -806,22 +804,18 @@ export default function CanvasAgentChat({
   // Page Visibility Tracking - detect if tab is active or in background
   useEffect(() => {
     const handleVisibilityChange = () => {
-      pageVisibleRef.current = document.visibilityState === 'visible';
+      setIsPageVisible(document.visibilityState === 'visible');
     };
     
+    handleVisibilityChange();
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
-  // Route & Activity Tracking - detect if user is in chat/notebook route
-  // User is active if they're on the chat/notebook route AND have a session open
-  // Note: showHistory state doesn't affect "active" status - user is still viewing the session
   useEffect(() => {
     const isChatRoute = pathname.includes('/chat') || pathname.includes('/notebook');
-    const isViewingSession = sessionIdRef.current !== null;
-    
-    setIsUserActiveInChat(isChatRoute && isViewingSession);
-  }, [pathname]);
+    setIsUserActiveInChat(Boolean(isChatRoute && isSurfaceVisible && isPageVisible && sessionId));
+  }, [isPageVisible, isSurfaceVisible, pathname, sessionId]);
 
   // Session subscription for WebSocket
   useEffect(() => {
@@ -839,12 +833,6 @@ export default function CanvasAgentChat({
       markAsRead(sessionId);
     }
     
-    // Update global state for provider
-    if (typeof window !== 'undefined') {
-      window.__setCurrentSession?.(sessionId);
-      window.__setUserActive?.(isUserActiveInChat);
-    }
-
     return () => {
       unsubscribe(sessionId);
       console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
@@ -854,9 +842,10 @@ export default function CanvasAgentChat({
   // Update global WebSocket state when user activity changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      window.__setCurrentSession?.(isUserActiveInChat ? sessionIdRef.current : null);
       window.__setUserActive?.(isUserActiveInChat);
     }
-  }, [isUserActiveInChat]);
+  }, [isUserActiveInChat, sessionId]);
 
   // Reset global state when leaving chat route
   useEffect(() => {
@@ -867,28 +856,6 @@ export default function CanvasAgentChat({
         window.__setUserActive?.(false);
         console.log('[CanvasAgentChat] Reset global state on route change');
       }
-    };
-  }, []);
-
-  // Handle tab visibility change - mark session as "not viewing" when tab is hidden
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && sessionIdRef.current) {
-        // User left tab → mark as not viewing
-        window.__setCurrentSession?.(null);
-        window.__setUserActive?.(false);
-        console.log('[CanvasAgentChat] Tab hidden, marking session as not viewed');
-      } else if (document.visibilityState === 'visible' && sessionIdRef.current) {
-        // User returned to tab → mark as viewing again
-        window.__setCurrentSession?.(sessionIdRef.current);
-        window.__setUserActive?.(true);
-        console.log('[CanvasAgentChat] Tab visible, marking session as viewed');
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -1399,41 +1366,6 @@ export default function CanvasAgentChat({
         }
       }
       
-      // Show toast notification if user is NOT currently viewing this session
-      const targetSessionId = streamSessionRef.current || sessionIdRef.current;
-      const isViewingCurrentSession = isUserActiveInChat && sessionIdRef.current === targetSessionId;
-      
-      if (!isViewingCurrentSession && targetSessionId) {
-        const session = history.find(s => s.sessionId === targetSessionId);
-        const displayTitle = session 
-          ? getSessionDisplayTitle(session.title, t('newChatTitle')) 
-          : (sessionTitle || t('newChatTitle'));
-        
-        const wasHidden = !pageVisibleRef.current;
-        const duration = wasHidden ? 10000 : 4000;
-        
-        toast.info(t('newResponseReady'), {
-          description: displayTitle,
-          action: {
-            label: t('openSession'),
-            onClick: () => {
-              router.push(`${sessionBasePath}?session=${targetSessionId}`);
-            },
-          },
-          duration,
-          position: 'top-right',
-        });
-        
-        // Broadcast to other tabs only in SSE mode (WebSocket handles it server-side)
-        if (!isWebSocketEnabled && channelRef.current) {
-          channelRef.current.postMessage({
-            type: 'new-response',
-            sessionId: targetSessionId,
-            sessionTitle: displayTitle,
-          });
-        }
-      }
-      
       return;
     }
 
@@ -1572,7 +1504,7 @@ export default function CanvasAgentChat({
       setMessages((prev) => [...prev, ...newMessages]);
       return;
     }
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, history, isUserActiveInChat, isWebSocketEnabled, pageVisibleRef, router, sessionBasePath, sessionTitle, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, updateAssistantMessage, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, isWebSocketEnabled, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, updateAssistantMessage, upsertToolMessage]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
@@ -1824,10 +1756,8 @@ export default function CanvasAgentChat({
 
   // Cleanup on unmount
   useEffect(() => {
-    const channel = channelRef.current;
     const streamAbort = streamAbortRef.current;
     return () => {
-      channel?.close();
       streamAbort?.abort();
     };
   }, []);
