@@ -305,6 +305,13 @@
       "phase": "Bug Fixes"
     },
     {
+      "id": "36",
+      "content": "Fix home chat prompt redirect into /notebook",
+      "status": "in_progress",
+      "priority": "high",
+      "phase": "Bug Fixes"
+    },
+    {
       "id": "34",
       "content": "Accessibility: Add missing description for mobile AI chat sheet",
       "status": "completed",

@@ -1,8 +1,8 @@
 'use client';
 
 import React, { FormEvent, useState, useRef, useCallback, useEffect } from 'react';
-import { Link, useRouter } from '@/i18n/navigation';
-import { useTranslations } from 'next-intl';
+import { getPathname, Link } from '@/i18n/navigation';
+import { useLocale, useTranslations } from 'next-intl';
 import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
@@ -72,7 +72,7 @@ function HomeStarterPromptButton({
 }
 
 export function HomeChatPrompt() {
-  const router = useRouter();
+  const locale = useLocale();
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
   const [prompt, setPrompt] = useState('');
@@ -133,6 +133,7 @@ export function HomeChatPrompt() {
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const notebookHref = getPathname({ href: '/notebook', locale });
 
   const handleFileUploadMultiple = useCallback(async (files: File[]) => {
     setIsUploading(true);
@@ -344,7 +345,7 @@ export function HomeChatPrompt() {
       console.error('Failed to persist initial Canvas Chat prompt.', error);
     }
 
-    router.push('/notebook');
+    window.location.assign(notebookHref);
   };
 
   const applyStarterPrompt = useCallback((value: string) => {
@@ -377,7 +378,7 @@ export function HomeChatPrompt() {
         </div>
         {latestSession ? (
           <p className="line-clamp-2 text-xs text-muted-foreground">
-            {tHome('chatPrompt.latestSessionQuicklink', { title: latestSession.title })}
+            {`${tHome('chatPrompt.latestSessionQuicklink')}: ${latestSession.title}`}
           </p>
         ) : null}
       </CardHeader>
@@ -449,7 +450,7 @@ export function HomeChatPrompt() {
                 className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto border border-border bg-background shadow-lg z-50"
               >
                 <div className="p-2 text-xs text-muted-foreground border-b border-border">
-                  {isLoadingFiles ? tChat('loadingFiles') : tChat('filesFound', { count: filePickerFiles.length })}
+                  {isLoadingFiles ? tChat('loadingFiles') : `${tChat('filesFound')}: ${filePickerFiles.length}`}
                 </div>
                 {filePickerFiles.map((file, index) => (
                   <button
