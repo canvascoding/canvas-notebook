@@ -378,7 +378,7 @@ export function HomeChatPrompt() {
         </div>
         {latestSession ? (
           <p className="line-clamp-2 text-xs text-muted-foreground">
-            {`${tHome('chatPrompt.latestSessionQuicklink')}: ${latestSession.title}`}
+            {tHome('chatPrompt.latestSessionQuicklink', { title: latestSession.title })}
           </p>
         ) : null}
       </CardHeader>

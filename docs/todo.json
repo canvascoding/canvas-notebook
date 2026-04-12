@@ -343,6 +343,19 @@
           "manualTesting": "Skipped on request; user will verify notification behavior manually"
         }
       }
+    },
+    {
+      "id": "38",
+      "content": "Fix home chat prompt intl formatting for latest session quicklink",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "changes": [
+          "Passed latestSession.title into the next-intl placeholder for chatPrompt.latestSessionQuicklink",
+          "Removed manual string concatenation that triggered FORMATTING_ERROR at render time"
+        ]
+      }
     }
   ]
 }
