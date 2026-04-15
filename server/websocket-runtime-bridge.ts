@@ -174,37 +174,49 @@ export async function sendMessageViaRuntime(
     workingDirectory?: string;
   }
 ): Promise<void> {
-  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via PI Runtime directly`);
+  // Use 127.0.0.1 explicitly (IPv4) to avoid IPv6 resolution issues in Docker
+  const port = process.env.PORT || '3000';
+  const apiUrl = `http://127.0.0.1:${port}/api/stream`;
 
-  try {
-    // Import dynamically to avoid circular dependencies
-    const { getOrCreatePiRuntime } = await import('@/app/lib/pi/live-runtime');
+  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via ${apiUrl}`);
 
-    // Get or create the runtime instance
-    const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
+  const maxRetries = 5;
+  let lastError: unknown;
 
-    // Set timezone context if provided
-    if (context?.userTimeZone && context?.currentTime) {
-      runtimeInstance.setTimeZoneContext(context.userTimeZone, context.currentTime);
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          userId,
+          message,
+          ...context,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      console.log(`[WebSocket Bridge] Message sent to session ${sessionId} with context:`, context);
+      return;
+    } catch (error) {
+      lastError = error;
+      const isConnError = error instanceof Error && /ECONNREFUSED|fetch failed/i.test(error.message);
+
+      if (isConnError && attempt < maxRetries) {
+        const delay = Math.min(500 * attempt, 2000);
+        console.warn(`[WebSocket Bridge] Connection failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      break;
     }
-
-    // Set active file context if provided
-    if (context?.activeFilePath) {
-      runtimeInstance.setActiveFileContext(context.activeFilePath);
-    }
-
-    // Validate message is user message
-    const userMessage = message as Extract<import('@mariozechner/pi-agent-core').AgentMessage, { role: 'user' }>;
-    if (userMessage.role !== 'user') {
-      throw new Error('Message role must be "user"');
-    }
-
-    // Start the prompt directly in the runtime
-    runtimeInstance.startPrompt(userMessage);
-
-    console.log(`[WebSocket Bridge] Message sent to session ${sessionId} with context:`, context);
-  } catch (error) {
-    console.error('[WebSocket Bridge] Error sending message:', error);
-    throw error;
   }
+
+  console.error('[WebSocket Bridge] Error sending message after retries:', lastError);
+  throw lastError;
 }
