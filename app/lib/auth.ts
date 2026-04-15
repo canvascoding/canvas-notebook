@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/app/lib/db";
 import { nextCookies } from "better-auth/next-js";
+import { bearer } from "better-auth/plugins";
 import { BOOTSTRAP_SIGNUP_ENV } from "@/app/lib/bootstrap-admin";
 
 const authBaseURL =
@@ -30,6 +31,7 @@ export const auth = betterAuth({
   }),
   emailAndPassword: emailAndPasswordConfig,
   plugins: [
+    bearer(),
     nextCookies(),
   ],
   user: {

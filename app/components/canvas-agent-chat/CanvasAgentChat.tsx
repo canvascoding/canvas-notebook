@@ -695,7 +695,7 @@ export default function CanvasAgentChat({
   
   // WebSocket integration - always enabled
   const isWebSocketEnabled = true;
-  const { connected: wsConnected, error: wsError, subscribe, unsubscribe, sendMessage, markAsRead } = useWebSocket({
+  const { connected: wsConnected, error: wsError, subscribe, unsubscribe, sendMessage } = useWebSocket({
     autoConnect: false,
   });
   
@@ -805,17 +805,14 @@ export default function CanvasAgentChat({
 
     // Subscribe to session for receiving events
     subscribe(sessionId);
-    
+
     console.log(`[CanvasAgentChat] Subscribed to session ${sessionId}`);
-    
-    // Mark as read via WebSocket when user is active in chat
-    markAsRead(sessionId);
-    
+
     return () => {
       unsubscribe(sessionId);
       console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
     };
-  }, [wsConnected, sessionId, subscribe, unsubscribe, markAsRead]);
+  }, [wsConnected, sessionId, subscribe, unsubscribe]);
 
   // Listen for session-updated events to update history unread status
   useEffect(() => {
@@ -1478,9 +1475,11 @@ export default function CanvasAgentChat({
         body: JSON.stringify({
           sessionId: targetSessionId,
           ...(promptMessage ? { message: promptMessage, messages: [promptMessage] } : {}),
-          userTimeZone,
-          currentTime,
-          ...(activeFilePath ? { activeFilePath } : {}),
+          context: {
+            userTimeZone,
+            currentTime,
+            ...(activeFilePath ? { activeFilePath } : {}),
+          },
         }),
         signal: controller.signal,
       });
@@ -1528,17 +1527,17 @@ export default function CanvasAgentChat({
     }
   }, [appendSystemMessage, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection, t]);
 
-  // Listen for WebSocket agent events
+  // Listen for WebSocket agent events (from other tabs / background runs).
+  // Skip events for sessions where this tab already owns an SSE stream —
+  // otherwise the originating tab processes each event twice.
   useEffect(() => {
     const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: ChatEvent }>) => {
       const { sessionId: eventSessionId, event: agentEvent } = event.detail;
-      
-      console.log('[CanvasAgentChat] Received agent_event:', eventSessionId, agentEvent?.type);
-      console.log('[CanvasAgentChat] Current session:', sessionIdRef.current);
-      if (eventSessionId === sessionIdRef.current) {
-        console.log('[CanvasAgentChat] Processing event for current session');
-        handleStreamEvent(agentEvent);
-      }
+
+      if (eventSessionId !== sessionIdRef.current) return;
+      if (streamSessionRef.current === eventSessionId && streamAbortRef.current) return;
+
+      handleStreamEvent(agentEvent);
     };
     
     window.addEventListener('agent_event', handleAgentEvent as EventListener);

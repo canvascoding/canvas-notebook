@@ -318,21 +318,14 @@ app
     });
 
     // WebSocket Server for Chat
-    // Standard: WebSocket ist aktiviert (außer USE_SSE_FALLBACK=true)
-    const isWebSocketEnabled = process.env.USE_SSE_FALLBACK !== 'true';
-
-    if (isWebSocketEnabled) {
-      console.log('[Startup] Initializing WebSocket Server...');
-      try {
-        const { createWebSocketServer } = require('./server/websocket-server');
-        createWebSocketServer(server);
-        console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
-      } catch (error) {
-        console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
-        console.error('[Startup] Stack trace:', error.stack);
-      }
-    } else {
-      console.log('[Startup] WebSocket Server disabled (USE_SSE_FALLBACK=true)');
+    console.log('[Startup] Initializing WebSocket Server...');
+    try {
+      const { createWebSocketServer } = require('./server/websocket-server');
+      createWebSocketServer(server);
+      console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+    } catch (error) {
+      console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
+      console.error('[Startup] Stack trace:', error.stack);
     }
 
     server.listen(port, (err) => {

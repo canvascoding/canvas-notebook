@@ -396,10 +396,6 @@ class LivePiRuntime {
     return prompt;
   }
 
-  private clearTimeZoneContext() {
-    this.timeZoneContext = null;
-  }
-
   startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
     const sanitized = sanitizeUserMessage(message);
     this.touch();
@@ -441,30 +437,19 @@ class LivePiRuntime {
       void this.handleAgentEnd();
     }
 
-    // USE_SSE_FALLBACK: When set to 'true', use SSE. Otherwise (default), use WebSocket.
-    // Standard is WebSocket-only mode.
-    if (process.env.USE_SSE_FALLBACK === 'true') {
-      // SSE mode: Emit events via SSE (for clients using HTTP streaming)
-      this.publish(event);
-      this.publishStatus();
-    } else {
-      // WebSocket mode (default): Emit events via WebSocket only
-      try {
-        void (async () => {
-          const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
-          const emitter = getPiRuntimeEventEmitter();
-          // Emit all events except agent_end (which triggers handleAgentEnd)
-          if (event.type !== 'agent_end') {
-            emitter.emitEvent(this.sessionId, this.userId, event as Record<string, unknown>);
-          }
-        })();
-      } catch {
-        // Non-critical: WebSocket emission failure should not break runtime
-      }
-      
-      // Still publish status updates to local subscribers for UI updates
-      this.publishStatus();
+    try {
+      void (async () => {
+        const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
+        const emitter = getPiRuntimeEventEmitter();
+        if (event.type !== 'agent_end') {
+          emitter.emitEvent(this.sessionId, this.userId, event as Record<string, unknown>);
+        }
+      })();
+    } catch {
+      // Non-critical: WebSocket emission failure should not break runtime
     }
+
+    this.publishStatus();
   }
 
   async transformContext(messages: AgentMessage[], signal?: AbortSignal) {
@@ -648,7 +633,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryThroughTimestamp: null,
   };
   const { systemPrompt } = await loadManagedAgentSystemPrompt();
-  const tools = await getPiTools();
+  const tools = await getPiTools(userId);
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -802,7 +787,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     summaryThroughTimestamp: null,
   };
   const { systemPrompt } = await loadManagedAgentSystemPrompt();
-  const tools = await getPiTools();
+  const tools = await getPiTools(userId);
   const model = await resolvePiModel(sessionRecord.provider, sessionRecord.model);
   const composition = composePiHistoryForLlm({
     messages,

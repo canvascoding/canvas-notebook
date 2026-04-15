@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     return limited.response;
   }
 
-  const jobs = await listAutomationJobs();
+  const jobs = await listAutomationJobs(session.user.id);
   return NextResponse.json({ success: true, data: jobs });
 }
 

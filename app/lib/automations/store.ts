@@ -182,10 +182,11 @@ async function mapRunRows(rows: Array<typeof automationRuns.$inferSelect>): Prom
   return rows.map((row) => mapRunRow(row, row.piSessionId ? sessionMetadata.get(row.piSessionId) ?? null : null));
 }
 
-export async function listAutomationJobs(): Promise<AutomationJobRecord[]> {
+export async function listAutomationJobs(userId: string): Promise<AutomationJobRecord[]> {
   const rows = await db
     .select()
     .from(automationJobs)
+    .where(eq(automationJobs.createdByUserId, userId))
     .orderBy(asc(automationJobs.name), asc(automationJobs.createdAt));
 
   return rows.map(mapJobRow);

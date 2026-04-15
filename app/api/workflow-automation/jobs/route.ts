@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
       return limited.response;
     }
 
-    const jobs = await listAutomationJobs();
+    const jobs = await listAutomationJobs(session.user.id);
 
     const sanitizedJobs = jobs.map(job => ({
       id: job.id,

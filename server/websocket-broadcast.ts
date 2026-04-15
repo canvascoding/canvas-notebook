@@ -86,7 +86,7 @@ export function trackUserConnection(userId: string, ws: WebSocket): void {
  */
 export function broadcastToSession(
   sessionId: string,
-  event: Record<string, unknown>,
+  event: object,
   excludeWs?: WebSocket
 ): void {
   const store = getStore();
@@ -114,7 +114,7 @@ export function broadcastToSession(
  */
 export function broadcastToUser(
   userId: string,
-  event: Record<string, unknown>,
+  event: object,
   excludeWs?: WebSocket
 ): void {
   const store = getStore();

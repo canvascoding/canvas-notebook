@@ -10,6 +10,8 @@ import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUse
 import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { getCanvasInternalToken } from '@/app/lib/internal-auth';
 
 function normalizeNotificationPreview(value: string, maxLength = 140): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -49,9 +51,6 @@ function extractTextPreview(value: unknown): string {
 
   return '';
 }
-
-// Track which sessions are subscribed
-const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
 
 /**
  * Initialize WebSocket event listener for PI Runtime events
@@ -128,38 +127,6 @@ export function initializeWebSocketBridge(): void {
 }
 
 /**
- * Subscribe to PI Runtime events for a session
- */
-export async function subscribeToPiRuntimeEvents(sessionId: string, userId: string): Promise<void> {
-  console.log(`[WebSocket Bridge] Subscription requested for session ${sessionId}, user ${userId}`);
-  
-  if (!subscribedSessions.has(sessionId)) {
-    subscribedSessions.set(sessionId, new Set());
-  }
-  
-  subscribedSessions.get(sessionId)!.add(userId);
-  
-  console.log(`[WebSocket Bridge] Active subscribers for session ${sessionId}:`, subscribedSessions.get(sessionId)!.size);
-}
-
-/**
- * Unsubscribe from PI Runtime events
- */
-export function unsubscribeFromPiRuntimeEvents(sessionId: string, userId: string): void {
-  const subscribers = subscribedSessions.get(sessionId);
-  
-  if (subscribers) {
-    subscribers.delete(userId);
-    
-    if (subscribers.size === 0) {
-      subscribedSessions.delete(sessionId);
-    }
-    
-    console.log(`[WebSocket Bridge] Unsubscribed user ${userId} from session ${sessionId}`);
-  }
-}
-
-/**
  * Send message via PI Runtime HTTP API
  * Forwards message with full context (activeFilePath, timezone, etc.)
  */
@@ -167,12 +134,7 @@ export async function sendMessageViaRuntime(
   sessionId: string,
   userId: string,
   message: { role: 'user'; content: unknown; timestamp: number },
-  context?: {
-    activeFilePath?: string | null;
-    userTimeZone?: string;
-    currentTime?: string;
-    workingDirectory?: string;
-  }
+  context?: ChatRequestContext
 ): Promise<void> {
   // Use 127.0.0.1 explicitly (IPv4) to avoid IPv6 resolution issues in Docker
   const port = process.env.PORT || '3000';
@@ -187,12 +149,15 @@ export async function sendMessageViaRuntime(
     try {
       const response = await fetch(apiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-canvas-internal-token': getCanvasInternalToken(),
+        },
         body: JSON.stringify({
           sessionId,
           userId,
           message,
-          ...context,
+          context,
         }),
       });
 

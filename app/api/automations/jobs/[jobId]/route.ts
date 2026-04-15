@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   const { jobId } = await context.params;
   const job = await getAutomationJob(jobId);
-  if (!job) {
+  if (!job || job.createdByUserId !== session.user.id) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
 
@@ -41,6 +41,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const payload = await request.json();
     const { jobId } = await context.params;
+    const existing = await getAutomationJob(jobId);
+    if (!existing || existing.createdByUserId !== session.user.id) {
+      return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
+    }
     const updated = await updateAutomationJob(jobId, payload);
     if (!updated) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
@@ -66,6 +70,10 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   }
 
   const { jobId } = await context.params;
+  const existing = await getAutomationJob(jobId);
+  if (!existing || existing.createdByUserId !== session.user.id) {
+    return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
+  }
   const deleted = await deleteAutomationJob(jobId);
   if (!deleted) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });

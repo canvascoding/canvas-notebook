@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
 
 import { auth } from '@/app/lib/auth';
 import { getOrCreatePiRuntime, type PiRuntimeStreamEvent } from '@/app/lib/pi/live-runtime';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 
 export const runtime = 'nodejs';
 
@@ -44,12 +46,15 @@ function resolvePromptMessage(payload: unknown): Extract<AgentMessage, { role: '
 export async function POST(request: NextRequest) {
   const payload = await request.json();
   
-  // Check if this is an internal server-to-server call (has userId in body)
+  // Check if this is an internal server-to-server call from the WebSocket bridge.
+  // A bodyUserId is only trusted when accompanied by a valid internal token —
+  // otherwise any authenticated client could impersonate any user by setting it.
   const bodyUserId = typeof payload?.userId === 'string' ? payload.userId.trim() : '';
+  const internalToken = request.headers.get('x-canvas-internal-token');
+  const isTrustedInternal = bodyUserId && isValidCanvasInternalToken(internalToken);
   let userId: string;
-  
-  if (bodyUserId) {
-    // Internal call from WebSocket bridge - trust the userId from body
+
+  if (isTrustedInternal) {
     userId = bodyUserId;
     console.log('[PI Stream] Internal server call with userId:', userId);
   } else {
@@ -73,10 +78,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
     }
 
-    // Extract timezone info from client
-    const userTimeZone = typeof payload?.userTimeZone === 'string' ? payload.userTimeZone : undefined;
-    const currentTime = typeof payload?.currentTime === 'string' ? payload.currentTime : undefined;
-    const activeFilePath = typeof payload?.activeFilePath === 'string' ? payload.activeFilePath : null;
+    // Extract context — prefer nested `context` object, fall back to flat fields for
+    // backwards compatibility with older clients that spread context on the root.
+    const ctx: ChatRequestContext = (payload?.context && typeof payload.context === 'object')
+      ? payload.context as ChatRequestContext
+      : payload as ChatRequestContext;
+    const userTimeZone = typeof ctx.userTimeZone === 'string' ? ctx.userTimeZone : undefined;
+    const currentTime = typeof ctx.currentTime === 'string' ? ctx.currentTime : undefined;
+    const activeFilePath = typeof ctx.activeFilePath === 'string' ? ctx.activeFilePath : null;
 
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
     const promptMessage = resolvePromptMessage(payload);

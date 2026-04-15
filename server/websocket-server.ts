@@ -1,10 +1,10 @@
 /**
  * WebSocket Server for Chat Sessions
- * 
+ *
  * - JWT Authentication via better-auth cookies
  * - Multi-Session Support
  * - In-Memory Broadcasting (Phase 1, no Redis)
- * - Heartbeat/Ping-Pong
+ * - Heartbeat via WS protocol-level ping/pong (server → client, 30 s interval)
  */
 
 import type { IncomingMessage } from 'http';
@@ -20,39 +20,57 @@ import {
   broadcastToUser,
 } from './websocket-broadcast';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { subscribeToPiRuntimeEvents, sendMessageViaRuntime, initializeWebSocketBridge } from './websocket-runtime-bridge';
+import { sendMessageViaRuntime, initializeWebSocketBridge } from './chat-event-bridge';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { db } from '@/app/lib/db';
+import { piSessions } from '@/app/lib/db/schema';
+import { and, eq } from 'drizzle-orm';
 
 // Initialize WebSocket bridge on module load
-// USE_SSE_FALLBACK: When set to 'true', don't initialize WebSocket bridge (use SSE instead)
-// Standard is WebSocket-only mode, so bridge is always initialized.
-if (typeof process !== 'undefined' && process.env.USE_SSE_FALLBACK !== 'true') {
-  initializeWebSocketBridge();
-}
+initializeWebSocketBridge();
 
-// Message Types
-interface ClientMessage {
-  type: string;
-  sessionId?: string;
-  message?: AgentMessage;
-  timestamp?: number;
-  activeFilePath?: string | null;
-  userTimeZone?: string;
-  currentTime?: string;
-  workingDirectory?: string;
-}
+// ── Message Types ─────────────────────────────────────────────────────────────
 
-interface ServerMessage {
-  type: string;
-  userId?: string;
-  sessionId?: string;
-  event?: Record<string, unknown>;
-  status?: Record<string, unknown>;
-  lastMessageAt?: string;
-  sessionTitle?: string;
-  error?: string;
-  code?: string;
-  timestamp?: number;
-  latency?: number;
+/** Messages sent from the browser client to this server. */
+type ClientMessage =
+  | { type: 'subscribe_session'; sessionId: string }
+  | { type: 'unsubscribe_session'; sessionId: string }
+  | {
+      type: 'send_message';
+      sessionId: string;
+      message: AgentMessage;
+      context?: ChatRequestContext;
+    };
+
+/**
+ * Messages pushed from this server to connected browser clients.
+ *
+ * Event semantics:
+ *   agent_event     — forwarded PI runtime event (tool call, text chunk, etc.)
+ *   session_updated — new assistant message was saved → update unread badge in all tabs
+ *   notification    — AI finished in a background session → show toast
+ *   session_read    — (reserved) user marked session as read → clear unread badge in other tabs
+ *                     Currently emitted server-side after HTTP PATCH /api/sessions marks the session.
+ */
+type ServerMessage =
+  | { type: 'auth_success'; userId: string }
+  | { type: 'auth_error'; error: string }
+  | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
+  | { type: 'session_updated'; sessionId: string; lastMessageAt: string }
+  | { type: 'session_read'; sessionId: string; timestamp: number }
+  | {
+      type: 'notification';
+      sessionId: string;
+      sessionTitle: string;
+      notificationType: 'new_response' | 'tool_complete' | 'error';
+      messagePreview?: string;
+      timestamp: number;
+    }
+  | { type: 'error'; error: string; code: string };
+
+/** Type-safe helper: serialise and send a ServerMessage over a WebSocket. */
+function sendWs(ws: WebSocket, msg: ServerMessage): void {
+  ws.send(JSON.stringify(msg));
 }
 
 // Connection State
@@ -106,10 +124,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
 
   if (!authResult.isAuthenticated) {
     console.error('[WebSocket] Authentication failed:', authResult.error);
-    ws.send(JSON.stringify({
-      type: 'auth_error',
-      error: authResult.error || 'Authentication failed',
-    } as ServerMessage));
+    sendWs(ws, { type: 'auth_error', error: authResult.error || 'Authentication failed' });
     ws.close(4001, 'Unauthorized');
     return;
   }
@@ -128,10 +143,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   trackUserConnection(authResult.userId!, ws);
 
   // Send auth success
-  ws.send(JSON.stringify({
-    type: 'auth_success',
-    userId: authResult.userId,
-  } as ServerMessage));
+  sendWs(ws, { type: 'auth_success', userId: authResult.userId! });
 
   // Handle messages
   ws.on('message', (data: Buffer) => {
@@ -140,11 +152,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
       handleMessage(connection, message);
     } catch (error) {
       console.error('[WebSocket] Error parsing message:', error);
-      ws.send(JSON.stringify({
-        type: 'error',
-        error: 'Invalid message format',
-        code: 'INVALID_MESSAGE',
-      } as ServerMessage));
+      sendWs(ws, { type: 'error', error: 'Invalid message format', code: 'INVALID_MESSAGE' });
     }
   });
 
@@ -175,11 +183,22 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
   switch (message.type) {
     case 'subscribe_session': {
       if (!message.sessionId) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          error: 'sessionId required',
-          code: 'MISSING_SESSION_ID',
-        } as ServerMessage));
+        sendWs(ws, { type: 'error', error: 'sessionId required', code: 'MISSING_SESSION_ID' });
+        return;
+      }
+
+      // Authorization: session must belong to this user
+      const ownedSession = await db.query.piSessions.findFirst({
+        where: and(
+          eq(piSessions.sessionId, message.sessionId),
+          eq(piSessions.userId, userId)
+        ),
+        columns: { id: true },
+      });
+
+      if (!ownedSession) {
+        console.warn(`[WebSocket] User ${userId} attempted to subscribe to unauthorized session ${message.sessionId}`);
+        sendWs(ws, { type: 'error', error: 'Session not found', code: 'UNAUTHORIZED' });
         return;
       }
 
@@ -193,12 +212,6 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       subscribeToSession(message.sessionId, ws);
 
       console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
-
-      // Subscribe to PI Runtime events for this session (async)
-      subscribeToPiRuntimeEvents(message.sessionId, userId).catch((error) => {
-        console.error('[WebSocket] Error subscribing to PI Runtime events:', error);
-      });
-
       break;
     }
 
@@ -213,76 +226,32 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       break;
     }
 
-    case 'mark_read': {
-      if (!message.sessionId) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          error: 'sessionId required',
-          code: 'MISSING_SESSION_ID',
-        } as ServerMessage));
-        return;
-      }
-
-      // Update lastViewedAt in database
-      try {
-        const { db } = await import('@/app/lib/db');
-        const { piSessions } = await import('@/app/lib/db/schema');
-        const { and, eq } = await import('drizzle-orm');
-
-        await db.update(piSessions)
-          .set({ lastViewedAt: new Date(), updatedAt: new Date() })
-          .where(and(
-            eq(piSessions.sessionId, message.sessionId),
-            eq(piSessions.userId, userId)
-          ));
-
-        console.log(`[WebSocket] Session ${message.sessionId} marked as read`);
-
-        // Broadcast to other tabs/devices
-        broadcastToUser(userId, {
-          type: 'session_read',
-          sessionId: message.sessionId,
-          timestamp: Date.now(),
-        }, ws);
-      } catch (error) {
-        console.error('[WebSocket] Error marking session as read:', error);
-        ws.send(JSON.stringify({
-          type: 'error',
-          error: 'Failed to mark session as read',
-          code: 'DB_ERROR',
-        } as ServerMessage));
-      }
-      break;
-    }
-
     case 'send_message': {
       if (!message.sessionId || !message.message) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          error: 'sessionId and message required',
-          code: 'MISSING_PARAMS',
-        } as ServerMessage));
+        sendWs(ws, { type: 'error', error: 'sessionId and message required', code: 'MISSING_PARAMS' });
         return;
       }
 
       // Validate message is user message
       const userMessage = message.message as Extract<AgentMessage, { role: 'user' }>;
       if (userMessage.role !== 'user') {
-        ws.send(JSON.stringify({
-          type: 'error',
-          error: 'Message role must be "user"',
-          code: 'INVALID_ROLE',
-        } as ServerMessage));
+        sendWs(ws, { type: 'error', error: 'Message role must be "user"', code: 'INVALID_ROLE' });
         return;
       }
 
-      // Extract context from message
-      const context = {
-        activeFilePath: message.activeFilePath as string | null | undefined,
-        userTimeZone: message.userTimeZone as string | undefined,
-        currentTime: message.currentTime as string | undefined,
-        workingDirectory: message.workingDirectory as string | undefined,
-      };
+      // Authorization: if session already exists, it must belong to this user.
+      // Non-existent sessions are allowed (new-session create flow).
+      const existingSession = await db.query.piSessions.findFirst({
+        where: eq(piSessions.sessionId, message.sessionId),
+        columns: { userId: true },
+      });
+      if (existingSession && existingSession.userId !== userId) {
+        console.warn(`[WebSocket] User ${userId} attempted to send to unauthorized session ${message.sessionId}`);
+        sendWs(ws, { type: 'error', error: 'Session not found', code: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const context = message.context;
 
       // Send message via PI Runtime bridge with context
       try {
@@ -290,48 +259,22 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime with context:`, context);
       } catch (error) {
         console.error('[WebSocket] Error sending message:', error);
-        ws.send(JSON.stringify({
+        sendWs(ws, {
           type: 'error',
           error: error instanceof Error ? error.message : 'Failed to send message',
           code: 'RUNTIME_ERROR',
-        } as ServerMessage));
+        });
       }
       break;
     }
 
-    case 'ping': {
-      const latency = Date.now() - (message.timestamp || Date.now());
-      ws.send(JSON.stringify({
-        type: 'pong',
-        timestamp: Date.now(),
-        latency: Math.abs(latency),
-      } as ServerMessage));
+    default: {
+      // Defensive: message.type is 'never' here — guard for unknown messages from clients
+      const unknownType = String((message as { type: unknown }).type);
+      console.warn('[WebSocket] Unknown message type:', unknownType);
+      sendWs(ws, { type: 'error', error: `Unknown message type: ${unknownType}`, code: 'UNKNOWN_MESSAGE_TYPE' });
       break;
     }
-
-    case 'get_status': {
-      if (!message.sessionId) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          error: 'sessionId required',
-          code: 'MISSING_SESSION_ID',
-        } as ServerMessage));
-        return;
-      }
-
-      // Runtime status will be sent via PI Runtime events
-      // This is just a placeholder for future implementation
-      console.log('[WebSocket] Status request for session:', message.sessionId);
-      break;
-    }
-
-    default:
-      console.warn('[WebSocket] Unknown message type:', message.type);
-      ws.send(JSON.stringify({
-        type: 'error',
-        error: `Unknown message type: ${message.type}`,
-        code: 'UNKNOWN_MESSAGE_TYPE',
-      } as ServerMessage));
   }
 
   // Update last activity
