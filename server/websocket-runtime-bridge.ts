@@ -174,25 +174,34 @@ export async function sendMessageViaRuntime(
     workingDirectory?: string;
   }
 ): Promise<void> {
-  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via HTTP API`);
-  
+  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via PI Runtime directly`);
+
   try {
-    // Forward to existing /api/stream endpoint with full context
-    const response = await fetch('http://localhost:3000/api/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId,
-        userId,
-        message,
-        ...context,
-      }),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    // Import dynamically to avoid circular dependencies
+    const { getOrCreatePiRuntime } = await import('@/app/lib/pi/live-runtime');
+
+    // Get or create the runtime instance
+    const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
+
+    // Set timezone context if provided
+    if (context?.userTimeZone && context?.currentTime) {
+      runtimeInstance.setTimeZoneContext(context.userTimeZone, context.currentTime);
     }
-    
+
+    // Set active file context if provided
+    if (context?.activeFilePath) {
+      runtimeInstance.setActiveFileContext(context.activeFilePath);
+    }
+
+    // Validate message is user message
+    const userMessage = message as Extract<import('@mariozechner/pi-agent-core').AgentMessage, { role: 'user' }>;
+    if (userMessage.role !== 'user') {
+      throw new Error('Message role must be "user"');
+    }
+
+    // Start the prompt directly in the runtime
+    runtimeInstance.startPrompt(userMessage);
+
     console.log(`[WebSocket Bridge] Message sent to session ${sessionId} with context:`, context);
   } catch (error) {
     console.error('[WebSocket Bridge] Error sending message:', error);
