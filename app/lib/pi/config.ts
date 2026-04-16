@@ -41,25 +41,25 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
       id: 'openrouter',
       model: 'anthropic/claude-3.5-sonnet',
       thinking: 'medium',
-      enabledTools: ['filesystem', 'terminal', 'web-search'],
+      enabledTools: [],
     },
     anthropic: {
       id: 'anthropic',
       model: 'claude-3-5-sonnet-20240620',
       thinking: 'medium',
-      enabledTools: ['filesystem', 'terminal'],
+      enabledTools: [],
     },
     google: {
       id: 'google',
       model: 'gemini-1.5-pro',
       thinking: 'none',
-      enabledTools: ['filesystem', 'terminal'],
+      enabledTools: [],
     },
     ollama: {
       id: 'ollama',
       model: 'llama3.1',
       thinking: 'none',
-      enabledTools: ['filesystem', 'terminal'],
+      enabledTools: [],
       ollamaMode: 'local',
     },
   },
@@ -91,6 +91,19 @@ export function validatePiConfig(config: unknown): string | null {
 
   if (!candidate.providers || typeof candidate.providers !== 'object') {
     return 'Providers must be an object.';
+  }
+
+  for (const [providerId, providerConfig] of Object.entries(candidate.providers)) {
+    if (providerConfig && 'enabledTools' in providerConfig) {
+      if (!Array.isArray(providerConfig.enabledTools)) {
+        return `enabledTools for provider "${providerId}" must be an array.`;
+      }
+      for (const toolName of providerConfig.enabledTools as unknown[]) {
+        if (typeof toolName !== 'string') {
+          return `enabledTools for provider "${providerId}" must contain only strings.`;
+        }
+      }
+    }
   }
 
   const activeProvider = candidate.providers[candidate.activeProvider];

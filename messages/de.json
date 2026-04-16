@@ -589,6 +589,14 @@
           "run": "Doctor-Prüfung fehlgeschlagen."
         }
       },
+      "tools": {
+        "title": "Werkzeugkonfiguration",
+        "description": "Werkzeuge für den aktiven Provider aktivieren oder deaktivieren.",
+        "loading": "Lade Werkzeuge...",
+        "saveError": "Werkzeugkonfiguration konnte nicht gespeichert werden.",
+        "enableAll": "Alle aktivieren",
+        "disableAll": "Alle deaktivieren"
+      },
       "files": {
         "title": "Agent-Dateien",
         "description": "System-relevante Markdown-Dateien für das Agent-Verhalten.",

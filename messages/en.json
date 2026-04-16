@@ -589,6 +589,14 @@
           "run": "Doctor check failed."
         }
       },
+      "tools": {
+        "title": "Tool Configuration",
+        "description": "Enable or disable tools available to the agent for the active provider.",
+        "loading": "Loading tools...",
+        "saveError": "Failed to save tool configuration.",
+        "enableAll": "Enable all",
+        "disableAll": "Disable all"
+      },
       "files": {
         "title": "Agent Managed Files",
         "description": "System-relevant markdown files for agent behavior.",

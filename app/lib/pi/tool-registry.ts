@@ -38,6 +38,7 @@ import {
   type AdLocalizationResultData,
 } from '../integrations/ad-localization-service';
 import { readPiRuntimeConfig } from '../agents/storage';
+import { resolveEnabledToolNames, isLegacyEnabledToolsValue } from './enabled-tools';
 import {
   QMD_CANONICAL_TOOL_NAME,
   extractFirstJsonArray,
@@ -1480,11 +1481,17 @@ export const piTools: AgentTool[] = [
 
 import { getDynamicSkillTools } from '../skills/skill-tools';
 
+export async function getPiToolMetadata(): Promise<{ name: string; label: string; description: string }[]> {
+  return piTools.map((tool) => ({
+    name: tool.name,
+    label: tool.label ?? tool.name,
+    description: tool.description ?? '',
+  }));
+}
+
 export async function getPiTools(userId?: string): Promise<AgentTool[]> {
-  // Get static tools
   const staticTools = piTools;
 
-  // User-scoped automation tools (override the static stubs with user-aware versions)
   const userAutomationTools: AgentTool[] = userId ? [
     {
       name: 'list_automation_jobs',
@@ -1512,16 +1519,31 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
     },
   ] : [];
 
-  // Get dynamic skill tools
+  let allTools: AgentTool[];
   try {
     const dynamicTools = await getDynamicSkillTools();
-    // userAutomationTools override same-named entries in staticTools
     const overriddenNames = new Set(userAutomationTools.map(t => t.name));
     const base = staticTools.filter(t => !overriddenNames.has(t.name));
-    return [...base, ...userAutomationTools, ...dynamicTools];
+    allTools = [...base, ...userAutomationTools, ...dynamicTools];
   } catch (error) {
     console.error('[ToolRegistry] Error loading dynamic skills:', error);
     const overriddenNames = new Set(userAutomationTools.map(t => t.name));
-    return [...staticTools.filter(t => !overriddenNames.has(t.name)), ...userAutomationTools];
+    allTools = [...staticTools.filter(t => !overriddenNames.has(t.name)), ...userAutomationTools];
   }
+
+  try {
+    const piConfig = await readPiRuntimeConfig();
+    const activeProvider = piConfig.providers[piConfig.activeProvider];
+    const enabledTools = activeProvider?.enabledTools;
+
+    if (enabledTools && enabledTools.length > 0 && !isLegacyEnabledToolsValue(enabledTools)) {
+      const allToolNames = allTools.map((t) => t.name);
+      const enabledSet = resolveEnabledToolNames(allToolNames, enabledTools);
+      allTools = allTools.filter((t) => enabledSet.has(t.name));
+    }
+  } catch (error) {
+    console.error('[ToolRegistry] Error reading config for tool filtering, returning all tools:', error);
+  }
+
+  return allTools;
 }

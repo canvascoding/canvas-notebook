@@ -370,7 +370,7 @@ export function PiProviderSetupCard({
           id: providerId,
           model: '',
           thinking: 'none',
-          enabledTools: ['filesystem', 'terminal'],
+          enabledTools: [],
         };
       }
 

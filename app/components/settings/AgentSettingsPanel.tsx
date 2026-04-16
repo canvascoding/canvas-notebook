@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2, RotateCcw, ChevronDown, Wrench } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,6 +26,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { PiProviderSetupCard } from './PiProviderSetupCard';
+import { Switch } from '@/components/ui/switch';
+import {
+  resolveEnabledToolNames,
+  serializeEnabledToolNames,
+  isLegacyEnabledToolsValue,
+} from '@/app/lib/pi/enabled-tools';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 
 const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
@@ -99,6 +105,18 @@ type SessionItem = {
   };
 };
 
+type ToolMetadata = {
+  name: string;
+  label: string;
+  description: string;
+};
+
+type PiConfigData = {
+  activeProvider: string;
+  providers: Record<string, { enabledTools: string[]; [key: string]: unknown }>;
+  [key: string]: unknown;
+};
+
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: 'include',
@@ -156,6 +174,12 @@ export function AgentSettingsPanel() {
   const [sessionPendingId, setSessionPendingId] = useState<string | null>(null);
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
 
+  const [availableTools, setAvailableTools] = useState<ToolMetadata[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(true);
+  const [toolsSaving, setToolsSaving] = useState(false);
+  const [toolsError, setToolsError] = useState<string | null>(null);
+  const [toolsPiConfig, setToolsPiConfig] = useState<PiConfigData | null>(null);
+
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     setFilesError(null);
@@ -202,6 +226,29 @@ export function AgentSettingsPanel() {
     }
   }, [t]);
 
+  const loadTools = useCallback(async () => {
+    setToolsLoading(true);
+    setToolsError(null);
+
+    try {
+      const payload = await fetchJson<{ tools: ToolMetadata[] }>('/api/agents/tools');
+      setAvailableTools(payload.tools);
+    } catch (error) {
+      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.loading'));
+    } finally {
+      setToolsLoading(false);
+    }
+  }, [t]);
+
+  const loadToolsConfig = useCallback(async () => {
+    try {
+      const payload = await fetchJson<{ piConfig: PiConfigData }>('/api/agents/config');
+      setToolsPiConfig(payload.piConfig);
+    } catch (error) {
+      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
+    }
+  }, [t]);
+
   const runDoctor = useCallback(async () => {
     setDoctorRunning(true);
     setDoctorError(null);
@@ -223,7 +270,9 @@ export function AgentSettingsPanel() {
   useEffect(() => {
     void loadFiles();
     void loadSessions();
-  }, [loadFiles, loadSessions]);
+    void loadTools();
+    void loadToolsConfig();
+  }, [loadFiles, loadSessions, loadTools, loadToolsConfig]);
 
   useEffect(() => {
     if (searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
@@ -421,9 +470,123 @@ export function AgentSettingsPanel() {
     }
   };
 
+  const getActiveEnabledTools = (): string[] => {
+    if (!toolsPiConfig) return [];
+    const activeProvider = toolsPiConfig.providers[toolsPiConfig.activeProvider];
+    return activeProvider?.enabledTools ?? [];
+  };
+
+  const isToolEnabled = (toolName: string): boolean => {
+    const enabledTools = getActiveEnabledTools();
+    if (!enabledTools || enabledTools.length === 0 || isLegacyEnabledToolsValue(enabledTools)) {
+      return true;
+    }
+    const allNames = availableTools.map((t) => t.name);
+    const enabledSet = resolveEnabledToolNames(allNames, enabledTools);
+    return enabledSet.has(toolName);
+  };
+
+  const saveToolsConfig = async (newEnabledTools: string[]) => {
+    if (!toolsPiConfig) return;
+    setToolsSaving(true);
+    setToolsError(null);
+
+    try {
+      const nextConfig = { ...toolsPiConfig };
+      const providerId = nextConfig.activeProvider;
+      nextConfig.providers = {
+        ...nextConfig.providers,
+        [providerId]: {
+          ...nextConfig.providers[providerId],
+          enabledTools: newEnabledTools,
+        },
+      };
+
+      const payload = await fetchJson<{ piConfig: PiConfigData }>('/api/agents/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ piConfig: nextConfig }),
+      });
+      setToolsPiConfig(payload.piConfig);
+    } catch (error) {
+      setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
+    } finally {
+      setToolsSaving(false);
+    }
+  };
+
+  const handleToolToggle = (toolName: string, enabled: boolean) => {
+    const currentEnabled = getActiveEnabledTools();
+    const allNames = availableTools.map((t) => t.name);
+    let newEnabledTools: string[];
+
+    if (enabled) {
+      const enabledSet = resolveEnabledToolNames(allNames, currentEnabled);
+      enabledSet.add(toolName);
+      newEnabledTools = serializeEnabledToolNames(enabledSet, allNames);
+    } else {
+      const enabledSet = resolveEnabledToolNames(allNames, currentEnabled);
+      enabledSet.delete(toolName);
+      newEnabledTools = serializeEnabledToolNames(enabledSet, allNames);
+    }
+
+    void saveToolsConfig(newEnabledTools);
+  };
+
+  const handleEnableAll = () => {
+    void saveToolsConfig([]);
+  };
+
+  const handleDisableAll = () => {
+    void saveToolsConfig(['__none__']);
+  };
+
   return (
     <div className="space-y-4">
       <PiProviderSetupCard />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wrench className="h-5 w-5" />
+            {t('agentPanel.tools.title')}
+          </CardTitle>
+          <CardDescription>{t('agentPanel.tools.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {toolsLoading ? (
+            <div className="flex items-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {t('agentPanel.tools.loading')}
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              <div className="flex gap-2 mb-3">
+                <Button size="sm" variant="outline" onClick={handleEnableAll} disabled={toolsSaving}>
+                  {t('agentPanel.tools.enableAll')}
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleDisableAll} disabled={toolsSaving}>
+                  {t('agentPanel.tools.disableAll')}
+                </Button>
+              </div>
+              {availableTools.map((tool) => (
+                <div key={tool.name} className="flex items-center justify-between rounded border border-border p-3">
+                  <div className="flex-1 min-w-0 mr-3">
+                    <div className="font-medium text-sm">{tool.label || tool.name}</div>
+                    <div className="text-xs text-muted-foreground truncate">{tool.description}</div>
+                  </div>
+                  <Switch
+                    checked={isToolEnabled(tool.name)}
+                    onCheckedChange={(checked) => handleToolToggle(tool.name, checked)}
+                    disabled={toolsSaving}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          {toolsError && <p className="text-sm text-destructive mt-2">{toolsError}</p>}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
