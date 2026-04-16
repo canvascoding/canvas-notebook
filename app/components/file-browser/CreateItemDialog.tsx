@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, type ReactNode } from 'react';
-import { ChevronRight, Folder } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +12,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import { DirectoryBrowser } from './DirectoryBrowser';
 
 interface CreateItemDialogProps {
   open: boolean;
@@ -107,40 +107,6 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
     });
   };
 
-  const renderDirectories = (nodes: FileNode[], depth = 0): ReactNode[] => {
-    return nodes.flatMap((entry) => {
-      if (entry.type !== 'directory') return [];
-
-      const isSelected = targetDir === entry.path;
-      const isExpanded = expandedDirs.has(entry.path);
-
-      const row = (
-        <div key={entry.path} className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
-          <button
-            type="button"
-            className="p-1 rounded hover:bg-accent/70"
-            onClick={() => toggleDir(entry.path)}
-          >
-            <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-          </button>
-          <button
-            type="button"
-            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
-              isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/70'
-            }`}
-            onClick={() => setTargetDir(entry.path)}
-          >
-            <Folder className="h-4 w-4 text-muted-foreground" />
-            <span className="truncate">{entry.name}</span>
-          </button>
-        </div>
-      );
-
-      const children = isExpanded && entry.children ? renderDirectories(entry.children, depth + 1) : [];
-      return [row, ...children];
-    });
-  };
-
   const resolvedPreview = type === 'file' && name.trim() && !hasExtension(name.trim())
     ? `${name.trim()}.md`
     : null;
@@ -187,24 +153,13 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
               className="mt-1"
             />
           </div>
-          <div className="rounded border border-border bg-muted/40 p-2">
-            <div className="mb-2 text-xs text-muted-foreground">{t('chooseDestination')}</div>
-            <div className="max-h-56 overflow-auto">
-              <button
-                type="button"
-                className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
-                  targetDir === '.'
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground hover:bg-accent/70'
-                }`}
-                onClick={() => setTargetDir('.')}
-              >
-                <Folder className="h-4 w-4 text-muted-foreground" />
-                <span className="truncate">{t('rootDirectory')}</span>
-              </button>
-              {renderDirectories(fileTree)}
-            </div>
-          </div>
+          <DirectoryBrowser
+            tree={fileTree}
+            selectedPath={targetDir}
+            onSelect={setTargetDir}
+            expandedDirs={expandedDirs}
+            onToggleDir={toggleDir}
+          />
         </div>
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isCreating}>
