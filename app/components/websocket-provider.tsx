@@ -131,13 +131,13 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     // Handle session_updated events (for updating history unread status)
-    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string }>) => {
-      const { sessionId, lastMessageAt } = event.detail;
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
+      const { sessionId, lastMessageAt, title } = event.detail;
       console.log('[WebSocketProvider] Session updated:', sessionId, lastMessageAt);
 
       // Dispatch custom event for CanvasAgentChat to update history
       window.dispatchEvent(new CustomEvent('session-updated', {
-        detail: { sessionId, lastMessageAt }
+        detail: { sessionId, lastMessageAt, title }
       }));
     };
 

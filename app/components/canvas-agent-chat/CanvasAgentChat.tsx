@@ -818,15 +818,15 @@ export default function CanvasAgentChat({
   useEffect(() => {
     if (!isWebSocketEnabled) return;
 
-    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string }>) => {
-      const { sessionId, lastMessageAt } = event.detail;
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
+      const { sessionId, lastMessageAt, title } = event.detail;
       console.log('[CanvasAgentChat] Session updated (history):', sessionId, lastMessageAt);
       
-      // Update history state to reflect new lastMessageAt
+      // Update history state to reflect new lastMessageAt (and title if provided)
       setHistory(prev => {
         const updated = prev.map(session => 
           session.sessionId === sessionId 
-            ? { ...session, lastMessageAt, hasUnread: sessionId !== sessionIdRef.current }
+            ? { ...session, lastMessageAt, ...(title ? { title } : {}), hasUnread: sessionId !== sessionIdRef.current }
             : session
         );
         
@@ -836,6 +836,10 @@ export default function CanvasAgentChat({
         
         return updated;
       });
+
+      if (title && sessionId === sessionIdRef.current) {
+        setSessionTitle(title);
+      }
     };
 
     window.addEventListener('session-updated', handleSessionUpdated as EventListener);
@@ -1148,6 +1152,14 @@ export default function CanvasAgentChat({
 
     sessionIdRef.current = nextSessionId;
 
+    if (tempTitle && tempTitle !== t('newChatTitle')) {
+      void fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: nextSessionId, title: tempTitle }),
+      });
+    }
+
     // Add new session to history immediately so it appears in the sidebar
     const newSession: AISession = {
       id: Date.now(), // temporary id for local state
@@ -1277,17 +1289,7 @@ export default function CanvasAgentChat({
       syncPiMessage(assistantId, event.message);
       currentAssistantIdRef.current = null;
       
-      // Update session title from AI response if available
-      const assistantMessage = event.message;
-      if (assistantMessage && assistantMessage.content) {
-        const contentText = JSON.stringify(assistantMessage.content);
-        if (contentText.includes('title') || contentText.includes('Title')) {
-          const potentialTitle = contentText.slice(0, 120);
-          setSessionTitle(potentialTitle);
-          console.log('[CanvasAgentChat] Updated session title from AI response');
-        }
-      }
-      
+
       // For WebSocket mode, lastMessageAt is updated by server
       // For SSE mode, update it manually
       if (!isWebSocketEnabled) {

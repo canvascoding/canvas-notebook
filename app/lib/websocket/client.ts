@@ -256,8 +256,9 @@ export class WebSocketClient extends EventTarget {
         const sessionUpdate = {
           sessionId: message.sessionId as string,
           lastMessageAt: message.lastMessageAt as string,
+          title: message.title as string | undefined,
         };
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; lastMessageAt: string }>('session_updated', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>('session_updated', {
           detail: sessionUpdate,
         }));
         // Also mirror to window for global listeners

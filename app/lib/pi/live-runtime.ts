@@ -518,6 +518,7 @@ class LivePiRuntime {
       this.model.id,
       allMessages,
       this.summary,
+      { persistedLength: this.lastPersistedLength },
     );
 
     if (newMessages.length > 0) {
@@ -530,38 +531,17 @@ class LivePiRuntime {
 
     this.lastPersistedLength = allMessages.length;
     this.publishStatus();
-
-    // Update database with last message timestamp
-    const lastMessage = allMessages[allMessages.length - 1];
-    if (lastMessage) {
-      try {
-        const { db } = await import('@/app/lib/db');
-        const { piSessions } = await import('@/app/lib/db/schema');
-        const { and, eq } = await import('drizzle-orm');
-        
-        const now = new Date();
-        await db.update(piSessions)
-          .set({ lastMessageAt: now, updatedAt: now })
-          .where(and(
-            eq(piSessions.sessionId, this.sessionId),
-            eq(piSessions.userId, this.userId)
-          ));
-        
-        console.log(`[LiveRuntime] Updated session ${this.sessionId} lastMessageAt`);
-      } catch (error) {
-        console.error('[LiveRuntime] Error updating database:', error);
-      }
-    }
     
     // Emit message_saved event AFTER everything is saved to database
     // This allows notification system to read from DB without race conditions
-    if (lastMessage && lastMessage.role === 'assistant') {
+    const lastPersistedMessage = allMessages[allMessages.length - 1];
+    if (lastPersistedMessage && lastPersistedMessage.role === 'assistant') {
       try {
         const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
         const emitter = getPiRuntimeEventEmitter();
         emitter.emitEvent(this.sessionId, this.userId, {
           type: 'message_saved',
-          message: lastMessage,
+          message: lastPersistedMessage,
           timestamp: Date.now(),
         });
         console.log(`[LiveRuntime] Emitted message_saved event for session ${this.sessionId}`);

@@ -56,7 +56,7 @@ type ServerMessage =
   | { type: 'auth_success'; userId: string }
   | { type: 'auth_error'; error: string }
   | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
-  | { type: 'session_updated'; sessionId: string; lastMessageAt: string }
+  | { type: 'session_updated'; sessionId: string; lastMessageAt: string; title?: string }
   | { type: 'session_read'; sessionId: string; timestamp: number }
   | {
       type: 'notification';
@@ -384,11 +384,13 @@ export function broadcastSessionUpdate(
 export function broadcastSessionUpdateToUser(
   userId: string,
   sessionId: string,
-  lastMessageAt: string
+  lastMessageAt: string,
+  title?: string
 ): void {
   broadcastToUser(userId, {
     type: 'session_updated',
     sessionId,
     lastMessageAt,
+    title,
   });
 }

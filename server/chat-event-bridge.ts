@@ -71,10 +71,6 @@ export function initializeWebSocketBridge(): void {
     // Handle message_saved event - this is emitted AFTER the message is saved to DB
     if (event.type === 'message_saved') {
       console.log(`[WebSocket Bridge] Received message_saved event for session ${sessionId}`);
-      
-      // Broadcast to USER (all tabs/devices). The client decides whether to suppress
-      // the in-app notification when the matching session is already visible and focused.
-      broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
 
       try {
         const session = await db.query.piSessions.findFirst({
@@ -89,6 +85,8 @@ export function initializeWebSocketBridge(): void {
           console.error(`[WebSocket Bridge] Session not found: ${sessionId}`);
           return;
         }
+
+        broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString(), session.title ?? undefined);
 
         const lastAssistantMessage = await db.query.piMessages.findFirst({
           where: and(
