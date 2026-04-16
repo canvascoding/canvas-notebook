@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, type ChangeEvent, type DragEvent } from 'react';
-import { ChevronsDownUp, ChevronLeft, CheckSquare, FilePlus, FolderPlus, House, MoreHorizontal, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronLeft, CheckSquare, Download, FilePlus, FolderPlus, House, MoreHorizontal, Move, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -69,6 +69,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     toggleMultiSelectMode,
     multiSelectPaths,
     clearMultiSelect,
+    downloadFile,
   } = useFileStore();
 
   const findPathInTree = (path: string, tree: FileNode[]): boolean => {
@@ -201,12 +202,32 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   };
 
   const deletableMultiSelectCount = multiSelectPaths.filter((path) => !isProtectedAppOutputFolder(path)).length;
+  const hasProtectedSelected = multiSelectPaths.some(path => isProtectedAppOutputFolder(path));
   const isDeleteDisabled =
     (!selectedNode && multiSelectPaths.length === 0) ||
     (isMultiSelectMode
       ? deletableMultiSelectCount === 0
       : selectedNode?.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path));
   const currentDirectoryLabel = currentDirectory === '.' ? t('workspaceRoot') : `/${currentDirectory}`;
+
+  const handleBulkMove = () => {
+    if (hasProtectedSelected) {
+      toast.error(t('protectedFolderMove'));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('notebook-bulk-move-open'));
+  };
+
+  const handleBulkDownload = async () => {
+    for (const path of multiSelectPaths) {
+      try {
+        await downloadFile(path);
+      } catch (error) {
+        console.error(`Failed to download ${path}:`, error);
+      }
+    }
+    toast.success(t('download'));
+  };
 
   const navigateToDirectory = useCallback(
     async (targetDir: string) => {
@@ -470,15 +491,38 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
         {isMultiSelectMode && (
           <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1 text-xs">
             <span className="text-muted-foreground">{t('selectedCount', { count: multiSelectPaths.length })}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={toggleMultiSelectMode}
-            >
-              <X className="mr-1 h-3 w-3" />
-              {t('cancel')}
-            </Button>
+            <div className="flex items-center gap-1">
+              {multiSelectPaths.length > 0 && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={handleBulkMove}
+                    disabled={hasProtectedSelected}
+                    title={t('move')}
+                  >
+                    <Move className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => void handleBulkDownload()}
+                    title={t('download')}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={toggleMultiSelectMode}
+              >
+                <X className="mr-1 h-3 w-3" />
+                {t('cancel')}
+              </Button>
+            </div>
           </div>
         )}
         {(isMobile || isMobileSheet) && (
