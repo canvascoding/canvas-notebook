@@ -26,6 +26,17 @@ import { and, eq } from 'drizzle-orm';
 const IDLE_TTL_MS = 15 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 
+// Lazy-cached emitter — resolved once, reused for every subsequent agent event.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _emitter: any = null;
+async function getEmitter() {
+  if (!_emitter) {
+    const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
+    _emitter = getPiRuntimeEventEmitter();
+  }
+  return _emitter;
+}
+
 type RuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
 type QueueEntryPreview = {
@@ -235,9 +246,8 @@ class LivePiRuntime {
   }
 
   getStatus(): PiRuntimeStatus {
-    const composition =
-      this.lastComposition ||
-      composePiHistoryForLlm({
+    if (!this.lastComposition) {
+      this.lastComposition = composePiHistoryForLlm({
         messages: this.agent.state.messages,
         summary: this.summary,
         systemPromptTokens: estimateTextTokens(this.systemPrompt),
@@ -245,6 +255,8 @@ class LivePiRuntime {
         modelMaxTokens: this.model.maxTokens,
         toolCount: this.tools.length,
       });
+    }
+    const composition = this.lastComposition;
 
     return {
       sessionId: this.sessionId,
@@ -437,16 +449,12 @@ class LivePiRuntime {
       void this.handleAgentEnd();
     }
 
-    try {
-      void (async () => {
-        const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
-        const emitter = getPiRuntimeEventEmitter();
-        if (event.type !== 'agent_end') {
-          emitter.emitEvent(this.sessionId, this.userId, event as Record<string, unknown>);
-        }
-      })();
-    } catch {
-      // Non-critical: WebSocket emission failure should not break runtime
+    if (event.type !== 'agent_end') {
+      void getEmitter().then((emitter) => {
+        emitter.emitEvent(this.sessionId, this.userId, event as Record<string, unknown>);
+      }).catch(() => {
+        // Non-critical: WebSocket emission failure should not break runtime
+      });
     }
 
     this.publishStatus();

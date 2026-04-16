@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
                 closed = true;
                 unsubscribe();
                 controller.close();
-              }, 200);
+              }, 50);
             }
           }
         };

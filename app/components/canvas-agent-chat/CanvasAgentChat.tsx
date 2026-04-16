@@ -756,6 +756,8 @@ export default function CanvasAgentChat({
   const streamAbortRef = useRef<AbortController | null>(null);
   const streamSessionRef = useRef<string | null>(null);
   const currentAssistantIdRef = useRef<string | null>(null);
+  const streamingContentRef = useRef<string>('');
+  const streamingRafRef = useRef<number | null>(null);
   const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const lastCompactionMarkerRef = useRef<string | null>(null);
@@ -953,6 +955,11 @@ export default function CanvasAgentChat({
     streamAbortRef.current = null;
     streamSessionRef.current = null;
     currentAssistantIdRef.current = null;
+    if (streamingRafRef.current !== null) {
+      cancelAnimationFrame(streamingRafRef.current);
+      streamingRafRef.current = null;
+    }
+    streamingContentRef.current = '';
   }, []);
 
   const reconcileQueuedMessages = useCallback((status: RuntimeStatus) => {
@@ -1209,17 +1216,6 @@ export default function CanvasAgentChat({
     }
   }, []);
 
-  // Helper to update assistant message content
-  const updateAssistantMessage = useCallback((id: string, content: string, type?: ChatMessage['type'], status?: ChatMessage['status']) => {
-    setMessages((prev) =>
-      prev.map((message) =>
-        message.id === id
-          ? { ...message, content: message.content ? content : normalizeMessageStart(content), type: type || message.type, status: status || message.status }
-          : message,
-      ),
-    );
-  }, [setMessages]);
-
   // Helper to sync PI message to chat
   const syncPiMessage = useCallback((id: string, piMessage: AgentMessage) => {
     setMessages((prev) =>
@@ -1269,22 +1265,41 @@ export default function CanvasAgentChat({
     }
 
     if (event.type === 'message_start' && event.message?.role === 'assistant') {
+      streamingContentRef.current = '';
       createAssistantBubble(event.message);
       return;
     }
 
     if (event.type === 'message_update') {
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
-      if (event.message?.role === 'assistant') {
-        syncPiMessage(assistantId, event.message);
-      }
       if (event.assistantMessageEvent?.type === 'text_delta') {
-        updateAssistantMessage(assistantId, event.assistantMessageEvent.delta || '', undefined, 'sending');
+        streamingContentRef.current += event.assistantMessageEvent.delta || '';
+        // Start a RAF flush loop if none is running — batches all deltas to max ~1 setMessages per frame.
+        if (streamingRafRef.current === null) {
+          const flush = () => {
+            const content = streamingContentRef.current;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantId
+                  ? { ...msg, content: normalizeMessageStart(content), status: 'sending' as const }
+                  : msg
+              )
+            );
+            streamingRafRef.current = requestAnimationFrame(flush);
+          };
+          streamingRafRef.current = requestAnimationFrame(flush);
+        }
       }
       return;
     }
 
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      // Stop the RAF loop and do one final authoritative sync from the PI message object.
+      if (streamingRafRef.current !== null) {
+        cancelAnimationFrame(streamingRafRef.current);
+        streamingRafRef.current = null;
+      }
+      streamingContentRef.current = '';
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
       syncPiMessage(assistantId, event.message);
       currentAssistantIdRef.current = null;
@@ -1372,80 +1387,9 @@ export default function CanvasAgentChat({
       return;
     }
 
-    // Handle assistant messages
-    if (event.type === 'message' && event.message) {
-      const message = event.message;
-      if (message.role === 'assistant') {
-        setMessages((prev) => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant' && lastMessage.status === 'pending') {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...lastMessage,
-                content: typeof message.content === 'string' 
-                  ? message.content 
-                  : JSON.stringify(message.content),
-                piMessage: message,
-                status: 'sent',
-              } as ChatMessage,
-            ];
-          }
-          return [
-            ...prev,
-            {
-              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              role: 'assistant',
-              content: typeof message.content === 'string' 
-                ? message.content 
-                : JSON.stringify(message.content),
-              status: 'sent',
-              piMessage: message,
-            } as ChatMessage,
-          ];
-        });
-      }
-      return;
-    }
-
-    // Handle message delta events (for streaming content)
-    if (event.type === 'message_delta' && event.assistantMessageEvent) {
-      const delta = event.assistantMessageEvent.delta;
-      if (delta) {
-        setMessages((prev) => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant') {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...lastMessage,
-                content: lastMessage.content + delta,
-              },
-            ];
-          }
-          return prev;
-        });
-      }
-      return;
-    }
-
-    // Handle messages array (bulk update)
-    if (event.type === 'messages' && event.messages) {
-      const newMessages = event.messages.map((msg: AgentMessage, index: number) => ({
-        id: `stream-${Date.now()}-${index}`,
-        role: msg.role as ChatMessage['role'],
-        content: 'content' in msg
-          ? typeof msg.content === 'string'
-            ? msg.content
-            : JSON.stringify(msg.content)
-          : '',
-        status: 'sent' as const,
-        piMessage: msg,
-      }));
-      setMessages((prev) => [...prev, ...newMessages]);
-      return;
-    }
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, isWebSocketEnabled, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, updateAssistantMessage, upsertToolMessage]);
+    // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
+    // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, isWebSocketEnabled, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
