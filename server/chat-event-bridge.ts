@@ -93,11 +93,6 @@ export function initializeWebSocketBridge(): void {
     if (event.type === 'message_saved') {
       console.log(`[WebSocket Bridge] Received message_saved event for session ${sessionId}`);
 
-      // Broadcast session update to user (all tabs/devices) immediately — before DB queries.
-      // The client decides whether to suppress the in-app notification when the matching
-      // session is already visible and focused.
-      broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
-
       try {
         const session = await db.query.piSessions.findFirst({
           where: and(
@@ -111,6 +106,10 @@ export function initializeWebSocketBridge(): void {
           console.error(`[WebSocket Bridge] Session not found: ${sessionId}`);
           return;
         }
+
+        // Broadcast session update with title so all tabs can update the sidebar and
+        // session title immediately (before the toast notification fires).
+        broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString(), session.title ?? undefined);
 
         // Use the event payload as the primary source to avoid race conditions where
         // the DB write hasn't completed yet when we query for the preview.

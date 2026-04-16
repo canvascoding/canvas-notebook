@@ -93,6 +93,13 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     const handleNotification = (event: CustomEvent<NotificationDetail>) => {
       const { sessionId, sessionTitle, notificationType, messagePreview } = event.detail;
 
+      // Suppress toast if the user is already viewing this session
+      const currentSearch = typeof window !== 'undefined' ? window.location.search : '';
+      if (currentSearch.includes(`session=${encodeURIComponent(sessionId)}`)) {
+        console.log('[WebSocketProvider] Suppressing toast for active session', sessionId);
+        return;
+      }
+
       console.log('[WebSocketProvider] Showing notification for session', sessionId);
       const toastTitle = truncateText(sessionTitle, 60) || t('newChatTitle');
       const toastDescription = truncateText(messagePreview, 140) || t('newResponseReady');
