@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Eye, EyeOff, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
+import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSettingsPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -307,7 +308,7 @@ export function IntegrationsSettingsClient() {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
-  const [settingsTab, setSettingsTab] = useState<'integrations' | 'agent-settings'>('integrations');
+  const [settingsTab, setSettingsTab] = useState<'integrations' | 'agent-settings' | 'workspace'>('integrations');
   const [editors, setEditors] = useState<Record<EnvScope, ScopeEditorState>>({
     integrations: INITIAL_SCOPE_STATE('integrations'),
     agents: INITIAL_SCOPE_STATE('agents'),
@@ -368,6 +369,8 @@ export function IntegrationsSettingsClient() {
   useEffect(() => {
     if (searchParams.get('tab') === 'agent-settings') {
       setSettingsTab('agent-settings');
+    } else if (searchParams.get('tab') === 'workspace') {
+      setSettingsTab('workspace');
     }
   }, [searchParams]);
 
@@ -538,15 +541,18 @@ export function IntegrationsSettingsClient() {
     <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
       <Tabs
         value={settingsTab}
-        onValueChange={(value) => setSettingsTab(value as 'integrations' | 'agent-settings')}
+        onValueChange={(value) => setSettingsTab(value as 'integrations' | 'agent-settings' | 'workspace')}
         className="space-y-4"
       >
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-2">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-3">
           <TabsTrigger value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.integrations')}
           </TabsTrigger>
           <TabsTrigger value="agent-settings" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.agentSettings')}
+          </TabsTrigger>
+          <TabsTrigger value="workspace" className="min-h-9 border border-border data-[state=active]:bg-muted">
+            {t('tabs.workspace')}
           </TabsTrigger>
         </TabsList>
 
@@ -571,6 +577,10 @@ export function IntegrationsSettingsClient() {
 
         <TabsContent value="agent-settings" className="space-y-4">
           <AgentSettingsPanel />
+        </TabsContent>
+
+        <TabsContent value="workspace" className="space-y-4">
+          <WorkspaceSettingsPanel />
         </TabsContent>
       </Tabs>
     </div>

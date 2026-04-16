@@ -500,7 +500,8 @@
     "title": "Einstellungen",
     "tabs": {
       "integrations": "Integrationen",
-      "agentSettings": "Agent-Einstellungen"
+      "agentSettings": "Agent-Einstellungen",
+      "workspace": "Workspace"
     },
     "scopes": {
       "integrations": {
@@ -540,6 +541,21 @@
       "errors": {
         "loadEnvFile": "Env-Datei konnte nicht geladen werden.",
         "saveEnvFile": "Env-Datei konnte nicht gespeichert werden."
+      }
+    },
+    "workspacePanel": {
+      "title": "Workspace",
+      "description": "Den kompletten Workspace als ZIP-Archiv herunterladen.",
+      "loadingStats": "Lade Workspace-Statistiken...",
+      "totalSize": "Gesamtgröße",
+      "fileCount": "Dateien",
+      "downloadZip": "Als ZIP herunterladen",
+      "downloading": "Download wird vorbereitet...",
+      "refresh": "Aktualisieren",
+      "emptyWorkspace": "Dein Workspace ist leer.",
+      "errors": {
+        "loadStats": "Workspace-Statistiken konnten nicht geladen werden.",
+        "downloadFailed": "Workspace-Download fehlgeschlagen."
       }
     },
     "agentPanel": {
