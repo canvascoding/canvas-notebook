@@ -397,6 +397,23 @@
           "Verify /chat receives runtime_status and agent_event updates again"
         ]
       }
+    },
+    {
+      "id": "41",
+      "content": "Stabilize WebSocket toast previews for assistant response notifications",
+      "status": "completed",
+      "priority": "medium",
+      "phase": "Bug Fixes",
+      "details": {
+        "changes": [
+          "Use the saved message_saved event payload as the primary source for notification previews",
+          "Fall back to the persisted assistant message in the database only when the event payload has no readable text"
+        ],
+        "verification": {
+          "lint": "npm run lint",
+          "build": "npm run build attempted, but blocked by offline fonts.googleapis.com fetch in this environment"
+        }
+      }
     }
   ]
 }

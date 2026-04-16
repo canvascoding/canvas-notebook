@@ -1,6 +1,6 @@
 /**
  * WebSocket Runtime Bridge
- * 
+ *
  * Connects PI Runtime events to WebSocket clients via the global event emitter.
  * This avoids circular dependencies and server-only import issues.
  */
@@ -52,25 +52,51 @@ function extractTextPreview(value: unknown): string {
   return '';
 }
 
+function extractAssistantNotificationPreview(eventMessage: unknown): string {
+  const directPreview = extractTextPreview(eventMessage);
+  if (directPreview) {
+    return directPreview;
+  }
+
+  if (!eventMessage || typeof eventMessage !== 'object') {
+    return '';
+  }
+
+  const record = eventMessage as Record<string, unknown>;
+  if ('content' in record) {
+    return extractTextPreview(record.content);
+  }
+
+  return '';
+}
+
+// Track which sessions are subscribed
+const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
+
 /**
  * Initialize WebSocket event listener for PI Runtime events
  */
 export function initializeWebSocketBridge(): void {
   console.log('[WebSocket Bridge] Initializing event bridge...');
-  
+
   const emitter = getPiRuntimeEventEmitter();
-  
+
   emitter.onAgentEvent(async (data) => {
     const { sessionId, userId, event } = data;
-    
+
     console.log(`[WebSocket Bridge] Received event for session ${sessionId}:`, event.type);
-    
+
     // Broadcast to all WebSocket clients subscribed to this session
     broadcastAgentEvent(sessionId, event);
-    
+
     // Handle message_saved event - this is emitted AFTER the message is saved to DB
     if (event.type === 'message_saved') {
       console.log(`[WebSocket Bridge] Received message_saved event for session ${sessionId}`);
+
+      // Broadcast session update to user (all tabs/devices) immediately — before DB queries.
+      // The client decides whether to suppress the in-app notification when the matching
+      // session is already visible and focused.
+      broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
 
       try {
         const session = await db.query.piSessions.findFirst({
@@ -86,25 +112,30 @@ export function initializeWebSocketBridge(): void {
           return;
         }
 
-        broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString(), session.title ?? undefined);
+        // Use the event payload as the primary source to avoid race conditions where
+        // the DB write hasn't completed yet when we query for the preview.
+        let messagePreview = normalizeNotificationPreview(
+          extractAssistantNotificationPreview(event.message)
+        );
 
-        const lastAssistantMessage = await db.query.piMessages.findFirst({
-          where: and(
-            eq(piMessages.piSessionDbId, session.id),
-            eq(piMessages.role, 'assistant')
-          ),
-          orderBy: [desc(piMessages.timestamp)],
-          columns: { content: true }
-        });
+        if (!messagePreview) {
+          const lastAssistantMessage = await db.query.piMessages.findFirst({
+            where: and(
+              eq(piMessages.piSessionDbId, session.id),
+              eq(piMessages.role, 'assistant')
+            ),
+            orderBy: [desc(piMessages.timestamp)],
+            columns: { content: true }
+          });
 
-        let messagePreview = '';
-        if (lastAssistantMessage?.content) {
-          try {
-            messagePreview = normalizeNotificationPreview(
-              extractTextPreview(JSON.parse(lastAssistantMessage.content))
-            );
-          } catch {
-            messagePreview = normalizeNotificationPreview(lastAssistantMessage.content);
+          if (lastAssistantMessage?.content) {
+            try {
+              messagePreview = normalizeNotificationPreview(
+                extractTextPreview(JSON.parse(lastAssistantMessage.content))
+              );
+            } catch {
+              messagePreview = normalizeNotificationPreview(lastAssistantMessage.content);
+            }
           }
         }
 
@@ -120,8 +151,40 @@ export function initializeWebSocketBridge(): void {
       }
     }
   });
-  
+
   console.log('[WebSocket Bridge] Event bridge initialized');
+}
+
+/**
+ * Subscribe to PI Runtime events for a session
+ */
+export async function subscribeToPiRuntimeEvents(sessionId: string, userId: string): Promise<void> {
+  console.log(`[WebSocket Bridge] Subscription requested for session ${sessionId}, user ${userId}`);
+
+  if (!subscribedSessions.has(sessionId)) {
+    subscribedSessions.set(sessionId, new Set());
+  }
+
+  subscribedSessions.get(sessionId)!.add(userId);
+
+  console.log(`[WebSocket Bridge] Active subscribers for session ${sessionId}:`, subscribedSessions.get(sessionId)!.size);
+}
+
+/**
+ * Unsubscribe from PI Runtime events
+ */
+export function unsubscribeFromPiRuntimeEvents(sessionId: string, userId: string): void {
+  const subscribers = subscribedSessions.get(sessionId);
+
+  if (subscribers) {
+    subscribers.delete(userId);
+
+    if (subscribers.size === 0) {
+      subscribedSessions.delete(sessionId);
+    }
+
+    console.log(`[WebSocket Bridge] Unsubscribed user ${userId} from session ${sessionId}`);
+  }
 }
 
 /**
