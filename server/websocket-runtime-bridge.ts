@@ -50,6 +50,24 @@ function extractTextPreview(value: unknown): string {
   return '';
 }
 
+function extractAssistantNotificationPreview(eventMessage: unknown): string {
+  const directPreview = extractTextPreview(eventMessage);
+  if (directPreview) {
+    return directPreview;
+  }
+
+  if (!eventMessage || typeof eventMessage !== 'object') {
+    return '';
+  }
+
+  const record = eventMessage as Record<string, unknown>;
+  if ('content' in record) {
+    return extractTextPreview(record.content);
+  }
+
+  return '';
+}
+
 // Track which sessions are subscribed
 const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
 
@@ -91,23 +109,28 @@ export function initializeWebSocketBridge(): void {
           return;
         }
 
-        const lastAssistantMessage = await db.query.piMessages.findFirst({
-          where: and(
-            eq(piMessages.piSessionDbId, session.id),
-            eq(piMessages.role, 'assistant')
-          ),
-          orderBy: [desc(piMessages.timestamp)],
-          columns: { content: true }
-        });
+        let messagePreview = normalizeNotificationPreview(
+          extractAssistantNotificationPreview(event.message)
+        );
 
-        let messagePreview = '';
-        if (lastAssistantMessage?.content) {
-          try {
-            messagePreview = normalizeNotificationPreview(
-              extractTextPreview(JSON.parse(lastAssistantMessage.content))
-            );
-          } catch {
-            messagePreview = normalizeNotificationPreview(lastAssistantMessage.content);
+        if (!messagePreview) {
+          const lastAssistantMessage = await db.query.piMessages.findFirst({
+            where: and(
+              eq(piMessages.piSessionDbId, session.id),
+              eq(piMessages.role, 'assistant')
+            ),
+            orderBy: [desc(piMessages.timestamp)],
+            columns: { content: true }
+          });
+
+          if (lastAssistantMessage?.content) {
+            try {
+              messagePreview = normalizeNotificationPreview(
+                extractTextPreview(JSON.parse(lastAssistantMessage.content))
+              );
+            } catch {
+              messagePreview = normalizeNotificationPreview(lastAssistantMessage.content);
+            }
           }
         }
 
