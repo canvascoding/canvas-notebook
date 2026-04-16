@@ -32,7 +32,7 @@ const SKILL_ICON_BY_NAME: Record<string, ComponentType<{ className?: string }>> 
   qmd: BookOpen,
   transcribe: FileText,
   'video-generation': Clapperboard,
-  'workflow-automation': Wrench,
+
   xlsx: FileSpreadsheet,
   'youtube-transcript': FileText,
 };

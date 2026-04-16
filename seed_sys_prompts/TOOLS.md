@@ -124,11 +124,11 @@ Localizes advertisements. Use when the user says: "localize this ad", "translate
 
 ## Important Notes
 
-- **Prerequisite:** GEMINI_API_KEY must be configured in /settings for image/video/ad-localization
-- **Local Skills** (image_generation, video_generation, ad_localization): Return JSON with { "success": true, "data": { ... } }
-- **Do not read token/env files:** For Gemini skills, do not use internal API routes or env files directly. The wrappers resolve the central integration configuration themselves.
+- **image_generation, video_generation, ad_localization** require GEMINI_API_KEY configured in Settings → Integrations. No other keys or tokens are needed for any tool.
+- **Automation tools** (create_automation_job, update_automation_job, delete_automation_job, trigger_automation_job, list_automation_jobs) require no API key or authentication — they work directly out of the box.
+- **Do not read token/env files:** For Gemini tools, do not use internal API routes or env files directly. The wrappers resolve the central integration configuration themselves.
 - All skill-related secrets and environment variables supplied by the user live in `/data/secrets/Canvas-Integrations.env`
-- If you create a new skill that needs env vars, explicitly instruct the user to add them in Settings -> Integrations so they end up in `/data/secrets/Canvas-Integrations.env`
+- If you create a new skill that needs env vars, explicitly instruct the user to add them in Settings → Integrations so they end up in `/data/secrets/Canvas-Integrations.env`
 - Never store new secrets in `/data/skills/<skill-name>/`, `/data/workspace`, or other ad-hoc files
 - Do not manually maintain generated wrappers in `/data/skills/bin`; update the skill manifest/runtime and let the wrappers be regenerated
 - **Output directories:** All results are workspace-relative under /data/workspace
@@ -142,9 +142,7 @@ For complete documentation, parameter details, and examples:
 
 ## Workflow Automation
 
-### What Are Automations
-
-Automations are scheduled tasks that execute prompts/scripts automatically at specified times. They run in the background and deliver results to configured output paths.
+Automations are scheduled tasks that execute prompts automatically at specified times. They run in the background and deliver results to configured output paths. Use the built-in automation tools directly — no skill or API key needed.
 
 ### Creating vs. Executing Automations
 
@@ -152,8 +150,8 @@ Automations are scheduled tasks that execute prompts/scripts automatically at sp
 
 1. **Creating a New Automation** (User requests in chat):
    - When the user says: "Create an automation...", "Set up a scheduled task...", "Automate this..."
-   - Use the `workflow-automation` skill to create a new job
-   - The skill handles: name, prompt, schedule, output paths
+   - Use `create_automation_job` directly to create a new job
+   - Required: name, prompt, schedule. Optional: preferredSkill, targetOutputPath, workspaceContextPaths, status
 
 2. **Executing an Automation** (Scheduled/Manual trigger):
    - When a message arrives with prefix "Automation name: ..." or similar automation context
@@ -161,35 +159,24 @@ Automations are scheduled tasks that execute prompts/scripts automatically at sp
    - **IMMEDIATELY EXECUTE** the task described in the prompt
    - This is an execution context, not a creation request
 
-### Automation Creation Flow
+### Available Tools
 
-When user wants to create an automation:
-```
-User: "Create a daily automation that summarizes my work"
-→ Use workflow-automation skill
-→ Provide: name, prompt, schedule (daily/weekly/once/interval)
-→ Skill creates the job in the database
-→ Job will be triggered automatically at scheduled times
-```
+- `create_automation_job` — Creates a new scheduled job (once, daily, weekly, interval)
+- `list_automation_jobs` — Lists all existing automation jobs
+- `update_automation_job` — Updates a job (change schedule, pause/resume, edit prompt, etc.)
+- `delete_automation_job` — Permanently deletes a job and its run history
+- `trigger_automation_job` — Manually triggers a job to run immediately
 
-### Automation Execution Flow
-
-When automation is triggered (scheduled or manual):
-```
-System → Agent: "Automation name: Daily Summary\nTask: [prompt]"
-→ Agent executes the task immediately
-→ Write results to configured output path
-→ DO NOT create a new automation
-```
+No API key, token, or authentication is required for any automation tool.
 
 ### Key Rules
 
 - **NEVER** create an automation when you receive an automation execution message
 - **ALWAYS** execute the task when the message contains automation context
-- Use `workflow-automation` skill ONLY when user explicitly asks to create/manage automations in chat
+- Use the built-in automation tools when the user asks to create or manage automations
 - Automation execution messages come with pre-configured context (name, preferred skill, output paths)
 
-## Trigger Phrases (When to use which skill)
+## Trigger Phrases (When to use which tool)
 
 **image_generation:**
 - "create an image"
@@ -212,12 +199,15 @@ System → Agent: "Automation name: Daily Summary\nTask: [prompt]"
 - "lokalisiere diese Anzeige"
 - "übersetze für Markt..."
 
-**workflow-automation** (ONLY for creation/management in chat):
-- "create an automation"
-- "set up a scheduled task"
-- "automate this"
-- "schedule a daily report"
-- "manage my automations"
+**automation tools:**
+- "create an automation" → `create_automation_job`
+- "set up a scheduled task" → `create_automation_job`
+- "automate this" → `create_automation_job`
+- "schedule a daily report" → `create_automation_job`
+- "manage my automations" → `list_automation_jobs`
+- "pause/resume a job" → `update_automation_job`
+- "delete an automation" → `delete_automation_job`
+- "run this job now" → `trigger_automation_job`
 
 ## Skill Creator
 
