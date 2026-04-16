@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useState, useCallback, type ChangeEvent, type DragEvent } from 'react';
-import { ChevronsDownUp, ChevronLeft, CheckSquare, FilePlus, FolderPlus, House, MoreHorizontal, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { useRef, useState, useCallback, type DragEvent } from 'react';
+import { ChevronsDownUp, ChevronLeft, CheckSquare, Download, FilePlus, FolderPlus, House, MoreHorizontal, Move, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,9 @@ import {
 import { cn } from '@/lib/utils';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
+import { CreateItemDialog } from './CreateItemDialog';
+import { UploadDialog } from './UploadDialog';
+import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { useFileWatcher, type FileEvent } from '@/app/hooks/useFileWatcher';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -32,19 +35,21 @@ interface FileBrowserProps {
 
 export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const t = useTranslations('notebook');
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const folderInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createType, setCreateType] = useState<'file' | 'directory'>('file');
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePaths, setDeletePaths] = useState<string[]>([]);
+  const [deleteSkippedCount, setDeleteSkippedCount] = useState(0);
   const isMobile = useIsMobile();
   const isMobileSheet = variant === 'mobile-sheet';
   
-  // Stable callback for file watcher - memoized with useCallback
   const handleFileEvent = useCallback((event: FileEvent) => {
     console.log('[FileBrowser] File change event:', event);
   }, []);
   
-  // File watcher für automatische Updates
   const { isConnected } = useFileWatcher({
     enabled: true,
     debounceMs: 1000,
@@ -69,6 +74,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     toggleMultiSelectMode,
     multiSelectPaths,
     clearMultiSelect,
+    downloadFile,
   } = useFileStore();
 
   const findPathInTree = (path: string, tree: FileNode[]): boolean => {
@@ -104,36 +110,26 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     return trimmed.slice(0, lastSlash);
   };
 
-  const handleNewFile = async () => {
-    const name = window.prompt(t('newFilePrompt'));
-    if (!name) return;
-    const targetDir = resolveTargetDir();
-    const targetPath = targetDir === '.' ? name : `${targetDir}/${name}`;
-    await createPath(targetPath, 'file');
+  const handleNewFile = () => {
+    setCreateType('file');
+    setCreateOpen(true);
   };
 
-  const handleNewFolder = async () => {
-    const name = window.prompt(t('newFolderPrompt'));
-    if (!name) return;
-    const targetDir = resolveTargetDir();
-    const targetPath = targetDir === '.' ? name : `${targetDir}/${name}`;
-    await createPath(targetPath, 'directory');
+  const handleNewFolder = () => {
+    setCreateType('directory');
+    setCreateOpen(true);
+  };
+
+  const handleCreate = async (fullPath: string, itemType: 'file' | 'directory') => {
+    await createPath(fullPath, itemType);
   };
 
   const handleUploadClick = () => {
-    fileInputRef.current?.click();
+    setUploadOpen(true);
   };
 
-  const handleUploadFolderClick = () => {
-    folderInputRef.current?.click();
-  };
-
-  const handleUploadChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
-    if (files.length === 0) return;
-    const targetDir = resolveTargetDir();
+  const handleUpload = async (files: File[], targetDir: string) => {
     await uploadFile(files, targetDir);
-    event.target.value = '';
   };
 
   const handleDragEnter = (event: DragEvent<HTMLElement>) => {
@@ -165,7 +161,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     await uploadFile(droppedFiles, targetDir);
   };
 
-  const handleDeleteClick = async () => {
+  const handleDeleteClick = () => {
     if (isMultiSelectMode) {
       const pathsToDelete = Array.from(multiSelectPaths).filter((path) => !isProtectedAppOutputFolder(path));
       const skippedCount = multiSelectPaths.length - pathsToDelete.length;
@@ -175,38 +171,55 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
         }
         return;
       }
-
-      const confirmed = window.confirm(
-        skippedCount > 0
-          ? t('deleteItemsConfirmWithSkipped', { count: pathsToDelete.length, skipped: skippedCount })
-          : t('deleteItemsConfirm', { count: pathsToDelete.length })
-      );
-      if (confirmed) {
-        await deletePath(pathsToDelete);
-        if (skippedCount > 0) {
-          toast.info(t('protectedFoldersSkipped', { count: skippedCount }));
-        }
-        clearMultiSelect();
-      }
+      setDeletePaths(pathsToDelete);
+      setDeleteSkippedCount(skippedCount);
+      setDeleteOpen(true);
     } else if (selectedNode) {
       if (selectedNode.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path)) {
         toast.error(t('protectedFolderDelete'));
         return;
       }
-      const confirmed = window.confirm(t('deleteSingleConfirm', { name: selectedNode.name }));
-      if (confirmed) {
-        await deletePath(selectedNode.path);
-      }
+      setDeletePaths([selectedNode.path]);
+      setDeleteSkippedCount(0);
+      setDeleteOpen(true);
     }
   };
 
+  const handleConfirmDelete = async () => {
+    await deletePath(deletePaths);
+    if (deleteSkippedCount > 0) {
+      toast.info(t('protectedFoldersSkipped', { count: deleteSkippedCount }));
+    }
+    clearMultiSelect();
+  };
+
   const deletableMultiSelectCount = multiSelectPaths.filter((path) => !isProtectedAppOutputFolder(path)).length;
+  const hasProtectedSelected = multiSelectPaths.some(path => isProtectedAppOutputFolder(path));
   const isDeleteDisabled =
     (!selectedNode && multiSelectPaths.length === 0) ||
     (isMultiSelectMode
       ? deletableMultiSelectCount === 0
       : selectedNode?.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path));
   const currentDirectoryLabel = currentDirectory === '.' ? t('workspaceRoot') : `/${currentDirectory}`;
+
+  const handleBulkMove = () => {
+    if (hasProtectedSelected) {
+      toast.error(t('protectedFolderMove'));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('notebook-bulk-move-open'));
+  };
+
+  const handleBulkDownload = async () => {
+    for (const path of multiSelectPaths) {
+      try {
+        await downloadFile(path);
+      } catch (error) {
+        console.error(`Failed to download ${path}:`, error);
+      }
+    }
+    toast.success(t('download'));
+  };
 
   const navigateToDirectory = useCallback(
     async (targetDir: string) => {
@@ -280,10 +293,6 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                   <Upload className="h-4 w-4" />
                   {t('uploadFile')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleUploadFolderClick}>
-                  <FolderPlus className="h-4 w-4 text-primary" />
-                  {t('uploadFolder')}
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={toggleMultiSelectMode}>
                   <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
@@ -297,7 +306,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                   <RefreshCw className={cn('h-4 w-4', isLoadingTree && 'animate-spin')} />
                   {t('refresh')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void handleDeleteClick()} disabled={isDeleteDisabled}>
+                <DropdownMenuItem onSelect={handleDeleteClick} disabled={isDeleteDisabled}>
                   <Trash2 className="h-4 w-4" />
                   {t('deleteSelection')}
                 </DropdownMenuItem>
@@ -323,10 +332,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
             </div>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
+          <div className="flex items-center gap-x-2 px-3 py-2">
             <h2 className="shrink-0 text-sm font-semibold text-foreground">{t('filesTitle')}</h2>
             <TooltipProvider delayDuration={300}>
-              <div className="flex min-w-[180px] flex-1 flex-wrap content-start items-center justify-start gap-1">
+              <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -368,27 +377,14 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <DropdownMenu modal={false}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={t('upload')}
-                        >
-                          <Upload className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" sideOffset={8}>
-                        <DropdownMenuItem onSelect={handleUploadClick}>
-                          <Upload className="h-4 w-4" />
-                          {t('uploadFile')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={handleUploadFolderClick}>
-                          <FolderPlus className="h-4 w-4 text-primary" />
-                          {t('uploadFolder')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleUploadClick}
+                      aria-label={t('upload')}
+                    >
+                      <Upload className="h-4 w-4" />
+                    </Button>
                   </TooltipTrigger>
                   <TooltipContent>{t('upload')}</TooltipContent>
                 </Tooltip>
@@ -452,33 +448,41 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
             </TooltipProvider>
           </div>
         )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          onChange={handleUploadChange}
-          multiple
-        />
-        <input
-          ref={folderInputRef}
-          type="file"
-          className="hidden"
-          onChange={handleUploadChange}
-          {...{ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>}
-          multiple
-        />
         {isMultiSelectMode && (
           <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1 text-xs">
             <span className="text-muted-foreground">{t('selectedCount', { count: multiSelectPaths.length })}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={toggleMultiSelectMode}
-            >
-              <X className="mr-1 h-3 w-3" />
-              {t('cancel')}
-            </Button>
+            <div className="flex items-center gap-1">
+              {multiSelectPaths.length > 0 && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={handleBulkMove}
+                    disabled={hasProtectedSelected}
+                    title={t('move')}
+                  >
+                    <Move className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => void handleBulkDownload()}
+                    title={t('download')}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={toggleMultiSelectMode}
+              >
+                <X className="mr-1 h-3 w-3" />
+                {t('cancel')}
+              </Button>
+            </div>
           </div>
         )}
         {(isMobile || isMobileSheet) && (
@@ -568,6 +572,29 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
       <div className="min-h-0 flex-1 overflow-hidden">
         <FileTree />
       </div>
+
+      <CreateItemDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        type={createType}
+        defaultPath={resolveTargetDir()}
+        onCreate={handleCreate}
+      />
+
+      <UploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        defaultPath={resolveTargetDir()}
+        onUpload={handleUpload}
+      />
+
+      <DeleteConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        paths={deletePaths}
+        skippedCount={deleteSkippedCount}
+        onConfirm={handleConfirmDelete}
+      />
     </section>
   );
 }

@@ -6,6 +6,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { WebSocketClient, getWebSocketClient } from '@/app/lib/websocket/client';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
 
 interface UseWebSocketOptions {
   autoConnect?: boolean;
@@ -20,14 +21,7 @@ interface UseWebSocketReturn {
   client: WebSocketClient;
   subscribe: (sessionId: string) => void;
   unsubscribe: (sessionId: string) => void;
-  sendMessage: (sessionId: string, message: Record<string, unknown>, context?: {
-    activeFilePath?: string | null;
-    userTimeZone?: string;
-    currentTime?: string;
-    workingDirectory?: string;
-  }) => void;
-  markAsRead: (sessionId: string) => void;
-  getStatus: (sessionId: string) => void;
+  sendMessage: (sessionId: string, message: Record<string, unknown>, context?: ChatRequestContext) => void;
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSocketReturn, 'client'> & { client: () => WebSocketClient } {
@@ -99,23 +93,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
   }, []);
 
   // Send message
-  const sendMessage = useCallback((sessionId: string, message: Record<string, unknown>, context?: {
-    activeFilePath?: string | null;
-    userTimeZone?: string;
-    currentTime?: string;
-    workingDirectory?: string;
-  }) => {
+  const sendMessage = useCallback((sessionId: string, message: Record<string, unknown>, context?: ChatRequestContext) => {
     clientRef.current?.sendMessage(sessionId, message, context);
-  }, []);
-
-  // Mark as read
-  const markAsRead = useCallback((sessionId: string) => {
-    clientRef.current?.markAsRead(sessionId);
-  }, []);
-
-  // Get status
-  const getStatus = useCallback((sessionId: string) => {
-    clientRef.current?.getStatus(sessionId);
   }, []);
 
   const getClient = () => {
@@ -132,7 +111,5 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
     subscribe,
     unsubscribe,
     sendMessage,
-    markAsRead,
-    getStatus,
   };
 }

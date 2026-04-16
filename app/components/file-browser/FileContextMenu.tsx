@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
-import { ChevronRight, Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Folder, Share2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Share2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
@@ -21,10 +21,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { ShareMarkdownDialog } from './ShareMarkdownDialog';
+import { CreateItemDialog } from './CreateItemDialog';
+import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { DirectoryBrowser } from './DirectoryBrowser';
 
 interface FileContextMenuProps {
   node: {
@@ -57,24 +60,25 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   const t = useTranslations('notebook');
   const [open, setOpen] = useState(false);
   
-  // State for Move Dialog
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveName, setMoveName] = useState(node.name);
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
   const [isMovingMultiple, setIsMovingMultiple] = useState(false);
 
-  // State for Rename Dialog
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
   
-  // State for Share Dialog (Markdown only)
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createType, setCreateType] = useState<'file' | 'directory'>('file');
+  
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  
   const [shareOpen, setShareOpen] = useState(false);
   
   const isProtectedOutputFolder =
     node.type === 'directory' && isProtectedAppOutputFolder(node.path);
   
-  // Check if file is a markdown file
   const isMarkdown = node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name);
 
   const { 
@@ -93,16 +97,20 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     return getParentPath(node.path);
   }, [node]);
 
-  const handleNewFile = async () => {
-    const name = window.prompt(t('newFilePrompt'));
-    if (!name) return;
-    await createPath(joinPath(parentPath, name), 'file');
+  const handleNewFile = () => {
+    setOpen(false);
+    setCreateType('file');
+    setCreateOpen(true);
   };
 
-  const handleNewFolder = async () => {
-    const name = window.prompt(t('newFolderPrompt'));
-    if (!name) return;
-    await createPath(joinPath(parentPath, name), 'directory');
+  const handleNewFolder = () => {
+    setOpen(false);
+    setCreateType('directory');
+    setCreateOpen(true);
+  };
+
+  const handleCreate = async (fullPath: string, itemType: 'file' | 'directory') => {
+    await createPath(fullPath, itemType);
   };
 
   const handleRename = () => {
@@ -110,7 +118,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       toast.error(t('protectedFolderRename'));
       return;
     }
-    setOpen(false); // Close dropdown
+    setOpen(false);
     setNewName(node.name);
     setRenameOpen(true);
   };
@@ -132,7 +140,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     setOpen(false);
     setMoveName(node.name);
     setMoveTarget(getParentPath(node.path));
-    setMoveExpandedDirs(new Set()); // Collapse all on open
+    setMoveExpandedDirs(new Set());
     setIsMovingMultiple(false);
     setMoveOpen(true);
   };
@@ -153,13 +161,16 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     setMoveOpen(true);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (isProtectedOutputFolder) {
       toast.error(t('protectedFolderDelete'));
       return;
     }
-    const confirmed = window.confirm(t('deleteSingleConfirm', { name: node.name }));
-    if (!confirmed) return;
+    setOpen(false);
+    setDeleteOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
     await deletePath(node.path);
   };
 
@@ -192,43 +203,8 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     });
   };
 
-  const renderMoveDirectories = (nodes: FileNode[], depth = 0): ReactNode[] => {
-    return nodes.flatMap((entry) => {
-      if (entry.type !== 'directory') return [];
-      
-      const isSelected = moveTarget === entry.path;
-      const isExpanded = moveExpandedDirs.has(entry.path);
-      
-      const row = (
-        <div key={entry.path} className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
-          <button
-            type="button"
-            className="p-1 rounded hover:bg-accent/70"
-            onClick={() => toggleMoveDir(entry.path)}
-          >
-            <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-          </button>
-          <button
-            type="button"
-            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
-              isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/70'
-            }`}
-            onClick={() => setMoveTarget(entry.path)}
-          >
-            <Folder className="h-4 w-4 text-muted-foreground" />
-            <span className="truncate">{entry.name}</span>
-          </button>
-        </div>
-      );
-      
-      const children = isExpanded && entry.children ? renderMoveDirectories(entry.children, depth + 1) : [];
-      return [row, ...children];
-    });
-  };
-
   const handleConfirmMove = async () => {
     if (isMovingMultiple) {
-      // Move multiple files to target directory
       const pathsToMove = [...multiSelectPaths];
       let successCount = 0;
       
@@ -252,7 +228,6 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       clearMultiSelect();
       toast.success(t('moveMultipleSuccess', { count: successCount }));
     } else {
-      // Move single file
       const trimmedName = moveName.trim();
       if (!trimmedName) {
         toast.error(t('pleaseEnterName'));
@@ -355,6 +330,22 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <CreateItemDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        type={createType}
+        defaultPath={parentPath}
+        onCreate={handleCreate}
+      />
+
+      <DeleteConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        paths={[node.path]}
+        skippedCount={0}
+        onConfirm={handleConfirmDelete}
+      />
+
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -406,24 +397,13 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
                 className="mt-1"
               />
             </div>
-            <div className="rounded border border-border bg-muted/40 p-2">
-              <div className="mb-2 text-xs text-muted-foreground">{t('chooseDestination')}</div>
-              <div className="max-h-56 overflow-auto">
-                <button
-                  type="button"
-                  className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
-                    moveTarget === '.'
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-foreground hover:bg-accent/70'
-                  }`}
-                  onClick={() => setMoveTarget('.')}
-                >
-                  <Folder className="h-4 w-4 text-muted-foreground" />
-                  <span className="truncate">{t('rootDirectory')}</span>
-                </button>
-                {renderMoveDirectories(fileTree)}
-              </div>
-            </div>
+            <DirectoryBrowser
+              tree={fileTree}
+              selectedPath={moveTarget}
+              onSelect={setMoveTarget}
+              expandedDirs={moveExpandedDirs}
+              onToggleDir={toggleMoveDir}
+            />
           </div>
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setMoveOpen(false)}>

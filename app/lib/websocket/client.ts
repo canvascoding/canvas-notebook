@@ -7,13 +7,14 @@
  * - Logging in Browser Console
  */
 
+import type { ChatRequestContext } from '@/app/lib/chat/types';
+
 export class WebSocketClient extends EventTarget {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private baseUrl: string;
   private subscribedSessions = new Set<string>();
-  private pingInterval: ReturnType<typeof setInterval> | null = null;
   private isManualDisconnect = false;
   private messageQueue: Array<Record<string, unknown>> = [];
   private isConnecting = false;
@@ -58,7 +59,6 @@ export class WebSocketClient extends EventTarget {
         this.ws.onopen = () => {
           console.log('[WebSocket] Connected');
           this.reconnectAttempts = 0;
-          this.startPing();
           this.isConnecting = false;
           this.dispatchEvent(new CustomEvent('connected'));
 
@@ -75,7 +75,6 @@ export class WebSocketClient extends EventTarget {
 
         this.ws.onclose = (event) => {
           console.log('[WebSocket] Disconnected:', event.code, event.reason);
-          this.stopPing();
           this.dispatchEvent(new CustomEvent('disconnected', { detail: { reason: event.reason } }));
 
           if (!this.isManualDisconnect) {
@@ -112,8 +111,7 @@ export class WebSocketClient extends EventTarget {
   disconnect(): void {
     this.isManualDisconnect = true;
     this.subscribedSessions.clear();
-    this.stopPing();
-    
+
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -180,33 +178,14 @@ export class WebSocketClient extends EventTarget {
   sendMessage(
     sessionId: string,
     message: Record<string, unknown>,
-    context?: {
-      activeFilePath?: string | null;
-      userTimeZone?: string;
-      currentTime?: string;
-      workingDirectory?: string;
-    }
+    context?: ChatRequestContext
   ): void {
     this.send({
       type: 'send_message',
       sessionId,
       message,
-      ...(context || {}),
+      context,
     });
-  }
-
-  /**
-   * Mark session as read
-   */
-  markAsRead(sessionId: string): void {
-    this.send({ type: 'mark_read', sessionId });
-  }
-
-  /**
-   * Get runtime status for a session
-   */
-  getStatus(sessionId: string): void {
-    this.send({ type: 'get_status', sessionId });
   }
 
   /**
@@ -222,6 +201,7 @@ export class WebSocketClient extends EventTarget {
 
       case 'auth_error':
         console.error('[WebSocket] Auth error:', message.error);
+        this.isManualDisconnect = true; // stop reconnect loop on auth errors
         this.dispatchEvent(new CustomEvent('error', { detail: { error: message.error as string, code: 'AUTH_ERROR' } }));
         break;
 
@@ -276,8 +256,9 @@ export class WebSocketClient extends EventTarget {
         const sessionUpdate = {
           sessionId: message.sessionId as string,
           lastMessageAt: message.lastMessageAt as string,
+          title: message.title as string | undefined,
         };
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; lastMessageAt: string }>('session_updated', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>('session_updated', {
           detail: sessionUpdate,
         }));
         // Also mirror to window for global listeners
@@ -286,18 +267,6 @@ export class WebSocketClient extends EventTarget {
         }
         break;
       }
-
-      case 'session_read':
-        this.dispatchEvent(new CustomEvent<{ sessionId: string }>('session_read', {
-          detail: {
-            sessionId: message.sessionId as string,
-          },
-        }));
-        break;
-
-      case 'pong':
-        // Heartbeat response - ignore
-        break;
 
       case 'error':
         console.error('[WebSocket] Server error:', message.error);
@@ -333,29 +302,6 @@ export class WebSocketClient extends EventTarget {
       this.isManualDisconnect = false;
       this.connect().catch(console.error);
     }, delay);
-  }
-
-  /**
-   * Start heartbeat (ping/pong)
-   */
-  private startPing(): void {
-    this.stopPing();
-    
-    this.pingInterval = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.send({ type: 'ping', timestamp: Date.now() });
-      }
-    }, 30000); // Every 30 seconds
-  }
-
-  /**
-   * Stop heartbeat
-   */
-  private stopPing(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
   }
 
   /**

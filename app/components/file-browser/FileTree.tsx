@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, AlertCircle, FolderOpen } from 'lucide-react';
 import {
@@ -11,11 +11,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
 import { FileTreeNode } from './FileTreeNode';
-import { BulkActionsToolbar } from './BulkActionsToolbar';
 import { BulkMoveDialog } from './BulkMoveDialog';
 
 export function FileTree() {
   const t = useTranslations('notebook');
+  const containerRef = useRef<HTMLDivElement>(null);
   const {
     fileTree,
     isLoadingTree,
@@ -33,6 +33,9 @@ export function FileTree() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle shortcuts when focus is within the file tree
+      if (!containerRef.current?.contains(document.activeElement)) return;
+
       if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
         event.preventDefault();
         selectAllInDirectory(currentDirectory);
@@ -108,7 +111,7 @@ export function FileTree() {
   }
 
   return (
-    <div className="relative h-full overflow-y-auto py-2">
+    <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1}>
       <SidebarGroup className="p-0">
         <SidebarGroupContent>
           <SidebarMenu className="space-y-0.5">
@@ -128,7 +131,6 @@ export function FileTree() {
         </div>
       )}
 
-      <BulkActionsToolbar />
       <BulkMoveDialog />
     </div>
   );

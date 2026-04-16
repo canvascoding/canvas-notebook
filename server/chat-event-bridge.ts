@@ -1,6 +1,6 @@
 /**
  * WebSocket Runtime Bridge
- * 
+ *
  * Connects PI Runtime events to WebSocket clients via the global event emitter.
  * This avoids circular dependencies and server-only import issues.
  */
@@ -10,6 +10,8 @@ import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUse
 import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { getCanvasInternalToken } from '@/app/lib/internal-auth';
 
 function normalizeNotificationPreview(value: string, maxLength = 140): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -76,23 +78,24 @@ const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set o
  */
 export function initializeWebSocketBridge(): void {
   console.log('[WebSocket Bridge] Initializing event bridge...');
-  
+
   const emitter = getPiRuntimeEventEmitter();
-  
+
   emitter.onAgentEvent(async (data) => {
     const { sessionId, userId, event } = data;
-    
+
     console.log(`[WebSocket Bridge] Received event for session ${sessionId}:`, event.type);
-    
+
     // Broadcast to all WebSocket clients subscribed to this session
     broadcastAgentEvent(sessionId, event);
-    
+
     // Handle message_saved event - this is emitted AFTER the message is saved to DB
     if (event.type === 'message_saved') {
       console.log(`[WebSocket Bridge] Received message_saved event for session ${sessionId}`);
-      
-      // Broadcast to USER (all tabs/devices). The client decides whether to suppress
-      // the in-app notification when the matching session is already visible and focused.
+
+      // Broadcast session update to user (all tabs/devices) immediately — before DB queries.
+      // The client decides whether to suppress the in-app notification when the matching
+      // session is already visible and focused.
       broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString());
 
       try {
@@ -109,6 +112,8 @@ export function initializeWebSocketBridge(): void {
           return;
         }
 
+        // Use the event payload as the primary source to avoid race conditions where
+        // the DB write hasn't completed yet when we query for the preview.
         let messagePreview = normalizeNotificationPreview(
           extractAssistantNotificationPreview(event.message)
         );
@@ -146,7 +151,7 @@ export function initializeWebSocketBridge(): void {
       }
     }
   });
-  
+
   console.log('[WebSocket Bridge] Event bridge initialized');
 }
 
@@ -155,13 +160,13 @@ export function initializeWebSocketBridge(): void {
  */
 export async function subscribeToPiRuntimeEvents(sessionId: string, userId: string): Promise<void> {
   console.log(`[WebSocket Bridge] Subscription requested for session ${sessionId}, user ${userId}`);
-  
+
   if (!subscribedSessions.has(sessionId)) {
     subscribedSessions.set(sessionId, new Set());
   }
-  
+
   subscribedSessions.get(sessionId)!.add(userId);
-  
+
   console.log(`[WebSocket Bridge] Active subscribers for session ${sessionId}:`, subscribedSessions.get(sessionId)!.size);
 }
 
@@ -170,14 +175,14 @@ export async function subscribeToPiRuntimeEvents(sessionId: string, userId: stri
  */
 export function unsubscribeFromPiRuntimeEvents(sessionId: string, userId: string): void {
   const subscribers = subscribedSessions.get(sessionId);
-  
+
   if (subscribers) {
     subscribers.delete(userId);
-    
+
     if (subscribers.size === 0) {
       subscribedSessions.delete(sessionId);
     }
-    
+
     console.log(`[WebSocket Bridge] Unsubscribed user ${userId} from session ${sessionId}`);
   }
 }
@@ -190,35 +195,54 @@ export async function sendMessageViaRuntime(
   sessionId: string,
   userId: string,
   message: { role: 'user'; content: unknown; timestamp: number },
-  context?: {
-    activeFilePath?: string | null;
-    userTimeZone?: string;
-    currentTime?: string;
-    workingDirectory?: string;
-  }
+  context?: ChatRequestContext
 ): Promise<void> {
-  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via HTTP API`);
-  
-  try {
-    // Forward to existing /api/stream endpoint with full context
-    const response = await fetch('http://localhost:3000/api/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId,
-        userId,
-        message,
-        ...context,
-      }),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+  // Use 127.0.0.1 explicitly (IPv4) to avoid IPv6 resolution issues in Docker
+  const port = process.env.PORT || '3000';
+  const apiUrl = `http://127.0.0.1:${port}/api/stream`;
+
+  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via ${apiUrl}`);
+
+  const maxRetries = 5;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-canvas-internal-token': getCanvasInternalToken(),
+        },
+        body: JSON.stringify({
+          sessionId,
+          userId,
+          message,
+          context,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      console.log(`[WebSocket Bridge] Message sent to session ${sessionId} with context:`, context);
+      return;
+    } catch (error) {
+      lastError = error;
+      const isConnError = error instanceof Error && /ECONNREFUSED|fetch failed/i.test(error.message);
+
+      if (isConnError && attempt < maxRetries) {
+        const delay = Math.min(500 * attempt, 2000);
+        console.warn(`[WebSocket Bridge] Connection failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      break;
     }
-    
-    console.log(`[WebSocket Bridge] Message sent to session ${sessionId} with context:`, context);
-  } catch (error) {
-    console.error('[WebSocket Bridge] Error sending message:', error);
-    throw error;
   }
+
+  console.error('[WebSocket Bridge] Error sending message after retries:', lastError);
+  throw lastError;
 }

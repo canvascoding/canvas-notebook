@@ -1,6 +1,6 @@
 {
   "name": "canvas-notebook",
-  "version": "2026.4.12",
+  "version": "2026.4.17",
   "private": true,
   "scripts": {
     "postinstall": "patch-package",
@@ -103,6 +103,7 @@
     "next-intl": "^4.8.3",
     "next-themes": "^0.4.6",
     "node-pty": "^1.1.0",
+    "opensrc": "^0.7.1",
     "pdf-parse": "^2.4.5",
     "pptx-preview": "^1.0.7",
     "puppeteer-core": "^24.40.0",

@@ -62,7 +62,8 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
     const handleError = (event: CustomEvent<{ error: string; code?: string }>) => {
       if (event.detail.code === 'AUTH_ERROR') {
-        console.warn('[WebSocketProvider] WebSocket auth unavailable:', event.detail.error);
+        console.warn('[WebSocketProvider] WebSocket auth error:', event.detail.error);
+        window.dispatchEvent(new CustomEvent('ws-auth-error'));
         return;
       }
 
@@ -130,47 +131,39 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     // Handle session_updated events (for updating history unread status)
-    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string }>) => {
-      const { sessionId, lastMessageAt } = event.detail;
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
+      const { sessionId, lastMessageAt, title } = event.detail;
       console.log('[WebSocketProvider] Session updated:', sessionId, lastMessageAt);
-      
+
       // Dispatch custom event for CanvasAgentChat to update history
       window.dispatchEvent(new CustomEvent('session-updated', {
-        detail: { sessionId, lastMessageAt }
+        detail: { sessionId, lastMessageAt, title }
       }));
+    };
+
+    // Handle AUTH_ERROR: show toast and offer redirect to sign-in
+    const handleAuthError = () => {
+      toast.error(t('authError'), {
+        description: t('authErrorDescription'),
+        action: {
+          label: t('loginAgain'),
+          onClick: () => router.push('/sign-in' as Parameters<typeof router.push>[0]),
+        },
+        duration: 8000,
+        position: 'top-right',
+      });
     };
 
     window.addEventListener('notification', handleNotification as EventListener);
     window.addEventListener('session_updated', handleSessionUpdated as EventListener);
+    window.addEventListener('ws-auth-error', handleAuthError);
 
     return () => {
       window.removeEventListener('notification', handleNotification as EventListener);
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
+      window.removeEventListener('ws-auth-error', handleAuthError);
     };
   }, [router, sessionBasePath, t]);
 
-  // Expose subscription methods globally for components to use
-  useEffect(() => {
-    window.__websocketSubscribe = (sessionId: string) => {
-      clientRef.current?.subscribe(sessionId);
-    };
-    window.__websocketUnsubscribe = (sessionId: string) => {
-      clientRef.current?.unsubscribe(sessionId);
-    };
-
-    return () => {
-      delete window.__websocketSubscribe;
-      delete window.__websocketUnsubscribe;
-    };
-  }, []);
-
   return <>{children}</>;
-}
-
-// Global types for window extensions
-declare global {
-  interface Window {
-    __websocketSubscribe?: (sessionId: string) => void;
-    __websocketUnsubscribe?: (sessionId: string) => void;
-  }
 }

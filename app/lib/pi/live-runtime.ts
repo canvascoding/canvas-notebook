@@ -26,6 +26,17 @@ import { and, eq } from 'drizzle-orm';
 const IDLE_TTL_MS = 15 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 
+// Lazy-cached emitter — resolved once, reused for every subsequent agent event.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _emitter: any = null;
+async function getEmitter() {
+  if (!_emitter) {
+    const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
+    _emitter = getPiRuntimeEventEmitter();
+  }
+  return _emitter;
+}
+
 type RuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
 type QueueEntryPreview = {
@@ -235,9 +246,8 @@ class LivePiRuntime {
   }
 
   getStatus(): PiRuntimeStatus {
-    const composition =
-      this.lastComposition ||
-      composePiHistoryForLlm({
+    if (!this.lastComposition) {
+      this.lastComposition = composePiHistoryForLlm({
         messages: this.agent.state.messages,
         summary: this.summary,
         systemPromptTokens: estimateTextTokens(this.systemPrompt),
@@ -245,6 +255,8 @@ class LivePiRuntime {
         modelMaxTokens: this.model.maxTokens,
         toolCount: this.tools.length,
       });
+    }
+    const composition = this.lastComposition;
 
     return {
       sessionId: this.sessionId,
@@ -396,10 +408,6 @@ class LivePiRuntime {
     return prompt;
   }
 
-  private clearTimeZoneContext() {
-    this.timeZoneContext = null;
-  }
-
   startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
     const sanitized = sanitizeUserMessage(message);
     this.touch();
@@ -441,30 +449,15 @@ class LivePiRuntime {
       void this.handleAgentEnd();
     }
 
-    // USE_SSE_FALLBACK: When set to 'true', use SSE. Otherwise (default), use WebSocket.
-    // Standard is WebSocket-only mode.
-    if (process.env.USE_SSE_FALLBACK === 'true') {
-      // SSE mode: Emit events via SSE (for clients using HTTP streaming)
-      this.publish(event);
-      this.publishStatus();
-    } else {
-      // WebSocket mode (default): Emit events via WebSocket only
-      try {
-        void (async () => {
-          const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
-          const emitter = getPiRuntimeEventEmitter();
-          // Emit all events except agent_end (which triggers handleAgentEnd)
-          if (event.type !== 'agent_end') {
-            emitter.emitEvent(this.sessionId, this.userId, event as Record<string, unknown>);
-          }
-        })();
-      } catch {
+    if (event.type !== 'agent_end') {
+      void getEmitter().then((emitter) => {
+        emitter.emitEvent(this.sessionId, this.userId, event as Record<string, unknown>);
+      }).catch(() => {
         // Non-critical: WebSocket emission failure should not break runtime
-      }
-      
-      // Still publish status updates to local subscribers for UI updates
-      this.publishStatus();
+      });
     }
+
+    this.publishStatus();
   }
 
   async transformContext(messages: AgentMessage[], signal?: AbortSignal) {
@@ -533,6 +526,7 @@ class LivePiRuntime {
       this.model.id,
       allMessages,
       this.summary,
+      { persistedLength: this.lastPersistedLength },
     );
 
     if (newMessages.length > 0) {
@@ -545,38 +539,17 @@ class LivePiRuntime {
 
     this.lastPersistedLength = allMessages.length;
     this.publishStatus();
-
-    // Update database with last message timestamp
-    const lastMessage = allMessages[allMessages.length - 1];
-    if (lastMessage) {
-      try {
-        const { db } = await import('@/app/lib/db');
-        const { piSessions } = await import('@/app/lib/db/schema');
-        const { and, eq } = await import('drizzle-orm');
-        
-        const now = new Date();
-        await db.update(piSessions)
-          .set({ lastMessageAt: now, updatedAt: now })
-          .where(and(
-            eq(piSessions.sessionId, this.sessionId),
-            eq(piSessions.userId, this.userId)
-          ));
-        
-        console.log(`[LiveRuntime] Updated session ${this.sessionId} lastMessageAt`);
-      } catch (error) {
-        console.error('[LiveRuntime] Error updating database:', error);
-      }
-    }
     
     // Emit message_saved event AFTER everything is saved to database
     // This allows notification system to read from DB without race conditions
-    if (lastMessage && lastMessage.role === 'assistant') {
+    const lastPersistedMessage = allMessages[allMessages.length - 1];
+    if (lastPersistedMessage && lastPersistedMessage.role === 'assistant') {
       try {
         const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
         const emitter = getPiRuntimeEventEmitter();
         emitter.emitEvent(this.sessionId, this.userId, {
           type: 'message_saved',
-          message: lastMessage,
+          message: lastPersistedMessage,
           timestamp: Date.now(),
         });
         console.log(`[LiveRuntime] Emitted message_saved event for session ${this.sessionId}`);
@@ -648,7 +621,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryThroughTimestamp: null,
   };
   const { systemPrompt } = await loadManagedAgentSystemPrompt();
-  const tools = await getPiTools();
+  const tools = await getPiTools(userId);
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -802,7 +775,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     summaryThroughTimestamp: null,
   };
   const { systemPrompt } = await loadManagedAgentSystemPrompt();
-  const tools = await getPiTools();
+  const tools = await getPiTools(userId);
   const model = await resolvePiModel(sessionRecord.provider, sessionRecord.model);
   const composition = composePiHistoryForLlm({
     messages,

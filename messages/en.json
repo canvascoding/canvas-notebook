@@ -173,6 +173,30 @@
     "chooseDestination": "Choose destination",
     "rootDirectory": "/ (root)",
     "pleaseEnterName": "Please enter a name.",
+    "createFileTitle": "Create new file",
+    "createFolderTitle": "Create new folder",
+    "createFileDescription": "Enter a name for the new file. If no extension is provided, .md will be added automatically.",
+    "createFolderDescription": "Enter a name for the new folder.",
+    "fileNameLabel": "File name",
+    "folderNameLabel": "Folder name",
+    "fileNamePlaceholder": "e.g. notes.md, script.js, style.css",
+    "folderNamePlaceholder": "e.g. documents, images",
+    "createFile": "Create file",
+    "createFolder": "Create folder",
+    "nameRequired": "Please enter a name.",
+    "noExtensionError": "A file extension is required. Example: .md, .txt, .js",
+    "extensionAdded": "Will be created as \"{name}\"",
+    "saveIn": "Save in",
+    "createFailed": "Failed to create item.",
+    "uploadTitle": "Upload files",
+    "uploadDescription": "Choose a destination folder, then select files or a folder to upload.",
+    "uploadTo": "Upload to",
+    "uploadFileAction": "Select files",
+    "deleteSingleTitle": "Delete \"{name}\"?",
+    "deleteMultipleTitle": "Delete {count} items?",
+    "deleteMultipleDescription": "You are about to delete {count} items. This action cannot be undone.",
+    "deleteSkippedInfo": "{count} protected folder(s) will be skipped.",
+    "deleting": "Deleting...",
     "moveIntoSelf": "Cannot move a folder into itself.",
     "moveMultiple": "Move {count}",
     "moveMultipleSuccess": "{count} items moved successfully.",
@@ -317,6 +341,9 @@
     "openSession": "Open session",
     "liveUpdatesUnavailable": "Live chat connection is unavailable.",
     "liveUpdatesUnavailableDescription": "Refresh the page or sign in again to continue sending messages.",
+    "authError": "Session expired",
+    "authErrorDescription": "Your session has expired. Please sign in again to continue.",
+    "loginAgain": "Sign in",
     "currentModelLabel": "Model: {model}",
     "searchSessions": "Search sessions...",
     "filterUnreadOnly": "Unread only",
@@ -497,7 +524,8 @@
     "title": "Settings",
     "tabs": {
       "integrations": "Integrations",
-      "agentSettings": "Agent Settings"
+      "agentSettings": "Agent Settings",
+      "workspace": "Workspace"
     },
     "scopes": {
       "integrations": {
@@ -537,6 +565,21 @@
       "errors": {
         "loadEnvFile": "Failed to load env file.",
         "saveEnvFile": "Failed to save env file."
+      }
+    },
+    "workspacePanel": {
+      "title": "Workspace",
+      "description": "Download your entire workspace as a ZIP archive.",
+      "loadingStats": "Loading workspace stats...",
+      "totalSize": "Total Size",
+      "fileCount": "Files",
+      "downloadZip": "Download as ZIP",
+      "downloading": "Preparing download...",
+      "refresh": "Refresh",
+      "emptyWorkspace": "Your workspace is empty.",
+      "errors": {
+        "loadStats": "Failed to load workspace stats.",
+        "downloadFailed": "Failed to download workspace."
       }
     },
     "agentPanel": {
@@ -585,6 +628,14 @@
         "errors": {
           "run": "Doctor check failed."
         }
+      },
+      "tools": {
+        "title": "Tool Configuration",
+        "description": "Enable or disable tools available to the agent for the active provider.",
+        "loading": "Loading tools...",
+        "saveError": "Failed to save tool configuration.",
+        "enableAll": "Enable all",
+        "disableAll": "Disable all"
       },
       "files": {
         "title": "Agent Managed Files",

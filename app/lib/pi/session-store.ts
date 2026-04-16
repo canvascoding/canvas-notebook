@@ -66,6 +66,7 @@ export async function savePiSession(
   summary?: PiSessionSummaryState,
   options?: {
     titleOverride?: string | null;
+    persistedLength?: number;
   },
 ): Promise<void> {
   // Find or create session
@@ -120,12 +121,15 @@ export async function savePiSession(
       .where(eq(piSessions.id, sessionDbId));
   }
 
-  // Replace messages (simplified: delete all and re-insert)
-  await db.delete(piMessages).where(eq(piMessages.piSessionDbId, sessionDbId));
+  const startIndex = options?.persistedLength ?? 0;
+  if (startIndex === 0) {
+    await db.delete(piMessages).where(eq(piMessages.piSessionDbId, sessionDbId));
+  }
 
-  if (messages.length > 0) {
+  const newMessages = messages.slice(startIndex);
+  if (newMessages.length > 0) {
     await db.insert(piMessages).values(
-      messages.map(m => ({
+      newMessages.map(m => ({
         piSessionDbId: sessionDbId,
         role: m.role,
         content: JSON.stringify(m),

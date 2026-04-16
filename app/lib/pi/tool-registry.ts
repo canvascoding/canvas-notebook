@@ -38,6 +38,7 @@ import {
   type AdLocalizationResultData,
 } from '../integrations/ad-localization-service';
 import { readPiRuntimeConfig } from '../agents/storage';
+import { resolveEnabledToolNames, isLegacyEnabledToolsValue } from './enabled-tools';
 import {
   QMD_CANONICAL_TOOL_NAME,
   extractFirstJsonArray,
@@ -1353,30 +1354,6 @@ export const piTools: AgentTool[] = [
     },
   },
   {
-    name: 'list_automation_jobs',
-    label: 'Listing automation jobs',
-    description: 'Lists all automation jobs with their status and schedule information. Use when user wants to see existing automations, check job status, or view scheduled workflows.',
-    parameters: Type.Object({}),
-    execute: async () => {
-      try {
-        const jobs = await listAutomationJobs();
-        const text = jobs.length === 0
-          ? 'No automation jobs found'
-          : jobs.map((job, index) => `--- Job ${index + 1} ---\n${formatAutomationJob(job)}`).join('\n\n');
-        return {
-          content: [{ type: 'text', text }],
-          details: { jobs },
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
-  {
     name: 'update_automation_job',
     label: 'Updating automation job',
     description: 'Updates an existing automation job. Use to modify job parameters, pause/resume jobs, change schedules, or update prompts. Required: jobId. Optional: name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status (active/paused).',
@@ -1504,16 +1481,69 @@ export const piTools: AgentTool[] = [
 
 import { getDynamicSkillTools } from '../skills/skill-tools';
 
-export async function getPiTools(): Promise<AgentTool[]> {
-  // Get static tools
+export async function getPiToolMetadata(): Promise<{ name: string; label: string; description: string }[]> {
+  return piTools.map((tool) => ({
+    name: tool.name,
+    label: tool.label ?? tool.name,
+    description: tool.description ?? '',
+  }));
+}
+
+export async function getPiTools(userId?: string): Promise<AgentTool[]> {
   const staticTools = piTools;
-  
-  // Get dynamic skill tools
+
+  const userAutomationTools: AgentTool[] = userId ? [
+    {
+      name: 'list_automation_jobs',
+      label: 'Listing automation jobs',
+      description: 'Lists all automation jobs with their status and schedule information. Use when user wants to see existing automations, check job status, or view scheduled workflows.',
+      parameters: Type.Object({}),
+      execute: async () => {
+        try {
+          const jobs = await listAutomationJobs(userId);
+          const text = jobs.length === 0
+            ? 'No automation jobs found'
+            : jobs.map((job, index) => `--- Job ${index + 1} ---\n${formatAutomationJob(job)}`).join('\n\n');
+          return {
+            content: [{ type: 'text', text }],
+            details: { jobs },
+          };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            details: { error: message },
+          };
+        }
+      },
+    },
+  ] : [];
+
+  let allTools: AgentTool[];
   try {
     const dynamicTools = await getDynamicSkillTools();
-    return [...staticTools, ...dynamicTools];
+    const overriddenNames = new Set(userAutomationTools.map(t => t.name));
+    const base = staticTools.filter(t => !overriddenNames.has(t.name));
+    allTools = [...base, ...userAutomationTools, ...dynamicTools];
   } catch (error) {
     console.error('[ToolRegistry] Error loading dynamic skills:', error);
-    return staticTools;
+    const overriddenNames = new Set(userAutomationTools.map(t => t.name));
+    allTools = [...staticTools.filter(t => !overriddenNames.has(t.name)), ...userAutomationTools];
   }
+
+  try {
+    const piConfig = await readPiRuntimeConfig();
+    const activeProvider = piConfig.providers[piConfig.activeProvider];
+    const enabledTools = activeProvider?.enabledTools;
+
+    if (enabledTools && enabledTools.length > 0 && !isLegacyEnabledToolsValue(enabledTools)) {
+      const allToolNames = allTools.map((t) => t.name);
+      const enabledSet = resolveEnabledToolNames(allToolNames, enabledTools);
+      allTools = allTools.filter((t) => enabledSet.has(t.name));
+    }
+  } catch (error) {
+    console.error('[ToolRegistry] Error reading config for tool filtering, returning all tools:', error);
+  }
+
+  return allTools;
 }

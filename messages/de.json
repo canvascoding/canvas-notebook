@@ -173,6 +173,30 @@
     "chooseDestination": "Ziel auswählen",
     "rootDirectory": "/ (Root)",
     "pleaseEnterName": "Bitte gib einen Namen ein.",
+    "createFileTitle": "Neue Datei erstellen",
+    "createFolderTitle": "Neuen Ordner erstellen",
+    "createFileDescription": "Gib einen Namen für die neue Datei ein. Ohne Dateiendung wird automatisch .md hinzugefügt.",
+    "createFolderDescription": "Gib einen Namen für den neuen Ordner ein.",
+    "fileNameLabel": "Dateiname",
+    "folderNameLabel": "Ordnername",
+    "fileNamePlaceholder": "z.B. notizen.md, skript.js, stil.css",
+    "folderNamePlaceholder": "z.B. dokumente, bilder",
+    "createFile": "Datei erstellen",
+    "createFolder": "Ordner erstellen",
+    "nameRequired": "Bitte gib einen Namen ein.",
+    "noExtensionError": "Eine Dateiendung ist erforderlich. Beispiel: .md, .txt, .js",
+    "extensionAdded": "Wird erstellt als \"{name}\"",
+    "saveIn": "Speichern in",
+    "createFailed": "Element konnte nicht erstellt werden.",
+    "uploadTitle": "Dateien hochladen",
+    "uploadDescription": "Wähle einen Zielordner und lade dann Dateien oder einen Ordner hoch.",
+    "uploadTo": "Hochladen nach",
+    "uploadFileAction": "Dateien auswählen",
+    "deleteSingleTitle": "\"{name}\" löschen?",
+    "deleteMultipleTitle": "{count} Elemente löschen?",
+    "deleteMultipleDescription": "Du bist dabei, {count} Elemente zu löschen. Diese Aktion kann nicht rückgängig gemacht werden.",
+    "deleteSkippedInfo": "{count} geschützte Ordner werden übersprungen.",
+    "deleting": "Wird gelöscht...",
     "moveIntoSelf": "Ein Ordner kann nicht in sich selbst verschoben werden.",
     "moveMultiple": "{count} verschieben",
     "moveMultipleSuccess": "{count} Elemente erfolgreich verschoben.",
@@ -317,6 +341,9 @@
     "openSession": "Session öffnen",
     "liveUpdatesUnavailable": "Die Live-Chat-Verbindung ist gerade nicht verfügbar.",
     "liveUpdatesUnavailableDescription": "Lade die Seite neu oder melde dich erneut an, um weiter Nachrichten zu senden.",
+    "authError": "Sitzung abgelaufen",
+    "authErrorDescription": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
+    "loginAgain": "Anmelden",
     "currentModelLabel": "Modell: {model}",
     "searchSessions": "Sessions durchsuchen...",
     "filterUnreadOnly": "Nur ungelesene",
@@ -497,7 +524,8 @@
     "title": "Einstellungen",
     "tabs": {
       "integrations": "Integrationen",
-      "agentSettings": "Agent-Einstellungen"
+      "agentSettings": "Agent-Einstellungen",
+      "workspace": "Workspace"
     },
     "scopes": {
       "integrations": {
@@ -537,6 +565,21 @@
       "errors": {
         "loadEnvFile": "Env-Datei konnte nicht geladen werden.",
         "saveEnvFile": "Env-Datei konnte nicht gespeichert werden."
+      }
+    },
+    "workspacePanel": {
+      "title": "Workspace",
+      "description": "Den kompletten Workspace als ZIP-Archiv herunterladen.",
+      "loadingStats": "Lade Workspace-Statistiken...",
+      "totalSize": "Gesamtgröße",
+      "fileCount": "Dateien",
+      "downloadZip": "Als ZIP herunterladen",
+      "downloading": "Download wird vorbereitet...",
+      "refresh": "Aktualisieren",
+      "emptyWorkspace": "Dein Workspace ist leer.",
+      "errors": {
+        "loadStats": "Workspace-Statistiken konnten nicht geladen werden.",
+        "downloadFailed": "Workspace-Download fehlgeschlagen."
       }
     },
     "agentPanel": {
@@ -585,6 +628,14 @@
         "errors": {
           "run": "Doctor-Prüfung fehlgeschlagen."
         }
+      },
+      "tools": {
+        "title": "Werkzeugkonfiguration",
+        "description": "Werkzeuge für den aktiven Provider aktivieren oder deaktivieren.",
+        "loading": "Lade Werkzeuge...",
+        "saveError": "Werkzeugkonfiguration konnte nicht gespeichert werden.",
+        "enableAll": "Alle aktivieren",
+        "disableAll": "Alle deaktivieren"
       },
       "files": {
         "title": "Agent-Dateien",
