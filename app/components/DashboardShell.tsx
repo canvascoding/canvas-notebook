@@ -50,7 +50,7 @@ interface DashboardShellProps {
 type MobileSurface = 'editor' | 'terminal';
 type DesktopChatMode = 'side' | 'fullscreen';
 
-const LEFT_SIDEBAR_MIN = 220;
+const LEFT_SIDEBAR_MIN = 300;
 const MIN_EDITOR_WIDTH = 360;
 
 function getSidebarMaxWidth() {
@@ -115,7 +115,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
   const searchParams = useSearchParams();
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [sidebarWidth, setSidebarWidth] = useState(340);
   const [chatVisible, setChatVisible] = useState(false);
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [terminalVisible, setTerminalVisible] = useState(false);
@@ -131,6 +131,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
   } | null>(null);
   const openedPathRef = useRef<string | null>(null);
   const desktopDefaultChatAppliedRef = useRef(false);
+  const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
   const currentFile = useFileStore((state) => state.currentFile);
   const currentDirectory = useFileStore((state) => state.currentDirectory);
 
@@ -139,7 +140,10 @@ export function DashboardShell({ username }: DashboardShellProps) {
 
   useEffect(() => {
     const storedWidth = Number(window.localStorage.getItem('canvas.leftSidebarWidth'));
-    if (!Number.isFinite(storedWidth)) return;
+    if (!Number.isFinite(storedWidth) || storedWidth < LEFT_SIDEBAR_MIN) {
+      window.localStorage.removeItem('canvas.leftSidebarWidth');
+      return;
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSidebarWidth(clampSidebarWidth(storedWidth));
   }, []);
@@ -147,6 +151,22 @@ export function DashboardShell({ username }: DashboardShellProps) {
   useEffect(() => {
     window.localStorage.setItem('canvas.leftSidebarWidth', String(sidebarWidth));
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem('canvas.chatVisible', String(chatVisible));
+  }, [chatVisible]);
+
+  useEffect(() => {
+    window.localStorage.setItem('canvas.terminalVisible', String(terminalVisible));
+  }, [terminalVisible]);
+
+  useEffect(() => {
+    const storedTerminal = window.localStorage.getItem('canvas.terminalVisible');
+    if (storedTerminal !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTerminalVisible(storedTerminal === 'true');
+    }
+  }, []);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY);
@@ -231,8 +251,16 @@ export function DashboardShell({ username }: DashboardShellProps) {
   useEffect(() => {
     const handleViewport = () => {
       const isMobile = window.innerWidth < 768;
-      setViewportMode(isMobile ? 'mobile' : 'desktop');
+      const nextMode = isMobile ? 'mobile' : 'desktop';
+      setViewportMode(nextMode);
       setSidebarWidth((prev) => clampSidebarWidth(prev));
+
+      // Only reset layout state when the viewport mode actually changes (mobile ↔ desktop).
+      // Some browsers fire synthetic resize events on tab switch which would otherwise
+      // reset panel visibility to defaults.
+      if (nextMode === prevViewportModeRef.current) return;
+      prevViewportModeRef.current = nextMode;
+
       if (isMobile) {
         setSidebarVisible(false);
         setTerminalVisible(false);
@@ -250,7 +278,8 @@ export function DashboardShell({ username }: DashboardShellProps) {
         setSidebarVisible(true);
         if (!desktopDefaultChatAppliedRef.current) {
           desktopDefaultChatAppliedRef.current = true;
-          setChatVisible(true);
+          const storedChat = window.localStorage.getItem('canvas.chatVisible');
+          setChatVisible(storedChat !== null ? storedChat === 'true' : true);
         }
       }
     };

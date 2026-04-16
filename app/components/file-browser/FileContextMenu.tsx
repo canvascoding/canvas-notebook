@@ -25,6 +25,7 @@ import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { ShareMarkdownDialog } from './ShareMarkdownDialog';
+import { CreateItemDialog } from './CreateItemDialog';
 
 interface FileContextMenuProps {
   node: {
@@ -68,6 +69,10 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
   
+  // State for Create Dialog
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createType, setCreateType] = useState<'file' | 'directory'>('file');
+  
   // State for Share Dialog (Markdown only)
   const [shareOpen, setShareOpen] = useState(false);
   
@@ -93,16 +98,20 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     return getParentPath(node.path);
   }, [node]);
 
-  const handleNewFile = async () => {
-    const name = window.prompt(t('newFilePrompt'));
-    if (!name) return;
-    await createPath(joinPath(parentPath, name), 'file');
+  const handleNewFile = () => {
+    setOpen(false);
+    setCreateType('file');
+    setCreateOpen(true);
   };
 
-  const handleNewFolder = async () => {
-    const name = window.prompt(t('newFolderPrompt'));
-    if (!name) return;
-    await createPath(joinPath(parentPath, name), 'directory');
+  const handleNewFolder = () => {
+    setOpen(false);
+    setCreateType('directory');
+    setCreateOpen(true);
+  };
+
+  const handleCreate = async (fullPath: string, itemType: 'file' | 'directory') => {
+    await createPath(fullPath, itemType);
   };
 
   const handleRename = () => {
@@ -354,6 +363,14 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <CreateItemDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        type={createType}
+        defaultPath={parentPath}
+        onCreate={handleCreate}
+      />
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
           <DialogContent className="max-w-md">

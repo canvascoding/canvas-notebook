@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
+import { CreateItemDialog } from './CreateItemDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { useFileWatcher, type FileEvent } from '@/app/hooks/useFileWatcher';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -36,6 +37,8 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createType, setCreateType] = useState<'file' | 'directory'>('file');
   const isMobile = useIsMobile();
   const isMobileSheet = variant === 'mobile-sheet';
   
@@ -105,20 +108,18 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     return trimmed.slice(0, lastSlash);
   };
 
-  const handleNewFile = async () => {
-    const name = window.prompt(t('newFilePrompt'));
-    if (!name) return;
-    const targetDir = resolveTargetDir();
-    const targetPath = targetDir === '.' ? name : `${targetDir}/${name}`;
-    await createPath(targetPath, 'file');
+  const handleNewFile = () => {
+    setCreateType('file');
+    setCreateOpen(true);
   };
 
-  const handleNewFolder = async () => {
-    const name = window.prompt(t('newFolderPrompt'));
-    if (!name) return;
-    const targetDir = resolveTargetDir();
-    const targetPath = targetDir === '.' ? name : `${targetDir}/${name}`;
-    await createPath(targetPath, 'directory');
+  const handleNewFolder = () => {
+    setCreateType('directory');
+    setCreateOpen(true);
+  };
+
+  const handleCreate = async (fullPath: string, itemType: 'file' | 'directory') => {
+    await createPath(fullPath, itemType);
   };
 
   const handleUploadClick = () => {
@@ -344,10 +345,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
             </div>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
+          <div className="flex items-center gap-x-2 px-3 py-2">
             <h2 className="shrink-0 text-sm font-semibold text-foreground">{t('filesTitle')}</h2>
             <TooltipProvider delayDuration={300}>
-              <div className="flex min-w-[180px] flex-1 flex-wrap content-start items-center justify-start gap-1">
+              <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -612,6 +613,14 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
       <div className="min-h-0 flex-1 overflow-hidden">
         <FileTree />
       </div>
+
+      <CreateItemDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        type={createType}
+        defaultPath={resolveTargetDir()}
+        onCreate={handleCreate}
+      />
     </section>
   );
 }
