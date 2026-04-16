@@ -1,6 +1,6 @@
 {
   "name": "canvas-notebook",
-  "version": "2026.4.16",
+  "version": "2026.4.17",
   "private": true,
   "scripts": {
     "postinstall": "patch-package",
