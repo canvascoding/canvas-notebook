@@ -819,26 +819,29 @@ export default function CanvasAgentChat({
     };
   }, [wsConnected, sessionId, subscribe, unsubscribe]);
 
-  // Listen for session-updated events to update history unread status
+  // Listen for session_updated events (from WebSocket client) to update history unread status
   useEffect(() => {
     if (!isWebSocketEnabled) return;
 
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, lastMessageAt, title } = event.detail;
       console.log('[CanvasAgentChat] Session updated (history):', sessionId, lastMessageAt);
-      
+
       // Update history state to reflect new lastMessageAt (and title if provided)
       setHistory(prev => {
-        const updated = prev.map(session => 
-          session.sessionId === sessionId 
-            ? { ...session, lastMessageAt, ...(title ? { title } : {}), hasUnread: sessionId !== sessionIdRef.current }
-            : session
-        );
-        
+        const updated = prev.map(session => {
+          if (session.sessionId !== sessionId) return session;
+          // For the currently loaded session, auto-update lastViewedAt so hasUnread stays false
+          const isCurrentSession = sessionId === sessionIdRef.current;
+          const newLastViewedAt = isCurrentSession ? lastMessageAt : (session.lastViewedAt ?? null);
+          const hasUnread = !!(lastMessageAt && newLastViewedAt && new Date(lastMessageAt) > new Date(newLastViewedAt));
+          return { ...session, lastMessageAt, ...(title ? { title } : {}), lastViewedAt: newLastViewedAt, hasUnread };
+        });
+
         // Recalculate unread count
         const unreadCount = updated.filter(s => s.hasUnread).length;
         setTotalUnreadCount(unreadCount);
-        
+
         return updated;
       });
 
@@ -847,9 +850,9 @@ export default function CanvasAgentChat({
       }
     };
 
-    window.addEventListener('session-updated', handleSessionUpdated as EventListener);
+    window.addEventListener('session_updated', handleSessionUpdated as EventListener);
     return () => {
-      window.removeEventListener('session-updated', handleSessionUpdated as EventListener);
+      window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
     };
   }, [isWebSocketEnabled]);
 
