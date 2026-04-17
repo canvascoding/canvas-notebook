@@ -265,13 +265,13 @@ export function FileEditor() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-nowrap items-center justify-between border-b border-border px-3 sm:px-4 py-2 text-sm text-muted-foreground gap-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex flex-nowrap items-center justify-between border-b border-border px-3 sm:px-4 py-2 text-sm text-muted-foreground gap-2 overflow-hidden">
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground overflow-hidden">
           <span className="text-foreground shrink-0">{t('fileLabel')}</span>
           <div className="flex min-w-0 items-center overflow-hidden">
             {breadcrumbs.map((segment, index) => (
-              <span key={`segment-${segment}-${index}`} className="truncate">
+              <span key={`segment-${segment}-${index}`} className="truncate min-w-0">
                 {index > 0 && <span className="mx-0.5 text-muted-foreground/50">/</span>}
                 {segment}
               </span>
