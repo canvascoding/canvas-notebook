@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/canvascoding/canvas-notebook/releases"><img src="https://img.shields.io/github/v/release/canvascoding/canvas-notebook?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Sustainable%20Use-1.0-orange.svg?style=for-the-badge" alt="Sustainable Use License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Sustainable_Use_1.0-orange?style=for-the-badge" alt="Sustainable Use License 1.0"></a>
   <img src="https://img.shields.io/badge/Next.js-black?style=for-the-badge&logo=next.js&logoColor=white" alt="Next.js">
   <a href="https://hub.docker.com/r/canvascoding/canvas-notebook"><img src="https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
 </p>
