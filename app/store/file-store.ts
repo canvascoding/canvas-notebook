@@ -485,49 +485,45 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   uploadFile: async (file: File | File[], targetDir: string) => {
     set({ treeError: null, uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
-    const total = files.length;
 
     try {
-      for (let i = 0; i < total; i++) {
-        const f = files[i];
+      const formData = new FormData();
+      formData.append('path', targetDir);
+      for (const f of files) {
         const filePath = (f as { webkitRelativePath?: string }).webkitRelativePath || f.name;
-
-        const formData = new FormData();
-        formData.append('path', targetDir);
         formData.append('files', f, filePath);
-
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/files/upload', true);
-          xhr.withCredentials = true;
-
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const filePercent = event.loaded / event.total;
-              const overall = Math.round(((i + filePercent) / total) * 100);
-              set({ uploadProgress: overall });
-            }
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve();
-            } else {
-              try {
-                const error = JSON.parse(xhr.responseText);
-                reject(new Error(error.error || `Upload failed with status ${xhr.status}`));
-              } catch {
-                reject(new Error(`Upload failed with status ${xhr.status}`));
-              }
-            }
-          };
-
-          xhr.onerror = () => reject(new Error('Network error during upload'));
-          xhr.send(formData);
-        });
       }
 
-      await get().loadFileTree('.', undefined, true); // Refresh tree on success
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/files/upload', true);
+        xhr.withCredentials = true;
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const overall = Math.round((event.loaded / event.total) * 100);
+            set({ uploadProgress: overall });
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            try {
+              const error = JSON.parse(xhr.responseText);
+              reject(new Error(error.error || `Upload failed with status ${xhr.status}`));
+            } catch {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(formData);
+      });
+
+      await get().loadFileTree('.', undefined, true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to upload files';
       set({ treeError: message });
