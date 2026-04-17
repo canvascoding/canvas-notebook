@@ -39,7 +39,7 @@ import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { AppLayout } from '@/app/components/layout/AppLayout';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
-import { LanguageSwitcher } from '@/app/components/language-switcher';
+
 import { useFileStore } from '@/app/store/file-store';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 
@@ -460,7 +460,6 @@ export function DashboardShell({ username }: DashboardShellProps) {
             </div>
           ) : null}
           <div className="flex items-center gap-1.5 md:gap-4">
-            <LanguageSwitcher />
             <ThemeToggle />
             {isDesktopViewport ? (
               <>

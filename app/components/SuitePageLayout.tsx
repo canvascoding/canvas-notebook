@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
-import { LanguageSwitcher } from '@/app/components/language-switcher';
+
 import { Button } from '@/components/ui/button';
 
 type SuitePageLayoutProps = {
@@ -62,7 +62,6 @@ export function SuitePageLayout({
                 <span className="max-w-[140px] truncate text-xs">{username}</span>
               </div>
               <NotebookNavButton />
-              <LanguageSwitcher />
               <ThemeToggle />
               <LogoutButton />
             </div>

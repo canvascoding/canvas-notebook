@@ -97,6 +97,10 @@
     "logoAlt": "Canvas logo",
     "welcome": "Welcome!",
     "description": "You are already logged in as the admin configured via environment. Set up your AI provider now. User management is handled exclusively through container environment variables.",
+    "languageTitle": "Choose language",
+    "languageDescription": "Select your preferred language for the interface.",
+    "languageActive": "Active",
+    "languageContinue": "Continue",
     "providerTitle": "Provider & Model",
     "providerDescription": "Choose your provider, set up authentication, and save the same PI configuration as you would later in Settings.",
     "saveProvider": "Save provider & continue",
@@ -523,9 +527,15 @@
   "settings": {
     "title": "Settings",
     "tabs": {
+      "general": "General",
       "integrations": "Integrations",
       "agentSettings": "Agent Settings",
       "workspace": "Workspace"
+    },
+    "general": {
+      "language": "Language",
+      "languageDescription": "Choose the interface language. Changes are applied immediately.",
+      "languageActive": "Active"
     },
     "scopes": {
       "integrations": {
