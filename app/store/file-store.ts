@@ -90,7 +90,7 @@ interface FileStoreState {
   createPath: (path: string, type: 'file' | 'directory') => Promise<void>;
   deletePath: (path: string | string[]) => Promise<void>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean) => Promise<void>;
-  uploadFile: (file: File | File[], targetDir: string) => Promise<void>;
+  uploadFile: (file: File | File[], targetDir: string, pathMap?: Map<File, string>) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
   toggleDirectory: (path: string) => void;
   collapseAllDirectories: () => void;
@@ -482,46 +482,50 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  uploadFile: async (file: File | File[], targetDir: string) => {
+  uploadFile: async (file: File | File[], targetDir: string, pathMap?: Map<File, string>) => {
     set({ treeError: null, uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
+    const total = files.length;
 
     try {
-      const formData = new FormData();
-      formData.append('path', targetDir);
-      for (const f of files) {
-        const filePath = (f as { webkitRelativePath?: string }).webkitRelativePath || f.name;
+      for (let i = 0; i < total; i++) {
+        const f = files[i];
+        const filePath = pathMap?.get(f) || (f as { webkitRelativePath?: string }).webkitRelativePath || f.name;
+
+        const formData = new FormData();
+        formData.append('path', targetDir);
         formData.append('files', f, filePath);
-      }
 
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/files/upload', true);
-        xhr.withCredentials = true;
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/files/upload', true);
+          xhr.withCredentials = true;
 
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const overall = Math.round((event.loaded / event.total) * 100);
-            set({ uploadProgress: overall });
-          }
-        };
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            try {
-              const error = JSON.parse(xhr.responseText);
-              reject(new Error(error.error || `Upload failed with status ${xhr.status}`));
-            } catch {
-              reject(new Error(`Upload failed with status ${xhr.status}`));
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const filePercent = event.loaded / event.total;
+              const overall = Math.round(((i + filePercent) / total) * 100);
+              set({ uploadProgress: overall });
             }
-          }
-        };
+          };
 
-        xhr.onerror = () => reject(new Error('Network error during upload'));
-        xhr.send(formData);
-      });
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve();
+            } else {
+              try {
+                const error = JSON.parse(xhr.responseText);
+                reject(new Error(error.error || `Upload failed with status ${xhr.status}`));
+              } catch {
+                reject(new Error(`Upload failed with status ${xhr.status}`));
+              }
+            }
+          };
+
+          xhr.onerror = () => reject(new Error('Network error during upload'));
+          xhr.send(formData);
+        });
+      }
 
       await get().loadFileTree('.', undefined, true);
     } catch (error) {
