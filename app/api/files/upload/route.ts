@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const limited = rateLimit(request, {
-      limit: 50, // Reduced from 1000 for security
+      limit: 500,
       windowMs: 60_000,
       keyPrefix: 'files-upload',
     });

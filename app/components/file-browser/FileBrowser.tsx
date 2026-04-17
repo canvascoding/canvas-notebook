@@ -28,6 +28,7 @@ import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { useFileWatcher, type FileEvent } from '@/app/hooks/useFileWatcher';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { getDroppedFiles } from '@/app/lib/drop-traverse';
 
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet';
@@ -154,11 +155,18 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     event.preventDefault();
     dragCounter.current = 0;
     setIsDragging(false);
-    const droppedFiles = Array.from(event.dataTransfer.files ?? []);
-    if (droppedFiles.length === 0) return;
-    
+
+    const dropped = await getDroppedFiles(event.dataTransfer);
+    if (dropped.length === 0) return;
+
+    const files = dropped.map((d) => d.file);
+    const pathMap = new Map<File, string>();
+    for (const d of dropped) {
+      pathMap.set(d.file, d.relativePath);
+    }
+
     const targetDir = resolveTargetDir();
-    await uploadFile(droppedFiles, targetDir);
+    await uploadFile(files, targetDir, pathMap);
   };
 
   const handleDeleteClick = () => {
