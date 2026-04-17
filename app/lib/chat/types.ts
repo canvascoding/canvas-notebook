@@ -8,4 +8,5 @@ export interface ChatRequestContext {
   currentTime?: string;
   activeFilePath?: string | null;
   workingDirectory?: string;
+  planningMode?: boolean;
 }

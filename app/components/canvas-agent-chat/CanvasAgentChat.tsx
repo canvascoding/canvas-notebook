@@ -59,6 +59,8 @@ import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/cu
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
+import { usePlanModeStore } from '@/app/store/plan-mode-store';
+import { PlanModeToggle } from './PlanModeToggle';
 
 interface Attachment {
   name: string;
@@ -673,6 +675,7 @@ export default function CanvasAgentChat({
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
+  const { planningMode, togglePlanningMode } = usePlanModeStore();
 
   // Container width detection for history layout
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1591,10 +1594,11 @@ export default function CanvasAgentChat({
       activeFilePath,
       userTimeZone,
       currentTime,
+      planningMode,
     });
-    
+
     return;
-  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, sendMessage, showHistory, isMobile, shouldShowHistoryAsOverlay, scanForImageReferences]);
+  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, sendMessage, showHistory, isMobile, shouldShowHistoryAsOverlay, scanForImageReferences, planningMode]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -2046,6 +2050,12 @@ export default function CanvasAgentChat({
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.shiftKey && e.key === 'Tab') {
+      e.preventDefault();
+      togglePlanningMode();
+      return;
+    }
+
     if (activeReferenceMatch && e.key === 'Escape') {
       e.preventDefault();
       closeReferencePicker();
@@ -2076,7 +2086,7 @@ export default function CanvasAgentChat({
       e.preventDefault();
       void handleSend();
     }
-  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, referencePickerItems, selectedReferenceIndex]);
+  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, referencePickerItems, selectedReferenceIndex, togglePlanningMode]);
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -3242,7 +3252,7 @@ export default function CanvasAgentChat({
               placeholder={composerPlaceholderText}
               style={{ height: `${textareaHeight}px` }}
               disabled={isWebSocketUnavailable}
-              className="w-full resize-none border border-border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm sm:placeholder:text-sm"
+              className={`w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm ${planningMode ? 'border-amber-500 focus:ring-amber-500' : 'border-border focus:ring-ring'}`}
             />
 
             {activeReferenceMatch ? (
@@ -3284,16 +3294,19 @@ export default function CanvasAgentChat({
         </div>
         <div className="mt-2 flex items-start justify-between gap-2">
           <div className="flex flex-col items-start gap-1">
-            <button
-              type="button"
-              data-testid="chat-composer-hint-toggle"
-              aria-expanded={showComposerHint}
-              onClick={() => setShowComposerHint((current) => !current)}
-              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <CircleHelp className="h-3.5 w-3.5" />
-              {t('hint')}
-            </button>
+            <div className="flex items-center gap-2">
+              <PlanModeToggle />
+              <button
+                type="button"
+                data-testid="chat-composer-hint-toggle"
+                aria-expanded={showComposerHint}
+                onClick={() => setShowComposerHint((current) => !current)}
+                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+                {t('hint')}
+              </button>
+            </div>
             {showComposerHint ? (
               <div className="max-w-[38rem] border border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
                 {composerHint}

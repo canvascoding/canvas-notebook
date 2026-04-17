@@ -20,6 +20,8 @@ import { resolveActivePiModel, resolvePiModel } from '@/app/lib/pi/model-resolve
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
+import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
+import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import { and, eq } from 'drizzle-orm';
 
@@ -88,6 +90,7 @@ export type PiRuntimePromptContext = {
   activeFilePath?: string | null;
   userTimeZone?: string;
   currentTime?: string;
+  planningMode?: boolean;
 };
 
 type RuntimeSubscriber = (event: PiRuntimeStreamEvent) => void;
@@ -172,6 +175,7 @@ function toPercent(used: number, available: number): number {
 type PiRuntimePromptDispatchTarget = {
   setTimeZoneContext: (timeZone: string, currentTime: string) => void;
   setActiveFileContext: (path: string | null) => void;
+  setPlanningMode: (enabled: boolean) => void;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
@@ -184,6 +188,7 @@ function applyPiRuntimePromptContext(
   }
 
   runtime.setActiveFileContext(context?.activeFilePath ?? null);
+  runtime.setPlanningMode(context?.planningMode ?? false);
 }
 
 class LivePiRuntime {
@@ -210,6 +215,7 @@ class LivePiRuntime {
   private lastCompactionOmittedCount: number;
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
   private activeFileContext: string | null = null;
+  private planningMode = false;
 
   constructor(init: RuntimeInit, agent: Agent) {
     this.sessionId = init.sessionId;
@@ -381,6 +387,10 @@ class LivePiRuntime {
     this.activeFileContext = path;
   }
 
+  setPlanningMode(enabled: boolean) {
+    this.planningMode = enabled;
+  }
+
   private getSystemPromptWithTimeZone(): string {
     let prompt = this.systemPrompt;
 
@@ -405,6 +415,10 @@ class LivePiRuntime {
       prompt += `\n\nCurrently open file in editor: ${this.activeFileContext}`;
     }
 
+    if (this.planningMode) {
+      prompt += '\n\n' + PLANNING_MODE_GUIDANCE;
+    }
+
     return prompt;
   }
 
@@ -418,6 +432,13 @@ class LivePiRuntime {
     const systemPromptWithTimeZone = this.getSystemPromptWithTimeZone();
     if (systemPromptWithTimeZone !== this.agent.state.systemPrompt) {
       this.agent.state.systemPrompt = systemPromptWithTimeZone;
+    }
+
+    // Apply planning mode tool filter
+    if (this.planningMode) {
+      this.agent.state.tools = filterToolsForPlanningMode(this.tools);
+    } else {
+      this.agent.state.tools = this.tools;
     }
 
     void this.agent.prompt(sanitized).catch((error) => {
