@@ -2,6 +2,7 @@
   "name": "canvas-notebook",
   "version": "2026.4.17",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "postinstall": "patch-package",
     "todos:sync:agent": "node scripts/sync-agent-todos.mjs",
