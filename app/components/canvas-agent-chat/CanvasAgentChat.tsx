@@ -41,7 +41,7 @@ import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
@@ -54,7 +54,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
-import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
+import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
@@ -97,7 +97,7 @@ interface ChatMessage {
 interface AISession {
   id: number;
   sessionId: string;
-  title: string;
+  title: string | null;
   model: string;
   createdAt: string;
   engine?: 'legacy' | 'pi';
@@ -172,6 +172,7 @@ interface CanvasAgentChatProps {
   showSkillsLink?: boolean;
   hideNavHeader?: boolean;
   chatContainerWidth?: number;
+  isSurfaceVisible?: boolean;
 }
 
 const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ className?: string }>> = {
@@ -191,6 +192,18 @@ const MOBILE_TEXTAREA_MAX_HEIGHT_PX = 192;
 const DESKTOP_TEXTAREA_MAX_HEIGHT_PX = 256;
 const MOBILE_TEXTAREA_MAX_VIEWPORT_RATIO = 0.3;
 const DESKTOP_TEXTAREA_MAX_VIEWPORT_RATIO = 0.35;
+
+function hasUnreadAssistantResponse(lastMessageAt?: string | null, lastViewedAt?: string | null): boolean {
+  if (!lastMessageAt) {
+    return false;
+  }
+
+  if (!lastViewedAt) {
+    return true;
+  }
+
+  return new Date(lastMessageAt).getTime() > new Date(lastViewedAt).getTime();
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -418,6 +431,15 @@ function getAssistantChainUsage(messages: ChatMessage[], index: number): Usage |
 
 function getSessionDisplayLabel(sessionTitle: string | null, fallbackTitle: string): string {
   return getSessionDisplayTitle(sessionTitle, fallbackTitle);
+}
+
+function getOptimisticSessionTitle(candidate: string | null | undefined, fallbackTitle: string): string {
+  const trimmed = candidate?.trim();
+  if (!trimmed) {
+    return fallbackTitle;
+  }
+
+  return trimmed.slice(0, 50);
 }
 
 function buildQueuedMessageKey(text: string, attachmentCount: number): string {
@@ -666,9 +688,11 @@ export default function CanvasAgentChat({
   showSkillsLink = false,
   hideNavHeader = false,
   chatContainerWidth,
+  isSurfaceVisible = true,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
+  const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
   const pathname = usePathname();
@@ -755,6 +779,8 @@ export default function CanvasAgentChat({
   const composerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialPromptConsumedRef = useRef(false);
+  const requestedSessionCleanupRef = useRef<string | null>(null);
+  const optimisticSessionTitlesRef = useRef<Record<string, string>>({});
   const toolMessageIdsRef = useRef<Record<string, string>>({});
   const streamAbortRef = useRef<AbortController | null>(null);
   const streamSessionRef = useRef<string | null>(null);
@@ -763,6 +789,7 @@ export default function CanvasAgentChat({
   const streamingRafRef = useRef<number | null>(null);
   const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const surfaceVisibleRef = useRef(isSurfaceVisible);
   const lastCompactionMarkerRef = useRef<string | null>(null);
   const userStartedNewChatRef = useRef(false);
   const previousMessageCountRef = useRef(0);
@@ -802,6 +829,35 @@ export default function CanvasAgentChat({
     runtimeStatusRef.current = runtimeStatus;
   }, [runtimeStatus]);
 
+  const resolveSessionTitle = useCallback((targetSessionId: string, title: string | null | undefined) => {
+    const optimisticTitle = optimisticSessionTitlesRef.current[targetSessionId];
+    const normalizedTitle = title?.trim() || null;
+
+    if (optimisticTitle && (!normalizedTitle || isAutomaticSessionTitle(normalizedTitle))) {
+      return optimisticTitle;
+    }
+
+    if (optimisticTitle && normalizedTitle && !isAutomaticSessionTitle(normalizedTitle)) {
+      delete optimisticSessionTitlesRef.current[targetSessionId];
+    }
+
+    return normalizedTitle;
+  }, []);
+
+  const applyResolvedTitles = useCallback((sessions: AISession[]) => {
+    return sessions.map((session) => {
+      const resolvedTitle = resolveSessionTitle(session.sessionId, session.title);
+      if (resolvedTitle === session.title) {
+        return session;
+      }
+
+      return {
+        ...session,
+        title: resolvedTitle,
+      };
+    });
+  }, [resolveSessionTitle]);
+
   // Session subscription for WebSocket
   useEffect(() => {
     if (!wsConnected || !sessionId) {
@@ -826,16 +882,18 @@ export default function CanvasAgentChat({
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, lastMessageAt, title } = event.detail;
       console.log('[CanvasAgentChat] Session updated (history):', sessionId, lastMessageAt);
+      let sessionFound = false;
+      const isCurrentVisibleSession = sessionId === sessionIdRef.current && surfaceVisibleRef.current;
+      const resolvedTitle = resolveSessionTitle(sessionId, title);
 
       // Update history state to reflect new lastMessageAt (and title if provided)
       setHistory(prev => {
         const updated = prev.map(session => {
           if (session.sessionId !== sessionId) return session;
-          // For the currently loaded session, auto-update lastViewedAt so hasUnread stays false
-          const isCurrentSession = sessionId === sessionIdRef.current;
-          const newLastViewedAt = isCurrentSession ? lastMessageAt : (session.lastViewedAt ?? null);
-          const hasUnread = !!(lastMessageAt && newLastViewedAt && new Date(lastMessageAt) > new Date(newLastViewedAt));
-          return { ...session, lastMessageAt, ...(title ? { title } : {}), lastViewedAt: newLastViewedAt, hasUnread };
+          sessionFound = true;
+          const newLastViewedAt = isCurrentVisibleSession ? lastMessageAt : (session.lastViewedAt ?? null);
+          const hasUnread = !isCurrentVisibleSession && hasUnreadAssistantResponse(lastMessageAt, newLastViewedAt);
+          return { ...session, lastMessageAt, ...(resolvedTitle ? { title: resolvedTitle } : {}), lastViewedAt: newLastViewedAt, hasUnread };
         });
 
         // Recalculate unread count
@@ -845,8 +903,35 @@ export default function CanvasAgentChat({
         return updated;
       });
 
-      if (title && sessionId === sessionIdRef.current) {
-        setSessionTitle(title);
+      if (resolvedTitle && sessionId === sessionIdRef.current) {
+        setSessionTitle(resolvedTitle);
+      }
+
+      if (isCurrentVisibleSession) {
+        void fetch('/api/sessions', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, markAsRead: true }),
+        }).catch((error) => {
+          console.error('Failed to mark active session as read after response', error);
+        });
+      }
+
+      if (!sessionFound) {
+        void (async () => {
+          try {
+            const res = await fetch('/api/sessions');
+            const data = await res.json();
+            if (data.success) {
+              const sessions = applyResolvedTitles(data.sessions || []);
+              setHistory(sessions);
+              setLatestSession(sessions[0] || null);
+              setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+            }
+          } catch (error) {
+            console.error('Failed to refresh history after session update', error);
+          }
+        })();
       }
     };
 
@@ -854,7 +939,7 @@ export default function CanvasAgentChat({
     return () => {
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
     };
-  }, [isWebSocketEnabled]);
+  }, [applyResolvedTitles, isWebSocketEnabled, resolveSessionTitle]);
 
   // Session is created on-demand when user sends first message
 
@@ -865,6 +950,26 @@ export default function CanvasAgentChat({
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+
+  useEffect(() => {
+    surfaceVisibleRef.current = isSurfaceVisible;
+
+    window.dispatchEvent(new CustomEvent('chat-active-session-changed', {
+      detail: {
+        sessionId: isSurfaceVisible ? sessionId : null,
+        isVisible: isSurfaceVisible,
+      },
+    }));
+
+    return () => {
+      window.dispatchEvent(new CustomEvent('chat-active-session-changed', {
+        detail: {
+          sessionId: null,
+          isVisible: false,
+        },
+      }));
+    };
+  }, [isSurfaceVisible, sessionId]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     isAtBottomRef.current = true;
@@ -921,7 +1026,7 @@ export default function CanvasAgentChat({
       const res = await fetch('/api/sessions');
       const data = await res.json();
       if (data.success) {
-        const sessions = data.sessions || [];
+        const sessions = applyResolvedTitles(data.sessions || []);
         setHistory(sessions);
         setLatestSession(sessions[0] || null);
         
@@ -932,7 +1037,7 @@ export default function CanvasAgentChat({
         if (sessionIdRef.current) {
           const currentSession = sessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
           if (currentSession) {
-            setSessionTitle(currentSession.title || null);
+            setSessionTitle(resolveSessionTitle(currentSession.sessionId, currentSession.title));
           }
         }
       }
@@ -941,7 +1046,7 @@ export default function CanvasAgentChat({
     } finally {
       setIsLoadingHistory(false);
     }
-  }, []);
+  }, [applyResolvedTitles, resolveSessionTitle]);
 
   const getSessionTimeGroup = useCallback((dateString: string): 'today' | 'last7' | 'last14' | 'last30' | 'older' => {
     const date = new Date(dateString);
@@ -1014,6 +1119,43 @@ export default function CanvasAgentChat({
     setRuntimeStatus(status);
     reconcileQueuedMessages(status);
   }, [reconcileQueuedMessages]);
+
+  const setOptimisticRuntimePhase = useCallback((phase: RuntimeStatus['phase'], sessionIdOverride?: string | null) => {
+    setRuntimeStatus((current) => {
+      const sessionId = sessionIdOverride || current?.sessionId || sessionIdRef.current || 'pending-session';
+      const baseStatus: RuntimeStatus = current || {
+        sessionId,
+        phase: 'idle',
+        activeTool: null,
+        pendingToolCalls: 0,
+        followUpQueue: [],
+        steeringQueue: [],
+        canAbort: false,
+        contextWindow: 0,
+        estimatedHistoryTokens: 0,
+        availableHistoryTokens: 0,
+        contextUsagePercent: 0,
+        includedSummary: false,
+        omittedMessageCount: 0,
+        summaryUpdatedAt: null,
+        lastCompactionAt: null,
+        lastCompactionKind: null,
+        lastCompactionOmittedCount: 0,
+      };
+
+      const nextStatus: RuntimeStatus = {
+        ...baseStatus,
+        sessionId,
+        phase,
+        activeTool: phase === 'running_tool' ? baseStatus.activeTool : null,
+        pendingToolCalls: phase === 'idle' ? 0 : baseStatus.pendingToolCalls,
+        canAbort: phase !== 'idle',
+      };
+
+      runtimeStatusRef.current = nextStatus;
+      return nextStatus;
+    });
+  }, []);
 
   const appendSystemMessage = useCallback((content: string) => {
     setMessages((prev) => [
@@ -1142,7 +1284,7 @@ export default function CanvasAgentChat({
     }
   }, [setRuntimeStatusWithReconciliation]);
 
-  const ensureSession = useCallback(async () => {
+  const ensureSession = useCallback(async (preferredTitle?: string) => {
     if (sessionIdRef.current) {
       return sessionIdRef.current;
     }
@@ -1159,9 +1301,11 @@ export default function CanvasAgentChat({
     const nextSessionId = createSessionPayload.session.sessionId as string;
     setSessionId(nextSessionId);
 
-    // Use input as temporary title if available, otherwise use default
-    const tempTitle = input.trim().slice(0, 50) || createSessionPayload.session.title || t('newChatTitle');
+    const tempTitle = getOptimisticSessionTitle(preferredTitle ?? input, createSessionPayload.session.title || t('newChatTitle'));
     setSessionTitle(tempTitle);
+    if (!isAutomaticSessionTitle(tempTitle)) {
+      optimisticSessionTitlesRef.current[nextSessionId] = tempTitle;
+    }
 
     sessionIdRef.current = nextSessionId;
 
@@ -1200,6 +1344,7 @@ export default function CanvasAgentChat({
       });
       return updated;
     });
+    setLatestSession(newSession);
 
     // Note: Subscription happens automatically via useEffect when sessionId changes
     // No need to subscribe here manually to avoid double subscription
@@ -1309,7 +1454,16 @@ export default function CanvasAgentChat({
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
       syncPiMessage(assistantId, event.message);
       currentAssistantIdRef.current = null;
-      
+      const currentStatus = runtimeStatusRef.current;
+      const hasPendingQueuedWork = Boolean(
+        currentStatus && (currentStatus.followUpQueue.length > 0 || currentStatus.steeringQueue.length > 0)
+      );
+      const hasPendingToolWork = Boolean(
+        currentStatus && (currentStatus.activeTool || currentStatus.pendingToolCalls > 0 || currentStatus.phase === 'running_tool' || currentStatus.phase === 'aborting')
+      );
+      if (!hasPendingQueuedWork && !hasPendingToolWork) {
+        setOptimisticRuntimePhase('idle', currentStatus?.sessionId || sessionIdRef.current);
+      }
 
       // For WebSocket mode, lastMessageAt is updated by server
       // For SSE mode, update it manually
@@ -1395,7 +1549,7 @@ export default function CanvasAgentChat({
 
     // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
     // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, isWebSocketEnabled, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, isWebSocketEnabled, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
@@ -1582,7 +1736,8 @@ export default function CanvasAgentChat({
     setInput('');
     setAttachments([]);
 
-    const targetSessionId = await ensureSession();
+    const targetSessionId = await ensureSession(rawText);
+    setOptimisticRuntimePhase('streaming', targetSessionId);
     
     // Use WebSocket to send message
     appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
@@ -1601,7 +1756,7 @@ export default function CanvasAgentChat({
     });
 
     return;
-  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, sendMessage, showHistory, isMobile, shouldShowHistoryAsOverlay, scanForImageReferences, planningMode]);
+  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, sendMessage, showHistory, isMobile, setOptimisticRuntimePhase, shouldShowHistoryAsOverlay, scanForImageReferences, planningMode]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -1685,7 +1840,7 @@ export default function CanvasAgentChat({
   const loadSession = useCallback(async (session: AISession) => {
     resetStreamConnection();
     setSessionId(session.sessionId);
-    setSessionTitle(session.title || null);
+    setSessionTitle(resolveSessionTitle(session.sessionId, session.title));
     sessionIdRef.current = session.sessionId;
     lastCompactionMarkerRef.current = null;
     userStartedNewChatRef.current = false;
@@ -1801,7 +1956,19 @@ export default function CanvasAgentChat({
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [isWebSocketEnabled, openRuntimeStream, resetStreamConnection, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay]);
+  }, [isWebSocketEnabled, openRuntimeStream, resetStreamConnection, resolveSessionTitle, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay]);
+
+  const clearSessionParamFromUrl = useCallback(() => {
+    if (typeof window === 'undefined' || !window.location.search.includes('session=')) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    params.delete('session');
+    const nextQuery = params.toString();
+    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  }, [pathname, router]);
 
   const deleteSession = useCallback(async (id: string) => {
     if (!confirm(t('deleteSessionConfirm'))) return;
@@ -1832,6 +1999,7 @@ export default function CanvasAgentChat({
       });
       const data = await res.json();
       if (data.success) {
+        optimisticSessionTitlesRef.current[session.sessionId] = nextTitle.trim();
         setHistory((prev) => prev.map((item) => (item.sessionId === session.sessionId ? { ...item, title: nextTitle.trim() } : item)));
         if (sessionIdRef.current === session.sessionId) {
           setSessionTitle(nextTitle.trim());
@@ -2188,6 +2356,8 @@ export default function CanvasAgentChat({
           const targetSession = data.sessions.find((session: AISession) => session.sessionId === requestedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
+            requestedSessionCleanupRef.current = requestedSessionId;
+            clearSessionParamFromUrl();
           }
         }
       } catch (err) {
@@ -2196,7 +2366,13 @@ export default function CanvasAgentChat({
     };
 
     void loadRequestedSession();
-  }, [initialPrompt, initialPromptStorageKey, loadSession, requestedSessionId]);
+  }, [clearSessionParamFromUrl, initialPrompt, initialPromptStorageKey, loadSession, requestedSessionId]);
+
+  useEffect(() => {
+    if (requestedSessionCleanupRef.current && !requestedSessionId) {
+      requestedSessionCleanupRef.current = null;
+    }
+  }, [requestedSessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -2424,6 +2600,7 @@ export default function CanvasAgentChat({
             ) : (
               <button
                 type="button"
+                data-testid="chat-history-toggle"
                 aria-label={t('toggleSidebar')}
                 onClick={() => setShowHistory(true)}
                 className="relative border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
@@ -2714,6 +2891,7 @@ export default function CanvasAgentChat({
                             <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
                               {session.hasUnread && (
                                 <div
+                                  data-testid="chat-history-unread-indicator"
                                   className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
                                   title={t('unreadResponse')}
                                   aria-label={t('unreadResponse')}
@@ -2865,6 +3043,7 @@ export default function CanvasAgentChat({
                           <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
                             {session.hasUnread && (
                               <div
+                                data-testid="chat-history-unread-indicator"
                                 className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
                                 title={t('unreadResponse')}
                                 aria-label={t('unreadResponse')}

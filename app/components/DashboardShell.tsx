@@ -137,6 +137,11 @@ export function DashboardShell({ username }: DashboardShellProps) {
 
   const currentDirectoryLabel =
     currentDirectory === '.' ? 'Workspace /' : `/${currentDirectory}`;
+  const hasSessionTarget = searchParams.has('session');
+  const hasStoredInitialPrompt =
+    typeof window !== 'undefined'
+    && Boolean(window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY));
+  const shouldForceChatOpen = hasSessionTarget || hasStoredInitialPrompt;
 
   useEffect(() => {
     const storedWidth = Number(window.localStorage.getItem('canvas.leftSidebarWidth'));
@@ -278,8 +283,12 @@ export function DashboardShell({ username }: DashboardShellProps) {
         setSidebarVisible(true);
         if (!desktopDefaultChatAppliedRef.current) {
           desktopDefaultChatAppliedRef.current = true;
-          const storedChat = window.localStorage.getItem('canvas.chatVisible');
-          setChatVisible(storedChat !== null ? storedChat === 'true' : true);
+          if (shouldForceChatOpen) {
+            setChatVisible(true);
+          } else {
+            const storedChat = window.localStorage.getItem('canvas.chatVisible');
+            setChatVisible(storedChat !== null ? storedChat === 'true' : true);
+          }
         }
       }
     };
@@ -287,7 +296,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
     handleViewport();
     window.addEventListener('resize', handleViewport);
     return () => window.removeEventListener('resize', handleViewport);
-  }, []);
+  }, [shouldForceChatOpen]);
 
   useEffect(() => {
     const handleNotebookSurface = (event: Event) => {
@@ -600,6 +609,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                   initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                   hideNavHeader={true}
                   chatContainerWidth={chatWidth}
+                  isSurfaceVisible={mobileChatOpen}
                 />
               </div>
             </SheetContent>
@@ -682,6 +692,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                         initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                         hideNavHeader={true}
                         chatContainerWidth={isDesktopChatFullscreen ? window.innerWidth : chatWidth}
+                        isSurfaceVisible={chatVisible}
                       />
                     </div>
                   </div>

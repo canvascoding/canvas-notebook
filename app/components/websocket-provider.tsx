@@ -22,6 +22,8 @@ type NotificationDetail = {
   sessionTitle: string;
   notificationType: string;
   messagePreview?: string;
+  lastMessageAt?: string;
+  timestamp?: number;
 };
 
 function hasSessionCookie(): boolean {
@@ -49,8 +51,41 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const pathname = usePathname();
   const t = useTranslations('chat');
   const clientRef = useRef<WebSocketClient | null>(null);
+  const activeSessionRef = useRef<{ sessionId: string | null; isVisible: boolean }>({
+    sessionId: null,
+    isVisible: false,
+  });
+  const fallbackNotificationTimersRef = useRef<Map<string, number>>(new Map());
+  const deliveredNotificationKeysRef = useRef<Map<string, number>>(new Map());
   const [, setConnected] = useState(false);
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
+
+  const clearFallbackNotificationTimer = useCallback((sessionId: string) => {
+    const timer = fallbackNotificationTimersRef.current.get(sessionId);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      fallbackNotificationTimersRef.current.delete(sessionId);
+    }
+  }, []);
+
+  const rememberDeliveredNotification = useCallback((sessionId: string, lastMessageAt?: string) => {
+    if (!lastMessageAt) {
+      return;
+    }
+
+    deliveredNotificationKeysRef.current.set(sessionId, Date.now());
+    window.setTimeout(() => {
+      const storedAt = deliveredNotificationKeysRef.current.get(sessionId);
+      if (storedAt && Date.now() - storedAt >= 5000) {
+        deliveredNotificationKeysRef.current.delete(sessionId);
+      }
+    }, 5000);
+  }, []);
+
+  const isActiveVisibleSession = useCallback((sessionId: string) => {
+    const activeSession = activeSessionRef.current;
+    return activeSession.isVisible && activeSession.sessionId === sessionId;
+  }, []);
 
   const connectIfAuthenticated = useCallback(() => {
     const client = clientRef.current;
@@ -122,14 +157,37 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
   }, [connectIfAuthenticated]);
 
+  useEffect(() => {
+    const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; isVisible: boolean }>) => {
+      activeSessionRef.current = {
+        sessionId: event.detail.sessionId,
+        isVisible: event.detail.isVisible,
+      };
+    };
+
+    window.addEventListener('chat-active-session-changed', handleActiveSessionChanged as EventListener);
+    return () => {
+      window.removeEventListener('chat-active-session-changed', handleActiveSessionChanged as EventListener);
+    };
+  }, []);
+
   // Handle notification and auth error events
   useEffect(() => {
-    const handleNotification = (event: CustomEvent<NotificationDetail>) => {
-      const { sessionId, sessionTitle, notificationType, messagePreview } = event.detail;
+    const fallbackTimers = fallbackNotificationTimersRef.current;
 
-      console.log('[WebSocketProvider] Showing notification for session', sessionId);
+    const showSessionNotification = (detail: NotificationDetail) => {
+      const { sessionId, sessionTitle, notificationType, messagePreview, lastMessageAt } = detail;
+      if (isActiveVisibleSession(sessionId)) {
+        clearFallbackNotificationTimer(sessionId);
+        return;
+      }
+
       const toastTitle = truncateText(sessionTitle, 60) || t('newChatTitle');
       const toastDescription = truncateText(messagePreview, 140) || t('newResponseReady');
+      rememberDeliveredNotification(sessionId, lastMessageAt);
+      clearFallbackNotificationTimer(sessionId);
+
+      console.log('[WebSocketProvider] Showing notification for session', sessionId);
 
       switch (notificationType) {
         case 'new_response':
@@ -164,6 +222,36 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       }
     };
 
+    const handleNotification = (event: CustomEvent<NotificationDetail>) => {
+      showSessionNotification(event.detail);
+    };
+
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
+      const { sessionId, lastMessageAt, title } = event.detail;
+
+      if (isActiveVisibleSession(sessionId)) {
+        clearFallbackNotificationTimer(sessionId);
+        return;
+      }
+
+      clearFallbackNotificationTimer(sessionId);
+      const timer = window.setTimeout(() => {
+        const recentlyDeliveredAt = deliveredNotificationKeysRef.current.get(sessionId);
+        if (recentlyDeliveredAt && Date.now() - recentlyDeliveredAt < 1500) {
+          return;
+        }
+
+        showSessionNotification({
+          sessionId,
+          sessionTitle: title || t('newChatTitle'),
+          notificationType: 'new_response',
+          lastMessageAt,
+        });
+      }, 180);
+
+      fallbackNotificationTimersRef.current.set(sessionId, timer);
+    };
+
     // Handle AUTH_ERROR: show toast and offer redirect to sign-in
     const handleAuthError = () => {
       toast.error(t('authError'), {
@@ -178,13 +266,17 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     window.addEventListener('notification', handleNotification as EventListener);
+    window.addEventListener('session_updated', handleSessionUpdated as EventListener);
     window.addEventListener('ws-auth-error', handleAuthError);
 
     return () => {
+      fallbackTimers.forEach((timer) => window.clearTimeout(timer));
+      fallbackTimers.clear();
       window.removeEventListener('notification', handleNotification as EventListener);
+      window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
       window.removeEventListener('ws-auth-error', handleAuthError);
     };
-  }, [router, sessionBasePath, t]);
+  }, [clearFallbackNotificationTimer, isActiveVisibleSession, rememberDeliveredNotification, router, sessionBasePath, t]);
 
   return <>{children}</>;
 }

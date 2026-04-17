@@ -414,6 +414,90 @@
           "build": "npm run build attempted, but blocked by offline fonts.googleapis.com fetch in this environment"
         }
       }
+    },
+    {
+      "id": "42",
+      "content": "Fix notebook session URL persistence and home prompt chat auto-open",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "implementedFix": [
+          "Force the notebook chat panel open when a stored home prompt or session deep link is present, even if the persisted desktop layout had hidden chat",
+          "Strip ?session= from the URL after a deep-linked session is loaded into local chat state so reloads return to the generic /notebook workspace",
+          "Derive the first optimistic session title from the actual outgoing prompt text, including home-prompt sends that bypass the visible textarea input",
+          "Preserve optimistic custom titles across immediate session list refreshes so chat header and history do not briefly fall back to automatic default titles"
+        ],
+        "verification": {
+          "lint": "npx eslint app/components/canvas-agent-chat/CanvasAgentChat.tsx app/components/DashboardShell.tsx tests/home-chat-prompt.spec.ts",
+          "e2e": "npm run test:e2e -- tests/home-chat-prompt.spec.ts"
+        }
+      }
+    },
+    {
+      "id": "43",
+      "content": "Improve chat runtime badge timing for immediate working and earlier ready transitions",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "currentState": [
+          "The runtime badge waits for backend runtime_status updates, so working can appear a beat late after send",
+          "The assistant message can already be finalized in the UI while the badge still shows working until the runtime fully settles"
+        ],
+        "implementedFix": [
+          "Set an optimistic working phase in the chat UI as soon as the user sends a message",
+          "Flip the UI back to ready when the assistant final message is committed locally and no more tool or queue work is pending"
+        ],
+        "verification": {
+          "lint": "npm run lint",
+          "e2e": "npm run test:e2e -- --grep \"switch runtime badge to working immediately\""
+        ]
+      }
+    },
+    {
+      "id": "44",
+      "content": "Fix cross-session completion toast reliability and unread session history updates",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "currentState": [
+          "Cross-session unread badges can stay stale when a session has never been opened before because null lastViewedAt is treated as read",
+          "Completion toasts currently depend on the explicit notification event, so a missed notification leaves no user-facing toast even though the session_updated event arrived"
+        ],
+        "implementedFix": [
+          "Use the same unread calculation for API hydration and live session_updated handling, treating missing lastViewedAt as unread once a reply exists",
+          "Add a toast fallback on session_updated so cross-session completion feedback still appears if the notification event is missed"
+        ],
+        "verification": {
+          "lint": "npm run lint",
+          "build": "npm run build",
+          "e2e": "npx playwright test tests/chat-cross-session-notifications.spec.ts"
+        ]
+      }
+    },
+    {
+      "id": "45",
+      "content": "Align final-response ordering so toast dispatch and unread state share the same active-session rule",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "currentState": [
+          "Toast suppression and unread suppression are currently decided in different places without a shared active-session visibility signal",
+          "A visible active chat can still drift out of sync with database read state when its final assistant message lands"
+        ],
+        "implementedFix": [
+          "Track the visible active chat session globally and suppress notifications only for that exact visible session",
+          "Emit notification before session_updated and auto-mark the visible active session as read when the assistant response completes"
+        ],
+        "verification": {
+          "eslint": "npx eslint app/api/sessions/route.ts app/components/canvas-agent-chat/CanvasAgentChat.tsx app/components/chat/SessionSidebar.tsx app/components/websocket-provider.tsx app/lib/websocket/client.ts server/chat-event-bridge.ts server/websocket-server.ts app/components/DashboardShell.tsx app/[locale]/(routes)/chat/chat-shell.tsx tests/chat-cross-session-notifications.spec.ts",
+          "build": "npm run build",
+          "e2e": "E2E_EXTERNAL_SERVER=1 npx playwright test tests/chat-cross-session-notifications.spec.ts"
+        ]
+      }
     }
   ]
 }

@@ -43,6 +43,18 @@ interface SessionSidebarProps {
 
 type SessionGroup = 'today' | 'last7' | 'last14' | 'last30' | 'older';
 
+function hasUnreadAssistantResponse(lastMessageAt?: string | null, lastViewedAt?: string | null): boolean {
+  if (!lastMessageAt) {
+    return false;
+  }
+
+  if (!lastViewedAt) {
+    return true;
+  }
+
+  return new Date(lastMessageAt).getTime() > new Date(lastViewedAt).getTime();
+}
+
 export function SessionSidebar({
   currentSessionId,
   onSessionSelect,
@@ -74,6 +86,40 @@ export function SessionSidebar({
   useEffect(() => {
     void fetchHistory();
   }, [fetchHistory]);
+
+  useEffect(() => {
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
+      const { sessionId, lastMessageAt, title } = event.detail;
+      let sessionFound = false;
+
+      setHistory((prev) => prev.map((session) => {
+        if (session.sessionId !== sessionId) {
+          return session;
+        }
+
+        sessionFound = true;
+        const isCurrentSession = currentSessionId === sessionId;
+        const nextLastViewedAt = isCurrentSession ? lastMessageAt : (session.lastViewedAt ?? null);
+
+        return {
+          ...session,
+          lastMessageAt,
+          ...(title ? { title } : {}),
+          lastViewedAt: nextLastViewedAt,
+          hasUnread: !isCurrentSession && hasUnreadAssistantResponse(lastMessageAt, nextLastViewedAt),
+        };
+      }));
+
+      if (!sessionFound) {
+        void fetchHistory();
+      }
+    };
+
+    window.addEventListener('session_updated', handleSessionUpdated as EventListener);
+    return () => {
+      window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
+    };
+  }, [currentSessionId, fetchHistory]);
 
   const getSessionTimeGroup = useCallback((dateString: string): SessionGroup => {
     const date = new Date(dateString);
