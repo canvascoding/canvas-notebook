@@ -45,7 +45,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
-import { LanguageSwitcher } from '@/app/components/language-switcher';
+
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
@@ -2390,7 +2390,6 @@ export default function CanvasAgentChat({
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
             <NotebookNavButton />
-            <LanguageSwitcher />
             <ThemeToggle />
             <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
               <Link href="/usage">{t('usage')}</Link>

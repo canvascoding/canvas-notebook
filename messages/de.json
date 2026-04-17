@@ -97,6 +97,10 @@
     "logoAlt": "Canvas Logo",
     "welcome": "Willkommen!",
     "description": "Du bist mit dem per Environment konfigurierten Admin bereits angemeldet. Richte jetzt deinen KI-Provider ein. Benutzerverwaltung erfolgt ausschließlich über die Container-Environment.",
+    "languageTitle": "Sprache wählen",
+    "languageDescription": "Wähle deine bevorzugte Sprache für die Benutzeroberfläche.",
+    "languageActive": "Aktiv",
+    "languageContinue": "Weiter",
     "providerTitle": "Provider & Modell",
     "providerDescription": "Wähle deinen Provider, richte Authentifizierung ein und speichere dieselbe PI-Konfiguration wie später unter Settings.",
     "saveProvider": "Provider speichern & weiter",
@@ -523,9 +527,15 @@
   "settings": {
     "title": "Einstellungen",
     "tabs": {
+      "general": "Allgemein",
       "integrations": "Integrationen",
       "agentSettings": "Agent-Einstellungen",
       "workspace": "Workspace"
+    },
+    "general": {
+      "language": "Sprache",
+      "languageDescription": "Wähle die Sprache der Benutzeroberfläche. Die Änderung wird sofort angewendet.",
+      "languageActive": "Aktiv"
     },
     "scopes": {
       "integrations": {

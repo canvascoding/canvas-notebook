@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Eye, EyeOff, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
+import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSettingsPanel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -308,7 +309,7 @@ export function IntegrationsSettingsClient() {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
-  const [settingsTab, setSettingsTab] = useState<'integrations' | 'agent-settings' | 'workspace'>('integrations');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace'>('general');
   const [editors, setEditors] = useState<Record<EnvScope, ScopeEditorState>>({
     integrations: INITIAL_SCOPE_STATE('integrations'),
     agents: INITIAL_SCOPE_STATE('agents'),
@@ -367,10 +368,13 @@ export function IntegrationsSettingsClient() {
   }, [loadState]);
 
   useEffect(() => {
-    if (searchParams.get('tab') === 'agent-settings') {
+    const tab = searchParams.get('tab');
+    if (tab === 'agent-settings') {
       setSettingsTab('agent-settings');
-    } else if (searchParams.get('tab') === 'workspace') {
+    } else if (tab === 'workspace') {
       setSettingsTab('workspace');
+    } else if (tab === 'integrations') {
+      setSettingsTab('integrations');
     }
   }, [searchParams]);
 
@@ -541,10 +545,13 @@ export function IntegrationsSettingsClient() {
     <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
       <Tabs
         value={settingsTab}
-        onValueChange={(value) => setSettingsTab(value as 'integrations' | 'agent-settings' | 'workspace')}
+        onValueChange={(value) => setSettingsTab(value as 'general' | 'integrations' | 'agent-settings' | 'workspace')}
         className="space-y-4"
       >
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-3">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-4">
+          <TabsTrigger value="general" className="min-h-9 border border-border data-[state=active]:bg-muted">
+            {t('tabs.general')}
+          </TabsTrigger>
           <TabsTrigger value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.integrations')}
           </TabsTrigger>
@@ -555,6 +562,10 @@ export function IntegrationsSettingsClient() {
             {t('tabs.workspace')}
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="general" className="space-y-4">
+          <GeneralSettingsPanel />
+        </TabsContent>
 
         <TabsContent value="integrations" className="space-y-4">
           {SCOPE_CARDS.map((card) => (
