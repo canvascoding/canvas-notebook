@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,7 @@ function resolvePostAuthRedirect(locale: string, from: string | null) {
   return buildLocalePath(locale, from);
 }
 
-export default function LoginClient() {
+function LoginForm() {
   const t = useTranslations('login');
   const locale = useLocale();
   const searchParams = useSearchParams();
@@ -57,6 +57,7 @@ export default function LoginClient() {
         toast.error(error.message || t('loginFailed'));
       } else {
         toast.success(t('loginSuccessful'));
+        window.dispatchEvent(new CustomEvent('ws-auth-success'));
         window.location.href = resolvePostAuthRedirect(locale, searchParams.get('from'));
       }
     } catch (err) {
@@ -78,7 +79,7 @@ export default function LoginClient() {
           <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" suppressHydrationWarning>
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-foreground/90 mb-2">
               {t('email')}
@@ -120,5 +121,13 @@ export default function LoginClient() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function LoginClient() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

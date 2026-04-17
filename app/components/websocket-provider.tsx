@@ -2,11 +2,12 @@
  * WebSocket Provider for Root Layout
  * 
  * Provides global WebSocket connection and toast notifications across all routes.
+ * Only connects when a session cookie is present to avoid auth errors on public pages.
  */
 
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { WebSocketClient, getWebSocketClient } from '@/app/lib/websocket/client';
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
@@ -22,6 +23,13 @@ type NotificationDetail = {
   notificationType: string;
   messagePreview?: string;
 };
+
+function hasSessionCookie(): boolean {
+  if (typeof document === 'undefined') return false;
+  const cookies = document.cookie;
+  return /(?:^|;\s*)better-auth\.session_token\s*=/.test(cookies)
+    || /(?:^|;\s*)__Secure-better-auth\.session_token\s*=/.test(cookies);
+}
 
 function truncateText(value: string | null | undefined, maxLength: number): string {
   const normalized = (value || '').replace(/\s+/g, ' ').trim();
@@ -44,6 +52,23 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const [, setConnected] = useState(false);
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
 
+  const connectIfAuthenticated = useCallback(() => {
+    const client = clientRef.current;
+    if (!client) return;
+
+    if (!hasSessionCookie()) {
+      console.log('[WebSocketProvider] No session cookie, skipping WebSocket connection');
+      return;
+    }
+
+    client.resetForReconnect();
+    client.connect().catch((error) => {
+      if ((error as { code?: string })?.code !== 'AUTH_ERROR') {
+        console.error('[WebSocketProvider] Failed to connect:', error);
+      }
+    });
+  }, []);
+
   // Initialize WebSocket connection
   useEffect(() => {
     clientRef.current = getWebSocketClient();
@@ -62,7 +87,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
     const handleError = (event: CustomEvent<{ error: string; code?: string }>) => {
       if (event.detail.code === 'AUTH_ERROR') {
-        console.warn('[WebSocketProvider] WebSocket auth error:', event.detail.error);
         window.dispatchEvent(new CustomEvent('ws-auth-error'));
         return;
       }
@@ -74,19 +98,29 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     client.addEventListener('disconnected', handleDisconnected as EventListener);
     client.addEventListener('error', handleError as EventListener);
 
-    client.connect().catch((error) => {
-      if ((error as { code?: string })?.code !== 'AUTH_ERROR') {
-        console.error('[WebSocketProvider] Failed to connect:', error);
-      }
-    });
+    if (hasSessionCookie()) {
+      client.connect().catch((error) => {
+        if ((error as { code?: string })?.code !== 'AUTH_ERROR') {
+          console.error('[WebSocketProvider] Failed to connect:', error);
+        }
+      });
+    }
+
+    const handleAuthSuccess = () => {
+      console.log('[WebSocketProvider] Session established, connecting WebSocket');
+      connectIfAuthenticated();
+    };
+
+    window.addEventListener('ws-auth-success', handleAuthSuccess);
 
     return () => {
       client.removeEventListener('connected', handleConnected as EventListener);
       client.removeEventListener('disconnected', handleDisconnected as EventListener);
       client.removeEventListener('error', handleError as EventListener);
+      window.removeEventListener('ws-auth-success', handleAuthSuccess);
       client.releaseConnection();
     };
-  }, []);
+  }, [connectIfAuthenticated]);
 
   // Handle notification and auth error events
   useEffect(() => {
