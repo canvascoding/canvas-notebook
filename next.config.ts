@@ -15,9 +15,14 @@ const externalPackages = [
 
 const sentryTunnelRoute = process.env.SENTRY_TUNNEL_ROUTE?.trim() || undefined;
 
+const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
+  ? process.env.NEXT_ALLOWED_DEV_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+  : [];
+
 const nextConfig: NextConfig = {
   // Output standalone for smaller Docker image
   output: 'standalone',
+  ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
 
   // Wichtig für native Server-Pakete: Als external markieren im Server Bundle
   webpack: (config, { isServer }) => {

@@ -88,22 +88,15 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
   }, []);
 
-  // Handle notification and session update events
+  // Handle notification and auth error events
   useEffect(() => {
     const handleNotification = (event: CustomEvent<NotificationDetail>) => {
       const { sessionId, sessionTitle, notificationType, messagePreview } = event.detail;
 
-      // Suppress toast if the user is already viewing this session
-      const currentSearch = typeof window !== 'undefined' ? window.location.search : '';
-      if (currentSearch.includes(`session=${encodeURIComponent(sessionId)}`)) {
-        console.log('[WebSocketProvider] Suppressing toast for active session', sessionId);
-        return;
-      }
-
       console.log('[WebSocketProvider] Showing notification for session', sessionId);
       const toastTitle = truncateText(sessionTitle, 60) || t('newChatTitle');
       const toastDescription = truncateText(messagePreview, 140) || t('newResponseReady');
-      
+
       switch (notificationType) {
         case 'new_response':
           toast.info(toastTitle, {
@@ -137,17 +130,6 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       }
     };
 
-    // Handle session_updated events (for updating history unread status)
-    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
-      const { sessionId, lastMessageAt, title } = event.detail;
-      console.log('[WebSocketProvider] Session updated:', sessionId, lastMessageAt);
-
-      // Dispatch custom event for CanvasAgentChat to update history
-      window.dispatchEvent(new CustomEvent('session-updated', {
-        detail: { sessionId, lastMessageAt, title }
-      }));
-    };
-
     // Handle AUTH_ERROR: show toast and offer redirect to sign-in
     const handleAuthError = () => {
       toast.error(t('authError'), {
@@ -162,12 +144,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     window.addEventListener('notification', handleNotification as EventListener);
-    window.addEventListener('session_updated', handleSessionUpdated as EventListener);
     window.addEventListener('ws-auth-error', handleAuthError);
 
     return () => {
       window.removeEventListener('notification', handleNotification as EventListener);
-      window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
       window.removeEventListener('ws-auth-error', handleAuthError);
     };
   }, [router, sessionBasePath, t]);

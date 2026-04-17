@@ -23,9 +23,17 @@ const emailAndPasswordConfig = {
   },
 };
 
+const trustedOrigins = [
+  authBaseURL,
+  ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS
+    ? process.env.BETTER_AUTH_TRUSTED_ORIGINS.split(',').map(o => o.trim())
+    : []),
+].filter(Boolean) as string[];
+
 export const auth = betterAuth({
   secret: authSecret,
   baseURL: authBaseURL,
+  trustedOrigins,
   database: drizzleAdapter(db, {
     provider: "sqlite",
   }),
