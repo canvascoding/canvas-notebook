@@ -107,9 +107,7 @@ export function initializeWebSocketBridge(): void {
           return;
         }
 
-        // Broadcast session update with title so all tabs can update the sidebar and
-        // session title immediately (before the toast notification fires).
-        broadcastSessionUpdateToUser(userId, sessionId, new Date().toISOString(), session.title ?? undefined);
+        const lastMessageAt = new Date().toISOString();
 
         // Use the event payload as the primary source to avoid race conditions where
         // the DB write hasn't completed yet when we query for the preview.
@@ -139,10 +137,11 @@ export function initializeWebSocketBridge(): void {
         }
 
         const sessionTitle = session.title || `Session ${sessionId.slice(0, 8)}`;
-        broadcastNotification(userId, sessionId, sessionTitle, 'new_response', messagePreview);
+        broadcastNotification(userId, sessionId, sessionTitle, 'new_response', messagePreview, lastMessageAt);
+        broadcastSessionUpdateToUser(userId, sessionId, lastMessageAt, session.title ?? undefined);
 
         console.log(
-          `[WebSocket Bridge] AI response in session ${sessionId}: notification payload sent with title "${sessionTitle}" and preview "${messagePreview}"`
+          `[WebSocket Bridge] AI response in session ${sessionId}: notification sent before unread/session update with title "${sessionTitle}" and preview "${messagePreview}"`
         );
       } catch (error) {
         console.error(`[WebSocket Bridge] Failed to fetch session/message data:`, error);

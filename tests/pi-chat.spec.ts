@@ -41,7 +41,7 @@ async function login(page: Page) {
 
 async function startFreshChat(page: Page) {
   await page.getByRole('button', { name: /new chat/i }).click();
-  await expect(page.getByTestId('chat-session-id')).toContainText('new chat');
+  await expect(page.getByTestId('chat-session-id')).toContainText(/new chat/i);
 }
 
 async function mockEmptyChatBootstrap(page: Page) {
@@ -508,6 +508,25 @@ test.describe('PI Chat E2E', () => {
     await expect(assistantMessage).toContainText('Streaming bold answer');
     await expect(assistantMessage.locator('strong')).toHaveText('bold');
     await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
+  });
+
+  test('should switch runtime badge to working immediately on send and back to ready when final message lands', async ({ page }) => {
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    const input = page.getByTestId('chat-input');
+    const runtimeBadge = page.getByTestId('chat-runtime-busy-badge');
+
+    await expect(runtimeBadge).toContainText(/ready/i);
+
+    await input.fill('Reply with exactly OK.');
+    await page.getByTestId('chat-send').click();
+
+    await expect(runtimeBadge).toContainText(/working/i, { timeout: 1000 });
+    const assistantMessage = page.getByTestId('chat-message-assistant').first();
+    await expect(assistantMessage).toContainText(/\S/, { timeout: 30000 });
+    await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0, { timeout: 30000 });
+    await expect(runtimeBadge).toContainText(/ready/i, { timeout: 5000 });
   });
 
   test('should keep the current scroll position when streaming continues after the user scrolls up', async ({ page }) => {

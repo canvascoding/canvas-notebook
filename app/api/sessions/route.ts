@@ -46,6 +46,18 @@ function normalizeTitle(value: unknown, fallback: string): string {
   return trimmed.slice(0, 120);
 }
 
+function hasUnreadPiResponse(lastMessageAt: Date | null, lastViewedAt: Date | null): boolean {
+  if (!lastMessageAt) {
+    return false;
+  }
+
+  if (!lastViewedAt) {
+    return true;
+  }
+
+  return lastMessageAt.getTime() > lastViewedAt.getTime();
+}
+
 async function resolveDefaultModel(): Promise<AgentId> {
   const config = await readAgentRuntimeConfig();
   return providerIdToAgentId(config.provider.id);
@@ -134,7 +146,7 @@ export async function GET(request: NextRequest) {
         createdAt: item.createdAt,
         lastMessageAt: item.lastMessageAt,
         lastViewedAt: item.lastViewedAt,
-        hasUnread: item.engine === 'pi' && item.lastMessageAt !== null && item.lastViewedAt !== null && item.lastMessageAt.getTime() > item.lastViewedAt.getTime(),
+        hasUnread: item.engine === 'pi' && hasUnreadPiResponse(item.lastMessageAt, item.lastViewedAt),
         creator: {
           name: item.creatorName || null,
           email: item.creatorEmail || null,

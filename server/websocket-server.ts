@@ -64,6 +64,7 @@ type ServerMessage =
       sessionTitle: string;
       notificationType: 'new_response' | 'tool_complete' | 'error';
       messagePreview?: string;
+      lastMessageAt?: string;
       timestamp: number;
     }
   | { type: 'error'; error: string; code: string };
@@ -125,6 +126,32 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
 async function handleConnection(ws: WebSocket, request: IncomingMessage): Promise<void> {
   console.log('[WebSocket] New connection');
 
+  // Buffer messages that arrive before authentication completes.
+  // The message listener must be registered synchronously (before the async auth await)
+  // so that early client messages (e.g. send_message flushed immediately on ws.onopen)
+  // are not silently dropped by the Node.js EventEmitter.
+  const pendingMessages: Buffer[] = [];
+  let connection: WebSocketConnection | null = null;
+
+  const dispatchMessage = (data: Buffer) => {
+    try {
+      const message = JSON.parse(data.toString()) as ClientMessage;
+      handleMessage(connection!, message);
+    } catch (error) {
+      console.error('[WebSocket] Error parsing message:', error);
+      sendWs(ws, { type: 'error', error: 'Invalid message format', code: 'INVALID_MESSAGE' });
+    }
+  };
+
+  ws.on('message', (data: Buffer) => {
+    if (!connection) {
+      // Auth not yet complete — buffer the message
+      pendingMessages.push(data);
+      return;
+    }
+    dispatchMessage(data);
+  });
+
   // Authenticate connection
   const authResult = await authenticateWebSocketConnection(request.headers);
 
@@ -138,7 +165,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   console.log('[WebSocket] Authenticated user:', authResult.userId);
 
   // Create connection state
-  const connection: WebSocketConnection = {
+  connection = {
     ws,
     userId: authResult.userId!,
     isAlive: true,
@@ -151,32 +178,29 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   // Send auth success
   sendWs(ws, { type: 'auth_success', userId: authResult.userId! });
 
-  // Handle messages
-  ws.on('message', (data: Buffer) => {
-    try {
-      const message = JSON.parse(data.toString()) as ClientMessage;
-      handleMessage(connection, message);
-    } catch (error) {
-      console.error('[WebSocket] Error parsing message:', error);
-      sendWs(ws, { type: 'error', error: 'Invalid message format', code: 'INVALID_MESSAGE' });
+  // Replay any messages that arrived before auth completed
+  if (pendingMessages.length > 0) {
+    console.log(`[WebSocket] Replaying ${pendingMessages.length} buffered message(s) for user ${authResult.userId}`);
+    for (const data of pendingMessages) {
+      dispatchMessage(data);
     }
-  });
+  }
 
   // Handle pong (heartbeat response)
   ws.on('pong', () => {
-    connection.isAlive = true;
+    connection!.isAlive = true;
   });
 
   // Handle disconnect
   ws.on('close', (code: number, reason: Buffer) => {
     console.log(`[WebSocket] Connection closed: code=${code} reason=${reason.toString() || '(empty)'}`);
-    handleDisconnect(connection);
+    handleDisconnect(connection!);
   });
 
   // Handle errors
   ws.on('error', (error) => {
     console.error('[WebSocket] Error:', error);
-    handleDisconnect(connection);
+    handleDisconnect(connection!);
   });
 }
 
@@ -358,7 +382,8 @@ export function broadcastNotification(
   sessionId: string,
   sessionTitle: string,
   notificationType: 'new_response' | 'tool_complete' | 'error',
-  messagePreview?: string
+  messagePreview?: string,
+  lastMessageAt?: string
 ): void {
   broadcastToUser(userId, {
     type: 'notification',
@@ -366,6 +391,7 @@ export function broadcastNotification(
     sessionTitle,
     notificationType,
     messagePreview,
+    lastMessageAt,
     timestamp: Date.now(),
   });
 }

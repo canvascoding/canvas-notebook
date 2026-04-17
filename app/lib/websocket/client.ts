@@ -284,8 +284,10 @@ export class WebSocketClient extends EventTarget {
           sessionTitle: message.sessionTitle as string,
           notificationType: message.notificationType as string,
           messagePreview: message.messagePreview as string | undefined,
+          lastMessageAt: message.lastMessageAt as string | undefined,
+          timestamp: message.timestamp as number | undefined,
         };
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string; messagePreview?: string }>('notification', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string; messagePreview?: string; lastMessageAt?: string; timestamp?: number }>('notification', {
           detail: notificationEvent,
         }));
         // Also mirror to window for global listeners
