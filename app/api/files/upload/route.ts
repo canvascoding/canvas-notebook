@@ -23,9 +23,13 @@ function isValidFilename(filename: string): boolean {
   return VALID_FILENAME_REGEX.test(filename);
 }
 
-function sanitizeFilename(filename: string): string {
-  // Remove any path components, keep only the filename
-  return path.posix.basename(filename.replace(/\\/g, '/'));
+function sanitizeFilePath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/');
+  const segments = normalized.split('/');
+  const sanitized = segments
+    .map(segment => path.posix.basename(segment))
+    .filter(segment => segment.length > 0 && segment !== '.' && segment !== '..');
+  return sanitized.join('/');
 }
 
 export async function POST(request: NextRequest) {
@@ -90,18 +94,18 @@ export async function POST(request: NextRequest) {
 
     for (const file of files) {
       // Sanitize and validate filename
-      const sanitizedName = sanitizeFilename(file.name);
+      const sanitizedPath = sanitizeFilePath(file.name);
       
-      if (!isValidFilename(sanitizedName)) {
+      if (!sanitizedPath || !isValidFilename(sanitizedPath)) {
         return NextResponse.json(
-          { success: false, error: `Invalid filename: "${file.name}". Only alphanumeric characters, dots, dashes, underscores, spaces, and parentheses are allowed.` },
+          { success: false, error: `Invalid filename: "${file.name}". Only alphanumeric characters, dots, dashes, underscores, spaces, parentheses, and path separators are allowed.` },
           { status: 400 }
         );
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());
       
-      const targetPath = path.posix.join(targetDir, sanitizedName);
+      const targetPath = path.posix.join(targetDir, sanitizedPath);
       
       // Ensure parent directory exists
       const parentDir = path.posix.dirname(targetPath);
@@ -110,7 +114,7 @@ export async function POST(request: NextRequest) {
       }
 
       await writeFile(targetPath, buffer);
-      uploadedFiles.push(sanitizedName);
+      uploadedFiles.push(sanitizedPath);
     }
 
     clearFileTreeCache();
