@@ -6,9 +6,14 @@ import { auth } from '@/app/lib/auth';
 import archiver from 'archiver';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-// Download limits
-const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024; // 1GB max for ZIP downloads
-const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB max for single file
+const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024;
+const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+
+function resolveDownloadName(filePath: string): string {
+  const basename = path.posix.basename(filePath);
+  if (basename === '' || basename === '/') return 'workspace';
+  return basename;
+}
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -34,10 +39,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const stats = await getFileStats(filePath);
-    const filename = path.posix.basename(filePath);
+    const downloadName = resolveDownloadName(filePath);
 
     if (stats.isDirectory) {
-      // Check directory size limit for ZIP downloads
       if (stats.size > MAX_ZIP_DOWNLOAD_SIZE) {
         return NextResponse.json(
           { success: false, error: 'Directory is too large to download as ZIP (max 1GB)' },
@@ -45,35 +49,20 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      // ZIP Streaming for directories
-      const archive = archiver('zip', {
-        zlib: { level: 1 }, // Fastest compression for better UX
-      });
+      const fullPath = validatePath(filePath);
+      const archive = archiver('zip', { zlib: { level: 1 } });
+      const webStream = Readable.toWeb(archive) as ReadableStream<Uint8Array>;
 
-      // Convert Node.js stream to Web Stream
-      const stream = Readable.toWeb(archive) as ReadableStream<Uint8Array>;
+      archive.directory(fullPath, downloadName);
+      archive.finalize();
 
-      // Start archiving in the background. Do not await this.
-      // The stream will be consumed by the NextResponse.
-      (async () => {
-        try {
-          const fullPath = validatePath(filePath);
-          archive.directory(fullPath, filename);
-          await archive.finalize();
-        } catch (error) {
-          // If archiver fails, it will emit an error on the stream.
-          archive.emit('error', error as Error);
-        }
-      })();
-
-      return new NextResponse(stream, {
+      return new NextResponse(webStream, {
         headers: {
           'Content-Type': 'application/zip',
-          'Content-Disposition': `attachment; filename="${filename}.zip"`,
+          'Content-Disposition': `attachment; filename="${downloadName}.zip"`,
         },
       });
     } else {
-      // Check single file size limit
       if (stats.size > MAX_SINGLE_FILE_SIZE) {
         return NextResponse.json(
           { success: false, error: 'File is too large to download (max 2GB)' },
@@ -81,14 +70,13 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      // Handle single file download
       const { stream } = await createReadStream(filePath);
       const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
-      
+
       return new NextResponse(webStream, {
         headers: {
           'Content-Type': 'application/octet-stream',
-          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Content-Disposition': `attachment; filename="${downloadName}"`,
           'Content-Length': stats.size.toString(),
         },
       });
