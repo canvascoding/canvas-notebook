@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
     const userTimeZone = typeof ctx.userTimeZone === 'string' ? ctx.userTimeZone : undefined;
     const currentTime = typeof ctx.currentTime === 'string' ? ctx.currentTime : undefined;
     const activeFilePath = typeof ctx.activeFilePath === 'string' ? ctx.activeFilePath : null;
+    const planningMode = ctx.planningMode === true;
 
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
     const promptMessage = resolvePromptMessage(payload);
@@ -101,6 +102,9 @@ export async function POST(request: NextRequest) {
 
     // Set active file context for this prompt
     runtimeInstance.setActiveFileContext(activeFilePath);
+
+    // Set planning mode for this prompt
+    runtimeInstance.setPlanningMode(planningMode);
 
     const encoder = new TextEncoder();
 

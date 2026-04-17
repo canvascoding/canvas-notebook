@@ -68,6 +68,27 @@ export const TEMP_DIRECTORY_GUIDANCE = `
 
 See AGENTS.md for detailed file system structure and workflow.`;
 
+export const PLANNING_MODE_GUIDANCE = `## Planning Mode (ACTIVE)
+
+You are currently operating in **Planning Mode**. This mode restricts you to read-only analysis — you may inspect the workspace, search files, and create plans, but you MUST NOT make any changes.
+
+### Available tools in Planning Mode:
+- \`web_fetch\` — fetch web content for research
+- \`rg\` — search file contents
+- \`ls\` — list directories
+- \`read\` — read files
+- \`glob\` — find files by pattern
+- \`grep\` — search with grep
+- \`qmd\` — semantic search
+- \`list_automation_jobs\` — list scheduled jobs
+
+### Strictly forbidden:
+- \`write\` / \`bash\` / \`mkdir\` or any tool that modifies files, runs commands, or creates/deletes resources
+- Do NOT attempt workarounds (e.g., using bash to write files)
+
+### When the user wants changes made:
+Acknowledge the request, outline what you would do, then ask the user to **switch back to Standard Mode** (Shift+Tab) so you can execute the changes.`;
+
 export const MEMORY_MANAGEMENT_GUIDANCE = `
 ## Memory Management (MEMORY.md)
 
