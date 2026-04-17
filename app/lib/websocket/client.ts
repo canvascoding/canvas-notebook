@@ -348,6 +348,15 @@ export class WebSocketClient extends EventTarget {
   }
 
   /**
+   * Reset manual disconnect flag so the client can reconnect.
+   * Called after a successful login to re-enable connection attempts.
+   */
+  resetForReconnect(): void {
+    this.isManualDisconnect = false;
+    this.reconnectAttempts = 0;
+  }
+
+  /**
    * Check if connected
    */
   isConnected(): boolean {

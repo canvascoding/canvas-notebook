@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,7 @@ function resolvePostAuthRedirect(locale: string, from: string | null) {
   return buildLocalePath(locale, from);
 }
 
-export default function SignUpForm() {
+function SignUpFormInner() {
   const t = useTranslations('signUp');
   const locale = useLocale();
   const searchParams = useSearchParams();
@@ -87,7 +87,7 @@ export default function SignUpForm() {
           <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" suppressHydrationWarning>
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-foreground/90 mb-2">
               {t('name')}
@@ -161,5 +161,13 @@ export default function SignUpForm() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function SignUpForm() {
+  return (
+    <Suspense>
+      <SignUpFormInner />
+    </Suspense>
   );
 }
