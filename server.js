@@ -284,50 +284,52 @@ try {
 
 console.log('[Startup] Runtime setup complete');
 
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+
+  if (url.pathname.startsWith('/media/')) {
+    getAuthSession(req)
+      .then((sessionData) => {
+        if (!sessionData || !sessionData.user) {
+          res.statusCode = 401;
+          res.setHeader('Content-Type', 'application/json');
+          setNoIndexHeader(res);
+          res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
+          return;
+        }
+        serveMedia(req, res);
+      })
+      .catch(() => {
+        res.statusCode = 401;
+        res.setHeader('Content-Type', 'application/json');
+        setNoIndexHeader(res);
+        res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
+      });
+    return;
+  }
+
+  // Terminal kill endpoint is now handled by Next.js API routes
+  // See app/api/terminal/kill/route.ts
+
+  handle(req, res);
+});
+
+// WebSocket Server for Chat — must be registered BEFORE Next.js attaches its own
+// upgrade handler during app.prepare(), so that /ws/chat upgrades are handled by
+// our wss and not erroneously by Next.js HMR which would corrupt the socket.
+console.log('[Startup] Initializing WebSocket Server...');
+try {
+  const { createWebSocketServer } = require('./server/websocket-server');
+  createWebSocketServer(server);
+  console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+} catch (error) {
+  console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
+  console.error('[Startup] Stack trace:', error.stack);
+}
+
 app
   .prepare()
   .then(() => {
-    const server = http.createServer((req, res) => {
-      const url = new URL(req.url, 'http://localhost');
-
-      if (url.pathname.startsWith('/media/')) {
-        getAuthSession(req)
-          .then((sessionData) => {
-            if (!sessionData || !sessionData.user) {
-              res.statusCode = 401;
-              res.setHeader('Content-Type', 'application/json');
-              setNoIndexHeader(res);
-              res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
-              return;
-            }
-            serveMedia(req, res);
-          })
-          .catch(() => {
-            res.statusCode = 401;
-            res.setHeader('Content-Type', 'application/json');
-            setNoIndexHeader(res);
-            res.end(JSON.stringify({ success: false, error: 'Unauthorized' }));
-          });
-        return;
-      }
-
-      // Terminal kill endpoint is now handled by Next.js API routes
-      // See app/api/terminal/kill/route.ts
-
-      handle(req, res);
-    });
-
-    // WebSocket Server for Chat
-    console.log('[Startup] Initializing WebSocket Server...');
-    try {
-      const { createWebSocketServer } = require('./server/websocket-server');
-      createWebSocketServer(server);
-      console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
-    } catch (error) {
-      console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
-      console.error('[Startup] Stack trace:', error.stack);
-    }
-
     server.listen(port, (err) => {
       if (err) throw err;
       console.log(`> Ready on http://localhost:${port}`);

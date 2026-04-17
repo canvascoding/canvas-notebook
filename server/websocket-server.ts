@@ -96,11 +96,17 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
 
   wss.on('connection', handleConnection);
 
-  // Handle WebSocket upgrade
+  const upgradedSockets = new WeakSet<net.Socket>();
+
   server.on('upgrade', (request: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`);
-    
+
     if (url.pathname === '/ws/chat') {
+      if (upgradedSockets.has(socket)) {
+        console.warn('[WebSocket] Duplicate upgrade on same socket — skipping');
+        return;
+      }
+      upgradedSockets.add(socket);
       wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
         wss.emit('connection', ws, request);
       });
@@ -162,8 +168,8 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   });
 
   // Handle disconnect
-  ws.on('close', () => {
-    console.log('[WebSocket] Connection closed');
+  ws.on('close', (code: number, reason: Buffer) => {
+    console.log(`[WebSocket] Connection closed: code=${code} reason=${reason.toString() || '(empty)'}`);
     handleDisconnect(connection);
   });
 

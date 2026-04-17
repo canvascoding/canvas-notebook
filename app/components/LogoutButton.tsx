@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { LogOut } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { authClient } from '@/app/lib/auth-client';
+import { disconnectWebSocketClient } from '@/app/lib/websocket/client';
 
 export function LogoutButton() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export function LogoutButton() {
       await authClient.signOut({
         fetchOptions: {
           onSuccess: () => {
+            disconnectWebSocketClient();
             router.push('/login');
             router.refresh();
           },

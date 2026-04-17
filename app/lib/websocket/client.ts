@@ -18,6 +18,9 @@ export class WebSocketClient extends EventTarget {
   private isManualDisconnect = false;
   private messageQueue: Array<Record<string, unknown>> = [];
   private isConnecting = false;
+  private refCount = 0;
+  private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly DISCONNECT_GRACE_MS = 3000;
 
   constructor(baseUrl?: string) {
     super();
@@ -38,6 +41,13 @@ export class WebSocketClient extends EventTarget {
    * Connect to WebSocket server
    */
   connect(): Promise<void> {
+    this.refCount++;
+    this.cancelDisconnectTimer();
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return Promise.resolve();
+    }
+
     if (this.isConnecting) {
       return new Promise((resolve) => {
         const checkConnected = () => {
@@ -74,8 +84,8 @@ export class WebSocketClient extends EventTarget {
         };
 
         this.ws.onclose = (event) => {
-          console.log('[WebSocket] Disconnected:', event.code, event.reason);
-          this.dispatchEvent(new CustomEvent('disconnected', { detail: { reason: event.reason } }));
+          console.log(`[WebSocket] Disconnected: code=${event.code} reason=${event.reason || '(empty)'} wasClean=${event.wasClean}`);
+          this.dispatchEvent(new CustomEvent('disconnected', { detail: { code: event.code, reason: event.reason, wasClean: event.wasClean } }));
 
           if (!this.isManualDisconnect) {
             this.scheduleReconnect();
@@ -83,9 +93,15 @@ export class WebSocketClient extends EventTarget {
         };
 
         this.ws.onerror = (error) => {
-          console.error('[WebSocket] Error:', error);
+          const readyState = this.ws?.readyState;
+          const stateLabel = readyState === WebSocket.CONNECTING ? 'CONNECTING'
+            : readyState === WebSocket.OPEN ? 'OPEN'
+            : readyState === WebSocket.CLOSING ? 'CLOSING'
+            : readyState === WebSocket.CLOSED ? 'CLOSED'
+            : `UNKNOWN(${readyState})`;
+          console.error(`[WebSocket] Error (readyState=${stateLabel}):`, error);
           this.isConnecting = false;
-          this.dispatchEvent(new CustomEvent('error', { detail: { error: 'Connection error' } }));
+          this.dispatchEvent(new CustomEvent('error', { detail: { error: 'Connection error', readyState } }));
           reject(error);
         };
 
@@ -110,14 +126,41 @@ export class WebSocketClient extends EventTarget {
    */
   disconnect(): void {
     this.isManualDisconnect = true;
+    this.refCount = 0;
+    this.cancelDisconnectTimer();
     this.subscribedSessions.clear();
 
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'client disconnect');
       this.ws = null;
     }
     
     console.log('[WebSocket] Disconnected manually');
+  }
+
+  releaseConnection(): void {
+    if (this.refCount > 0) {
+      this.refCount--;
+    }
+
+    console.log(`[WebSocket] releaseConnection: refCount=${this.refCount}`);
+
+    if (this.refCount === 0 && !this.disconnectTimer) {
+      this.disconnectTimer = setTimeout(() => {
+        this.disconnectTimer = null;
+        if (this.refCount === 0) {
+          console.log('[WebSocket] No active consumers, disconnecting');
+          this.disconnect();
+        }
+      }, WebSocketClient.DISCONNECT_GRACE_MS);
+    }
+  }
+
+  private cancelDisconnectTimer(): void {
+    if (this.disconnectTimer !== null) {
+      clearTimeout(this.disconnectTimer);
+      this.disconnectTimer = null;
+    }
   }
 
   /**

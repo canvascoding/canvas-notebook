@@ -16,7 +16,7 @@ import { java } from '@codemirror/lang-java';
 import { xml } from '@codemirror/lang-xml';
 import { EditorView } from '@codemirror/view';
 import { useFileStore } from '@/app/store/file-store';
-import { useTheme } from 'next-themes';
+import { useTheme } from '@/app/components/ThemeProvider';
 
 interface CodeEditorProps {
   value: string;

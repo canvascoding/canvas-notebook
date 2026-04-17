@@ -6,7 +6,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
-import { useTheme } from 'next-themes';
+import { useTheme } from '@/app/components/ThemeProvider';
 
 interface XTerminalProps {
   sessionId: string;

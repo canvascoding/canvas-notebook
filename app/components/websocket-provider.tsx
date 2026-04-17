@@ -84,7 +84,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       client.removeEventListener('connected', handleConnected as EventListener);
       client.removeEventListener('disconnected', handleDisconnected as EventListener);
       client.removeEventListener('error', handleError as EventListener);
-      client.disconnect();
+      client.releaseConnection();
     };
   }, []);
 
