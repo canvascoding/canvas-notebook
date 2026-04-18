@@ -1287,206 +1287,27 @@ export const piTools: AgentTool[] = [
       ...createQmdTool('qmd_search', true),
     },
   ] : []),
-  // Workflow Automation Tools
-  {
-    name: 'create_automation_job',
-    label: 'Creating automation job',
-    description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: preferredSkill (auto/image_generation/video_generation/ad_localization/qmd), targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
-    parameters: Type.Object({
-      name: Type.String({ description: 'Name of the automation job (max 120 chars)' }),
-      prompt: Type.String({ description: 'The script/prompt to execute when the job runs' }),
-      schedule: Type.Object({
-        kind: Type.String({ description: 'Schedule type: once, daily, weekly, interval' }),
-        date: Type.Optional(Type.String({ description: 'For once: date in YYYY-MM-DD format' })),
-        time: Type.Optional(Type.String({ description: 'For daily/weekly/once: time in HH:MM format' })),
-        days: Type.Optional(Type.Array(Type.String(), { description: 'For weekly: array of days (mon, tue, wed, thu, fri, sat, sun)' })),
-        every: Type.Optional(Type.Number({ description: 'For interval: number of units' })),
-        unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
-        timeZone: Type.Optional(Type.String({ description: 'Timezone (default: UTC)' })),
-      }),
-      preferredSkill: Type.Optional(Type.String({ description: 'Skill to use: auto, image_generation, video_generation, ad_localization, qmd' })),
-      targetOutputPath: Type.Optional(Type.String({ description: 'Where to save job outputs (relative to workspace)' })),
-      workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Array of file paths to include as context' })),
-      status: Type.Optional(Type.String({ description: 'Job status: active (default) or paused' })),
-    }),
-    execute: async (toolCallId, params) => {
-      const { name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status } = params as {
-        name: string;
-        prompt: string;
-        schedule: {
-          kind: string;
-          date?: string;
-          time?: string;
-          days?: string[];
-          every?: number;
-          unit?: string;
-          timeZone?: string;
-        };
-        preferredSkill?: string;
-        targetOutputPath?: string;
-        workspaceContextPaths?: string[];
-        status?: string;
-      };
-      try {
-        const job = await createAutomationJob(
-          {
-            name: name.trim().slice(0, 120),
-            prompt: prompt.trim().slice(0, 12000),
-            schedule: normalizeAutomationSchedule(schedule),
-            preferredSkill: normalizeAutomationPreferredSkill(preferredSkill),
-            targetOutputPath: normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
-            workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
-            status: normalizeAutomationStatus(status) || 'active',
-          },
-          'pi-agent',
-        );
-        return {
-          content: [{ type: 'text', text: `Automation job created successfully\n\n${formatAutomationJob(job)}` }],
-          details: { job },
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
-  {
-    name: 'update_automation_job',
-    label: 'Updating automation job',
-    description: 'Updates an existing automation job. Use to modify job parameters, pause/resume jobs, change schedules, or update prompts. Required: jobId. Optional: name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status (active/paused).',
-    parameters: Type.Object({
-      jobId: Type.String({ description: 'ID of the job to update' }),
-      name: Type.Optional(Type.String({ description: 'New name for the job' })),
-      prompt: Type.Optional(Type.String({ description: 'New prompt/script' })),
-      schedule: Type.Optional(Type.Object({
-        kind: Type.String({ description: 'Schedule type: once, daily, weekly, interval' }),
-        date: Type.Optional(Type.String({ description: 'For once: date in YYYY-MM-DD format' })),
-        time: Type.Optional(Type.String({ description: 'For daily/weekly/once: time in HH:MM format' })),
-        days: Type.Optional(Type.Array(Type.String(), { description: 'For weekly: array of days' })),
-        every: Type.Optional(Type.Number({ description: 'For interval: number of units' })),
-        unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
-        timeZone: Type.Optional(Type.String({ description: 'Timezone' })),
-      })),
-      preferredSkill: Type.Optional(Type.String({ description: 'Skill to use' })),
-      targetOutputPath: Type.Optional(Type.String({ description: 'Where to save outputs' })),
-      workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Context file paths' })),
-      status: Type.Optional(Type.String({ description: 'active or paused' })),
-    }),
-    execute: async (toolCallId, params) => {
-      const { jobId, name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status } = params as {
-        jobId: string;
-        name?: string;
-        prompt?: string;
-        schedule?: {
-          kind: string;
-          date?: string;
-          time?: string;
-          days?: string[];
-          every?: number;
-          unit?: string;
-          timeZone?: string;
-        };
-        preferredSkill?: string;
-        targetOutputPath?: string;
-        workspaceContextPaths?: string[];
-        status?: string;
-      };
-      try {
-        const updatedJob = await updateAutomationJob(jobId, {
-          name: normalizeOptionalString(name)?.slice(0, 120),
-          prompt: normalizeOptionalString(prompt)?.slice(0, 12000),
-          preferredSkill: normalizeAutomationPreferredSkill(preferredSkill),
-          targetOutputPath: targetOutputPath === undefined
-            ? undefined
-            : normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
-          workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
-          status: normalizeAutomationStatus(status),
-          schedule: schedule ? normalizeAutomationSchedule(schedule) : undefined,
-        });
-        if (!updatedJob) {
-          throw new Error(`Automation job "${jobId}" not found.`);
-        }
-        return {
-          content: [{ type: 'text', text: `Automation job updated successfully\n\n${formatAutomationJob(updatedJob)}` }],
-          details: { job: updatedJob },
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
-  {
-    name: 'delete_automation_job',
-    label: 'Deleting automation job',
-    description: 'Permanently deletes an automation job and all its run history. Use when user wants to remove a job completely. Required: jobId.',
-    parameters: Type.Object({
-      jobId: Type.String({ description: 'ID of the job to delete' }),
-    }),
-    execute: async (toolCallId, params) => {
-      const { jobId } = params as { jobId: string };
-      try {
-        const deleted = await deleteAutomationJob(jobId);
-        if (!deleted) {
-          throw new Error(`Automation job "${jobId}" not found.`);
-        }
-        return {
-          content: [{ type: 'text', text: 'Automation job deleted successfully' }],
-          details: { jobId },
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
-  {
-    name: 'trigger_automation_job',
-    label: 'Triggering automation job',
-    description: 'Manually triggers an automation job to run immediately, regardless of its schedule. Use when user wants to run a job now instead of waiting for the next scheduled time. Required: jobId.',
-    parameters: Type.Object({
-      jobId: Type.String({ description: 'ID of the job to trigger' }),
-    }),
-    execute: async (toolCallId, params) => {
-      const { jobId } = params as { jobId: string };
-      try {
-        const job = await getAutomationJob(jobId);
-        if (!job) {
-          throw new Error(`Automation job "${jobId}" not found.`);
-        }
-        const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
-        return {
-          content: [{ type: 'text', text: `Automation job triggered successfully\nRun ID: ${run.id}` }],
-          details: { jobId, run },
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
 ];
 
 import { getDynamicSkillTools } from '../skills/skill-tools';
 
+const automationToolMetadata: { name: string; label: string; description: string }[] = [
+  { name: 'list_automation_jobs', label: 'Listing automation jobs', description: 'Lists all automation jobs with their status and schedule information.' },
+  { name: 'create_automation_job', label: 'Creating automation job', description: 'Creates a new scheduled automation job.' },
+  { name: 'update_automation_job', label: 'Updating automation job', description: 'Updates an existing automation job.' },
+  { name: 'delete_automation_job', label: 'Deleting automation job', description: 'Permanently deletes an automation job and all its run history.' },
+  { name: 'trigger_automation_job', label: 'Triggering automation job', description: 'Manually triggers an automation job to run immediately.' },
+];
+
 export async function getPiToolMetadata(): Promise<{ name: string; label: string; description: string }[]> {
-  return piTools.map((tool) => ({
-    name: tool.name,
-    label: tool.label ?? tool.name,
-    description: tool.description ?? '',
-  }));
+  return [
+    ...piTools.map((tool) => ({
+      name: tool.name,
+      label: tool.label ?? tool.name,
+      description: tool.description ?? '',
+    })),
+    ...automationToolMetadata,
+  ];
 }
 
 export async function getPiTools(userId?: string): Promise<AgentTool[]> {
@@ -1507,6 +1328,195 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
           return {
             content: [{ type: 'text', text }],
             details: { jobs },
+          };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            details: { error: message },
+          };
+        }
+      },
+    },
+    {
+      name: 'create_automation_job',
+      label: 'Creating automation job',
+      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: preferredSkill (auto/image_generation/video_generation/ad_localization/qmd), targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
+      parameters: Type.Object({
+        name: Type.String({ description: 'Name of the automation job (max 120 chars)' }),
+        prompt: Type.String({ description: 'The script/prompt to execute when the job runs' }),
+        schedule: Type.Object({
+          kind: Type.String({ description: 'Schedule type: once, daily, weekly, interval' }),
+          date: Type.Optional(Type.String({ description: 'For once: date in YYYY-MM-DD format' })),
+          time: Type.Optional(Type.String({ description: 'For daily/weekly/once: time in HH:MM format' })),
+          days: Type.Optional(Type.Array(Type.String(), { description: 'For weekly: array of days (mon, tue, wed, thu, fri, sat, sun)' })),
+          every: Type.Optional(Type.Number({ description: 'For interval: number of units' })),
+          unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
+          timeZone: Type.Optional(Type.String({ description: 'Timezone (default: UTC)' })),
+        }),
+        preferredSkill: Type.Optional(Type.String({ description: 'Skill to use: auto, image_generation, video_generation, ad_localization, qmd' })),
+        targetOutputPath: Type.Optional(Type.String({ description: 'Where to save job outputs (relative to workspace)' })),
+        workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Array of file paths to include as context' })),
+        status: Type.Optional(Type.String({ description: 'Job status: active (default) or paused' })),
+      }),
+      execute: async (toolCallId, params) => {
+        const { name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status } = params as {
+          name: string;
+          prompt: string;
+          schedule: {
+            kind: string;
+            date?: string;
+            time?: string;
+            days?: string[];
+            every?: number;
+            unit?: string;
+            timeZone?: string;
+          };
+          preferredSkill?: string;
+          targetOutputPath?: string;
+          workspaceContextPaths?: string[];
+          status?: string;
+        };
+        try {
+          const job = await createAutomationJob(
+            {
+              name: name.trim().slice(0, 120),
+              prompt: prompt.trim().slice(0, 12000),
+              schedule: normalizeAutomationSchedule(schedule),
+              preferredSkill: normalizeAutomationPreferredSkill(preferredSkill),
+              targetOutputPath: normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
+              workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
+              status: normalizeAutomationStatus(status) || 'active',
+            },
+            userId,
+          );
+          return {
+            content: [{ type: 'text', text: `Automation job created successfully\n\n${formatAutomationJob(job)}` }],
+            details: { job },
+          };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            details: { error: message },
+          };
+        }
+      },
+    },
+    {
+      name: 'update_automation_job',
+      label: 'Updating automation job',
+      description: 'Updates an existing automation job. Use to modify job parameters, pause/resume jobs, change schedules, or update prompts. Required: jobId. Optional: name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status (active/paused).',
+      parameters: Type.Object({
+        jobId: Type.String({ description: 'ID of the job to update' }),
+        name: Type.Optional(Type.String({ description: 'New name for the job' })),
+        prompt: Type.Optional(Type.String({ description: 'New prompt/script' })),
+        schedule: Type.Optional(Type.Object({
+          kind: Type.String({ description: 'Schedule type: once, daily, weekly, interval' }),
+          date: Type.Optional(Type.String({ description: 'For once: date in YYYY-MM-DD format' })),
+          time: Type.Optional(Type.String({ description: 'For daily/weekly/once: time in HH:MM format' })),
+          days: Type.Optional(Type.Array(Type.String(), { description: 'For weekly: array of days' })),
+          every: Type.Optional(Type.Number({ description: 'For interval: number of units' })),
+          unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
+          timeZone: Type.Optional(Type.String({ description: 'Timezone' })),
+        })),
+        preferredSkill: Type.Optional(Type.String({ description: 'Skill to use' })),
+        targetOutputPath: Type.Optional(Type.String({ description: 'Where to save outputs' })),
+        workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Context file paths' })),
+        status: Type.Optional(Type.String({ description: 'active or paused' })),
+      }),
+      execute: async (toolCallId, params) => {
+        const { jobId, name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status } = params as {
+          jobId: string;
+          name?: string;
+          prompt?: string;
+          schedule?: {
+            kind: string;
+            date?: string;
+            time?: string;
+            days?: string[];
+            every?: number;
+            unit?: string;
+            timeZone?: string;
+          };
+          preferredSkill?: string;
+          targetOutputPath?: string;
+          workspaceContextPaths?: string[];
+          status?: string;
+        };
+        try {
+          const updatedJob = await updateAutomationJob(jobId, {
+            name: normalizeOptionalString(name)?.slice(0, 120),
+            prompt: normalizeOptionalString(prompt)?.slice(0, 12000),
+            preferredSkill: normalizeAutomationPreferredSkill(preferredSkill),
+            targetOutputPath: targetOutputPath === undefined
+              ? undefined
+              : normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
+            workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
+            status: normalizeAutomationStatus(status),
+            schedule: schedule ? normalizeAutomationSchedule(schedule) : undefined,
+          });
+          if (!updatedJob) {
+            throw new Error(`Automation job "${jobId}" not found.`);
+          }
+          return {
+            content: [{ type: 'text', text: `Automation job updated successfully\n\n${formatAutomationJob(updatedJob)}` }],
+            details: { job: updatedJob },
+          };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            details: { error: message },
+          };
+        }
+      },
+    },
+    {
+      name: 'delete_automation_job',
+      label: 'Deleting automation job',
+      description: 'Permanently deletes an automation job and all its run history. Use when user wants to remove a job completely. Required: jobId.',
+      parameters: Type.Object({
+        jobId: Type.String({ description: 'ID of the job to delete' }),
+      }),
+      execute: async (toolCallId, params) => {
+        const { jobId } = params as { jobId: string };
+        try {
+          const deleted = await deleteAutomationJob(jobId);
+          if (!deleted) {
+            throw new Error(`Automation job "${jobId}" not found.`);
+          }
+          return {
+            content: [{ type: 'text', text: 'Automation job deleted successfully' }],
+            details: { jobId },
+          };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            details: { error: message },
+          };
+        }
+      },
+    },
+    {
+      name: 'trigger_automation_job',
+      label: 'Triggering automation job',
+      description: 'Manually triggers an automation job to run immediately, regardless of its schedule. Use when user wants to run a job now instead of waiting for the next scheduled time. Required: jobId.',
+      parameters: Type.Object({
+        jobId: Type.String({ description: 'ID of the job to trigger' }),
+      }),
+      execute: async (toolCallId, params) => {
+        const { jobId } = params as { jobId: string };
+        try {
+          const job = await getAutomationJob(jobId);
+          if (!job) {
+            throw new Error(`Automation job "${jobId}" not found.`);
+          }
+          const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
+          return {
+            content: [{ type: 'text', text: `Automation job triggered successfully\nRun ID: ${run.id}` }],
+            details: { jobId, run },
           };
         } catch (error: unknown) {
           const message = getErrorMessage(error);
