@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, type DragEvent } from 'react';
-import { ChevronsDownUp, ChevronLeft, CheckSquare, Download, FilePlus, FolderPlus, House, MoreHorizontal, Move, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronLeft, CheckSquare, Download, FilePlus, FolderPlus, House, MoreHorizontal, Move, Search, Trash2, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -250,14 +250,6 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     await navigateToDirectory(parentDir);
   }, [currentDirectory, navigateToDirectory]);
 
-  const handleRefresh = useCallback(async () => {
-    await loadFileTree(currentDirectory, undefined, true);
-    const { currentFile } = useFileStore.getState();
-    if (currentFile) {
-      useFileStore.getState().loadFile(currentFile.path, true);
-    }
-  }, [currentDirectory, loadFileTree]);
-
   return (
     <section
       style={{ width: '100%', minWidth: 0, flex: '1 1 0%' }}
@@ -310,25 +302,12 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                   <ChevronsDownUp className="h-4 w-4" />
                   {t('collapseAllFolders')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void handleRefresh()} disabled={isLoadingTree}>
-                  <RefreshCw className={cn('h-4 w-4', isLoadingTree && 'animate-spin')} />
-                  {t('refresh')}
-                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleDeleteClick} disabled={isDeleteDisabled}>
                   <Trash2 className="h-4 w-4" />
                   {t('deleteSelection')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => void handleRefresh()}
-              disabled={isLoadingTree}
-              aria-label={t('refreshFileTree')}
-            >
-              <RefreshCw className={cn('h-4 w-4', isLoadingTree && 'animate-spin')} />
-            </Button>
             <div className="ml-auto flex items-center gap-2 rounded-full border border-border bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
               <span
                 className={cn(
@@ -422,22 +401,6 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>{t('collapseAll')}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => void handleRefresh()}
-                      disabled={isLoadingTree}
-                      aria-label={t('refreshFileTree')}
-                    >
-                      <RefreshCw
-                        className={cn('h-4 w-4', isLoadingTree && 'animate-spin')}
-                      />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('refresh')}</TooltipContent>
                 </Tooltip>
                 <div className="ml-auto flex items-center">
                   <Tooltip>
