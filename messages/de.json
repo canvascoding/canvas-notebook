@@ -262,6 +262,7 @@
     "compactManual": "Canvas-Kontext verdichtet",
     "compactAutomatic": "Kontext automatisch verdichtet",
     "compactWithCount": "{label} · {count} ältere Nachrichten komprimiert",
+    "compactAlreadyOptimized": "Kontext ist bereits optimiert — keine Nachrichten zu verdichten",
     "assistantStreamingAria": "Assistant-Antwort wird noch gestreamt",
     "assistantStreamingSr": "Assistant-Antwort wird noch gestreamt",
     "example": "Beispiel",

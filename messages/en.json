@@ -262,6 +262,7 @@
     "compactManual": "Canvas context compacted",
     "compactAutomatic": "Context compacted automatically",
     "compactWithCount": "{label} · {count} older messages compacted",
+    "compactAlreadyOptimized": "Context is already optimized — no messages to compact",
     "assistantStreamingAria": "Assistant response is still streaming",
     "assistantStreamingSr": "Assistant response is still streaming",
     "example": "Example",

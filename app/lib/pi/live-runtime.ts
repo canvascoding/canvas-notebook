@@ -366,6 +366,7 @@ class LivePiRuntime {
     this.summary = result.summary;
     this.lastComposition = result.composition;
     this.recordCompaction('manual', result.composition);
+
     await savePiSession(
       this.sessionId,
       this.userId,
@@ -374,6 +375,21 @@ class LivePiRuntime {
       this.agent.state.messages,
       this.summary,
     );
+
+    const omittedCount = result.composition.omittedMessages.length;
+    if (omittedCount > 0) {
+      this.agent.state.messages.splice(0, omittedCount);
+      this.lastPersistedLength = this.agent.state.messages.length;
+      this.lastComposition = composePiHistoryForLlm({
+        messages: this.agent.state.messages,
+        summary: this.summary,
+        systemPromptTokens: estimateTextTokens(this.systemPrompt),
+        contextWindow: this.model.contextWindow,
+        modelMaxTokens: this.model.maxTokens,
+        toolCount: this.tools.length,
+      });
+    }
+
     this.touch();
     this.publishStatus();
     return this.getStatus();

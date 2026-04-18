@@ -498,6 +498,27 @@
           "e2e": "E2E_EXTERNAL_SERVER=1 npx playwright test tests/chat-cross-session-notifications.spec.ts"
         ]
       }
+    },
+    {
+      "id": "46",
+      "content": "Fix: Context Bar aktualisiert sich nicht nach Compaction",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "rootCause": "compactNow() created a summary but did not remove omitted messages from agent.state.messages, so estimatedHistoryTokens stayed the same",
+        "changes": [
+          "compactNow(): Save full message history to DB BEFORE pruning, then splice omitted messages from agent.state.messages",
+          "compactNow(): Recompute composition after pruning so contextUsagePercent reflects the reduced token count",
+          "compactNow(): Reset lastPersistedLength after pruning to match the new array length",
+          "history-budget.ts: Extended shouldIncludeSummary with hasPrunedHistory check so summary is included even when omittedMessages is empty after pruning",
+          "CanvasAgentChat.tsx: Show 'Context already optimized' system message when lastCompactionOmittedCount === 0",
+          "Added i18n keys: compactAlreadyOptimized (en/de)"
+        ],
+        "verification": {
+          "build": "npm run build"
+        }
+      }
     }
   ]
 }
