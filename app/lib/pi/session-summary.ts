@@ -63,6 +63,12 @@ async function sanitizeMessagesForSummary(messages: AgentMessage[]): Promise<Mes
 
   return normalized.flatMap((message): Message[] => {
     if (message.role !== 'assistant') {
+      // Strip images from user messages — summaries are text-only
+      if (message.role === 'user' && Array.isArray(message.content)) {
+        const textOnly = message.content.filter((part) => part.type === 'text');
+        if (textOnly.length === 0) return [];
+        return [{ ...message, content: textOnly }];
+      }
       return [message];
     }
 
