@@ -159,7 +159,12 @@ export function composePiHistoryForLlm({
   }
 
   const omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
-  const shouldIncludeSummary = Boolean(summary.summaryText?.trim()) && omittedMessages.length > 0;
+  const firstMsgTimestamp = messages.length > 0 ? getMessageTimestamp(messages[0]) : null;
+  const hasPrunedHistory = summary.summaryThroughTimestamp !== null
+    && firstMsgTimestamp !== null
+    && firstMsgTimestamp > summary.summaryThroughTimestamp;
+  const shouldIncludeSummary = Boolean(summary.summaryText?.trim())
+    && (omittedMessages.length > 0 || hasPrunedHistory);
   const llmMessages = shouldIncludeSummary
     ? [getSummaryMessage(summary.summaryText!, availableHistoryTokens), ...keptMessages]
     : keptMessages;
