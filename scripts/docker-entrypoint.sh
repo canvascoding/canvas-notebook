@@ -88,6 +88,18 @@ prepare_writable_dir() {
   return 1
 }
 
+# ─── Auto-tune Node.js heap from container RAM ──────────────────────────
+# Northflank injects NF_RAM_RESOURCES (in MB). Reserve 25% for OS/child processes,
+# give the rest to Node's old-space heap. Only sets if NODE_OPTIONS is not already defined.
+if [ -z "${NODE_OPTIONS:-}" ] && [ -n "${NF_RAM_RESOURCES:-}" ]; then
+  _ram_mb="${NF_RAM_RESOURCES}"
+  _heap_mb=$(( _ram_mb * 75 / 100 ))
+  # Floor at 256 MB to avoid unusably small heaps
+  if [ "$_heap_mb" -lt 256 ]; then _heap_mb=256; fi
+  export NODE_OPTIONS="--max-old-space-size=${_heap_mb}"
+  printf '[Entrypoint] Auto-tuned NODE_OPTIONS=%s (container RAM: %s MB)\n' "$NODE_OPTIONS" "$_ram_mb"
+fi
+
 # ─── Pre-compute all flags ────────────────────────────────────────────────
 export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
 auto_install="${AI_CLI_AUTO_INSTALL:-${CODEX_AUTO_INSTALL:-true}}"

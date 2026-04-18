@@ -63,6 +63,13 @@ function estimateContentTokens(content: unknown): number {
       case 'toolCall':
         return total + estimateTextTokens(part.name || '') + estimateTextTokens(JSON.stringify(part.arguments || {}));
       case 'image':
+        // Estimate based on actual base64 data size so that large images
+        // are dropped from history before the heap fills up.
+        // A 5 MB base64 string ≈ 1.25M "tokens" at 0.25 chars/token,
+        // but we cap per-image cost at 4096 to avoid starving the context.
+        if (typeof part.data === 'string' && part.data.length > 2048) {
+          return total + Math.min(4096, Math.ceil(part.data.length * TOKENS_PER_CHARACTER));
+        }
         return total + 512;
       default:
         return total;

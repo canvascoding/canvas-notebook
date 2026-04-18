@@ -38,30 +38,30 @@ function isImageContentPart(value: unknown): value is ImageContent {
   );
 }
 
+function hasWhitespace(value: string): boolean {
+  return /\s/.test(value);
+}
+
 function stripWhitespace(value: string): string {
   return value.replace(/\s+/g, '');
 }
 
+function isCleanBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+  // Sample-based check avoids allocating copies of large strings
+  const MAX_SAMPLE = 10000;
+  if (value.length > MAX_SAMPLE * 3) {
+    return BASE64_PATTERN.test(value.slice(0, MAX_SAMPLE))
+      && BASE64_PATTERN.test(value.slice(Math.floor(value.length / 2) - MAX_SAMPLE / 2, Math.floor(value.length / 2) + MAX_SAMPLE / 2))
+      && BASE64_PATTERN.test(value.slice(-MAX_SAMPLE));
+  }
+  return BASE64_PATTERN.test(value);
+}
+
 function isValidBase64(value: string): boolean {
+  if (!hasWhitespace(value)) return isCleanBase64(value);
   const normalized = stripWhitespace(value);
-  if (normalized.length === 0 || normalized.length % 4 !== 0) {
-    return false;
-  }
-  
-  // For very large strings, only sample the beginning, middle and end
-  // to avoid stack overflow with complex regex
-  const MAX_SAMPLE_SIZE = 10000; // Sample 10KB chunks
-  if (normalized.length > MAX_SAMPLE_SIZE * 3) {
-    const start = normalized.slice(0, MAX_SAMPLE_SIZE);
-    const middle = normalized.slice(Math.floor(normalized.length / 2) - MAX_SAMPLE_SIZE / 2, Math.floor(normalized.length / 2) + MAX_SAMPLE_SIZE / 2);
-    const end = normalized.slice(-MAX_SAMPLE_SIZE);
-    
-    return BASE64_PATTERN.test(start) && 
-           BASE64_PATTERN.test(middle) && 
-           BASE64_PATTERN.test(end);
-  }
-  
-  return BASE64_PATTERN.test(normalized);
+  return isCleanBase64(normalized);
 }
 
 function resolveImageMimeType(filePath: string, fallbackMimeType?: string): string {
@@ -88,14 +88,17 @@ async function loadImageDataFromFile(filePath: string, mimeType: string): Promis
 }
 
 async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
-  const rawData = part.data.trim();
-  
-  // Log for debugging
-  console.log(`[Message Normalization] Normalizing image part. Data length: ${rawData.length}, starts with: ${rawData.substring(0, 50)}...`);
-  
-  const dataUrlMatch = rawData.match(DATA_URL_PATTERN);
+  const rawData = part.data;
+
+  // Fast path: already clean base64 with no leading/trailing whitespace — return as-is (zero copies)
+  if (rawData.length > 256 && !hasWhitespace(rawData) && isCleanBase64(rawData)) {
+    return part;
+  }
+
+  const trimmed = rawData.trim();
+
+  const dataUrlMatch = trimmed.match(DATA_URL_PATTERN);
   if (dataUrlMatch) {
-    console.log('[Message Normalization] Detected data URL format');
     return {
       type: 'image',
       data: stripWhitespace(dataUrlMatch[2]),
@@ -103,53 +106,36 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
     };
   }
 
-  if (rawData.startsWith('file://')) {
-    console.log('[Message Normalization] Detected file:// URL');
-    return loadImageDataFromFile(fileURLToPath(rawData), part.mimeType);
+  if (trimmed.startsWith('file://')) {
+    return loadImageDataFromFile(fileURLToPath(trimmed), part.mimeType);
   }
 
-  // Check if it's an API file reference (e.g., /api/files/{id})
-  if (rawData.startsWith('/api/files/')) {
-    console.log('[Message Normalization] Detected API file reference');
-    const fileId = rawData.replace('/api/files/', '');
+  if (trimmed.startsWith('/api/files/')) {
+    const fileId = trimmed.replace('/api/files/', '');
     try {
       const filePath = await findFilePath(fileId);
       if (filePath) {
-        console.log(`[Message Normalization] Resolved API file to: ${filePath}`);
         return loadImageDataFromFile(filePath, part.mimeType);
-      } else {
-        console.warn(`[Message Normalization] File not found for ID: ${fileId}`);
       }
     } catch (error) {
       console.warn(`[Message Normalization] Failed to resolve API file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  // Check if it's base64 first (before treating as file path)
-  if (isValidBase64(rawData)) {
-    console.log('[Message Normalization] Detected base64 data');
-    return {
-      type: 'image',
-      data: stripWhitespace(rawData),
-      mimeType: part.mimeType,
-    };
+  if (isValidBase64(trimmed)) {
+    // Only strip whitespace if there actually is whitespace
+    const clean = hasWhitespace(trimmed) ? stripWhitespace(trimmed) : trimmed;
+    return clean === rawData ? part : { type: 'image', data: clean, mimeType: part.mimeType };
   }
 
-  // Only treat as file path if it's reasonable length and looks like a path
-  // Mac OS has a max path length of 1024, but base64 data can be much longer
   const MAX_PATH_LENGTH = 4096;
-  if (path.isAbsolute(rawData) && rawData.length < MAX_PATH_LENGTH) {
-    console.log(`[Message Normalization] Attempting to load from path: ${rawData}`);
+  if (path.isAbsolute(trimmed) && trimmed.length < MAX_PATH_LENGTH) {
     try {
-      return loadImageDataFromFile(rawData, part.mimeType);
+      return loadImageDataFromFile(trimmed, part.mimeType);
     } catch (error) {
-      // If file reading fails, it's probably not a file path
       console.warn(`[Message Normalization] Failed to load image from path: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
-
-  // If we get here, the data format is unrecognized
-  console.error(`[Message Normalization] Unrecognized image data format. Length: ${rawData.length}, preview: ${rawData.substring(0, 100)}`);
 
   throw new Error(
     'Invalid image attachment payload. Expected base64 image data, a base64 data URL, or an absolute file path.',
