@@ -134,9 +134,12 @@ export async function GET(request: NextRequest) {
       }))
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    return NextResponse.json({
-      success: true,
-      sessions: combined.map((item) => ({
+    const mappedSessions = combined.map((item) => {
+      const hasUnread = item.engine === 'pi' && hasUnreadPiResponse(item.lastMessageAt, item.lastViewedAt);
+      if (hasUnread) {
+        console.log(`[API Sessions] Unread session: sessionId=${item.sessionId}, lastMessageAt=${item.lastMessageAt?.toISOString()}, lastViewedAt=${item.lastViewedAt?.toISOString()}`);
+      }
+      return {
         id: item.id,
         sessionId: item.sessionId,
         userId: item.userId,
@@ -146,12 +149,20 @@ export async function GET(request: NextRequest) {
         createdAt: item.createdAt,
         lastMessageAt: item.lastMessageAt,
         lastViewedAt: item.lastViewedAt,
-        hasUnread: item.engine === 'pi' && hasUnreadPiResponse(item.lastMessageAt, item.lastViewedAt),
+        hasUnread,
         creator: {
           name: item.creatorName || null,
           email: item.creatorEmail || null,
         },
-      })),
+      };
+    });
+
+    const unreadCount = mappedSessions.filter(s => s.hasUnread).length;
+    console.log(`[API Sessions] GET: returning ${mappedSessions.length} sessions, ${unreadCount} unread`);
+
+    return NextResponse.json({
+      success: true,
+      sessions: mappedSessions,
     });
   } catch (error) {
     console.error('[API] Failed to fetch sessions:', error);
@@ -264,14 +275,17 @@ export async function PATCH(request: NextRequest) {
 
     // Handle mark as read
     if (markAsRead) {
+      console.log(`[API Sessions] PATCH markAsRead: sessionId=${sessionId}, userId=${session.user.id}`);
       const piSession = await db
         .select({ id: piSessions.id })
         .from(piSessions)
         .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)));
 
       if (piSession.length > 0) {
+        const now = new Date();
+        console.log(`[API Sessions] PATCH markAsRead: setting lastViewedAt=${now.toISOString()} for dbId=${piSession[0].id}`);
         await db.update(piSessions)
-          .set({ lastViewedAt: new Date(), updatedAt: new Date() })
+          .set({ lastViewedAt: now, updatedAt: now })
           .where(eq(piSessions.id, piSession[0].id));
         
         return NextResponse.json({

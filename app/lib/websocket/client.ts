@@ -287,6 +287,7 @@ export class WebSocketClient extends EventTarget {
           lastMessageAt: message.lastMessageAt as string | undefined,
           timestamp: message.timestamp as number | undefined,
         };
+        console.log('[WebSocket Client] Received notification:', notificationEvent.notificationType, 'session:', notificationEvent.sessionId, 'title:', notificationEvent.sessionTitle, 'preview:', notificationEvent.messagePreview?.slice(0, 60));
         this.dispatchEvent(new CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string; messagePreview?: string; lastMessageAt?: string; timestamp?: number }>('notification', {
           detail: notificationEvent,
         }));
@@ -303,6 +304,7 @@ export class WebSocketClient extends EventTarget {
           lastMessageAt: message.lastMessageAt as string,
           title: message.title as string | undefined,
         };
+        console.log('[WebSocket Client] Received session_updated:', 'session:', sessionUpdate.sessionId, 'lastMessageAt:', sessionUpdate.lastMessageAt, 'title:', sessionUpdate.title);
         this.dispatchEvent(new CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>('session_updated', {
           detail: sessionUpdate,
         }));
