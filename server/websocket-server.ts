@@ -16,6 +16,7 @@ import {
   subscribeToSession,
   unsubscribeFromSession,
   trackUserConnection,
+  removeUserConnection,
   broadcastToSession,
   broadcastToUser,
 } from './websocket-broadcast';
@@ -321,6 +322,7 @@ function handleDisconnect(connection: WebSocketConnection): void {
     unsubscribeFromSession(sessionId, ws);
   }
 
+  removeUserConnection(userId, ws);
   connections.delete(ws);
 
   // Clean up user connections
@@ -328,7 +330,6 @@ function handleDisconnect(connection: WebSocketConnection): void {
     .filter(c => c.userId === userId);
 
   if (allRemainingUserConnections.length === 0) {
-    // No more connections for this user
     console.log(`[WebSocket] User ${userId} has no more connections`);
   }
 }
@@ -385,6 +386,7 @@ export function broadcastNotification(
   messagePreview?: string,
   lastMessageAt?: string
 ): void {
+  console.log(`[WS Server] broadcastNotification: userId=${userId}, sessionId=${sessionId}, type=${notificationType}, title="${sessionTitle}", preview="${messagePreview?.slice(0, 50) ?? '(none)'}"`);
   broadcastToUser(userId, {
     type: 'notification',
     sessionId,
@@ -419,6 +421,7 @@ export function broadcastSessionUpdateToUser(
   lastMessageAt: string,
   title?: string
 ): void {
+  console.log(`[WS Server] broadcastSessionUpdateToUser: userId=${userId}, sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title ?? '(none)'}"`);
   broadcastToUser(userId, {
     type: 'session_updated',
     sessionId,

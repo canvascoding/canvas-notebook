@@ -881,9 +881,11 @@ export default function CanvasAgentChat({
 
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, lastMessageAt, title } = event.detail;
-      console.log('[CanvasAgentChat] Session updated (history):', sessionId, lastMessageAt);
+      const currentSessionId = sessionIdRef.current;
+      const currentVisible = surfaceVisibleRef.current;
+      const isCurrentVisibleSession = sessionId === currentSessionId && currentVisible;
+      console.log(`[CanvasAgentChat] session_updated received: sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title}", currentSessionId=${currentSessionId}, surfaceVisible=${currentVisible}, isCurrentVisibleSession=${isCurrentVisibleSession}`);
       let sessionFound = false;
-      const isCurrentVisibleSession = sessionId === sessionIdRef.current && surfaceVisibleRef.current;
       const resolvedTitle = resolveSessionTitle(sessionId, title);
 
       // Update history state to reflect new lastMessageAt (and title if provided)
@@ -893,6 +895,7 @@ export default function CanvasAgentChat({
           sessionFound = true;
           const newLastViewedAt = isCurrentVisibleSession ? lastMessageAt : (session.lastViewedAt ?? null);
           const hasUnread = !isCurrentVisibleSession && hasUnreadAssistantResponse(lastMessageAt, newLastViewedAt);
+          console.log(`[CanvasAgentChat] Unread calc for ${sessionId}: isCurrentVisible=${isCurrentVisibleSession}, lastMessageAt=${lastMessageAt}, lastViewedAt=${session.lastViewedAt}, newLastViewedAt=${newLastViewedAt}, hasUnread=${hasUnread}`);
           return { ...session, lastMessageAt, ...(resolvedTitle ? { title: resolvedTitle } : {}), lastViewedAt: newLastViewedAt, hasUnread };
         });
 
@@ -1855,6 +1858,7 @@ export default function CanvasAgentChat({
     toolMessageIdsRef.current = {};
 
     // Check if session has unread messages and show banner
+    console.log(`[CanvasAgentChat] loadSession: sessionId=${session.sessionId}, hasUnread=${session.hasUnread}, lastMessageAt=${session.lastMessageAt}, lastViewedAt=${session.lastViewedAt}`);
     if (session.hasUnread) {
       setHasUnreadInCurrentSession(true);
       setShowUnreadBanner(true);

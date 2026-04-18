@@ -91,6 +91,7 @@ export function SessionSidebar({
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, lastMessageAt, title } = event.detail;
       let sessionFound = false;
+      console.log(`[SessionSidebar] session_updated: sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title}", currentSessionId=${currentSessionId}`);
 
       setHistory((prev) => prev.map((session) => {
         if (session.sessionId !== sessionId) {
@@ -100,13 +101,15 @@ export function SessionSidebar({
         sessionFound = true;
         const isCurrentSession = currentSessionId === sessionId;
         const nextLastViewedAt = isCurrentSession ? lastMessageAt : (session.lastViewedAt ?? null);
+        const unread = !isCurrentSession && hasUnreadAssistantResponse(lastMessageAt, nextLastViewedAt);
+        console.log(`[SessionSidebar] Unread calc: sessionId=${sessionId}, isCurrentSession=${isCurrentSession}, lastMessageAt=${lastMessageAt}, prevLastViewedAt=${session.lastViewedAt}, nextLastViewedAt=${nextLastViewedAt}, hasUnread=${unread}`);
 
         return {
           ...session,
           lastMessageAt,
           ...(title ? { title } : {}),
           lastViewedAt: nextLastViewedAt,
-          hasUnread: !isCurrentSession && hasUnreadAssistantResponse(lastMessageAt, nextLastViewedAt),
+          hasUnread: unread,
         };
       }));
 

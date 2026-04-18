@@ -84,7 +84,9 @@ export function initializeWebSocketBridge(): void {
   emitter.onAgentEvent(async (data) => {
     const { sessionId, userId, event } = data;
 
-    console.log(`[WebSocket Bridge] Received event for session ${sessionId}:`, event.type);
+    if (event.type !== 'message_update') {
+      console.log(`[WebSocket Bridge] Received event for session ${sessionId}:`, event.type);
+    }
 
     // Broadcast to all WebSocket clients subscribed to this session
     broadcastAgentEvent(sessionId, event);
@@ -137,11 +139,15 @@ export function initializeWebSocketBridge(): void {
         }
 
         const sessionTitle = session.title || `Session ${sessionId.slice(0, 8)}`;
+
+        console.log(`[WebSocket Bridge] Sending notification: userId=${userId}, sessionId=${sessionId}, title="${sessionTitle}", preview="${messagePreview}", lastMessageAt=${lastMessageAt}`);
         broadcastNotification(userId, sessionId, sessionTitle, 'new_response', messagePreview, lastMessageAt);
+
+        console.log(`[WebSocket Bridge] Sending session_updated: userId=${userId}, sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${session.title ?? '(none)'}"`);
         broadcastSessionUpdateToUser(userId, sessionId, lastMessageAt, session.title ?? undefined);
 
         console.log(
-          `[WebSocket Bridge] AI response in session ${sessionId}: notification sent before unread/session update with title "${sessionTitle}" and preview "${messagePreview}"`
+          `[WebSocket Bridge] AI response in session ${sessionId}: notification + session_updated dispatched`
         );
       } catch (error) {
         console.error(`[WebSocket Bridge] Failed to fetch session/message data:`, error);

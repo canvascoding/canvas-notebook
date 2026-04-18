@@ -159,6 +159,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
   useEffect(() => {
     const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; isVisible: boolean }>) => {
+      console.log(`[WebSocketProvider] Active session changed: sessionId=${event.detail.sessionId}, isVisible=${event.detail.isVisible}`);
       activeSessionRef.current = {
         sessionId: event.detail.sessionId,
         isVisible: event.detail.isVisible,
@@ -177,7 +178,10 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
     const showSessionNotification = (detail: NotificationDetail) => {
       const { sessionId, sessionTitle, notificationType, messagePreview, lastMessageAt } = detail;
+      const activeSession = activeSessionRef.current;
+      console.log(`[WebSocketProvider] showSessionNotification called: sessionId=${sessionId}, type=${notificationType}, title="${sessionTitle}", activeSession=${activeSession.sessionId}, isVisible=${activeSession.isVisible}`);
       if (isActiveVisibleSession(sessionId)) {
+        console.log(`[WebSocketProvider] SUPPRESSED: session ${sessionId} is active+visible, not showing toast`);
         clearFallbackNotificationTimer(sessionId);
         return;
       }
@@ -187,7 +191,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       rememberDeliveredNotification(sessionId, lastMessageAt);
       clearFallbackNotificationTimer(sessionId);
 
-      console.log('[WebSocketProvider] Showing notification for session', sessionId);
+      console.log(`[WebSocketProvider] SHOWING TOAST: sessionId=${sessionId}, type=${notificationType}, title="${toastTitle}", description="${toastDescription}"`);
 
       switch (notificationType) {
         case 'new_response':
@@ -223,13 +227,17 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     };
 
     const handleNotification = (event: CustomEvent<NotificationDetail>) => {
+      console.log(`[WebSocketProvider] handleNotification event received: sessionId=${event.detail.sessionId}, type=${event.detail.notificationType}`);
       showSessionNotification(event.detail);
     };
 
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, lastMessageAt, title } = event.detail;
+      const activeSession = activeSessionRef.current;
+      console.log(`[WebSocketProvider] handleSessionUpdated: sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title}", activeSession=${activeSession.sessionId}, isVisible=${activeSession.isVisible}`);
 
       if (isActiveVisibleSession(sessionId)) {
+        console.log(`[WebSocketProvider] handleSessionUpdated SUPPRESSED: session ${sessionId} is active+visible`);
         clearFallbackNotificationTimer(sessionId);
         return;
       }
@@ -238,9 +246,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       const timer = window.setTimeout(() => {
         const recentlyDeliveredAt = deliveredNotificationKeysRef.current.get(sessionId);
         if (recentlyDeliveredAt && Date.now() - recentlyDeliveredAt < 1500) {
+          console.log(`[WebSocketProvider] Fallback timer: skipping session ${sessionId}, notification already delivered ${Date.now() - recentlyDeliveredAt}ms ago`);
           return;
         }
 
+        console.log(`[WebSocketProvider] Fallback timer: showing notification for session ${sessionId} (no prior notification delivered)`);
         showSessionNotification({
           sessionId,
           sessionTitle: title || t('newChatTitle'),

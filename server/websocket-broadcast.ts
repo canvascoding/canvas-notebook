@@ -48,24 +48,22 @@ export function subscribeToSession(sessionId: string, ws: WebSocket): void {
  */
 export function unsubscribeFromSession(sessionId: string, ws: WebSocket): void {
   const store = getStore();
-  
+
   const sessionClients = store.connections.get(sessionId);
   if (sessionClients) {
     sessionClients.delete(ws);
-    
+
     // Clean up empty session
     if (sessionClients.size === 0) {
       store.connections.delete(sessionId);
     }
   }
-  
-  // Also remove from userId mapping
-  for (const [userId, clients] of store.userIdToConnections.entries()) {
-    clients.delete(ws);
-    if (clients.size === 0) {
-      store.userIdToConnections.delete(userId);
-    }
-  }
+
+  // NOTE: Do NOT remove from userIdToConnections here.
+  // User-level tracking is independent of session subscriptions and must
+  // persist across session switches so broadcastToUser (notifications,
+  // session_updated) continues to work. Cleanup happens in
+  // removeUserConnection() when the WebSocket actually closes.
 }
 
 /**
@@ -73,12 +71,27 @@ export function unsubscribeFromSession(sessionId: string, ws: WebSocket): void {
  */
 export function trackUserConnection(userId: string, ws: WebSocket): void {
   const store = getStore();
-  
+
   if (!store.userIdToConnections.has(userId)) {
     store.userIdToConnections.set(userId, new Set());
   }
-  
+
   store.userIdToConnections.get(userId)!.add(ws);
+}
+
+/**
+ * Remove a single WebSocket from user-level tracking.
+ * Called when the WebSocket connection actually closes.
+ */
+export function removeUserConnection(userId: string, ws: WebSocket): void {
+  const store = getStore();
+  const clients = store.userIdToConnections.get(userId);
+  if (clients) {
+    clients.delete(ws);
+    if (clients.size === 0) {
+      store.userIdToConnections.delete(userId);
+    }
+  }
 }
 
 /**
@@ -91,21 +104,32 @@ export function broadcastToSession(
 ): void {
   const store = getStore();
   const sessionClients = store.connections.get(sessionId);
-  
+  const eventType = (event as { type?: string }).type || 'unknown';
+  const isVerbose = eventType === 'agent_event';
+
   if (!sessionClients) {
+    if (!isVerbose) {
+      console.log(`[Broadcast] broadcastToSession(${sessionId}, ${eventType}): no subscribers`);
+    }
     return;
   }
-  
+
   const message = JSON.stringify(event);
-  
+  let sentCount = 0;
+
   for (const ws of sessionClients) {
     if (ws === excludeWs) {
       continue;
     }
-    
+
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(message);
+      sentCount++;
     }
+  }
+
+  if (!isVerbose) {
+    console.log(`[Broadcast] broadcastToSession(${sessionId}, ${eventType}): sent to ${sentCount}/${sessionClients.size} clients`);
   }
 }
 
@@ -119,22 +143,28 @@ export function broadcastToUser(
 ): void {
   const store = getStore();
   const userClients = store.userIdToConnections.get(userId);
-  
+  const eventType = (event as { type?: string }).type || 'unknown';
+
   if (!userClients) {
+    console.log(`[Broadcast] broadcastToUser(${userId}, ${eventType}): no connections for user`);
     return;
   }
-  
+
   const message = JSON.stringify(event);
-  
+  let sentCount = 0;
+
   for (const ws of userClients) {
     if (ws === excludeWs) {
       continue;
     }
-    
+
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(message);
+      sentCount++;
     }
   }
+
+  console.log(`[Broadcast] broadcastToUser(${userId}, ${eventType}): sent to ${sentCount}/${userClients.size} clients`);
 }
 
 /**
