@@ -408,13 +408,77 @@
   "home": {
     "header": {
       "logoAlt": "Canvas Notebook logo",
-      "productName": "Canvas Notebook",
-      "productLabel": "Software Suite"
+      "productName": "Canvas Studios",
+      "productLabel": "Marketing Workspace"
     },
     "hero": {
-      "eyebrow": "Canvas Software Suite",
-      "title": "Choose an app and continue in the same workspace.",
-      "description": "All apps use the same workspace. New images, videos, and content are immediately available for the next step."
+      "eyebrow": "Canvas Studios",
+      "title": "What would you like to create?",
+      "description": "Describe your intent or pick a use case. The agent handles the rest.",
+      "placeholder": "What would you like to create?",
+      "submit": "Open in Notebook"
+    },
+    "categories": {
+      "campaign": "Campaign",
+      "creative": "Creative",
+      "video": "Video",
+      "strategy": "Strategy",
+      "document": "Document"
+    },
+    "inspiration": {
+      "campaign": {
+        "title": "Campaign",
+        "prompts": [
+          "Develop a concept for a social media campaign",
+          "Create a 2-week editorial plan",
+          "Plan visual styles for a brand",
+          "Write hook variations for different platforms",
+          "Design a content brief for a new product",
+          "Create a campaign timeline with milestones"
+        ]
+      },
+      "creative": {
+        "title": "Creative",
+        "prompts": [
+          "Generate a hero image for a landing page",
+          "Create variations of a product photo",
+          "Localize an ad for the Spanish market",
+          "Develop a style guide for campaign images",
+          "Create a moodboard for a new collection"
+        ]
+      },
+      "video": {
+        "title": "Video",
+        "prompts": [
+          "Develop a script for a 30-second product video",
+          "Plan a shot list for an image video",
+          "Create storyboard descriptions for a campaign",
+          "Write voiceover text for an explainer video"
+        ]
+      },
+      "strategy": {
+        "title": "Strategy",
+        "prompts": [
+          "Analyze the market for [industry]",
+          "Develop a positioning for [product]",
+          "Create a 30-day marketing plan",
+          "Identify the top 3 competitors and their weaknesses"
+        ]
+      },
+      "document": {
+        "title": "Document",
+        "prompts": [
+          "Write a brief for [project name]",
+          "Create a proposal for [client]",
+          "Summarize meeting notes into action items",
+          "Develop project documentation"
+        ]
+      }
+    },
+    "sections": {
+      "workspace": "Workspace",
+      "create": "Create",
+      "moreTools": "More Tools"
     },
     "status": {
       "live": "Live",
@@ -459,8 +523,8 @@
     },
     "apps": {
       "notebook": {
-        "title": "Canvas Notebook",
-        "description": "Manage files, chat, editor, and terminal in the workspace."
+        "title": "Notebook",
+        "description": "Files, chat, and editor – your central workspace."
       },
       "usage": {
         "title": "Usage Analytics",
@@ -468,19 +532,19 @@
       },
       "imageGeneration": {
         "title": "Image Generation",
-        "description": "Generate images and save them directly in the workspace."
+        "description": "Generate campaign images and visuals from a prompt."
       },
       "veo": {
-        "title": "VEO Studio",
-        "description": "Video generation with workspace-based output."
+        "title": "Video Studio",
+        "description": "Generate short marketing and product videos."
       },
       "nanoBanana": {
         "title": "Nano Banana Localizer",
-        "description": "Localize existing ads linguistically for each target market."
+        "description": "Localize ads for every target market."
       },
       "automations": {
         "title": "Automations",
-        "description": "Plan recurring agent jobs for the shared workspace."
+        "description": "Plan recurring agent jobs for the workspace."
       },
       "skills": {
         "title": "Skill Gallery",
@@ -539,7 +603,8 @@
       "general": "General",
       "integrations": "Integrations",
       "agentSettings": "Agent Settings",
-      "workspace": "Workspace"
+      "workspace": "Workspace",
+      "usage": "Usage"
     },
     "general": {
       "language": "Language",

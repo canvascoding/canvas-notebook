@@ -8,6 +8,7 @@ import { Eye, EyeOff, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSettingsPanel';
+import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -305,11 +306,11 @@ function EnvEditorCard(props: {
   );
 }
 
-export function IntegrationsSettingsClient() {
+export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
-  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage'>('general');
   const [editors, setEditors] = useState<Record<EnvScope, ScopeEditorState>>({
     integrations: INITIAL_SCOPE_STATE('integrations'),
     agents: INITIAL_SCOPE_STATE('agents'),
@@ -375,6 +376,8 @@ export function IntegrationsSettingsClient() {
       setSettingsTab('workspace');
     } else if (tab === 'integrations') {
       setSettingsTab('integrations');
+    } else if (tab === 'usage') {
+      setSettingsTab('usage');
     }
   }, [searchParams]);
 
@@ -545,10 +548,10 @@ export function IntegrationsSettingsClient() {
     <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
       <Tabs
         value={settingsTab}
-        onValueChange={(value) => setSettingsTab(value as 'general' | 'integrations' | 'agent-settings' | 'workspace')}
+        onValueChange={(value) => setSettingsTab(value as 'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage')}
         className="space-y-4"
       >
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-5">
           <TabsTrigger value="general" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.general')}
           </TabsTrigger>
@@ -560,6 +563,9 @@ export function IntegrationsSettingsClient() {
           </TabsTrigger>
           <TabsTrigger value="workspace" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.workspace')}
+          </TabsTrigger>
+          <TabsTrigger value="usage" className="min-h-9 border border-border data-[state=active]:bg-muted">
+            {t('tabs.usage')}
           </TabsTrigger>
         </TabsList>
 
@@ -592,6 +598,10 @@ export function IntegrationsSettingsClient() {
 
         <TabsContent value="workspace" className="space-y-4">
           <WorkspaceSettingsPanel />
+        </TabsContent>
+
+        <TabsContent value="usage" className="space-y-4">
+          <UsageAnalyticsClient isAdmin={isAdmin} />
         </TabsContent>
       </Tabs>
     </div>
