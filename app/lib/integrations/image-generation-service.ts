@@ -4,7 +4,7 @@ import path from 'path';
 
 import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
-import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
+import { getGeminiApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
   IMAGE_GENERATION_OUTPUT_DIR,
   createImageGenerationOutputFilename,
@@ -153,6 +153,16 @@ function extensionFromMime(mimeType: string): string {
   return MIME_EXTENSION[mimeType] || 'png';
 }
 
+async function getProviderApiKey(providerId: string): Promise<string | null> {
+  if (providerId === 'gemini') {
+    return getGeminiApiKeyFromIntegrations();
+  }
+  if (providerId === 'openai') {
+    return getOpenAIApiKeyFromIntegrations();
+  }
+  return null;
+}
+
 export async function generateImages(
   body: GenerateImageRequestBody,
   callerEmail = 'system',
@@ -186,7 +196,8 @@ export async function generateImages(
     throw new IntegrationServiceError(`imageCount must be between 1 and ${maxImageCount}.`, 400);
   }
 
-  const referenceImagePaths = normalizeReferencePaths(body.referenceImagePaths || [], provider.maxReferenceImages);
+  const maxReferenceImages = provider.getMaxReferenceImages(modelCandidate);
+  const referenceImagePaths = normalizeReferencePaths(body.referenceImagePaths || [], maxReferenceImages);
 
   const maxPromptLength = providerId === 'openai' ? MAX_PROMPT_LENGTH_OPENAI : MAX_PROMPT_LENGTH_GEMINI;
   const prompt = sanitizePrompt(body.prompt || '', maxPromptLength);
@@ -214,11 +225,12 @@ export async function generateImages(
     throw new IntegrationServiceError(`Provider "${providerId}" does not support the background parameter.`, 400);
   }
 
-  if (providerId === 'gemini') {
-    const apiKey = await getGeminiApiKeyFromIntegrations();
-    if (!apiKey) {
-      throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.', 400);
-    }
+  const apiKey = await getProviderApiKey(providerId);
+  if (!apiKey) {
+    throw new IntegrationServiceError(
+      `${provider.name} API key is missing. Configure ${provider.requiredApiKey} in /settings.`,
+      400,
+    );
   }
 
   const referenceImages = await Promise.all(referenceImagePaths.map((filePath) => loadImageBytes(filePath)));

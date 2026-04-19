@@ -20,13 +20,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { useFileStore, type FileNode, findPathInTree } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
 import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import { useFileWatcher, type FileEvent } from '@/app/hooks/useFileWatcher';
+import { useFileWatcher } from '@/app/hooks/useFileWatcher';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
 
@@ -47,15 +47,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const isMobile = useIsMobile();
   const isMobileSheet = variant === 'mobile-sheet';
   
-  const handleFileEvent = useCallback((event: FileEvent) => {
-    console.log('[FileBrowser] File change event:', event);
-  }, []);
-  
   const { isConnected } = useFileWatcher({
     enabled: true,
     debounceMs: 1000,
     maxDebounceMs: 5000,
-    onEvent: handleFileEvent,
   });
   
   const {
@@ -77,14 +72,6 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     clearMultiSelect,
     downloadFile,
   } = useFileStore();
-
-  const findPathInTree = (path: string, tree: FileNode[]): boolean => {
-    for (const node of tree) {
-      if (node.path === path) return true;
-      if (node.children && findPathInTree(path, node.children)) return true;
-    }
-    return false;
-  };
 
   const resolveTargetDir = () => {
     if (currentDirectory && currentDirectory !== '.' && !findPathInTree(currentDirectory, fileTree)) {
@@ -172,7 +159,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const handleDeleteClick = () => {
     if (isMultiSelectMode) {
       const pathsToDelete = Array.from(multiSelectPaths).filter((path) => !isProtectedAppOutputFolder(path));
-      const skippedCount = multiSelectPaths.length - pathsToDelete.length;
+      const skippedCount = multiSelectPaths.size - pathsToDelete.length;
       if (pathsToDelete.length === 0) {
         if (skippedCount > 0) {
           toast.error(t('protectedFoldersDeleteOnly'));
@@ -201,10 +188,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     clearMultiSelect();
   };
 
-  const deletableMultiSelectCount = multiSelectPaths.filter((path) => !isProtectedAppOutputFolder(path)).length;
-  const hasProtectedSelected = multiSelectPaths.some(path => isProtectedAppOutputFolder(path));
+  const deletableMultiSelectCount = Array.from(multiSelectPaths).filter((path) => !isProtectedAppOutputFolder(path)).length;
+  const hasProtectedSelected = Array.from(multiSelectPaths).some(path => isProtectedAppOutputFolder(path));
   const isDeleteDisabled =
-    (!selectedNode && multiSelectPaths.length === 0) ||
+    (!selectedNode && multiSelectPaths.size === 0) ||
     (isMultiSelectMode
       ? deletableMultiSelectCount === 0
       : selectedNode?.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path));
@@ -215,7 +202,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
       toast.error(t('protectedFolderMove'));
       return;
     }
-    window.dispatchEvent(new CustomEvent('notebook-bulk-move-open'));
+    useFileStore.getState().setBulkMoveOpen(true);
   };
 
   const handleBulkDownload = async () => {
@@ -421,9 +408,9 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
         )}
         {isMultiSelectMode && (
           <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-3 py-1 text-xs">
-            <span className="text-muted-foreground">{t('selectedCount', { count: multiSelectPaths.length })}</span>
+            <span className="text-muted-foreground">{t('selectedCount', { count: multiSelectPaths.size })}</span>
             <div className="flex items-center gap-1">
-              {multiSelectPaths.length > 0 && (
+              {multiSelectPaths.size > 0 && (
                 <>
                   <Button
                     variant="ghost"
@@ -456,8 +443,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
             </div>
           </div>
         )}
-        {(isMobile || isMobileSheet) && (
-          <div className="border-t border-border bg-muted/30 px-3 py-2">
+        <div className="border-t border-border bg-muted/30 px-3 py-2">
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -487,39 +473,6 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
               </div>
             </div>
           </div>
-        )}
-        {!isMobile && !isMobileSheet && (
-          <div className="border-t border-border px-3 py-2">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => void handleGoRoot()}
-                aria-label={t('jumpToWorkspaceRoot')}
-              >
-                <House className="h-3.5 w-3.5" />
-                <span>{t('root')}</span>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => void handleGoUp()}
-                disabled={currentDirectory === '.'}
-                aria-label={t('goUpOneFolder')}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                <span>{t('up')}</span>
-              </Button>
-              <div className="min-w-0 flex-1 truncate border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground">
-                {currentDirectoryLabel}
-              </div>
-            </div>
-          </div>
-        )}
         <div className="border-t border-border px-3 py-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />

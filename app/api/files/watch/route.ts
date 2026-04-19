@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
         type: 'change',
         path: 'connected',
         relativePath: '.',
+        dir: '.',
         timestamp: Date.now(),
       };
 

@@ -561,29 +561,11 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
 
       if (node.type === 'file') {
         fileStore.loadFile(node.path);
-        window.dispatchEvent(
-          new CustomEvent('notebook-mobile-file-opened', {
-            detail: { path: node.path },
-          })
-        );
-        window.dispatchEvent(
-          new CustomEvent('notebook-mobile-surface', {
-            detail: { surface: 'editor' },
-          })
-        );
+        fileStore.mobileFileOpened();
       }
     } else {
       fileStore.loadFile(normalizedPath);
-      window.dispatchEvent(
-        new CustomEvent('notebook-mobile-file-opened', {
-          detail: { path: normalizedPath },
-        })
-      );
-      window.dispatchEvent(
-        new CustomEvent('notebook-mobile-surface', {
-          detail: { surface: 'editor' },
-        })
-      );
+      fileStore.mobileFileOpened();
     }
   };
 

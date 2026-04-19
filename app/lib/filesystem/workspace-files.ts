@@ -278,3 +278,82 @@ export async function buildFileTree(
 
   return files;
 }
+
+export interface CopyResult {
+  copied: string[];
+  failed: { path: string; error: string }[];
+  skipped: string[];
+}
+
+export async function copyFile(
+  sourcePath: string,
+  destDir: string,
+  overwrite = false
+): Promise<{ copied: string; skipped: boolean }> {
+  const fullSource = validatePath(sourcePath);
+  const fullDestDir = validatePath(destDir);
+  const fileName = path.basename(fullSource);
+  const fullDest = path.join(fullDestDir, fileName);
+  const destRelative = destDir === '.' ? fileName : `${destDir}/${fileName}`;
+
+  try {
+    await fs.access(fullDest);
+    if (!overwrite) {
+      return { copied: '', skipped: true };
+    }
+    await fs.rm(fullDest, { recursive: true, force: true });
+  } catch {
+    // Destination doesn't exist - good
+  }
+
+  await fs.cp(fullSource, fullDest, { recursive: true });
+  return { copied: destRelative, skipped: false };
+}
+
+export async function batchCopy(
+  sources: string[],
+  destDir: string,
+  overwrite = false
+): Promise<CopyResult> {
+  const results: CopyResult = { copied: [], failed: [], skipped: [] };
+
+  await Promise.allSettled(
+    sources.map(async (sourcePath) => {
+      try {
+        const result = await copyFile(sourcePath, destDir, overwrite);
+        if (result.skipped) {
+          results.skipped.push(sourcePath);
+        } else {
+          results.copied.push(result.copied);
+        }
+      } catch (error) {
+        results.failed.push({
+          path: sourcePath,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    })
+  );
+
+  return results;
+}
+
+export async function batchDelete(paths: string[]): Promise<{ deleted: string[]; failed: { path: string; error: string }[] }> {
+  const results = { deleted: [] as string[], failed: [] as { path: string; error: string }[] };
+
+  await Promise.allSettled(
+    paths.map(async (filePath) => {
+      try {
+        await deleteFile(filePath);
+        results.deleted.push(filePath);
+      } catch (error) {
+        results.failed.push({
+          path: filePath,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    })
+  );
+
+  return results;
+}

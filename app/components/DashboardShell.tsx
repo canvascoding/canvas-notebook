@@ -191,11 +191,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
       const parentDir = lastSlash > 0 ? trimmed.slice(0, lastSlash) : '.';
       setCurrentDirectory(parentDir || '.');
       void loadFile(targetPath, true);
-      window.dispatchEvent(
-        new CustomEvent('notebook-mobile-surface', {
-          detail: { surface: 'editor' satisfies MobileSurface },
-        })
-      );
+      useFileStore.getState().setMobileSurface('editor');
     }
 
     const sessionParam = searchParams.get('session');
@@ -299,41 +295,35 @@ export function DashboardShell({ username }: DashboardShellProps) {
   }, [shouldForceChatOpen]);
 
   useEffect(() => {
-    const handleNotebookSurface = (event: Event) => {
-      if (!(event instanceof CustomEvent)) {
-        return;
+    let prevMobileSurface = useFileStore.getState().mobileSurface;
+    const unsub = useFileStore.subscribe((state) => {
+      if (state.mobileSurface !== prevMobileSurface) {
+        prevMobileSurface = state.mobileSurface;
+        if (viewportMode !== 'mobile') return;
+        if (state.mobileSurface === 'editor') {
+          setMobileSurface('editor');
+          setMobileExplorerOpen(false);
+          setMobileChatOpen(false);
+        }
       }
-      const nextSurface = event.detail?.surface;
-      if (viewportMode === 'mobile' && nextSurface === 'chat') {
-        setMobileChatOpen(true);
-        setMobileExplorerOpen(false);
-      } else if (
-        viewportMode === 'mobile' &&
-        (nextSurface === 'editor' || nextSurface === 'terminal')
-      ) {
-        setMobileSurface(nextSurface as MobileSurface);
-        setMobileExplorerOpen(false);
-      }
-    };
-
-    window.addEventListener('notebook-mobile-surface', handleNotebookSurface as EventListener);
-    return () => {
-      window.removeEventListener('notebook-mobile-surface', handleNotebookSurface as EventListener);
-    };
+    });
+    return unsub;
   }, [viewportMode]);
 
   useEffect(() => {
-    const handleMobileFileOpened = () => {
-      if (viewportMode !== 'mobile') {
-        return;
+    let prevMobileSurface = useFileStore.getState().mobileSurface;
+    const unsub = useFileStore.subscribe((state) => {
+      if (state.mobileSurface !== prevMobileSurface) {
+        prevMobileSurface = state.mobileSurface;
+        if (viewportMode !== 'mobile') return;
+        if (state.mobileSurface === 'editor') {
+          setMobileExplorerOpen(false);
+          setMobileChatOpen(false);
+          setMobileSurface('editor');
+        }
       }
-      setMobileExplorerOpen(false);
-      setMobileChatOpen(false);
-      setMobileSurface('editor');
-    };
-
-    window.addEventListener('notebook-mobile-file-opened', handleMobileFileOpened);
-    return () => window.removeEventListener('notebook-mobile-file-opened', handleMobileFileOpened);
+    });
+    return unsub;
   }, [viewportMode]);
 
   useEffect(() => {

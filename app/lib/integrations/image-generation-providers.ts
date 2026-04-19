@@ -22,6 +22,7 @@ export interface ImageGenerationProvider {
   supportsQuality: boolean;
   supportsOutputFormat: boolean;
   supportsBackground: boolean;
+  getMaxReferenceImages(model: string): number;
   generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult>;
 }
 
@@ -143,6 +144,16 @@ class GeminiImageProvider implements ImageGenerationProvider {
   supportsOutputFormat = false;
   supportsBackground = false;
 
+  getMaxReferenceImages(model: string): number {
+    if (model === 'gemini-3.1-flash-image-preview') {
+      return 14;
+    }
+    if (model === 'gemini-2.5-flash-image') {
+      return 3;
+    }
+    return this.maxReferenceImages;
+  }
+
   async generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult> {
     const apiKey = await getGeminiApiKeyFromIntegrations();
     if (!apiKey) {
@@ -202,6 +213,10 @@ class OpenAIImageProvider implements ImageGenerationProvider {
   supportsQuality = true;
   supportsOutputFormat = true;
   supportsBackground = true;
+
+  getMaxReferenceImages(): number {
+    return this.maxReferenceImages;
+  }
 
   async generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult> {
     const apiKey = await getOpenAIApiKeyFromIntegrations();

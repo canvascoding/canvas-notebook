@@ -39,4 +39,12 @@ export class LruCache<T> {
   clear() {
     this.store.clear();
   }
+
+  keys(): string[] {
+    return Array.from(this.store.keys());
+  }
+
+  delete(key: string) {
+    this.store.delete(key);
+  }
 }

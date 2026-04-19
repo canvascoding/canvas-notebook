@@ -519,6 +519,61 @@
           "build": "npm run build"
         }
       }
+    },
+    {
+      "id": "47",
+      "content": "Fix image-generation provider validation and model-specific reference limits",
+      "status": "completed",
+      "priority": "high",
+      "phase": "Bug Fixes",
+      "details": {
+        "reviewFindings": [
+          "Gemini reference image limits were not aligned with the selected model",
+          "OpenAI API key validation happened too late inside generation jobs",
+          "The image-generation UI still rendered an interactive form when no provider key was configured"
+        ],
+        "implementedFix": [
+          "Added provider-level max-reference resolution so Gemini 3.1 allows 14 references and Gemini 2.5 allows 3",
+          "Moved provider API key validation into a shared preflight check at the service boundary",
+          "Render the image-generation client only when at least one provider is configured and keep the client aligned to allowed providers"
+        ],
+        "verification": {
+          "build": "npm run build",
+          "ui": "Playwright MCP smoke check on localhost:3000 image-generation page"
+        }
+      }
+    },
+    {
+      "id": "48",
+      "content": "Polish image-generation provider notice UI and improve provider-specific guidance copy",
+      "status": "completed",
+      "priority": "high",
+      "phase": "UI Polish",
+      "details": {
+        "implementedFix": [
+          "Replaced the oversized warning cards on the image-generation page with a smaller inline notice component",
+          "Improved the provider-state copy so Gemini/OpenAI availability is explained with clearer next steps",
+          "Added an Integrations action button that opens the Integrations tab in a new browser tab"
+        ],
+        "verification": {
+          "manual": "Open image-generation page with different provider-key combinations and verify compact notice text and action button"
+        }
+      }
+    },
+    {
+      "id": "49",
+      "content": "Expose OPENAI_API_KEY in default Integrations settings key list",
+      "status": "completed",
+      "priority": "high",
+      "phase": "UI Polish",
+      "details": {
+        "implementedFix": [
+          "Added OPENAI_API_KEY to the default key list shown in the Integrations settings UI so it appears alongside Gemini, Brave, and Groq"
+        ],
+        "verification": {
+          "build": "npm run build"
+        }
+      }
     }
   ]
 }

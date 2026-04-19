@@ -162,6 +162,9 @@
     "deleteSingleConfirm": "Are you sure you want to delete \"{name}\"?",
     "fileActions": "File actions",
     "copyPath": "Copy path",
+    "copy": "Copy",
+    "paste": "Paste",
+    "duplicate": "Duplicate",
     "rename": "Rename",
     "move": "Move",
     "download": "Download",
@@ -1189,8 +1192,21 @@
         "description": "Cost-effective option for fast iterations where top quality isn't critical."
       }
     },
-    "openaiApiKeyRequired": "This app requires an OPENAI_API_KEY for OpenAI image generation. Configure it in the Integrations tab.",
-    "noProviderKey": "No API key configured for any image generation provider. Please configure at least one in the Integrations tab.",
+    "notices": {
+      "openIntegrations": "Open Integrations",
+      "noProvider": {
+        "title": "No image provider is configured yet",
+        "description": "Add at least one API key in the Integrations tab so image generation can be used here. As soon as a provider is connected, the matching models and options will appear automatically."
+      },
+      "geminiOnly": {
+        "title": "Google Gemini is ready",
+        "description": "You can already generate images with Gemini. If you also want to generate with OpenAI, add an OPENAI_API_KEY in the Integrations tab."
+      },
+      "openaiOnly": {
+        "title": "OpenAI is ready",
+        "description": "You can already generate images with OpenAI. If you also want to use Gemini, add a GEMINI_API_KEY in the Integrations tab."
+      }
+    },
     "samplePrompts": {
       "skincareProductShot": {
         "label": "Skincare Product Shot",

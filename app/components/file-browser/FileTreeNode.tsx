@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Square,
   CheckSquare,
+  Loader2,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -13,7 +14,6 @@ import {
   SidebarMenuSub,
 } from '@/components/ui/sidebar';
 import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
-import { FileContextMenu } from './FileContextMenu';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -34,19 +34,22 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     isMultiSelectMode,
     multiSelectPaths,
     toggleMultiSelectPath,
+    openContextMenu,
+    mobileFileOpened,
+    loadingDirs,
   } = useFileStore();
 
   const isDirectory = node.type === 'directory';
   const hasChildren = node.children && node.children.length > 0;
   const isExpanded = expandedDirs.has(node.path);
+  const isLoading = loadingDirs.has(node.path);
   const isSelected = selectedNode?.path === node.path;
-  const isMultiSelected = multiSelectPaths.includes(node.path);
+  const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
   const rowPaddingStyle = isMobile
     ? { paddingLeft: `${8 + Math.min(depth, 4) * 12}px` }
     : undefined;
 
-  // Sync internal state with external expanded state for directories
   const handleToggle = useCallback(() => {
     if (isDirectory) {
       toggleDirectory(node.path);
@@ -60,19 +63,10 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
       selectNode(node, ctrlOrMeta, shiftKey);
       if (node.type === 'file') {
         loadFile(node.path, true);
-        window.dispatchEvent(
-          new CustomEvent('notebook-mobile-file-opened', {
-            detail: { path: node.path },
-          })
-        );
-        window.dispatchEvent(
-          new CustomEvent('notebook-mobile-surface', {
-            detail: { surface: 'editor' },
-          })
-        );
+        mobileFileOpened();
       }
     },
-    [node, selectNode, loadFile]
+    [node, selectNode, loadFile, mobileFileOpened]
   );
 
   const handleCheckboxClick = (event: React.MouseEvent) => {
@@ -87,6 +81,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
       useFileStore.getState().clearMultiSelect();
       selectNode(node);
     }
+    openContextMenu(node);
   };
 
   const getFileIcon = () => {
@@ -105,7 +100,8 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   };
 
-  if (isDirectory && hasChildren) {
+  if (isDirectory) {
+    const showChildren = isExpanded && (hasChildren || isLoading);
     return (
       <Collapsible open={isExpanded} onOpenChange={handleToggle}>
         <SidebarMenuItem>
@@ -139,31 +135,40 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
                 )}
                 onClick={handleSelect}
               >
-                <ChevronRight
-                  className={cn(
-                    'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
-                    isExpanded && 'rotate-90'
-                  )}
-                />
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                ) : (
+                  <ChevronRight
+                    className={cn(
+                      'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                      isExpanded && 'rotate-90'
+                    )}
+                  />
+                )}
                 {getFileIcon()}
                 <span className="flex-1 truncate text-sm">{node.name}</span>
               </SidebarMenuButton>
             </CollapsibleTrigger>
-            <FileContextMenu node={node} isRowActive={isRowActive} />
           </div>
         </SidebarMenuItem>
         <CollapsibleContent>
           <SidebarMenuSub className={cn('mr-0 pr-0', isMobile && 'mx-0 border-l-0 px-0 py-0')}>
-            {node.children!.map((child) => (
-              <FileTreeNode key={child.path} node={child} depth={depth + 1} />
-            ))}
+            {isLoading ? (
+              <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground" style={isMobile ? { paddingLeft: `${8 + Math.min(depth + 1, 4) * 12}px` } : undefined}>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>Loading...</span>
+              </div>
+            ) : (
+              node.children!.map((child) => (
+                <FileTreeNode key={child.path} node={child} depth={depth + 1} />
+              ))
+            )}
           </SidebarMenuSub>
         </CollapsibleContent>
       </Collapsible>
     );
   }
 
-  // File or empty directory
   return (
     <SidebarMenuItem>
       <div
@@ -195,7 +200,6 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
           )}
           onClick={handleSelect}
         >
-          {/* Spacer for alignment with folders */}
           {isDirectory ? (
             <span className="h-4 w-4 shrink-0" />
           ) : (
@@ -209,7 +213,6 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
             </span>
           )}
         </SidebarMenuButton>
-        <FileContextMenu node={node} isRowActive={isRowActive} />
       </div>
     </SidebarMenuItem>
   );

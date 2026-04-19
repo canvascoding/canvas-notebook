@@ -9,8 +9,9 @@ import {
   SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
+import { useFileStore, FileNode as FileNodeType, findPathInTree } from '@/app/store/file-store';
 import { FileTreeNode } from './FileTreeNode';
+import { FileContextMenu } from './FileContextMenu';
 import { BulkMoveDialog } from './BulkMoveDialog';
 
 export function FileTree() {
@@ -27,8 +28,8 @@ export function FileTree() {
   } = useFileStore();
 
   useEffect(() => {
-    // Load file tree on mount
-    loadFileTree();
+    // Load only root level on mount (lazy loading for subdirectories)
+    loadFileTree('.', 0);
   }, [loadFileTree]);
 
   useEffect(() => {
@@ -132,6 +133,7 @@ export function FileTree() {
       )}
 
       <BulkMoveDialog />
+      <FileContextMenu />
     </div>
   );
 }

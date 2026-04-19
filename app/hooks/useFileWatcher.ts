@@ -19,6 +19,7 @@ interface FileEvent {
   type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
   path: string;
   relativePath: string;
+  dir: string;
   timestamp: number;
 }
 
@@ -44,11 +45,12 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
     onEvent,
   } = options;
 
-  const { loadFileTree } = useFileStore();
-  
+  const { loadFileTree, loadSubdirectory, expandedDirs } = useFileStore();
+   
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingDirRef = useRef<string>('.');
   const lastReloadRef = useRef<number>(0);
   const reconnectAttemptsRef = useRef<number>(0);
   const isMountedRef = useRef<boolean>(false);
@@ -92,42 +94,40 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
   }, []);
 
   // Debounced reload function - stable reference
-  const debouncedReload = useCallback(() => {
+  const debouncedReload = useCallback((dir: string = '.') => {
     const now = Date.now();
     const timeSinceLastReload = now - lastReloadRef.current;
 
-    // Clear existing timeout
+    pendingDirRef.current = dir;
+
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
 
-    // If we reloaded recently, wait for the debounce period
     const waitTime = Math.max(0, optionsRef.current.debounceMs - timeSinceLastReload);
-
-    // Cap at maxDebounceMs
     const finalWaitTime = Math.min(waitTime, optionsRef.current.maxDebounceMs);
 
     debounceTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
-        console.log('[useFileWatcher] Reloading file tree due to changes');
-        loadFileTree('.', undefined, true);
+        const targetDir = pendingDirRef.current;
+        const currentExpanded = useFileStore.getState().expandedDirs;
+        if (currentExpanded.has(targetDir) || targetDir === '.') {
+          loadSubdirectory(targetDir);
+        }
         lastReloadRef.current = Date.now();
       }
     }, finalWaitTime);
-  }, [loadFileTree]);
+  }, [loadSubdirectory]);
 
   // Handle file change event - stable reference
   const handleFileChange = useCallback((event: FileEvent) => {
-    console.log('[useFileWatcher] File change detected:', event);
+    const dir = event.dir || (event.relativePath.includes('/')
+      ? event.relativePath.substring(0, event.relativePath.lastIndexOf('/'))
+      : '.');
 
-    // Update last event
     setLastEvent(event);
-    
-    // Call optional callback via ref
     onEventRef.current?.(event);
-
-    // Trigger debounced reload
-    debouncedReload();
+    debouncedReload(dir);
   }, [debouncedReload]);
 
   // Connect function - stable reference

@@ -13,7 +13,7 @@
 
 import { promises as fs, watch as fsWatch, FSWatcher } from 'fs';
 import path from 'path';
-import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 
 const DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
@@ -37,6 +37,7 @@ interface FileEvent {
   type: FileEventType;
   path: string;
   relativePath: string;
+  dir: string;
   timestamp: number;
 }
 
@@ -136,13 +137,16 @@ class FileWatcherService {
     fullPath: string
   ): Promise<FileEvent | null> {
     const timestamp = Date.now();
+    const dir = relativePath.includes('/')
+      ? relativePath.substring(0, relativePath.lastIndexOf('/'))
+      : '.';
 
     if (eventType === 'change') {
-      // File wurde geändert
       return {
         type: 'change',
         path: fullPath,
         relativePath,
+        dir,
         timestamp,
       };
     }
@@ -162,6 +166,7 @@ class FileWatcherService {
           type: 'addDir',
           path: fullPath,
           relativePath,
+          dir,
           timestamp,
         };
       }
@@ -170,6 +175,7 @@ class FileWatcherService {
         type: isDir ? 'addDir' : 'add',
         path: fullPath,
         relativePath,
+        dir,
         timestamp,
       };
     } catch {
@@ -183,6 +189,7 @@ class FileWatcherService {
           type: 'unlinkDir',
           path: fullPath,
           relativePath,
+          dir,
           timestamp,
         };
       }
@@ -191,6 +198,7 @@ class FileWatcherService {
         type: 'unlink',
         path: fullPath,
         relativePath,
+        dir,
         timestamp,
       };
     }
@@ -233,12 +241,12 @@ class FileWatcherService {
       uniqueEvents.set(event.relativePath, event);
     }
 
-    // Cache invalidieren
-    clearFileTreeCache();
-
-    // Sende Events an alle Clients
     for (const event of uniqueEvents.values()) {
-      this.broadcastEvent(event);
+      const dirPath = event.relativePath.includes('/')
+        ? event.relativePath.substring(0, event.relativePath.lastIndexOf('/'))
+        : '.';
+      clearSubtreeCache(dirPath);
+      this.broadcastEvent({ ...event, dir: dirPath });
     }
 
     // Clear pending events
@@ -313,6 +321,7 @@ class FileWatcherService {
       type: 'change',
       path: WORKSPACE_BASE_DIR,
       relativePath: '.',
+      dir: '.',
       timestamp: Date.now(),
     });
   }
