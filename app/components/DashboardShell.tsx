@@ -328,6 +328,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
         return;
       }
       setMobileExplorerOpen(false);
+      setMobileChatOpen(false);
       setMobileSurface('editor');
     };
 

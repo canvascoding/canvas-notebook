@@ -41,7 +41,9 @@ import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
+import { useLocale } from 'next-intl';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
@@ -501,21 +503,29 @@ function getCompactBreakLabel(
   return baseLabel;
 }
 
-// Component for clickable file links in markdown
 function FileLink({ href, children }: { href: string; children: React.ReactNode }) {
   const fileStore = useFileStore();
   const fileTree = fileStore.fileTree;
+  const pathname = useLocalePathname();
+  const locale = useLocale();
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    // Normalize the path (remove leading/trailing slashes)
     const normalizedPath = href.replace(/^\.\/|\/$/g, '');
 
     if (!normalizedPath) return;
 
-    // Find the file node in the tree
+    if (pathname.includes('/chat')) {
+      const notebookPath = getPathname({
+        locale,
+        href: { pathname: '/notebook', query: { path: normalizedPath } },
+      });
+      window.open(notebookPath, 'canvas-notebook');
+      return;
+    }
+
     const findNodeInTree = (nodes: typeof fileTree, path: string): typeof fileTree[0] | null => {
       for (const node of nodes) {
         if (node.path === path) return node;
@@ -530,11 +540,9 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
     const node = findNodeInTree(fileTree, normalizedPath);
 
     if (node) {
-      // Get all parent directories of the node
       const getParentDirectories = (filePath: string): string[] => {
         const parts = filePath.split('/');
         const dirs: string[] = [];
-        // Build paths for all parent directories
         for (let i = 1; i < parts.length; i++) {
           const dirPath = parts.slice(0, i).join('/');
           if (dirPath) dirs.push(dirPath);
@@ -542,7 +550,6 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
         return dirs;
       };
 
-      // Expand all parent directories so the file is visible in the tree
       const parentDirs = getParentDirectories(node.path);
       parentDirs.forEach((dirPath) => {
         if (!fileStore.expandedDirs.has(dirPath)) {
@@ -550,16 +557,33 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
         }
       });
 
-      // Select the node (this will mark it as active in the file browser)
       fileStore.selectNode(node);
 
-      // If it's a file, load it
       if (node.type === 'file') {
         fileStore.loadFile(node.path);
+        window.dispatchEvent(
+          new CustomEvent('notebook-mobile-file-opened', {
+            detail: { path: node.path },
+          })
+        );
+        window.dispatchEvent(
+          new CustomEvent('notebook-mobile-surface', {
+            detail: { surface: 'editor' },
+          })
+        );
       }
     } else {
-      // Try to load the file directly even if not in tree
       fileStore.loadFile(normalizedPath);
+      window.dispatchEvent(
+        new CustomEvent('notebook-mobile-file-opened', {
+          detail: { path: normalizedPath },
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent('notebook-mobile-surface', {
+          detail: { surface: 'editor' },
+        })
+      );
     }
   };
 
@@ -696,7 +720,7 @@ export default function CanvasAgentChat({
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
-  const pathname = usePathname();
+  const pathname = useLocalePathname();
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
