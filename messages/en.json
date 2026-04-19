@@ -146,6 +146,9 @@
     "select": "Select",
     "delete": "Delete",
     "collapseAll": "Collapse all",
+    "browserModeTree": "Tree view",
+    "browserModeList": "List view",
+    "goUpFolder": "Go up",
     "autoRefreshConnected": "Auto-refresh: Connected",
     "autoRefreshDisconnected": "Auto-refresh: Disconnected",
     "selectedCount": "{count} selected",
@@ -1585,6 +1588,115 @@
       "close": "Close",
       "videoTitle": "{title} video",
       "moreActions": "More actions"
+    }
+  },
+  "onboarding": {
+    "hints": {
+      "home": {
+        "promptHero": {
+          "title": "What to create?",
+          "description": "Describe what you want to create — or use the categories below for inspiration."
+        },
+        "workspace": {
+          "title": "Workspace",
+          "description": "Your workspace: manage files and chat with the agent in Notebook. Automations schedules recurring tasks."
+        },
+        "create": {
+          "title": "Create directly",
+          "description": "Generate images, videos, and localized ads — without going through chat."
+        }
+      },
+      "notebook": {
+        "fileBrowser": {
+          "title": "File browser",
+          "description": "View all files in your workspace. Create new ones, upload, or drag & drop."
+        },
+        "editor": {
+          "title": "Editor",
+          "description": "Open a file from the file tree to edit it here."
+        },
+        "editorMode": {
+          "title": "View mode",
+          "description": "Switch between editor, editor with preview, and pure preview in the top-right corner."
+        },
+        "chat": {
+          "title": "Agent chat",
+          "description": "Chat with the agent, reference files with @, or start with a prompt suggestion."
+        }
+      },
+      "imageGen": {
+        "config": {
+          "title": "Configuration",
+          "description": "Choose provider and model, set aspect ratio and count — then prompt."
+        },
+        "references": {
+          "title": "Reference images",
+          "description": "Upload reference images to visually guide the output."
+        },
+        "results": {
+          "title": "Results",
+          "description": "Generated images appear here. Click for full view or download."
+        }
+      },
+      "veo": {
+        "mode": {
+          "title": "Video mode",
+          "description": "Choose the mode: Text-to-Video, Frames-to-Video, References-to-Video, or Extend Video."
+        },
+        "config": {
+          "title": "Settings",
+          "description": "Set aspect ratio and resolution before generating."
+        },
+        "results": {
+          "title": "Results",
+          "description": "Your video appears here. Saved outputs are also in this section."
+        }
+      },
+      "localizer": {
+        "reference": {
+          "title": "Reference ad",
+          "description": "Upload the ad image you want to localize."
+        },
+        "markets": {
+          "title": "Target markets",
+          "description": "Add target markets (e.g. US, FR, ES). A localized variant is created per market."
+        },
+        "results": {
+          "title": "Results",
+          "description": "Localized ads appear here, one per target market."
+        }
+      },
+      "settings": {
+        "agentSettings": {
+          "title": "Provider & model",
+          "description": "Choose the AI provider and model. This determines which agent processes your prompts."
+        },
+        "managedFiles": {
+          "title": "Agent prompt",
+          "description": "These files control your agent's behavior and knowledge. AGENTS.md is the main instruction, other files add identity, memory, and skills."
+        },
+        "tools": {
+          "title": "Tools",
+          "description": "Enable or disable individual agent tools. Disable tools you don't need to keep the agent focused."
+        },
+        "integrations": {
+          "title": "Integrations env",
+          "description": "Manage API keys and environment variables for external services — e.g. Gemini, OpenAI, Brave. Use KV mode to edit individual values, or Raw mode for the full file."
+        },
+        "agentsEnv": {
+          "title": "Agents env",
+          "description": "Separate environment variables for agent-specific providers like OpenRouter, Ollama, or Anthropic."
+        },
+        "usage": {
+          "title": "Usage",
+          "description": "View token usage, costs, and analytics. Filter by date range, provider, or model."
+        }
+      }
+    },
+    "helpDropdown": {
+      "repeatTutorial": "Repeat tutorial",
+      "completeOnboarding": "Complete onboarding",
+      "openHelp": "Open help"
     }
   }
 }

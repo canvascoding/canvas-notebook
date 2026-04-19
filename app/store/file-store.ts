@@ -10,6 +10,8 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+export type BrowserMode = 'tree' | 'list';
+
 export interface ContextMenuPosition {
   x: number;
   y: number;
@@ -88,6 +90,10 @@ interface FileStoreState {
   isLoadingFile: boolean;
   fileError: string | null;
 
+  // Browser mode
+  browserMode: BrowserMode;
+  setBrowserMode: (mode: BrowserMode) => void;
+
   // Expanded directories
   expandedDirs: Set<string>;
   currentDirectory: string;
@@ -161,6 +167,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   selectedNode: null,
 
   currentFile: null,
+
+  browserMode: (typeof window !== 'undefined'
+    ? (localStorage.getItem('canvas-browser-mode') as BrowserMode) || (window.innerWidth < 768 ? 'list' : 'tree')
+    : 'tree') as BrowserMode,
+  setBrowserMode: (mode: BrowserMode) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('canvas-browser-mode', mode);
+    }
+    set({ browserMode: mode });
+  },
   isLoadingFile: false,
   fileError: null,
 
@@ -280,22 +296,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
   // Actions
   loadFileTree: async (path = '.', depth?: number, noCache = false) => {
-    const { fileTree, currentDirectory, setCurrentDirectory } = get();
-
-    let activeDir = path === '.' ? currentDirectory : path;
-
-    if (activeDir !== '.' && fileTree.length > 0 && !findPathInTree(activeDir, fileTree)) {
-      console.warn(`Directory "${activeDir}" not found in current tree. Fetching from root.`);
-      activeDir = '.';
-      setCurrentDirectory('.');
-    }
-
     set({ isLoadingTree: true, treeError: null });
 
     const depthTarget = typeof depth === 'number' ? depth : 4;
 
     try {
-      const url = `/api/files/tree?path=${encodeURIComponent(activeDir)}&depth=${depthTarget}${noCache ? `&noCache=${Date.now()}` : ''}`;
+      const url = `/api/files/tree?path=${encodeURIComponent(path)}&depth=${depthTarget}${noCache ? `&noCache=${Date.now()}` : ''}`;
       const response = await fetch(url, {
         credentials: 'include',
         cache: noCache ? 'no-store' : 'default',
@@ -707,54 +713,51 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   uploadFile: async (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => {
     set({ treeError: null, uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
-    const total = files.length;
 
     try {
-      for (let i = 0; i < total; i++) {
-        const f = files[i];
+      const formData = new FormData();
+      formData.append('path', targetDir);
+
+      for (const f of files) {
         const filePath = pathMap?.get(f) || (f as { webkitRelativePath?: string }).webkitRelativePath || f.name;
-
-        const formData = new FormData();
-        formData.append('path', targetDir);
         formData.append('files', f, filePath);
-
-        if (convertParams && convertParams.length > 0) {
-          const paramsForAll: ({ format: string; quality: number; maxDimension?: number } | null)[] = convertParams.map((p) =>
-            p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
-          );
-          formData.append('convertParams', JSON.stringify(paramsForAll));
-        }
-
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/files/upload', true);
-          xhr.withCredentials = true;
-
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const filePercent = event.loaded / event.total;
-              const overall = Math.round(((i + filePercent) / total) * 100);
-              set({ uploadProgress: overall });
-            }
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve();
-            } else {
-              try {
-                const error = JSON.parse(xhr.responseText);
-                reject(new Error(error.error || `Upload failed with status ${xhr.status}`));
-              } catch {
-                reject(new Error(`Upload failed with status ${xhr.status}`));
-              }
-            }
-          };
-
-          xhr.onerror = () => reject(new Error('Network error during upload'));
-          xhr.send(formData);
-        });
       }
+
+      if (convertParams && convertParams.length === files.length) {
+        const paramsForAll: ({ format: string; quality: number; maxDimension?: number } | null)[] = convertParams.map((p) =>
+          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
+        );
+        formData.append('convertParams', JSON.stringify(paramsForAll));
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/files/upload', true);
+        xhr.withCredentials = true;
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const overall = Math.round((event.loaded / event.total) * 100);
+            set({ uploadProgress: overall });
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            try {
+              const error = JSON.parse(xhr.responseText);
+              reject(new Error(error.error || `Upload failed with status ${xhr.status}`));
+            } catch {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(formData);
+      });
 
       await get().refreshDirectory(targetDir, true);
     } catch (error) {
