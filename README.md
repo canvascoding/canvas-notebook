@@ -220,4 +220,4 @@ Use `canvascoding/canvas-notebook:latest` as the image source and set the enviro
 
 ## License
 
-MIT © [Frank Alexander Weber](https://github.com/canvascoding)
+Sustainable Use License © [Frank Alexander Weber](https://github.com/canvascoding)
