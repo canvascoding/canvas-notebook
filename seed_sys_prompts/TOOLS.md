@@ -136,8 +136,6 @@ Localizes advertisements. Use when the user says: "localize this ad", "translate
 ## Detailed Documentation
 
 For complete documentation, parameter details, and examples:
-- /data/skills/image-generation/SKILL.md
-- /data/skills/video-generation/SKILL.md
 - /data/skills/ad-localization/SKILL.md
 
 ## Workflow Automation

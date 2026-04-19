@@ -11,8 +11,6 @@ Skills sind lokale CLI-Werkzeuge, die der Agent über das `bash`-Tool aufrufen k
 Die Commands werden aus den Skill-Manifests erzeugt und zur Laufzeit unter `/data/skills/bin/` bereitgestellt. Das ist im Container der kanonische und unterstützte Pfad.
 
 ```bash
-image-generation --prompt "..."
-video-generation --prompt "..."
 ad-localization --ref "..." --market "..."
 brave-search "query"
 transcribe /data/workspace/audio/meeting.mp3
@@ -28,8 +26,6 @@ Die Wrapper werden immer von der Skill-Runtime erzeugt. Sie sollen nicht manuell
 
 | Befehl | Beschreibung |
 |--------|-------------|
-| `image-generation` | Bilder mit Gemini generieren |
-| `video-generation` | Videos mit Google VEO generieren |
 | `ad-localization` | Werbeanzeigen für Zielmärkte lokalisieren |
 | `qmd` | Markdown-Notizen und Dokumente im Workspace durchsuchen |
 
@@ -73,8 +69,6 @@ API-Keys für externe Skills werden zentral in Canvas Notebook unter **Settings 
 
 ## Output-Verzeichnisse (workspace-relativ)
 
-- **Image Generation:** `image-generation/generations/`
-- **Video Generation:** `veo-studio/video-generation/`
 - **Ad Localization:** `nano-banana-ad-localizer/localizations/`
 
 ## Antwortformat
@@ -91,7 +85,6 @@ Pi-Skills (brave-search, transcribe, youtube-transcript, browser-tools) geben di
 
 Jeder Skill hat eine `SKILL.md` in seinem Ordner:
 
-- `/data/skills/image-generation/SKILL.md`
 - `/data/skills/brave-search/SKILL.md`
 - `/data/skills/transcribe/SKILL.md`
 - `/data/skills/youtube-transcript/SKILL.md`
