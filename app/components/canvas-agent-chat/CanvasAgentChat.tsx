@@ -1899,6 +1899,9 @@ export default function CanvasAgentChat({
       window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
     }
     setMessages([]);
+    setHasMoreBefore(false);
+    setOldestTimestamp(null);
+    setIsLoadingOlder(false);
     // Always close history on mobile when starting new chat, conditionally on desktop
     if (isMobile || shouldShowHistoryAsOverlay) {
       setShowHistory(false);
@@ -1914,6 +1917,42 @@ export default function CanvasAgentChat({
     toolMessageIdsRef.current = {};
   }, [agentConfig, resetStreamConnection, isMobile, shouldShowHistoryAsOverlay]);
 
+  const mapRawMessage = useCallback((rawMessage: PersistedChatMessage): ChatMessage => {
+    if (rawMessage.role === 'compact-break') {
+      const cb = rawMessage as unknown as CompactBreakMessage;
+      return {
+        id: rawMessage.id?.toString() || `compact-${cb.timestamp}`,
+        role: 'system' as const,
+        content: '',
+        type: 'compact_break' as const,
+        status: 'sent' as const,
+        compactMeta: {
+          kind: cb.kind,
+          timestamp: cb.timestamp,
+          omittedMessageCount: cb.omittedMessageCount,
+        },
+      };
+    }
+
+    const isToolResult = rawMessage.role === 'toolResult';
+    const content = isToolResult
+      ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
+      : extractPiMessageText(rawMessage);
+
+    return {
+      id: rawMessage.id?.toString() || Math.random().toString(),
+      role: rawMessage.role,
+      content,
+      status: 'sent',
+      type: isToolResult ? 'tool_result' : undefined,
+      attachments: extractImageAttachments(rawMessage.content),
+      piMessage: rawMessage,
+      isCollapsed: isToolResult,
+      autoCollapsedAtEnd: isToolResult,
+      previewText: isToolResult ? truncatePreview(content) : undefined,
+    };
+  }, []);
+
   const loadSession = useCallback(async (session: AISession) => {
     resetStreamConnection();
     setSessionId(session.sessionId);
@@ -1924,6 +1963,9 @@ export default function CanvasAgentChat({
     setShowMobileDetails(false);
     setShowMobileActionPanel(false);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
+    setHasMoreBefore(false);
+    setOldestTimestamp(null);
+    setIsLoadingOlder(false);
     setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
     // Always close history on mobile, conditionally on desktop
     if (isMobile || shouldShowHistoryAsOverlay) {
@@ -1964,7 +2006,7 @@ export default function CanvasAgentChat({
 
     try {
       const [messagesResponse, statusResponse] = await Promise.all([
-        fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}`),
+        fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}&limit=50`),
         fetch(`/api/stream/status?sessionId=${encodeURIComponent(session.sessionId)}`),
       ]);
 
@@ -1973,42 +2015,22 @@ export default function CanvasAgentChat({
 
       if (messagesPayload.success && messagesPayload.messages) {
         setMessages(
-          messagesPayload.messages.map((rawMessage: PersistedChatMessage) => {
-            if (rawMessage.role === 'compact-break') {
-              const cb = rawMessage as unknown as CompactBreakMessage;
-              return {
-                id: rawMessage.id?.toString() || `compact-${cb.timestamp}`,
-                role: 'system' as const,
-                content: '',
-                type: 'compact_break' as const,
-                status: 'sent' as const,
-                compactMeta: {
-                  kind: cb.kind,
-                  timestamp: cb.timestamp,
-                  omittedMessageCount: cb.omittedMessageCount,
-                },
-              };
-            }
-
-            const isToolResult = rawMessage.role === 'toolResult';
-            const content = isToolResult
-              ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
-              : extractPiMessageText(rawMessage);
-
-            return {
-              id: rawMessage.id?.toString() || Math.random().toString(),
-              role: rawMessage.role,
-              content,
-              status: 'sent',
-              type: isToolResult ? 'tool_result' : undefined,
-              attachments: extractImageAttachments(rawMessage.content),
-              piMessage: rawMessage,
-              isCollapsed: isToolResult,
-              autoCollapsedAtEnd: isToolResult,
-              previewText: isToolResult ? truncatePreview(content) : undefined,
-            };
-          }),
+          messagesPayload.messages.map(mapRawMessage),
         );
+        if (typeof messagesPayload.hasMoreBefore === 'boolean') {
+          setHasMoreBefore(messagesPayload.hasMoreBefore);
+        } else if (messagesPayload.messages.length >= 50) {
+          setHasMoreBefore(true);
+        } else {
+          setHasMoreBefore(false);
+        }
+        if (messagesPayload.oldestTimestamp != null) {
+          setOldestTimestamp(messagesPayload.oldestTimestamp);
+        } else if (messagesPayload.messages.length > 0) {
+          const firstRaw = messagesPayload.messages[0] as Record<string, unknown>;
+          const ts = typeof firstRaw.timestamp === 'number' ? firstRaw.timestamp : null;
+          if (ts != null) setOldestTimestamp(ts);
+        }
       }
 
       if (statusPayload?.success && statusPayload.status) {
@@ -2029,12 +2051,61 @@ export default function CanvasAgentChat({
       if (isMobile || shouldShowHistoryAsOverlay) {
         setShowHistory(false);
       }
+
+      // Force scroll to bottom after session load
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
       
     } catch (err) {
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [isWebSocketEnabled, openRuntimeStream, resetStreamConnection, resolveSessionTitle, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay]);
+  }, [isWebSocketEnabled, mapRawMessage, openRuntimeStream, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay]);
+
+  const loadOlderMessages = useCallback(async () => {
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId || isLoadingOlder || !hasMoreBefore || oldestTimestamp === null) return;
+
+    setIsLoadingOlder(true);
+
+    const scrollContainer = scrollContainerRef.current;
+    const previousScrollHeight = scrollContainer?.scrollHeight ?? 0;
+
+    try {
+      const response = await fetch(
+        `/api/sessions/messages?sessionId=${encodeURIComponent(currentSessionId)}&before=${oldestTimestamp}&limit=50`,
+      );
+      const payload = await response.json();
+
+      if (payload.success && payload.messages) {
+        const olderMessages: ChatMessage[] = payload.messages.map(mapRawMessage);
+
+        if (olderMessages.length === 0) {
+          setHasMoreBefore(false);
+          return;
+        }
+
+        setMessages(prev => [...olderMessages, ...prev]);
+        setHasMoreBefore(payload.hasMoreBefore ?? (olderMessages.length >= 50));
+        if (payload.oldestTimestamp != null) {
+          setOldestTimestamp(payload.oldestTimestamp);
+        }
+
+        // Preserve scroll position after prepending messages
+        requestAnimationFrame(() => {
+          if (scrollContainer) {
+            const newScrollHeight = scrollContainer.scrollHeight;
+            scrollContainer.scrollTop = newScrollHeight - previousScrollHeight;
+          }
+        });
+      }
+    } catch (err) {
+      console.error('[CanvasAgentChat] Failed to load older messages:', err);
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  }, [hasMoreBefore, isLoadingOlder, mapRawMessage, oldestTimestamp]);
 
   const clearSessionParamFromUrl = useCallback(() => {
     if (typeof window === 'undefined' || !window.location.search.includes('session=')) {
@@ -3276,6 +3347,24 @@ export default function CanvasAgentChat({
                 </div>
               </div>
             </div>
+          )}
+
+          {messages.length > 0 && hasMoreBefore && (
+            <button
+              type="button"
+              onClick={() => void loadOlderMessages()}
+              disabled={isLoadingOlder}
+              className="mx-auto flex w-full max-w-xs items-center justify-center gap-2 rounded-md border border-border bg-background/80 px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoadingOlder ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>{t('loadingOlderMessages')}</span>
+                </>
+              ) : (
+                <span>{t('loadEarlierMessages')}</span>
+              )}
+            </button>
           )}
 
           {messages.map((message, index) => {
