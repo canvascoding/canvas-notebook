@@ -1466,16 +1466,6 @@ export default function CanvasAgentChat({
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
       syncPiMessage(assistantId, event.message);
       currentAssistantIdRef.current = null;
-      const currentStatus = runtimeStatusRef.current;
-      const hasPendingQueuedWork = Boolean(
-        currentStatus && (currentStatus.followUpQueue.length > 0 || currentStatus.steeringQueue.length > 0)
-      );
-      const hasPendingToolWork = Boolean(
-        currentStatus && (currentStatus.activeTool || currentStatus.pendingToolCalls > 0 || currentStatus.phase === 'running_tool' || currentStatus.phase === 'aborting')
-      );
-      if (!hasPendingQueuedWork && !hasPendingToolWork) {
-        setOptimisticRuntimePhase('idle', currentStatus?.sessionId || sessionIdRef.current);
-      }
 
       // For WebSocket mode, lastMessageAt is updated by server
       // For SSE mode, update it manually
@@ -1561,7 +1551,7 @@ export default function CanvasAgentChat({
 
     // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
     // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, isWebSocketEnabled, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, isWebSocketEnabled, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
 
   const openRuntimeStream = useCallback(async (
     targetSessionId: string,
