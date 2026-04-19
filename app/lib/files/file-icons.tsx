@@ -34,23 +34,29 @@ export function getFileIconComponent({
   if (isDirectory) {
     const outputKind = getAppOutputFolderKind(path);
     if (outputKind) {
+      const badgeSize = className.includes('h-12') || className.includes('h-14') || className.includes('h-16')
+        ? 'h-4 w-4'
+        : 'h-2.5 w-2.5';
       const badgeIcon =
         outputKind === 'veo-video-generation' ? (
-          <FileVideo className="h-2.5 w-2.5 text-chart-4" />
+          <FileVideo className={`${badgeSize} text-chart-4`} />
         ) : outputKind === 'image-generations' ? (
-          <ImageIcon className="h-2.5 w-2.5 text-chart-5" />
+          <ImageIcon className={`${badgeSize} text-chart-5`} />
         ) : (
-          <FileText className="h-2.5 w-2.5 text-chart-3" />
+          <FileText className={`${badgeSize} text-chart-3`} />
         );
 
+      const badgePadding = badgeSize === 'h-4 w-4' ? 'p-0.5' : 'p-[1px]';
+      const badgeOffset = badgeSize === 'h-4 w-4' ? '-bottom-1 -right-1' : '-bottom-0.5 -right-0.5';
+
       return (
-        <span className="relative inline-flex shrink-0 items-center justify-center" style={{ width: '1em', height: '1em' }}>
+        <span className="relative inline-flex shrink-0 items-center justify-center">
           {isExpanded ? (
             <FolderOpen className={`${className} text-primary`} />
           ) : (
             <Folder className={`${className} text-primary`} />
           )}
-          <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-background p-[1px]">
+          <span className={`absolute ${badgeOffset} rounded-full bg-background ${badgePadding}`}>
             {badgeIcon}
           </span>
         </span>

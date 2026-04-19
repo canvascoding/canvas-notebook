@@ -217,7 +217,7 @@ export function FilesContainer() {
   return (
     <div className="flex h-[100dvh] flex-col bg-background text-foreground">
       <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-        <div className="mx-auto flex min-h-14 max-w-7xl items-center justify-between gap-3 px-4 py-2 md:px-6">
+        <div className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 md:px-6">
           <div className="min-w-0 flex items-center gap-3">
             <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2">
               <Link href="/">
