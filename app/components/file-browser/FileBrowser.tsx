@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, type DragEvent } from 'react';
-import { ChevronsDownUp, ChevronLeft, CheckSquare, Download, FilePlus, FolderPlus, House, MoreHorizontal, Move, Search, Trash2, Upload, X } from 'lucide-react';
+import { ChevronsDownUp, CheckSquare, Download, FilePlus, FolderPlus, MoreHorizontal, Move, Search, Trash2, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useFileStore, type FileNode, findPathInTree } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
+import { FileBreadcrumb } from './FileBreadcrumb';
 import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
@@ -195,7 +196,6 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     (isMultiSelectMode
       ? deletableMultiSelectCount === 0
       : selectedNode?.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path));
-  const currentDirectoryLabel = currentDirectory === '.' ? t('workspaceRoot') : `/${currentDirectory}`;
 
   const handleBulkMove = () => {
     if (hasProtectedSelected) {
@@ -223,19 +223,6 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     },
     [loadFileTree]
   );
-
-  const handleGoRoot = useCallback(async () => {
-    await navigateToDirectory('.');
-  }, [navigateToDirectory]);
-
-  const handleGoUp = useCallback(async () => {
-    if (currentDirectory === '.') {
-      return;
-    }
-    const parts = currentDirectory.split('/').filter(Boolean);
-    const parentDir = parts.length > 1 ? parts.slice(0, -1).join('/') : '.';
-    await navigateToDirectory(parentDir);
-  }, [currentDirectory, navigateToDirectory]);
 
   return (
     <section
@@ -444,34 +431,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
           </div>
         )}
         <div className="border-t border-border bg-muted/30 px-3 py-2">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => void handleGoRoot()}
-                aria-label={t('jumpToWorkspaceRoot')}
-              >
-                <House className="h-3.5 w-3.5" />
-                <span>{t('root')}</span>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={() => void handleGoUp()}
-                disabled={currentDirectory === '.'}
-                aria-label={t('goUpOneFolder')}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                <span>{t('up')}</span>
-              </Button>
-              <div className="min-w-0 flex-1 truncate border border-border bg-background px-2 py-1.5 text-xs text-muted-foreground">
-                {currentDirectoryLabel}
-              </div>
-            </div>
+            <FileBreadcrumb currentDirectory={currentDirectory} onNavigate={(dir) => void navigateToDirectory(dir)} />
           </div>
         <div className="border-t border-border px-3 py-2">
           <div className="relative">

@@ -490,8 +490,7 @@ function FileBreadcrumb({ path }: { path: string }) {
 
 | # | Task | Dateien | Abhaengigkeiten | Status |
 |---|------|---------|-----------------|--------|
-| 6.1 | Breadcrumb Navigation | `app/components/file-browser/FileBreadcrumb.tsx` | 1.2 | Offen |
-| 6.2 | Kontextmenue: "Im Terminal oeffnen" | `app/components/file-browser/FileContextMenu.tsx` | - | Offen |
+| 6.1 | Breadcrumb Navigation | `app/components/file-browser/FileBreadcrumb.tsx` | 1.2 | **Done** |
 
 ---
 
