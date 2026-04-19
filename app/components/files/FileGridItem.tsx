@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useFileStore, type FileNode as FileNodeType } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
-import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
+import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { MoreVertical } from 'lucide-react';
 
@@ -52,21 +52,33 @@ export function FileGridItem({ node, onPreviewImage }: FileGridItemProps) {
     (event: React.MouseEvent) => {
       const ctrlOrMeta = event.ctrlKey || event.metaKey;
       const shiftKey = event.shiftKey;
-      selectNode(node, ctrlOrMeta, shiftKey);
+      if (ctrlOrMeta || shiftKey) {
+        selectNode(node, ctrlOrMeta, shiftKey);
+        return;
+      }
+      if (isMultiSelectMode) {
+        toggleMultiSelectPath(node.path);
+        return;
+      }
+      selectNode(node);
+      if (isDirectory) {
+        toggleDirectory(node.path);
+      } else if (showImagePreview) {
+        onPreviewImage(node.path);
+      }
     },
-    [node, selectNode]
+    [node, selectNode, isMultiSelectMode, toggleMultiSelectPath, isDirectory, showImagePreview, onPreviewImage, toggleDirectory]
   );
 
   const handleDoubleClick = useCallback(() => {
-    if (isDirectory) {
-      toggleDirectory(node.path);
-    } else if (showImagePreview) {
+    if (isDirectory) return;
+    if (showImagePreview) {
       onPreviewImage(node.path);
     } else {
       loadFile(node.path, true);
       mobileFileOpened();
     }
-  }, [isDirectory, showImagePreview, node.path, toggleDirectory, onPreviewImage, loadFile, mobileFileOpened]);
+  }, [isDirectory, showImagePreview, node.path, onPreviewImage, loadFile, mobileFileOpened]);
 
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => {
@@ -139,7 +151,7 @@ export function FileGridItem({ node, onPreviewImage }: FileGridItemProps) {
             />
           </div>
         ) : (
-          <div className="flex h-20 w-20 sm:h-24 sm:w-24 md:h-28 md:w-28 items-center justify-center">
+          <div className="relative flex h-20 w-20 sm:h-24 sm:w-24 md:h-28 md:w-28 items-center justify-center">
             {getFileIconComponent({ name: node.name, path: node.path, type: node.type, isExpanded: false, className: 'h-12 w-12 sm:h-14 sm:w-14 md:h-16 md:w-16' })}
           </div>
         )}

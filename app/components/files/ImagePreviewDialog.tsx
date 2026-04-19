@@ -25,13 +25,6 @@ function collectImagePaths(nodes: FileNode[]): string[] {
   return result;
 }
 
-function getDirectoryName(path: string): string {
-  if (path === '.') return '.';
-  const lastSlash = path.lastIndexOf('/');
-  if (lastSlash <= 0) return '.';
-  return path.slice(0, lastSlash);
-}
-
 interface ImagePreviewDialogProps {
   path: string | null;
   fileTree: FileNode[];
@@ -44,48 +37,53 @@ export function ImagePreviewDialog({ path, fileTree, currentDirectory, onClose }
   const [zoom, setZoom] = useState(1);
   const [hasError, setHasError] = useState(false);
   const [currentSrc, setCurrentSrc] = useState<string | null>(null);
+  const [currentPath, setCurrentPath] = useState<string | null>(null);
 
   const downloadFile = useFileStore((s) => s.downloadFile);
 
   const imagesInDir = collectImagePaths(fileTree);
-  const currentIndex = path ? imagesInDir.indexOf(path) : -1;
+  const activePath = currentPath || path;
+  const currentIndex = activePath ? imagesInDir.indexOf(activePath) : -1;
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < imagesInDir.length - 1;
 
   useEffect(() => {
     if (path) {
+      setCurrentPath(path);
       const previewSrc = toPreviewUrl(path, 1280);
       setCurrentSrc(previewSrc);
       setHasError(false);
       setZoom(1);
+    } else {
+      setCurrentPath(null);
+      setCurrentSrc(null);
     }
   }, [path]);
 
+  const goToImage = useCallback((newPath: string) => {
+    setCurrentPath(newPath);
+    setCurrentSrc(toPreviewUrl(newPath, 1280));
+    setHasError(false);
+    setZoom(1);
+  }, []);
+
   const handlePrev = useCallback(() => {
-    if (hasPrev) {
-      const prevPath = imagesInDir[currentIndex - 1];
-      const previewSrc = toPreviewUrl(prevPath, 1280);
-      setCurrentSrc(previewSrc);
-      setHasError(false);
-      setZoom(1);
+    if (currentIndex > 0) {
+      goToImage(imagesInDir[currentIndex - 1]);
     }
-  }, [hasPrev, currentIndex, imagesInDir]);
+  }, [currentIndex, imagesInDir, goToImage]);
 
   const handleNext = useCallback(() => {
-    if (hasNext) {
-      const nextPath = imagesInDir[currentIndex + 1];
-      const previewSrc = toPreviewUrl(nextPath, 1280);
-      setCurrentSrc(previewSrc);
-      setHasError(false);
-      setZoom(1);
+    if (currentIndex >= 0 && currentIndex < imagesInDir.length - 1) {
+      goToImage(imagesInDir[currentIndex + 1]);
     }
-  }, [hasNext, currentIndex, imagesInDir]);
+  }, [currentIndex, imagesInDir, goToImage]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!path) return;
-      if (event.key === 'ArrowLeft') handlePrev();
-      if (event.key === 'ArrowRight') handleNext();
+      if (event.key === 'ArrowLeft') { event.preventDefault(); handlePrev(); }
+      if (event.key === 'ArrowRight') { event.preventDefault(); handleNext(); }
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -94,22 +92,22 @@ export function ImagePreviewDialog({ path, fileTree, currentDirectory, onClose }
 
   if (!path) return null;
 
-  const fileName = path.split('/').pop() || path;
-  const fullSrc = toMediaUrl(path);
+  const fileName = (activePath || path).split('/').pop() || (activePath || path);
+  const fullSrc = activePath ? toMediaUrl(activePath) : toMediaUrl(path);
 
   const handleError = () => {
-    if (currentSrc !== fullSrc) {
+    if (currentSrc && currentSrc !== fullSrc) {
       setCurrentSrc(fullSrc);
     } else {
       setHasError(true);
     }
   };
 
-  const handleDownload = () => { void downloadFile(path); };
+  const handleDownload = () => { void downloadFile(activePath || path); };
 
   return (
     <Dialog open={!!path} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="flex h-[90vh] max-w-[95vw] flex-col gap-0 p-0 sm:max-w-[90vw] [&>button]:hidden">
+      <DialogContent layout="viewport" showCloseButton={false} className="flex h-full flex-col gap-0 p-0">
         <DialogTitle className="sr-only">{fileName}</DialogTitle>
         <DialogDescription className="sr-only">Image preview: {fileName}</DialogDescription>
 
