@@ -1,17 +1,3 @@
-/**
- * useFileWatcher Hook
- *
- * React Hook für File Watching über Server-Sent Events (SSE).
- * Verbindet sich automatisch mit dem Server und aktualisiert
- * den File-Tree bei Änderungen.
- *
- * Features:
- * - Automatische SSE-Verbindung
- * - Reconnect mit Exponential Backoff
- * - Debounced file tree reload (min 1000ms, max 5000ms)
- * - Manuelle Steuerung (connect/disconnect)
- */
-
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useFileStore } from '@/app/store/file-store';
 
@@ -37,6 +23,20 @@ interface UseFileWatcherReturn {
   disconnect: () => void;
 }
 
+async function syncExpandedDirs(clientId: string, expandedDirs: Set<string>) {
+  const dirs = Array.from(expandedDirs);
+  try {
+    await fetch('/api/files/watch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ clientId, dirs }),
+    });
+  } catch {
+    // Non-critical: server will fall back to broadcasting all events
+  }
+}
+
 export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatcherReturn {
   const {
     enabled = true,
@@ -45,8 +45,8 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
     onEvent,
   } = options;
 
-  const { loadFileTree, loadSubdirectory, expandedDirs } = useFileStore();
-   
+  const { loadSubdirectory } = useFileStore();
+
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -55,28 +55,29 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
   const reconnectAttemptsRef = useRef<number>(0);
   const isMountedRef = useRef<boolean>(false);
   const connectRef = useRef<() => void>(() => {});
+  const clientIdRef = useRef<string | null>(null);
+  const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [lastEvent, setLastEvent] = useState<FileEvent | null>(null);
 
-  // Refs für werte die sich ändern können aber nicht re-render auslösen sollen
   const enabledRef = useRef(enabled);
   const onEventRef = useRef(onEvent);
   const optionsRef = useRef({ debounceMs, maxDebounceMs });
 
-  // Update refs when values change
-  useEffect(() => {
-    enabledRef.current = enabled;
-  }, [enabled]);
+  useEffect(() => { enabledRef.current = enabled; }, [enabled]);
+  useEffect(() => { onEventRef.current = onEvent; }, [onEvent]);
+  useEffect(() => { optionsRef.current = { debounceMs, maxDebounceMs }; }, [debounceMs, maxDebounceMs]);
 
-  useEffect(() => {
-    onEventRef.current = onEvent;
-  }, [onEvent]);
+  const scheduleSync = useCallback(() => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      const clientId = clientIdRef.current;
+      if (!clientId) return;
+      const expanded = useFileStore.getState().expandedDirs;
+      syncExpandedDirs(clientId, expanded);
+    }, 200);
+  }, []);
 
-  useEffect(() => {
-    optionsRef.current = { debounceMs, maxDebounceMs };
-  }, [debounceMs, maxDebounceMs]);
-
-  // Cleanup function - stable reference
   const cleanup = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
@@ -86,14 +87,18 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
       clearTimeout(debounceTimeoutRef.current);
       debounceTimeoutRef.current = null;
     }
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    clientIdRef.current = null;
     reconnectAttemptsRef.current = 0;
   }, []);
 
-  // Debounced reload function - stable reference
   const debouncedReload = useCallback((dir: string = '.') => {
     const now = Date.now();
     const timeSinceLastReload = now - lastReloadRef.current;
@@ -119,7 +124,6 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
     }, finalWaitTime);
   }, [loadSubdirectory]);
 
-  // Handle file change event - stable reference
   const handleFileChange = useCallback((event: FileEvent) => {
     const dir = event.dir || (event.relativePath.includes('/')
       ? event.relativePath.substring(0, event.relativePath.lastIndexOf('/'))
@@ -130,13 +134,8 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
     debouncedReload(dir);
   }, [debouncedReload]);
 
-  // Connect function - stable reference
   const connect = useCallback(() => {
-    if (eventSourceRef.current) {
-      return; // Already connected
-    }
-
-    console.log('[useFileWatcher] Connecting to file watcher SSE...');
+    if (eventSourceRef.current) return;
 
     const eventSource = new EventSource('/api/files/watch', {
       withCredentials: true,
@@ -145,14 +144,21 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
-      console.log('[useFileWatcher] SSE connection established');
       reconnectAttemptsRef.current = 0;
       setIsConnected(true);
     };
 
-    // Use addEventListener for named events instead of onmessage
-    eventSource.addEventListener('connected', () => {
-      console.log('[useFileWatcher] Connected to file watcher');
+    eventSource.addEventListener('connected', (message: MessageEvent) => {
+      try {
+        const data = JSON.parse(message.data);
+        if (data.clientId) {
+          clientIdRef.current = data.clientId;
+          const expanded = useFileStore.getState().expandedDirs;
+          syncExpandedDirs(data.clientId, expanded);
+        }
+      } catch {
+        // fallback: no clientId, server broadcasts all
+      }
     });
 
     eventSource.addEventListener('filechange', (message: MessageEvent) => {
@@ -164,19 +170,15 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
       }
     });
 
-    eventSource.addEventListener('heartbeat', () => {
-      // Heartbeat received - connection is alive
-    });
+    eventSource.addEventListener('heartbeat', () => {});
 
     eventSource.onerror = () => {
-      console.warn('[useFileWatcher] SSE connection error');
       setIsConnected(false);
+      clientIdRef.current = null;
 
-      // Close current connection
       eventSource.close();
       eventSourceRef.current = null;
 
-      // Attempt reconnect with exponential backoff
       const maxReconnectDelay = 30000;
       const reconnectDelay = Math.min(
         1000 * Math.pow(2, reconnectAttemptsRef.current),
@@ -184,8 +186,6 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
       );
 
       reconnectAttemptsRef.current++;
-
-      console.log(`[useFileWatcher] Reconnecting in ${reconnectDelay}ms (attempt ${reconnectAttemptsRef.current})`);
 
       reconnectTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current && enabledRef.current && !eventSourceRef.current) {
@@ -195,18 +195,13 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
     };
   }, [handleFileChange]);
 
-  useEffect(() => {
-    connectRef.current = connect;
-  }, [connect]);
+  useEffect(() => { connectRef.current = connect; }, [connect]);
 
-  // Disconnect function
   const disconnect = useCallback(() => {
-    console.log('[useFileWatcher] Disconnecting from file watcher SSE');
     cleanup();
     setIsConnected(false);
   }, [cleanup]);
 
-  // Effect for auto-connect/disconnect - depends only on enabled
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -222,7 +217,25 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
     };
   }, [enabled, connect, cleanup]);
 
-  // Return values
+  useEffect(() => {
+    if (!isConnected) return;
+    const expanded = useFileStore.getState().expandedDirs;
+    if (clientIdRef.current && expanded.size >= 0) {
+      scheduleSync();
+    }
+  }, [isConnected, scheduleSync]);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    return useFileStore.subscribe(
+      (state, prevState) => {
+        if (state.expandedDirs === prevState.expandedDirs) return;
+        if (!clientIdRef.current) return;
+        scheduleSync();
+      }
+    );
+  }, [isConnected, scheduleSync]);
+
   return {
     isConnected,
     lastEvent,

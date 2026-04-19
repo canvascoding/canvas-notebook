@@ -406,7 +406,7 @@ Ergaenzt Multi-Select sinnvoll. Statt N einzelne DELETE-Requests wird ein Batch-
 |---|------|---------|-----------------|--------|
 | 4.1 | Batch Delete in workspace-files.ts | `app/lib/filesystem/workspace-files.ts` | - | **Done** |
 | 4.2 | Delete API Route auf Batch umstellen | `app/api/files/delete/route.ts` | 4.1 | **Done** |
-| 4.3 | Client auf Batch Delete umstellen | `app/store/file-store.ts` | 4.2 | Offen |
+| 4.3 | Client auf Batch Delete umstellen | `app/store/file-store.ts` | 4.2 | **Done** |
 
 ---
 
@@ -459,9 +459,9 @@ class FileWatcherService {
 
 | # | Task | Dateien | Abhaengigkeiten | Status |
 |---|------|---------|-----------------|--------|
-| 5.1 | FileWatcher auf Reference-Counting umbauen | `app/lib/filesystem/file-watcher.ts` | - | Offen |
-| 5.2 | SSE Watch Route: subscribe/unsubscribe per expanded Dir | `app/api/files/watch/route.ts` | 5.1 | Offen |
-| 5.3 | Client: expanded Dirs an Watcher melden | `app/store/file-store.ts` | 5.2, 1.2 | Offen |
+| 5.1 | FileWatcher auf Reference-Counting umbauen | `app/lib/filesystem/file-watcher.ts` | - | **Done** |
+| 5.2 | SSE Watch Route: subscribe/unsubscribe per expanded Dir | `app/api/files/watch/route.ts` | 5.1 | **Done** |
+| 5.3 | Client: expanded Dirs an Watcher melden | `app/store/file-store.ts` | 5.2, 1.2 | **Done** |
 
 ---
 
