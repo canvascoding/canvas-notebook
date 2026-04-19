@@ -979,13 +979,12 @@ export default function CanvasAgentChat({
   useEffect(() => {
     console.log('[CanvasAgentChat] sessionId changed:', sessionId);
     sessionIdRef.current = sessionId;
-    // Persist active session so mobile can restore it after Sheet unmount/remount
-    if (typeof window !== 'undefined') {
-      if (sessionId) {
-        window.sessionStorage.setItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, sessionId);
-      } else {
-        window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
-      }
+    // Persist active session so mobile can restore it after Sheet unmount/remount.
+    // Only write non-null values here — clearing is handled explicitly by startNewChat.
+    // If we cleared on null, a fresh mount (sessionId=null) would erase the stored value
+    // before the restore effect has a chance to read it.
+    if (typeof window !== 'undefined' && sessionId) {
+      window.sessionStorage.setItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, sessionId);
     }
   }, [sessionId]);
 
@@ -1872,6 +1871,10 @@ export default function CanvasAgentChat({
     sessionIdRef.current = null;
     lastCompactionMarkerRef.current = null;
     userStartedNewChatRef.current = true;
+    // Clear persisted session so reopening chat doesn't restore this session
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
+    }
     setMessages([]);
     // Always close history on mobile when starting new chat, conditionally on desktop
     if (isMobile || shouldShowHistoryAsOverlay) {

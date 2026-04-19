@@ -123,7 +123,14 @@ export function DashboardShell({ username }: DashboardShellProps) {
   const [chatWidth, setChatWidth] = useState(420);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>('editor');
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
-  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [mobileChatOpen, setMobileChatOpenRaw] = useState(false);
+  const setMobileChatOpen = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    setMobileChatOpenRaw((prev) => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      console.log('[DashboardShell] mobileChatOpen:', prev, '->', next);
+      return next;
+    });
+  }, []);
   const isResizing = useRef(false);
   const isSidebarResizing = useRef(false);
   const sidebarResizeRef = useRef<{
@@ -611,7 +618,6 @@ export function DashboardShell({ username }: DashboardShellProps) {
             <SheetContent
               side="right"
               showCloseButton={false}
-              forceMount
               className="w-full max-w-none gap-0 border-l p-0 sm:max-w-none"
             >
               <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
