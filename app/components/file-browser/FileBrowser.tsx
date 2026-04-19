@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect, type DragEvent } from 'react';
-import { ChevronsDownUp, CheckSquare, Download, FilePlus, FolderPlus, MoreHorizontal, Move, Search, Trash2, Upload, X } from 'lucide-react';
+import { ChevronsDownUp, CheckSquare, Download, FilePlus, FolderPlus, FolderTree, List, MoreHorizontal, Move, Search, Trash2, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -30,7 +30,6 @@ import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-fold
 import { useFileWatcher } from '@/app/hooks/useFileWatcher';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
-import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
 
 interface FileBrowserProps {
@@ -49,7 +48,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const [deleteSkippedCount, setDeleteSkippedCount] = useState(0);
   const isMobileSheet = variant === 'mobile-sheet';
 
-  const { isConnected } = useFileWatcher({
+  useFileWatcher({
     enabled: true,
     debounceMs: 1000,
     maxDebounceMs: 5000,
@@ -73,24 +72,45 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     clearMultiSelect,
     downloadFile,
     setBulkMoveOpen,
+    browserMode,
+    setBrowserMode,
   } = useFileStore();
 
+  const isDirectoryReachableInTree = useCallback(
+    (dirPath: string) => {
+      if (dirPath === '.') {
+        return true;
+      }
+
+      if (findPathInTree(dirPath, fileTree)) {
+        return true;
+      }
+
+      // With lazy loading, nested directories are often not present in the
+      // currently loaded tree until their parent is expanded. If the root
+      // segment still exists, treat the path as potentially valid.
+      const [rootSegment] = dirPath.split('/');
+      return fileTree.some((node) => node.type === 'directory' && node.path === rootSegment);
+    },
+    [fileTree]
+  );
+
   const imagePreprocess = useImagePreprocess({
-    onUpload: async (files, convertParams, targetDir) => {
+    onUpload: async (files, convertParams, targetDir, pathMap) => {
       const dir = targetDir || resolveTargetDir();
-      await uploadFile(files, dir, undefined, convertParams);
+      await uploadFile(files, dir, pathMap, convertParams);
     },
   });
 
   useEffect(() => {
-    if (currentDirectory && currentDirectory !== '.' && !findPathInTree(currentDirectory, fileTree)) {
+    if (currentDirectory && currentDirectory !== '.' && !isDirectoryReachableInTree(currentDirectory)) {
       console.warn(`Target directory "${currentDirectory}" no longer exists. Falling back to root.`);
       useFileStore.getState().setCurrentDirectory('.');
     }
-  }, [currentDirectory, fileTree]);
+  }, [currentDirectory, isDirectoryReachableInTree]);
 
   const resolveTargetDir = () => {
-    if (currentDirectory && currentDirectory !== '.' && !findPathInTree(currentDirectory, fileTree)) {
+    if (currentDirectory && currentDirectory !== '.' && !isDirectoryReachableInTree(currentDirectory)) {
       return '.';
     }
 
@@ -167,7 +187,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     }
 
     const targetDir = resolveTargetDir();
-    await imagePreprocess.handleFiles(files, targetDir);
+    await imagePreprocess.handleFiles(files, targetDir, pathMap);
   };
 
   const handleDeleteClick = () => {
@@ -307,6 +327,10 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                   {t('newFolder')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setBrowserMode(browserMode === 'tree' ? 'list' : 'tree')}>
+                  {browserMode === 'tree' ? <List className="h-4 w-4" /> : <FolderTree className="h-4 w-4" />}
+                  {browserMode === 'tree' ? t('browserModeList') : t('browserModeTree')}
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={collapseAllDirectories}>
                   <ChevronsDownUp className="h-4 w-4" />
                   {t('collapseAllFolders')}
@@ -390,6 +414,19 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                     <Button
                       variant="ghost"
                       size="icon-sm"
+                      onClick={() => setBrowserMode(browserMode === 'tree' ? 'list' : 'tree')}
+                      aria-label={browserMode === 'tree' ? t('browserModeList') : t('browserModeTree')}
+                    >
+                      {browserMode === 'tree' ? <List className="h-4 w-4" /> : <FolderTree className="h-4 w-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{browserMode === 'tree' ? t('browserModeList') : t('browserModeTree')}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
                       onClick={collapseAllDirectories}
                       aria-label={t('collapseAllFolders')}
                     >
@@ -464,7 +501,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        <FileTree />
+        <FileTree variant={variant} browserMode={browserMode} />
       </div>
 
       <CreateItemDialog

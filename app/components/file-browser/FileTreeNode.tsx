@@ -14,7 +14,7 @@ import {
   SidebarMenuButton,
   SidebarMenuSub,
 } from '@/components/ui/sidebar';
-import { useFileStore, FileNode as FileNodeType } from '@/app/store/file-store';
+import { useFileStore, FileNode as FileNodeType, type BrowserMode } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -22,9 +22,11 @@ import { useIsMobile } from '@/hooks/use-mobile';
 interface FileTreeNodeProps {
   node: FileNodeType;
   depth?: number;
+  browserMode?: BrowserMode;
+  onNavigateInto?: (node: FileNodeType) => void;
 }
 
-export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
+export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigateInto }: FileTreeNodeProps) {
   const isMobile = useIsMobile();
   const {
     expandedDirs,
@@ -111,6 +113,59 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
   };
 
   if (isDirectory) {
+    if (browserMode === 'list') {
+      return (
+        <SidebarMenuItem>
+          <div
+            className={cn(
+              'group relative flex w-full items-center px-2 text-foreground transition-colors',
+              isMobile ? 'py-1.5' : 'py-0.5',
+              isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
+            )}
+            onContextMenu={handleContextMenu}
+          >
+            <SidebarMenuButton
+              className={cn(
+                'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+                isMobile && 'min-h-[44px] py-2',
+                isRowActive && 'text-foreground'
+              )}
+              onClick={() => onNavigateInto?.(node)}
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+              ) : (
+                getFileIcon()
+              )}
+              <span className="flex-1 truncate text-sm">{node.name}</span>
+            </SidebarMenuButton>
+            {isMultiSelectMode ? (
+              <button
+                onClick={handleCheckboxClick}
+                className="ml-auto shrink-0 p-1 hover:bg-accent/70"
+              >
+                {isMultiSelected ? (
+                  <CheckSquare className="h-4 w-4 text-primary" />
+                ) : (
+                  <Square className="h-4 w-4 text-muted-foreground" />
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={handleDotsClick}
+                className={cn(
+                  'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
+                  isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                )}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </SidebarMenuItem>
+      );
+    }
+
     const showChildren = isExpanded && (childNodes.length > 0 || isLoading);
     return (
       <Collapsible open={isExpanded} onOpenChange={handleToggle}>
@@ -181,7 +236,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
                 </div>
               ) : (
                 childNodes.map((child) => (
-                  <FileTreeNode key={child.path} node={child} depth={depth + 1} />
+                  <FileTreeNode key={child.path} node={child} depth={depth + 1} browserMode={browserMode} onNavigateInto={onNavigateInto} />
                 ))
               )}
             </SidebarMenuSub>

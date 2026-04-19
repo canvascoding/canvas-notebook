@@ -146,6 +146,9 @@
     "select": "Auswählen",
     "delete": "Löschen",
     "collapseAll": "Alle einklappen",
+    "browserModeTree": "Baumansicht",
+    "browserModeList": "Listenansicht",
+    "goUpFolder": "Nach oben",
     "autoRefreshConnected": "Auto-Refresh: Verbunden",
     "autoRefreshDisconnected": "Auto-Refresh: Getrennt",
     "selectedCount": "{count} ausgewählt",
@@ -1585,6 +1588,115 @@
       "close": "Schließen",
       "videoTitle": "{title} Video",
       "moreActions": "Weitere Aktionen"
+    }
+  },
+  "onboarding": {
+    "hints": {
+      "home": {
+        "promptHero": {
+          "title": "Was erstellen?",
+          "description": "Beschreibe, was du erstellen möchtest — oder nutze die Kategorien unten für Inspiration."
+        },
+        "workspace": {
+          "title": "Workspace",
+          "description": "Dein Workspace: Im Notebook verwaltest du Dateien und chattest mit dem Agent. Automations plant wiederkehrende Aufträge."
+        },
+        "create": {
+          "title": "Direkt erstellen",
+          "description": "Bilder, Videos und lokalisierte Ads generieren — ohne Umweg über den Chat."
+        }
+      },
+      "notebook": {
+        "fileBrowser": {
+          "title": "Dateibrowser",
+          "description": "Hier siehst du alle Dateien im Workspace. Neu erstellen, hochladen oder per Drag & Drop einfügen."
+        },
+        "editor": {
+          "title": "Editor",
+          "description": "Öffne eine Datei aus dem Dateibaum, um sie hier zu bearbeiten."
+        },
+        "editorMode": {
+          "title": "Ansichtsmodus",
+          "description": "Oben rechts kannst du zwischen Editor, Editor mit Vorschau und reiner Vorschau umschalten."
+        },
+        "chat": {
+          "title": "Agent-Chat",
+          "description": "Chatte mit dem Agent, lade Dateien per @-Referenz, oder starte mit einem Prompt-Vorschlag."
+        }
+      },
+      "imageGen": {
+        "config": {
+          "title": "Konfiguration",
+          "description": "Wähle Provider und Modell, definiere Seitenverhältnis und Anzahl — dann prompten."
+        },
+        "references": {
+          "title": "Referenzbilder",
+          "description": "Lade Referenzbilder hoch, um den Output visuell zu steuern."
+        },
+        "results": {
+          "title": "Ergebnisse",
+          "description": "Generierte Bilder erscheinen hier. Klicke für eine Großansicht oder lade sie herunter."
+        }
+      },
+      "veo": {
+        "mode": {
+          "title": "Videomodus",
+          "description": "Wähle den Modus: Text-to-Video, Frames-to-Video, References-to-Video oder Video verlängern."
+        },
+        "config": {
+          "title": "Einstellungen",
+          "description": "Stelle Seitenverhältnis und Auflösung ein, bevor du generierst."
+        },
+        "results": {
+          "title": "Ergebnisse",
+          "description": "Dein Video erscheint hier. Gespeicherte Outputs findest du ebenfalls in dieser Sektion."
+        }
+      },
+      "localizer": {
+        "reference": {
+          "title": "Referenz-Ad",
+          "description": "Lade das Ad-Bild hoch, das du lokalisieren möchtest."
+        },
+        "markets": {
+          "title": "Zielmärkte",
+          "description": "Füge Zielmärkte hinzu (z.B. US, FR, ES). Pro Markt wird eine lokalisierte Variante erstellt."
+        },
+        "results": {
+          "title": "Ergebnisse",
+          "description": "Die lokalisierten Ads erscheinen hier, eins pro Zielmarkt."
+        }
+      },
+      "settings": {
+        "agentSettings": {
+          "title": "Provider & Modell",
+          "description": "Hier wählst du den AI-Provider und das Modell. Die Auswahl bestimmt, welcher Agent deine Prompts bearbeitet."
+        },
+        "managedFiles": {
+          "title": "Agent-Prompt",
+          "description": "Diese Dateien steuern das Verhalten und Wissen deines Agents. AGENTS.md ist die Hauptanweisung, weitere Dateien ergänzen Identität, Wissen und Fähigkeiten."
+        },
+        "tools": {
+          "title": "Tools",
+          "description": "Hier aktivierst oder deaktivierst du einzelne Agent-Tools. Deaktiviere Tools, die du nicht brauchst, um den Agenten zu fokussieren."
+        },
+        "integrations": {
+          "title": "Integrations-Env",
+          "description": "Hier verwaltest du API-Keys und Umgebungsvariablen für externe Dienste — z.B. Gemini, OpenAI, Brave. Im KV-Modus kannst du einzelne Werte bearbeiten, im Raw-Modus die ganze Datei."
+        },
+        "agentsEnv": {
+          "title": "Agenten-Env",
+          "description": "Separate Umgebungsvariablen für Agent-spezifische Provider wie OpenRouter, Ollama oder Anthropic."
+        },
+        "usage": {
+          "title": "Usage",
+          "description": "Hier siehst du Token-Verbrauch, Kosten und Nutzungsstatistiken. Filtere nach Zeitraum, Provider oder Modell."
+        }
+      }
+    },
+    "helpDropdown": {
+      "repeatTutorial": "Tutorial wiederholen",
+      "completeOnboarding": "Onboarding abschließen",
+      "openHelp": "Hilfe öffnen"
     }
   }
 }
