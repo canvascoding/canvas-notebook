@@ -523,57 +523,50 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ treeError: null });
 
     const pathsToDelete = Array.isArray(paths) ? paths : [paths];
-    let deepestCommonParent = '.';
-    
-    if (pathsToDelete.length > 0) {
-      // Find parent of the first path as a starting point
-      const firstPath = pathsToDelete[0];
-      deepestCommonParent = firstPath.includes('/') ? firstPath.substring(0, firstPath.lastIndexOf('/')) : '.';
-    }
 
     try {
-      for (const path of pathsToDelete) {
-        const response = await fetch('/api/files/delete', {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ path }),
-        });
+      const response = await fetch('/api/files/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ path: pathsToDelete }),
+      });
 
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || `Failed to delete path: ${path}`);
-        }
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete paths');
+      }
 
+      const result = await response.json();
+      if (result.failed && result.failed.length > 0) {
+        const failedPaths = result.failed.map((f: { path: string; error: string }) => f.path).join(', ');
+        throw new Error(`Failed to delete: ${failedPaths}`);
+      }
+
+      for (const deletedPath of pathsToDelete) {
         const { selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
-        
-        // If we deleted the current directory or a parent of it, reset current directory
-        if (currentDirectory === path || currentDirectory.startsWith(path + '/')) {
-          const newDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
+
+        if (currentDirectory === deletedPath || currentDirectory.startsWith(deletedPath + '/')) {
+          const newDir = deletedPath.includes('/') ? deletedPath.substring(0, deletedPath.lastIndexOf('/')) : '.';
           setCurrentDirectory(newDir);
         }
 
-        if (selectedNode?.path === path) {
+        if (selectedNode?.path === deletedPath) {
           set({ selectedNode: null });
         }
-        if (currentFile?.path === path) {
+        if (currentFile?.path === deletedPath) {
           set({ currentFile: null });
         }
       }
 
-      // Clear multi-select after successful deletion
       set({ multiSelectPaths: new Set(), isMultiSelectMode: false });
 
-      // Refresh from the common parent to keep context
-      await get().loadFileTree(deepestCommonParent, undefined, true);
+      const firstPath = pathsToDelete[0];
+      const parentDir = firstPath.includes('/') ? firstPath.substring(0, firstPath.lastIndexOf('/')) : '.';
+      await get().loadFileTree(parentDir, undefined, true);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to delete path';
-      set({
-        treeError: message,
-      });
+      const message = error instanceof Error ? error.message : 'Failed to delete path';
+      set({ treeError: message });
       throw error;
     }
   },

@@ -1,16 +1,3 @@
-/**
- * File Watcher Service
- *
- * Überwacht das Workspace-Verzeichnis auf Änderungen und
- * benachrichtigt verbundene Clients über SSE.
- *
- * Features:
- * - Rekursives Watching mit fs.watch
- * - Debouncing (500ms) um zu viele Events zu vermeiden
- * - Ignorierte Verzeichnisse: node_modules, .git, .next, dist, build, .cache
- * - Event-Typen: add, change, unlink, addDir, unlinkDir
- */
-
 import { promises as fs, watch as fsWatch, FSWatcher } from 'fs';
 import path from 'path';
 import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
@@ -18,7 +5,6 @@ import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree
 const DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
 
-// Ignorierte Verzeichnisse und Dateien
 const IGNORED_PATTERNS = [
   'node_modules',
   '.git',
@@ -30,7 +16,6 @@ const IGNORED_PATTERNS = [
   'Thumbs.db',
 ];
 
-// Event-Typen
 type FileEventType = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
 
 interface FileEvent {
@@ -41,7 +26,6 @@ interface FileEvent {
   timestamp: number;
 }
 
-// Client-Typ für SSE
 interface Client {
   id: string;
   send: (event: FileEvent) => void;
@@ -49,49 +33,119 @@ interface Client {
 
 class FileWatcherService {
   private watchers: Map<string, FSWatcher> = new Map();
-  private clients: Set<Client> = new Set();
+  private clients: Map<string, Client> = new Map();
+  private subscriptions: Map<string, Set<string>> = new Map();
   private debounceTimer: NodeJS.Timeout | null = null;
   private pendingEvents: FileEvent[] = [];
-  private isWatching: boolean = false;
   private readonly debounceDelay: number = 500;
-  private maxDepth: number = 10;
+  private initialized: boolean = false;
 
   constructor() {
-    this.startWatching();
+    this.ensureInitialized();
   }
 
-  /**
-   * Startet das File Watching
-   */
-  private async startWatching(): Promise<void> {
-    if (this.isWatching) return;
-
+  private async ensureInitialized(): Promise<void> {
+    if (this.initialized) return;
     try {
-      // Stelle sicher, dass das Workspace-Verzeichnis existiert
       await fs.mkdir(WORKSPACE_BASE_DIR, { recursive: true });
-
-      // Starte rekursives Watching
-      await this.watchDirectory('.', 0);
-
-      this.isWatching = true;
-      console.log('[FileWatcher] Started watching:', WORKSPACE_BASE_DIR);
+      this.initialized = true;
     } catch (error) {
-      console.error('[FileWatcher] Failed to start watching:', error);
+      console.error('[FileWatcher] Failed to initialize workspace dir:', error);
     }
   }
 
-  /**
-   * Rekursives Watching eines Verzeichnisses
-   */
-  private async watchDirectory(relativeDir: string, depth: number): Promise<void> {
-    if (depth > this.maxDepth) return;
+  public subscribe(client: Client): () => void {
+    this.clients.set(client.id, client);
+    console.log(`[FileWatcher] Client subscribed: ${client.id} (${this.clients.size} total)`);
 
-    const fullPath = path.join(WORKSPACE_BASE_DIR, relativeDir);
+    this.subscribeDir(client.id, '.');
 
-    // Prüfe ob Verzeichnis ignoriert werden soll
-    if (this.shouldIgnore(relativeDir)) return;
+    return () => {
+      this.unsubscribeAll(client.id);
+      this.clients.delete(client.id);
+      console.log(`[FileWatcher] Client unsubscribed: ${client.id} (${this.clients.size} remaining)`);
+    };
+  }
 
-    // Watcher für dieses Verzeichnis erstellen
+  public subscribeDir(clientId: string, dirPath: string): void {
+    if (!this.clients.has(clientId)) return;
+    if (this.shouldIgnore(dirPath)) return;
+
+    if (!this.subscriptions.has(dirPath)) {
+      this.subscriptions.set(dirPath, new Set());
+    }
+
+    const subs = this.subscriptions.get(dirPath)!;
+    if (subs.has(clientId)) return;
+
+    subs.add(clientId);
+
+    if (subs.size === 1) {
+      this.startWatchingDir(dirPath);
+    }
+  }
+
+  public unsubscribeDir(clientId: string, dirPath: string): void {
+    const subs = this.subscriptions.get(dirPath);
+    if (!subs) return;
+
+    subs.delete(clientId);
+
+    if (subs.size === 0) {
+      this.subscriptions.delete(dirPath);
+      this.stopWatchingPath(this.toFullPath(dirPath));
+    }
+  }
+
+  public unsubscribeAll(clientId: string): void {
+    const dirsToRemove: string[] = [];
+    for (const [dirPath, subs] of this.subscriptions) {
+      subs.delete(clientId);
+      if (subs.size === 0) {
+        dirsToRemove.push(dirPath);
+      }
+    }
+    for (const dirPath of dirsToRemove) {
+      this.subscriptions.delete(dirPath);
+      this.stopWatchingPath(this.toFullPath(dirPath));
+    }
+  }
+
+  public syncDirs(clientId: string, dirPaths: string[]): void {
+    if (!this.clients.has(clientId)) return;
+
+    const current = new Set<string>();
+    for (const [dirPath, subs] of this.subscriptions) {
+      if (subs.has(clientId)) {
+        current.add(dirPath);
+      }
+    }
+
+    const desired = new Set(dirPaths);
+    desired.add('.');
+
+    for (const dir of desired) {
+      if (!current.has(dir)) {
+        this.subscribeDir(clientId, dir);
+      }
+    }
+
+    for (const dir of current) {
+      if (!desired.has(dir)) {
+        this.unsubscribeDir(clientId, dir);
+      }
+    }
+  }
+
+  public getSubscribedDirs(): string[] {
+    return Array.from(this.subscriptions.keys());
+  }
+
+  private async startWatchingDir(relativeDir: string): Promise<void> {
+    const fullPath = this.toFullPath(relativeDir);
+
+    if (this.watchers.has(fullPath)) return;
+
     try {
       const watcher = fsWatch(
         fullPath,
@@ -102,7 +156,6 @@ class FileWatcherService {
           const relativeFilePath = relativeDir === '.' ? filename : path.join(relativeDir, filename);
           const fullFilePath = path.join(fullPath, filename);
 
-          // Bestimme Event-Typ
           this.determineEventType(eventType, relativeFilePath, fullFilePath).then((fileEvent) => {
             if (fileEvent) {
               this.queueEvent(fileEvent);
@@ -112,25 +165,11 @@ class FileWatcherService {
       );
 
       this.watchers.set(fullPath, watcher);
-
-      // Rekursiv Unterverzeichnisse beobachten
-      if (depth < this.maxDepth) {
-        const entries = await fs.readdir(fullPath, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory() && !this.shouldIgnore(entry.name)) {
-            const subDir = relativeDir === '.' ? entry.name : path.join(relativeDir, entry.name);
-            await this.watchDirectory(subDir, depth + 1);
-          }
-        }
-      }
     } catch (error) {
       console.warn(`[FileWatcher] Failed to watch directory ${relativeDir}:`, error);
     }
   }
 
-  /**
-   * Bestimmt den Event-Typ basierend auf fs.watch Event
-   */
   private async determineEventType(
     eventType: 'rename' | 'change',
     relativePath: string,
@@ -151,17 +190,17 @@ class FileWatcherService {
       };
     }
 
-    // 'rename' kann bedeuten: created, deleted, oder renamed
     try {
       const stats = await fs.stat(fullPath);
       const isDir = stats.isDirectory();
-
-      // Prüfe ob wir dieses Verzeichnis bereits beobachten
       const isNewDir = isDir && !this.watchers.has(fullPath);
 
       if (isNewDir) {
-        // Neues Verzeichnis - starte Watching
-        await this.watchDirectory(relativePath, 0);
+        const relativeDir = relativePath;
+        const subs = this.subscriptions.get(relativeDir);
+        if (subs && subs.size > 0) {
+          this.startWatchingDir(relativeDir);
+        }
         return {
           type: 'addDir',
           path: fullPath,
@@ -179,11 +218,9 @@ class FileWatcherService {
         timestamp,
       };
     } catch {
-      // File existiert nicht mehr - wurde gelöscht
       const wasDir = this.watchers.has(fullPath);
 
       if (wasDir) {
-        // Stoppe Watching für gelöschtes Verzeichnis
         this.stopWatchingPath(fullPath);
         return {
           type: 'unlinkDir',
@@ -204,38 +241,26 @@ class FileWatcherService {
     }
   }
 
-  /**
-   * Prüft ob ein Pfad ignoriert werden soll
-   */
   private shouldIgnore(filePath: string): boolean {
     const parts = filePath.split(path.sep);
     return parts.some((part) => IGNORED_PATTERNS.includes(part));
   }
 
-  /**
-   * Queued Event mit Debouncing
-   */
   private queueEvent(event: FileEvent): void {
     this.pendingEvents.push(event);
 
-    // Clear existing timer
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
 
-    // Set new timer
     this.debounceTimer = setTimeout(() => {
       this.flushEvents();
     }, this.debounceDelay);
   }
 
-  /**
-   * Verarbeitet alle pending Events
-   */
   private flushEvents(): void {
     if (this.pendingEvents.length === 0) return;
 
-    // Dedupliziere Events (nur das neueste pro Pfad)
     const uniqueEvents = new Map<string, FileEvent>();
     for (const event of this.pendingEvents) {
       uniqueEvents.set(event.relativePath, event);
@@ -249,27 +274,21 @@ class FileWatcherService {
       this.broadcastEvent({ ...event, dir: dirPath });
     }
 
-    // Clear pending events
     this.pendingEvents = [];
   }
 
-  /**
-   * Sendet Event an alle verbundenen Clients
-   */
   private broadcastEvent(event: FileEvent): void {
-    for (const client of this.clients) {
+    for (const [clientId, client] of this.clients) {
       try {
         client.send(event);
       } catch (error) {
-        console.warn(`[FileWatcher] Failed to send to client ${client.id}:`, error);
-        this.clients.delete(client);
+        console.warn(`[FileWatcher] Failed to send to client ${clientId}:`, error);
+        this.unsubscribeAll(clientId);
+        this.clients.delete(clientId);
       }
     }
   }
 
-  /**
-   * Stoppt Watching für einen spezifischen Pfad
-   */
   private stopWatchingPath(fullPath: string): void {
     const watcher = this.watchers.get(fullPath);
     if (watcher) {
@@ -278,31 +297,18 @@ class FileWatcherService {
     }
   }
 
-  /**
-   * Registriert einen neuen Client
-   */
-  public subscribe(client: Client): () => void {
-    this.clients.add(client);
-    console.log(`[FileWatcher] Client subscribed: ${client.id} (${this.clients.size} total)`);
-
-    // Return unsubscribe function
-    return () => {
-      this.clients.delete(client);
-      console.log(`[FileWatcher] Client unsubscribed: ${client.id} (${this.clients.size} remaining)`);
-    };
+  private toFullPath(relativePath: string): string {
+    if (relativePath === '.') return WORKSPACE_BASE_DIR;
+    return path.join(WORKSPACE_BASE_DIR, relativePath);
   }
 
-  /**
-   * Stoppt alle Watcher
-   */
   public stop(): void {
-    for (const [path, watcher] of this.watchers) {
+    for (const [, watcher] of this.watchers) {
       watcher.close();
-      console.log(`[FileWatcher] Stopped watching: ${path}`);
     }
     this.watchers.clear();
     this.clients.clear();
-    this.isWatching = false;
+    this.subscriptions.clear();
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -312,9 +318,6 @@ class FileWatcherService {
     console.log('[FileWatcher] Stopped all watchers');
   }
 
-  /**
-   * Force refresh - invalideert Cache und benachrichtigt Clients
-   */
   public forceRefresh(): void {
     clearFileTreeCache();
     this.broadcastEvent({
@@ -327,7 +330,6 @@ class FileWatcherService {
   }
 }
 
-// Singleton-Instanz
 let fileWatcherInstance: FileWatcherService | null = null;
 
 export function getFileWatcher(): FileWatcherService {
