@@ -348,6 +348,7 @@
     "unreadResponse": "Neue Antwort",
     "newResponseReceived": "Neue Antwort erhalten",
     "markAsRead": "Als gelesen",
+    "markAllAsRead": "Alle als gelesen markieren",
     "newResponseReady": "Neue Antwort bereit",
     "openSession": "Session öffnen",
     "liveUpdatesUnavailable": "Die Live-Chat-Verbindung ist gerade nicht verfügbar.",

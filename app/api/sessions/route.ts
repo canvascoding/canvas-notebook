@@ -20,6 +20,7 @@ type RenameSessionPayload = {
   sessionId?: string;
   title?: string;
   markAsRead?: boolean;
+  markAllAsRead?: boolean;
   lastMessageAt?: string;
 };
 
@@ -268,6 +269,21 @@ export async function PATCH(request: NextRequest) {
     const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
     const title = typeof payload.title === 'string' ? payload.title.trim() : '';
     const markAsRead = typeof payload.markAsRead === 'boolean' ? payload.markAsRead : false;
+    const markAllAsRead = typeof payload.markAllAsRead === 'boolean' ? payload.markAllAsRead : false;
+
+    // Handle mark all as read
+    if (markAllAsRead && !sessionId) {
+      const now = new Date();
+      await db
+        .update(piSessions)
+        .set({ lastViewedAt: now, updatedAt: now })
+        .where(eq(piSessions.userId, session.user.id));
+
+      return NextResponse.json({
+        success: true,
+        lastViewedAt: now.toISOString(),
+      });
+    }
 
     if (!sessionId) {
       return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
