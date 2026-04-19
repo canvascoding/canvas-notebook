@@ -32,6 +32,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { SidebarProvider } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { FileEditor } from '@/app/components/editor/FileEditor';
@@ -350,6 +351,18 @@ export function DashboardShell({ username }: DashboardShellProps) {
   }, [handleDesktopChatPrimaryAction, viewportMode]);
 
   useEffect(() => {
+    const handleTerminalToggle = (event: KeyboardEvent) => {
+      if (viewportMode !== 'desktop') return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        setTerminalVisible((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleTerminalToggle);
+    return () => window.removeEventListener('keydown', handleTerminalToggle);
+  }, [viewportMode]);
+
+  useEffect(() => {
     const handleMouseUp = () => {
       if (isResizing.current) {
         stopResizing();
@@ -463,15 +476,24 @@ export function DashboardShell({ username }: DashboardShellProps) {
             <ThemeToggle />
             {isDesktopViewport ? (
               <>
-                <Button
-                  variant={terminalVisible ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setTerminalVisible(!terminalVisible)}
-                  className="gap-2 px-2 sm:px-3"
-                >
-                  <TerminalIcon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{tCommon('terminal')}</span>
-                </Button>
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant={terminalVisible ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setTerminalVisible(!terminalVisible)}
+                        className="gap-2 px-2 sm:px-3"
+                      >
+                        <TerminalIcon className="h-4 w-4" />
+                        <span className="hidden sm:inline">{tCommon('terminal')}</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {tCommon('terminal')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}J)
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 <div className="flex items-center">
                   <Button
                     variant={chatVisible ? "default" : "ghost"}
