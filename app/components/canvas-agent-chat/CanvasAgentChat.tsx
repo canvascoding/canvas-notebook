@@ -65,6 +65,9 @@ import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/cu
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
+import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
+import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
+import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
@@ -792,6 +795,8 @@ export default function CanvasAgentChat({
   // Upload states
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
+  const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
   const isWebSocketUnavailable = wsError?.code === 'AUTH_ERROR';
 
   const referencePickerRef = useRef<HTMLDivElement>(null);
@@ -2548,6 +2553,8 @@ export default function CanvasAgentChat({
       try {
         const res = await fetch('/api/sessions');
         const data = await res.json();
+        // A new session may have been created while the fetch was in-flight
+        if (sessionIdRef.current) return;
         if (data.success && data.sessions && data.sessions.length > 0) {
           const targetSession = data.sessions.find((s: AISession) => s.sessionId === storedSessionId);
           if (targetSession) {
