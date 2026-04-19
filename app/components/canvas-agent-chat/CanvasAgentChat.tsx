@@ -5,6 +5,7 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import type { Usage } from '@mariozechner/pi-ai';
 import { useTranslations } from 'next-intl';
 import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
@@ -38,6 +39,8 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
+import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
+import { extractFilePaths } from '@/app/lib/chat/extract-file-paths';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
@@ -608,7 +611,6 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
       if (href && isFilePath(href)) {
         return <FileLink href={href}>{children}</FileLink>;
       }
-      // External links
       return (
         <a 
           href={href} 
@@ -619,6 +621,29 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
           {children}
         </a>
       );
+    },
+    code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
+      const lang = className?.replace('language-', '').replace('hljs', '').trim();
+      const codeString = String(children).replace(/\n$/, '');
+      if (lang === 'mermaid') {
+        return <MermaidDiagram code={codeString} />;
+      }
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    },
+    pre: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
+      const child = React.Children.toArray(children)[0];
+      if (React.isValidElement(child) && child.type === 'code') {
+        const codeProps = child.props as { className?: string; children?: React.ReactNode };
+        const lang = codeProps.className?.replace('language-', '').replace('hljs', '').trim();
+        if (lang === 'mermaid') {
+          return <>{children}</>;
+        }
+      }
+      return <pre {...props}>{children}</pre>;
     },
   };
 
@@ -3308,6 +3333,11 @@ export default function CanvasAgentChat({
                       ))}
                     </div>
                   )}
+
+                  {isAssistant && !isStreamingAssistant && bodyContent && (() => {
+                    const filePaths = extractFilePaths(bodyContent);
+                    return filePaths.length > 0 ? <FileReferenceCard paths={filePaths} /> : null;
+                  })()}
 
                   {usage ? (
                     <div data-testid="chat-usage-footer" className="mt-3 border-t border-border/70 pt-2 text-[11px] text-muted-foreground">
