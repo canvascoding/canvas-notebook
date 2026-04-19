@@ -237,6 +237,21 @@ function contentToString(content: unknown): string {
   return '';
 }
 
+async function safeFetchJson<T = unknown>(res: Response): Promise<T | null> {
+  if (!res.ok) {
+    return null;
+  }
+  const text = await res.text();
+  if (!text) {
+    return null;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 function isImagePart(value: unknown): value is { type: 'image'; data: string; mimeType: string } {
   return isRecord(value) && value.type === 'image' && typeof value.data === 'string' && typeof value.mimeType === 'string';
 }
@@ -957,8 +972,8 @@ export default function CanvasAgentChat({
         void (async () => {
           try {
             const res = await fetch('/api/sessions');
-            const data = await res.json();
-            if (data.success) {
+            const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
+            if (data?.success) {
               const sessions = applyResolvedTitles(data.sessions || []);
               setHistory(sessions);
               setLatestSession(sessions[0] || null);
@@ -1067,8 +1082,8 @@ export default function CanvasAgentChat({
     setIsLoadingHistory(true);
     try {
       const res = await fetch('/api/sessions');
-      const data = await res.json();
-      if (data.success) {
+      const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
+      if (data?.success) {
         const sessions = applyResolvedTitles(data.sessions || []);
         setHistory(sessions);
         setLatestSession(sessions[0] || null);
@@ -1098,8 +1113,8 @@ export default function CanvasAgentChat({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ markAllAsRead: true }),
       });
-      const data = await res.json();
-      if (data.success) {
+      const data = await safeFetchJson<{ success: boolean; lastViewedAt?: string }>(res);
+      if (data?.success) {
         const now = data.lastViewedAt;
         setHistory((prev) => prev.map((s) => s.hasUnread ? { ...s, lastViewedAt: s.lastMessageAt || now, hasUnread: false } : s));
         setTotalUnreadCount(0);
@@ -2141,8 +2156,8 @@ export default function CanvasAgentChat({
 
     try {
       const res = await fetch(`/api/sessions?sessionId=${encodeURIComponent(id)}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
+      const data = await safeFetchJson<{ success: boolean }>(res);
+      if (data?.success) {
         setHistory((prev) => prev.filter((session) => session.sessionId !== id));
         if (sessionIdRef.current === id) {
           startNewChat();
@@ -2163,8 +2178,8 @@ export default function CanvasAgentChat({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: session.sessionId, title: nextTitle.trim() }),
       });
-      const data = await res.json();
-      if (data.success) {
+      const data = await safeFetchJson<{ success: boolean }>(res);
+      if (data?.success) {
         optimisticSessionTitlesRef.current[session.sessionId] = nextTitle.trim();
         setHistory((prev) => prev.map((item) => (item.sessionId === session.sessionId ? { ...item, title: nextTitle.trim() } : item)));
         if (sessionIdRef.current === session.sessionId) {
@@ -2192,10 +2207,10 @@ export default function CanvasAgentChat({
       }
       
       const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
-      const data = await res.json();
+      const data = await safeFetchJson<{ success: boolean; error?: string; errors?: string[]; files?: { id: string; originalName: string; mimeType: string; category: string }[] }>(res);
       
-      if (!res.ok || !data.success) {
-        throw new Error(data.error ?? 'Upload failed');
+      if (!data || !data.success) {
+        throw new Error(data?.error ?? 'Upload failed');
       }
       
       // API now returns array of files
@@ -2320,12 +2335,12 @@ export default function CanvasAgentChat({
   const fetchFiles = useCallback(async (query: string = '', requestId: number) => {
     try {
       const res = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=50`);
-      const data = await res.json();
+      const data = await safeFetchJson<{ success: boolean; files?: FilePickerFile[] }>(res);
       if (requestId !== referenceRequestIdRef.current) {
         return;
       }
 
-      if (data.success) {
+      if (data?.success) {
         const items = (data.files as FilePickerFile[]).map((file) => ({
           id: `file:${file.path}`,
           kind: 'file' as const,
@@ -2361,12 +2376,12 @@ export default function CanvasAgentChat({
 
     try {
       const res = await fetch('/api/skills');
-      const data = await res.json();
-      if (!data.success) {
+      const data = await safeFetchJson<{ success: boolean; skills?: Array<SkillPickerSkill & { path?: string }> }>(res);
+      if (!data?.success) {
         return [];
       }
 
-      const nextSkills = (data.skills as Array<SkillPickerSkill & { path?: string }>).filter((skill) => skill.enabled).map((skill) => ({
+      const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({
         description: skill.description,
         enabled: skill.enabled,
         name: skill.name,
@@ -2482,9 +2497,9 @@ export default function CanvasAgentChat({
     const fetchConfig = async () => {
       try {
         const res = await fetch('/api/agents/config');
-        const data = await res.json();
-        if (data.success) {
-          setAgentConfig(data.data);
+        const data = await safeFetchJson<{ success: boolean; data?: AgentConfig }>(res);
+        if (data?.success) {
+          setAgentConfig(data.data ?? null);
         }
       } catch (err) {
         console.error('Failed to fetch agent config', err);
@@ -2570,8 +2585,8 @@ export default function CanvasAgentChat({
     const loadRequestedSession = async () => {
       try {
         const res = await fetch('/api/sessions');
-        const data = await res.json();
-        if (data.success && data.sessions && data.sessions.length > 0) {
+        const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
+        if (data?.success && data.sessions && data.sessions.length > 0) {
           const targetSession = data.sessions.find((session: AISession) => session.sessionId === requestedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
@@ -2605,10 +2620,10 @@ export default function CanvasAgentChat({
     const restoreSession = async () => {
       try {
         const res = await fetch('/api/sessions');
-        const data = await res.json();
+        const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
         // A new session may have been created while the fetch was in-flight
         if (sessionIdRef.current) return;
-        if (data.success && data.sessions && data.sessions.length > 0) {
+        if (data?.success && data.sessions && data.sessions.length > 0) {
           const targetSession = data.sessions.find((s: AISession) => s.sessionId === storedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
