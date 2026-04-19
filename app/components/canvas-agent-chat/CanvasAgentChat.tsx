@@ -37,6 +37,7 @@ import {
   Eye,
   EyeOff,
   ArrowLeft,
+  CheckCheck,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
@@ -1090,6 +1091,24 @@ export default function CanvasAgentChat({
       setIsLoadingHistory(false);
     }
   }, [applyResolvedTitles, resolveSessionTitle]);
+
+  const markAllAsRead = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAllAsRead: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const now = data.lastViewedAt;
+        setHistory((prev) => prev.map((s) => s.hasUnread ? { ...s, lastViewedAt: s.lastMessageAt || now, hasUnread: false } : s));
+        setTotalUnreadCount(0);
+      }
+    } catch (err) {
+      console.error('Failed to mark all as read', err);
+    }
+  }, []);
 
   const getSessionTimeGroup = useCallback((dateString: string): 'today' | 'last7' | 'last14' | 'last30' | 'older' => {
     const date = new Date(dateString);
@@ -2934,6 +2953,16 @@ export default function CanvasAgentChat({
                     {historyUnreadOnly ? <Eye size={12} /> : <EyeOff size={12} />}
                     {historyUnreadOnly ? t('filterUnreadOnly') : t('filterAllSessions')}
                   </button>
+                  {totalUnreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void markAllAsRead()}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/15 hover:text-primary"
+                    >
+                      <CheckCheck size={12} />
+                      {t('markAllAsRead')}
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-2">
@@ -3078,6 +3107,16 @@ export default function CanvasAgentChat({
                   {historyUnreadOnly ? <Eye size={12} /> : <EyeOff size={12} />}
                   {historyUnreadOnly ? t('filterUnreadOnly') : t('filterAllSessions')}
                 </button>
+                {totalUnreadCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void markAllAsRead()}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/15 hover:text-primary"
+                  >
+                    <CheckCheck size={12} />
+                    {t('markAllAsRead')}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowHistory(false)}

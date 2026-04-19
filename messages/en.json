@@ -348,6 +348,7 @@
     "unreadResponse": "New response",
     "newResponseReceived": "New response received",
     "markAsRead": "Mark as read",
+    "markAllAsRead": "Mark all as read",
     "newResponseReady": "New response ready",
     "openSession": "Open session",
     "liveUpdatesUnavailable": "Live chat connection is unavailable.",

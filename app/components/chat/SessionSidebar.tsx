@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import {
@@ -12,6 +12,7 @@ import {
   Trash2,
   MessageSquare,
   ChevronLeft,
+  CheckCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
@@ -67,6 +68,25 @@ export function SessionSidebar({
   const [searchQuery, setSearchQuery] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  const totalUnreadCount = useMemo(() => history.filter((s) => s.hasUnread).length, [history]);
+
+  const markAllAsRead = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAllAsRead: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const now = data.lastViewedAt;
+        setHistory((prev) => prev.map((s) => s.hasUnread ? { ...s, lastViewedAt: s.lastMessageAt || now, hasUnread: false } : s));
+      }
+    } catch (err) {
+      console.error('Failed to mark all as read', err);
+    }
+  }, []);
 
   const fetchHistory = useCallback(async () => {
     setIsLoading(true);
@@ -292,6 +312,16 @@ export function SessionSidebar({
             {unreadOnly ? <Eye size={12} /> : <EyeOff size={12} />}
             {unreadOnly ? t('filterUnreadOnly') : t('filterAllSessions')}
           </button>
+          {totalUnreadCount > 0 && (
+            <button
+              type="button"
+              onClick={() => void markAllAsRead()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/15 hover:text-primary"
+            >
+              <CheckCheck size={12} />
+              {t('markAllAsRead')}
+            </button>
+          )}
           {isMobile && (
             <span className="ml-auto text-[10px] text-muted-foreground">
               {history.length} {t('sessions')}
