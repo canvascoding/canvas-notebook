@@ -61,6 +61,7 @@ import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-se
 import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { PlanModeToggle } from './PlanModeToggle';
+import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 
 interface Attachment {
   name: string;
@@ -952,6 +953,14 @@ export default function CanvasAgentChat({
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
+    // Persist active session so mobile can restore it after Sheet unmount/remount
+    if (typeof window !== 'undefined') {
+      if (sessionId) {
+        window.sessionStorage.setItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, sessionId);
+      } else {
+        window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
+      }
+    }
   }, [sessionId]);
 
   useEffect(() => {
@@ -2375,6 +2384,40 @@ export default function CanvasAgentChat({
 
     void loadRequestedSession();
   }, [clearSessionParamFromUrl, initialPrompt, initialPromptStorageKey, loadSession, requestedSessionId]);
+
+  // Restore previously active session on remount (mobile Sheet unmount/remount)
+  useEffect(() => {
+    if (initialPrompt?.trim()) return;
+    if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
+      return;
+    }
+    if (requestedSessionId) return;
+    if (userStartedNewChatRef.current) return;
+    if (sessionId) return; // already have a session
+
+    const storedSessionId = typeof window !== 'undefined'
+      ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
+      : null;
+    if (!storedSessionId) return;
+
+    const restoreSession = async () => {
+      try {
+        const res = await fetch('/api/sessions');
+        const data = await res.json();
+        if (data.success && data.sessions && data.sessions.length > 0) {
+          const targetSession = data.sessions.find((s: AISession) => s.sessionId === storedSessionId);
+          if (targetSession) {
+            await loadSession(targetSession);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to restore previous session', err);
+      }
+    };
+
+    void restoreSession();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (requestedSessionCleanupRef.current && !requestedSessionId) {
