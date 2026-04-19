@@ -708,14 +708,6 @@ export default function CanvasAgentChat({
   chatContainerWidth,
   isSurfaceVisible = true,
 }: CanvasAgentChatProps) {
-  // DEBUG: track mount/unmount lifecycle
-  useEffect(() => {
-    console.log('[CanvasAgentChat] MOUNTED, isSurfaceVisible=', isSurfaceVisible);
-    return () => {
-      console.log('[CanvasAgentChat] UNMOUNTED');
-    };
-  }, []);
-
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
   const router = useRouter();
@@ -977,7 +969,6 @@ export default function CanvasAgentChat({
   }, [input, isMobile, syncTextareaHeight]);
 
   useEffect(() => {
-    console.log('[CanvasAgentChat] sessionId changed:', sessionId);
     sessionIdRef.current = sessionId;
     // Persist active session so mobile can restore it after Sheet unmount/remount.
     // Only write non-null values here — clearing is handled explicitly by startNewChat.
@@ -989,7 +980,6 @@ export default function CanvasAgentChat({
   }, [sessionId]);
 
   useEffect(() => {
-    console.log('[CanvasAgentChat] isSurfaceVisible changed:', isSurfaceVisible, 'sessionId:', sessionId);
     surfaceVisibleRef.current = isSurfaceVisible;
 
     window.dispatchEvent(new CustomEvent('chat-active-session-changed', {
@@ -2425,42 +2415,27 @@ export default function CanvasAgentChat({
 
   // Restore previously active session on remount (mobile Sheet unmount/remount)
   useEffect(() => {
-    const storedSessionId = typeof window !== 'undefined'
-      ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
-      : null;
-    console.log('[CanvasAgentChat] Restore effect running:', {
-      initialPrompt: initialPrompt?.trim() || null,
-      hasStoredInitialPrompt: !!(initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey || '')),
-      requestedSessionId,
-      userStartedNewChat: userStartedNewChatRef.current,
-      sessionId,
-      storedSessionId,
-    });
-
     if (initialPrompt?.trim()) return;
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
       return;
     }
     if (requestedSessionId) return;
     if (userStartedNewChatRef.current) return;
-    if (sessionId) return; // already have a session
+    if (sessionId) return;
 
+    const storedSessionId = typeof window !== 'undefined'
+      ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
+      : null;
     if (!storedSessionId) return;
-
-    console.log('[CanvasAgentChat] Attempting to restore session:', storedSessionId);
 
     const restoreSession = async () => {
       try {
         const res = await fetch('/api/sessions');
         const data = await res.json();
-        console.log('[CanvasAgentChat] Restore: fetched sessions, count:', data.sessions?.length);
         if (data.success && data.sessions && data.sessions.length > 0) {
           const targetSession = data.sessions.find((s: AISession) => s.sessionId === storedSessionId);
           if (targetSession) {
-            console.log('[CanvasAgentChat] Restore: found target session, loading...');
             await loadSession(targetSession);
-          } else {
-            console.log('[CanvasAgentChat] Restore: target session NOT found in sessions list');
           }
         }
       } catch (err) {

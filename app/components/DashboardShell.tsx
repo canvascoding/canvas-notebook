@@ -123,14 +123,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
   const [chatWidth, setChatWidth] = useState(420);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>('editor');
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
-  const [mobileChatOpen, setMobileChatOpenRaw] = useState(false);
-  const setMobileChatOpen = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
-    setMobileChatOpenRaw((prev) => {
-      const next = typeof v === 'function' ? v(prev) : v;
-      console.log('[DashboardShell] mobileChatOpen:', prev, '->', next);
-      return next;
-    });
-  }, []);
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const isResizing = useRef(false);
   const isSidebarResizing = useRef(false);
   const sidebarResizeRef = useRef<{
