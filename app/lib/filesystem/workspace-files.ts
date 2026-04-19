@@ -1,4 +1,4 @@
-import { createReadStream as createLocalReadStream, promises as fs } from 'fs';
+import { createReadStream as createLocalReadStream, promises as fs, accessSync } from 'fs';
 import path from 'path';
 import { Readable } from 'stream';
 
@@ -285,27 +285,64 @@ export interface CopyResult {
   skipped: string[];
 }
 
+function findAvailableDestName(
+  fileName: string,
+  fullDestDir: string
+): string {
+  const ext = path.extname(fileName);
+  const base = path.basename(fileName, ext);
+  let candidate = fileName;
+  let candidateFull = path.join(fullDestDir, candidate);
+  let idx = 1;
+
+  while (true) {
+    try {
+      accessSync(candidateFull);
+      candidate = ext ? `${base} (${idx})${ext}` : `${base} (${idx})`;
+      candidateFull = path.join(fullDestDir, candidate);
+      idx++;
+    } catch {
+      break;
+    }
+  }
+
+  return candidate;
+}
+
 export async function copyFile(
   sourcePath: string,
   destDir: string,
-  overwrite = false
+  overwrite = false,
+  renameOnCollision = false
 ): Promise<{ copied: string; skipped: boolean }> {
   const fullSource = validatePath(sourcePath);
   const fullDestDir = validatePath(destDir);
   const fileName = path.basename(fullSource);
-  const fullDest = path.join(fullDestDir, fileName);
-  const destRelative = destDir === '.' ? fileName : `${destDir}/${fileName}`;
+  let destFileName = fileName;
 
-  try {
-    await fs.access(fullDest);
-    if (!overwrite) {
-      return { copied: '', skipped: true };
+  if (renameOnCollision) {
+    const fullDest = path.join(fullDestDir, destFileName);
+    try {
+      await fs.access(fullDest);
+      destFileName = findAvailableDestName(fileName, fullDestDir);
+    } catch {
+      // Destination doesn't exist - use original name
     }
-    await fs.rm(fullDest, { recursive: true, force: true });
-  } catch {
-    // Destination doesn't exist - good
+  } else {
+    const fullDest = path.join(fullDestDir, destFileName);
+    try {
+      await fs.access(fullDest);
+      if (!overwrite) {
+        return { copied: '', skipped: true };
+      }
+      await fs.rm(fullDest, { recursive: true, force: true });
+    } catch {
+      // Destination doesn't exist - good
+    }
   }
 
+  const fullDest = path.join(fullDestDir, destFileName);
+  const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
   await fs.cp(fullSource, fullDest, { recursive: true });
   return { copied: destRelative, skipped: false };
 }
@@ -313,14 +350,15 @@ export async function copyFile(
 export async function batchCopy(
   sources: string[],
   destDir: string,
-  overwrite = false
+  overwrite = false,
+  renameOnCollision = false
 ): Promise<CopyResult> {
   const results: CopyResult = { copied: [], failed: [], skipped: [] };
 
   await Promise.allSettled(
     sources.map(async (sourcePath) => {
       try {
-        const result = await copyFile(sourcePath, destDir, overwrite);
+        const result = await copyFile(sourcePath, destDir, overwrite, renameOnCollision);
         if (result.skipped) {
           results.skipped.push(sourcePath);
         } else {

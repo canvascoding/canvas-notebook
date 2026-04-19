@@ -22,10 +22,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { sources, destDir, overwrite = false } = body as {
+    const { sources, destDir, overwrite = false, renameOnCollision = false } = body as {
       sources?: string[];
       destDir?: string;
       overwrite?: boolean;
+      renameOnCollision?: boolean;
     };
 
     if (!sources || !Array.isArray(sources) || sources.length === 0) {
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await batchCopy(sources, destDir, overwrite);
+    const result = await batchCopy(sources, destDir, overwrite, renameOnCollision);
 
     clearSubtreeCache(destDir);
 
