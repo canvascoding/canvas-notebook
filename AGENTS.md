@@ -23,16 +23,11 @@
 - container auf nur bauen wenn es explizit gefordert wird 
 - login für die app über `BOOTSTRAP_ADMIN_EMAIL` und `BOOTSTRAP_ADMIN_PASSWORD` aus der lokalen Env-Konfiguration
 - mach mit keinem to do weiter wenn der vorherige to do noch nicht fertig ist
-- update immer /Users/frankalexanderweber/.openclaw/workspace-mango-jerry/canvasstudios-notebook/docs/todo.json damit wir up to date bleiben
 - arbeite proaktiv, mach commits zwischendurch und mach noch keine weitere task bevor eine wichtige task fertig ist. 
 - teste auch das UI wenn du etwas integrierst.
 eröffne ausschließlich auf localhost 3000 einen dev server. starte keine neuen dev server wenn schon einer läuft. port 3001 ist für einen anderen prozess reserviert.
+- nutz playwright oder so nur wenn ich es explizit sage oder frage danach bevor du es verwendest
 
-## explicitly for i18n task:
-
-- make sure to not proceed with another task when the previous task in `docs/i18n-migration-todo.json`is not done yet.
-- always mark the current state of the task you work on in `docs/i18n-migration-todo.json` 
-- the dev server is running separately. use any browser mcp to test the site or wright tests with playwrigt. keep in mind that due to middleware, the page is only availabe at the local dev server at localhost:3000 with login. otherwise error "invalid origin" will appear.
 
 ## Build, Test, and Development Commands
 - `npm run dev`: local dev server (set `PORT=3001` if needed).
