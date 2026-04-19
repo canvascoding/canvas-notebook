@@ -813,6 +813,12 @@ export default function CanvasAgentChat({
   const previousMessageCountRef = useRef(0);
   const isAtBottomRef = useRef(true);
   const referenceRequestIdRef = useRef(0);
+  const messagesRef = useRef<ChatMessage[]>([]);
+
+  // Sync messagesRef with messages state
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const getTextareaBaseHeight = useCallback(() => (
     isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
@@ -1431,8 +1437,32 @@ export default function CanvasAgentChat({
     );
   }, [setMessages]);
 
+  // Helper to find existing message by PI message (to prevent duplicates when loading from DB + receiving stream events)
+  const findExistingMessageByPiMessage = useCallback((message?: AgentMessage): string | null => {
+    if (!message) return null;
+    
+    // Use PI message timestamp as unique identifier
+    const piTimestamp = (message as { timestamp?: number }).timestamp;
+    if (!piTimestamp) return null;
+    
+    // Check current messages for one with matching PI timestamp
+    const existingId = messagesRef.current.find(
+      (m: ChatMessage) => m.role === 'assistant' && m.piMessage && (m.piMessage as { timestamp?: number }).timestamp === piTimestamp
+    )?.id;
+    
+    return existingId || null;
+  }, []);
+
   // Helper to create assistant message bubble
   const createAssistantBubble = useCallback((message?: AgentMessage) => {
+    // Check if message already exists (e.g., loaded from DB)
+    const existingId = findExistingMessageByPiMessage(message);
+    if (existingId) {
+      // Message already exists, use existing ID and don't create duplicate
+      currentAssistantIdRef.current = existingId;
+      return existingId;
+    }
+    
     const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     currentAssistantIdRef.current = assistantId;
     setMessages((prev) => [
@@ -1446,7 +1476,7 @@ export default function CanvasAgentChat({
       },
     ]);
     return assistantId;
-  }, [setMessages]);
+  }, [setMessages, findExistingMessageByPiMessage]);
 
 
 
