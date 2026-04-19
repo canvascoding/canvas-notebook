@@ -745,6 +745,9 @@ export default function CanvasAgentChat({
   });
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hasMoreBefore, setHasMoreBefore] = useState(false);
+  const [oldestTimestamp, setOldestTimestamp] = useState<number | null>(null);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -2483,14 +2486,20 @@ export default function CanvasAgentChat({
     }
   }, [requestedSessionId]);
 
+  // Poll runtime status only while the agent is active; fetch once on session switch
+  const isAgentActive = runtimeStatus != null && runtimeStatus.phase !== 'idle';
   useEffect(() => {
     if (!sessionId) return;
     void refreshRuntimeStatus(sessionId);
+  }, [refreshRuntimeStatus, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !isAgentActive) return;
     const interval = setInterval(() => {
       void refreshRuntimeStatus(sessionId);
     }, 4000);
     return () => clearInterval(interval);
-  }, [refreshRuntimeStatus, sessionId]);
+  }, [refreshRuntimeStatus, sessionId, isAgentActive]);
 
   useEffect(() => () => {
     resetStreamConnection();
