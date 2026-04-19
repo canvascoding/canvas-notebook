@@ -28,6 +28,9 @@ import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { useFileWatcher } from '@/app/hooks/useFileWatcher';
+import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
+import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
+import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
 
 interface FileBrowserProps {
@@ -71,6 +74,13 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     downloadFile,
     setBulkMoveOpen,
   } = useFileStore();
+
+  const imagePreprocess = useImagePreprocess({
+    onUpload: async (files, convertParams, targetDir) => {
+      const dir = targetDir || resolveTargetDir();
+      await uploadFile(files, dir, undefined, convertParams);
+    },
+  });
 
   useEffect(() => {
     if (currentDirectory && currentDirectory !== '.' && !findPathInTree(currentDirectory, fileTree)) {
@@ -121,7 +131,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   };
 
   const handleUpload = async (files: File[], targetDir: string) => {
-    await uploadFile(files, targetDir);
+    await imagePreprocess.handleFiles(files, targetDir);
   };
 
   const handleDragEnter = (event: DragEvent<HTMLElement>) => {
@@ -157,7 +167,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     }
 
     const targetDir = resolveTargetDir();
-    await uploadFile(files, targetDir, pathMap);
+    await imagePreprocess.handleFiles(files, targetDir);
   };
 
   const handleDeleteClick = () => {
@@ -472,6 +482,14 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
         paths={deletePaths}
         skippedCount={deleteSkippedCount}
         onConfirm={handleConfirmDelete}
+      />
+
+      <ImagePreprocessDialog
+        open={imagePreprocess.dialogState !== null}
+        onOpenChange={(open) => { if (!open) imagePreprocess.setDialogState(null); }}
+        files={imagePreprocess.dialogState?.files ?? []}
+        onConfirm={imagePreprocess.handleConfirm}
+        onSkip={imagePreprocess.handleSkip}
       />
     </section>
   );

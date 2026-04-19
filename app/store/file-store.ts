@@ -136,7 +136,7 @@ interface FileStoreState {
   createPath: (path: string, type: 'file' | 'directory') => Promise<void>;
   deletePath: (path: string | string[]) => Promise<void>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean) => Promise<void>;
-  uploadFile: (file: File | File[], targetDir: string, pathMap?: Map<File, string>) => Promise<void>;
+  uploadFile: (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
   toggleDirectory: (path: string) => void;
   collapseAllDirectories: () => void;
@@ -704,7 +704,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  uploadFile: async (file: File | File[], targetDir: string, pathMap?: Map<File, string>) => {
+  uploadFile: async (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => {
     set({ treeError: null, uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
     const total = files.length;
@@ -717,6 +717,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         const formData = new FormData();
         formData.append('path', targetDir);
         formData.append('files', f, filePath);
+
+        if (convertParams && convertParams.length > 0) {
+          const paramsForAll: ({ format: string; quality: number; maxDimension?: number } | null)[] = convertParams.map((p) =>
+            p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
+          );
+          formData.append('convertParams', JSON.stringify(paramsForAll));
+        }
 
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();

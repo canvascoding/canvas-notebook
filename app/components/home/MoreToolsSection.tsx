@@ -35,18 +35,24 @@ export function MoreToolsSection() {
         {t('sections.moreTools')}
       </button>
       {isExpanded && (
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-          {MORE_TOOLS_LINKS.map((link) => {
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {MORE_TOOLS_LINKS.map((link, index) => {
             const Icon = link.icon;
             return (
-              <Link
-                key={link.labelKey}
-                href={link.href}
-                className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {tApps(link.labelKey)}
-              </Link>
+              <React.Fragment key={link.labelKey}>
+                <Link
+                  href={link.href}
+                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-foreground"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {tApps(`${link.labelKey}.title`)}
+                </Link>
+                {index < MORE_TOOLS_LINKS.length - 1 ? (
+                  <span className="text-xs text-muted-foreground/60" aria-hidden="true">
+                    ·
+                  </span>
+                ) : null}
+              </React.Fragment>
             );
           })}
         </div>

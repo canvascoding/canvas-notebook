@@ -26,15 +26,16 @@ function isImageFile(file: File): boolean {
 }
 
 export interface UseImagePreprocessOptions {
-  onUpload: (files: File[], convertParams?: (ConvertParams | null)[]) => Promise<void>;
+  onUpload: (files: File[], convertParams?: (ConvertParams | null)[], targetDir?: string) => Promise<void>;
 }
 
 export interface ImagePreprocessDialogState {
   files: PreprocessFileInfo[];
+  targetDir?: string;
 }
 
 export interface UseImagePreprocessReturn {
-  handleFiles: (files: File[]) => Promise<void>;
+  handleFiles: (files: File[], targetDir?: string) => Promise<void>;
   dialogState: ImagePreprocessDialogState | null;
   isProcessing: boolean;
   setDialogState: (state: ImagePreprocessDialogState | null) => void;
@@ -46,8 +47,9 @@ export function useImagePreprocess({ onUpload }: UseImagePreprocessOptions): Use
   const [dialogState, setDialogState] = useState<ImagePreprocessDialogState | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingTargetDir, setPendingTargetDir] = useState<string | undefined>(undefined);
 
-  const handleFiles = useCallback(async (files: File[]) => {
+  const handleFiles = useCallback(async (files: File[], targetDir?: string) => {
     const preprocessFiles: PreprocessFileInfo[] = [];
     const normalFiles: File[] = [];
 
@@ -63,43 +65,42 @@ export function useImagePreprocess({ onUpload }: UseImagePreprocessOptions): Use
     }
 
     if (normalFiles.length > 0) {
-      await onUpload(normalFiles);
+      await onUpload(normalFiles, undefined, targetDir);
     }
 
     if (preprocessFiles.length > 0) {
       setPendingFiles(preprocessFiles.map((f) => f.file));
-      setDialogState({ files: preprocessFiles });
+      setPendingTargetDir(targetDir);
+      setDialogState({ files: preprocessFiles, targetDir });
     }
   }, [onUpload]);
 
   const handleConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
     setIsProcessing(true);
     try {
-      await onUpload(pendingFiles, convertParams);
+      await onUpload(pendingFiles, convertParams, pendingTargetDir);
     } finally {
       setIsProcessing(false);
       setDialogState(null);
       setPendingFiles([]);
+      setPendingTargetDir(undefined);
     }
-  }, [onUpload, pendingFiles]);
+  }, [onUpload, pendingFiles, pendingTargetDir]);
 
   const handleSkip = useCallback(async () => {
     setIsProcessing(true);
     try {
       const nonHeicFiles = pendingFiles.filter((f) => !isHeicFile(f));
       if (nonHeicFiles.length > 0) {
-        const nonHeicIndices: number[] = [];
-        pendingFiles.forEach((f, i) => {
-          if (!isHeicFile(f)) nonHeicIndices.push(i);
-        });
-        await onUpload(nonHeicFiles);
+        await onUpload(nonHeicFiles, undefined, pendingTargetDir);
       }
     } finally {
       setIsProcessing(false);
       setDialogState(null);
       setPendingFiles([]);
+      setPendingTargetDir(undefined);
     }
-  }, [onUpload, pendingFiles]);
+  }, [onUpload, pendingFiles, pendingTargetDir]);
 
   return {
     handleFiles,
