@@ -316,6 +316,8 @@
     "fileReferences": "Dateien",
     "openFile": "Öffnen",
     "scrollToBottom": "Nach unten scrollen",
+    "loadEarlierMessages": "Frühere Nachrichten laden",
+    "loadingOlderMessages": "Laden…",
     "activeToolPrefix": "Aktiv:",
     "imageMessage": "Bildnachricht",
     "steerAction": "Steuern",
