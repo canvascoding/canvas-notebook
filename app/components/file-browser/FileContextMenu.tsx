@@ -276,9 +276,9 @@ export function FileContextMenu() {
   };
 
   const showMultiSelectOptions = multiSelectPaths.size > 0;
-  const menuOpen = isContextMenuOpen && !!node && !!contextMenuPosition;
+  const menuOpen = isContextMenuOpen && !!node;
 
-  if (!node || !contextMenuPosition) {
+  if (!node) {
     return null;
   }
 
@@ -297,7 +297,7 @@ export function FileContextMenu() {
             type="button"
             aria-hidden="true"
             className="pointer-events-none fixed h-1 w-1 opacity-0"
-            style={{ left: contextMenuPosition.x, top: contextMenuPosition.y }}
+            style={{ left: contextMenuPosition?.x ?? 0, top: contextMenuPosition?.y ?? 0 }}
           />
         </DropdownMenuTrigger>
         <DropdownMenuContent
