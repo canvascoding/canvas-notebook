@@ -217,7 +217,9 @@ class LivePiRuntime {
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
   private activeFileContext: string | null = null;
   private planningMode = false;
-  private persistQueue: Promise<number> = Promise.resolve(0);
+  private persistLock = false;
+  private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
+  agentUnsubscribe: (() => void) | null = null;
 
   constructor(init: RuntimeInit, agent: Agent) {
     this.sessionId = init.sessionId;
@@ -656,8 +658,21 @@ class LivePiRuntime {
     });
   }
 
-  private persistMessages(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
-    this.persistQueue = this.persistQueue.then(async () => {
+  dispose(): void {
+    if (this.agentUnsubscribe) {
+      this.agentUnsubscribe();
+      this.agentUnsubscribe = null;
+    }
+    this.subscribers.clear();
+  }
+
+  private async persistMessages(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
+    if (this.persistLock) {
+      this.persistPending = reason;
+      return 0;
+    }
+    this.persistLock = true;
+    try {
       const allMessages = this.agent.state.messages.slice();
       const startIndex = this.lastPersistedLength;
 
@@ -686,12 +701,17 @@ class LivePiRuntime {
 
       this.lastPersistedLength = allMessages.length;
       return newMessages.length;
-    });
-
-    return this.persistQueue.catch((error) => {
+    } catch (error) {
       console.error(`[LiveRuntime] Failed to persist messages during ${reason}:`, error);
       throw error;
-    });
+    } finally {
+      this.persistLock = false;
+      if (this.persistPending) {
+        const pendingReason = this.persistPending;
+        this.persistPending = null;
+        return this.persistMessages(pendingReason);
+      }
+    }
   }
 }
 
@@ -751,9 +771,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   );
   runtimeRef.current = runtime;
 
-  agent.subscribe(async (event) => {
+  const unsubscribe = agent.subscribe(async (event) => {
     runtime.onAgentEvent(event);
   });
+  runtime.agentUnsubscribe = unsubscribe;
 
   return runtime;
 }
@@ -783,6 +804,7 @@ function getStore(): RuntimeStore {
       for (const [key, runtimePromise] of store.runtimes.entries()) {
         void runtimePromise.then((runtime) => {
           if (runtime.isExpired(now)) {
+            runtime.dispose();
             store.runtimes.delete(key);
           }
         });
