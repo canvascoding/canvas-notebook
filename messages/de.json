@@ -119,9 +119,10 @@
     "badge": "Notebook",
     "logoAlt": "Canvas Notebook Logo",
     "emptyStateTitle": "Öffne eine Datei oder starte direkt im Chat.",
-    "emptyStateDescription": "Der mobile Notebook-Flow startet jetzt im Editor. Wähle eine Datei über den Explorer oder springe direkt in den Canvas Chat.",
+    "emptyStateDescription": "Der mobile Notebook-Flow startet jetzt im Editor. Wähle eine Datei aus dem Explorer oder springe direkt in den Canvas Chat.",
     "selectFile": "Datei auswählen",
     "openChat": "Chat öffnen",
+    "home": "Startseite",
     "workspaceRoot": "Workspace /",
     "resizeFileTree": "Dateibaum-Größe ändern",
     "dropFilesToUpload": "Dateien zum Hochladen ablegen",
@@ -148,6 +149,7 @@
     "collapseAll": "Alle einklappen",
     "browserModeTree": "Baumansicht",
     "browserModeList": "Listenansicht",
+    "browserModeGrid": "Rasteransicht",
     "goUpFolder": "Nach oben",
     "autoRefreshConnected": "Auto-Refresh: Verbunden",
     "autoRefreshDisconnected": "Auto-Refresh: Getrennt",
@@ -572,6 +574,10 @@
       "chat": {
         "title": "Canvas Chat",
         "description": "Vollbild-KI-Chat-Interface für den Canvas Workspace."
+      },
+      "files": {
+        "title": "Dateien",
+        "description": "Alle Workspace-Dateien durchsuchen, voranschaun und verwalten."
       }
     },
     "footer": {

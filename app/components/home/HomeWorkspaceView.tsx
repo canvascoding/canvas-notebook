@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { NotebookPen, Workflow, ImageIcon, Clapperboard, Globe } from 'lucide-react';
+import { NotebookPen, Workflow, ImageIcon, Clapperboard, Globe, FolderOpen } from 'lucide-react';
 import { PromptHero } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
@@ -52,12 +52,18 @@ export function HomeWorkspaceView() {
         <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
           {t('sections.workspace')}
         </h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <ToolCard
             icon={NotebookPen}
             title={tApps('notebook.title')}
             description={tApps('notebook.description')}
             href="/notebook"
+          />
+          <ToolCard
+            icon={FolderOpen}
+            title={tApps('files.title')}
+            description={tApps('files.description')}
+            href="/files"
           />
           <ToolCard
             icon={Workflow}
