@@ -12,7 +12,7 @@ const CACHE_ROOT = '/tmp/canvas-media-cache';
 const FFMPEG_BIN = 'ffmpeg';
 const MAX_WIDTH = 1920;
 const MIN_WIDTH = 64;
-const SUPPORTED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
+const SUPPORTED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif']);
 const SHARP_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp']);
 
 type PreviewFormat = 'jpg' | 'png' | 'webp';

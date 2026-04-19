@@ -15,6 +15,8 @@ const CONTENT_TYPES: Record<string, string> = {
   bmp: 'image/bmp',
   tiff: 'image/tiff',
   avif: 'image/avif',
+  heic: 'image/heic',
+  heif: 'image/heif',
   
   // Documents
   pdf: 'application/pdf',

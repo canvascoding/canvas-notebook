@@ -8,7 +8,7 @@ import {
   ensureImageGenerationWorkspace,
 } from '@/app/lib/integrations/image-generation-workspace';
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'heic', 'heif']);
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
 
 type AssetKind = 'image' | 'video' | 'all';
