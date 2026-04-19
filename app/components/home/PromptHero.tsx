@@ -6,6 +6,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Send, Paperclip, X, Image as ImageIcon, FileText, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
+import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 
 interface Attachment {
   name: string;
@@ -41,15 +43,24 @@ export function PromptHero() {
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
+  const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
   const notebookHref = getPathname({ href: '/notebook', locale });
 
-  const handleFileUploadMultiple = useCallback(async (files: File[]) => {
+  const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
     setIsUploading(true);
     setUploadError(null);
 
     try {
       const formData = new FormData();
       files.forEach((file) => formData.append('file', file));
+
+      if (convertParams && convertParams.length > 0) {
+        const paramsSerializable = convertParams.map((p) =>
+          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
+        );
+        formData.append('convertParams', JSON.stringify(paramsSerializable));
+      }
 
       const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
       const data = await res.json();
@@ -88,15 +99,61 @@ export function PromptHero() {
     }
   }, []);
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    await handleFileUploadMultiple([file]);
+  const preprocessAndUpload = useCallback(async (files: File[]) => {
+    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
+    const HEIC_EXTS = new Set(['heic', 'heif']);
+    const SIZE_THRESHOLD = 1_500_000;
+    const preprocessFiles: import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] = [];
+    const normalFiles: File[] = [];
+
+    for (const file of files) {
+      const isHeic = HEIC_TYPES.has(file.type.toLowerCase()) || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
+      const isImage = file.type.startsWith('image/') || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
+      const isLarge = isImage && file.size > SIZE_THRESHOLD;
+      if (isHeic || isLarge) {
+        preprocessFiles.push({ file, isHeic, isLarge });
+      } else {
+        normalFiles.push(file);
+      }
+    }
+
+    if (normalFiles.length > 0) {
+      await handleFileUploadMultiple(normalFiles);
+    }
+    if (preprocessFiles.length > 0) {
+      setImagePreprocessPendingFiles(preprocessFiles.map((f) => f.file));
+      setImagePreprocessFiles(preprocessFiles);
+    }
   }, [handleFileUploadMultiple]);
+
+  const handleImagePreprocessConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
+    await handleFileUploadMultiple(imagePreprocessPendingFiles, convertParams);
+    setImagePreprocessFiles(null);
+    setImagePreprocessPendingFiles([]);
+  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
+
+  const handleImagePreprocessSkip = useCallback(async () => {
+    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
+    const HEIC_EXTS = new Set(['heic', 'heif']);
+    const nonHeicFiles = imagePreprocessPendingFiles.filter((f) => {
+      return !HEIC_TYPES.has(f.type.toLowerCase()) && !HEIC_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '');
+    });
+    if (nonHeicFiles.length > 0) {
+      await handleFileUploadMultiple(nonHeicFiles);
+    }
+    setImagePreprocessFiles(null);
+    setImagePreprocessPendingFiles([]);
+  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
+
+  const handleFileUpload = useCallback(async (file: File) => {
+    await preprocessAndUpload([file]);
+  }, [preprocessAndUpload]);
 
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
-    if (files.length > 0) handleFileUploadMultiple(files);
+    if (files.length > 0) preprocessAndUpload(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [handleFileUploadMultiple]);
+  }, [preprocessAndUpload]);
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
@@ -246,6 +303,7 @@ export function PromptHero() {
   }, []);
 
   return (
+    <>
     <div className="mx-auto w-full max-w-2xl">
       <form onSubmit={handleSubmit} className="space-y-3">
         <h2 className="sr-only">{tHome('hero.placeholder')}</h2>
@@ -355,5 +413,14 @@ export function PromptHero() {
         </div>
       </form>
     </div>
+
+    <ImagePreprocessDialog
+      open={imagePreprocessFiles !== null}
+      onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}
+      files={imagePreprocessFiles ?? []}
+      onConfirm={handleImagePreprocessConfirm}
+      onSkip={handleImagePreprocessSkip}
+    />
+    </>
   );
 }

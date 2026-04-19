@@ -217,6 +217,7 @@ class LivePiRuntime {
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
   private activeFileContext: string | null = null;
   private planningMode = false;
+  private persistQueue: Promise<number> = Promise.resolve(0);
 
   constructor(init: RuntimeInit, agent: Agent) {
     this.sessionId = init.sessionId;
@@ -557,33 +558,11 @@ class LivePiRuntime {
   }
 
   private async handleTurnEnd() {
-    const allMessages = this.agent.state.messages.slice();
-    if (allMessages.length <= this.lastPersistedLength) {
-      return;
-    }
-
     try {
-      await savePiSession(
-        this.sessionId,
-        this.userId,
-        this.provider,
-        this.model.id,
-        allMessages,
-        this.summary,
-        { persistedLength: this.lastPersistedLength },
-      );
-
-      const newMessages = allMessages.slice(this.lastPersistedLength);
-      if (newMessages.length > 0) {
-        await persistPiUsageEvents({
-          sessionId: this.sessionId,
-          userId: this.userId,
-          messages: newMessages,
-        });
+      const persistedCount = await this.persistMessages('turn_end');
+      if (persistedCount > 0) {
+        console.log(`[LiveRuntime] Incremental save after turn_end: ${persistedCount} messages for session ${this.sessionId}`);
       }
-
-      this.lastPersistedLength = allMessages.length;
-      console.log(`[LiveRuntime] Incremental save after turn_end: ${newMessages.length} messages for session ${this.sessionId}`);
     } catch (error) {
       console.error('[LiveRuntime] Failed to incrementally save after turn_end:', error);
     }
@@ -593,33 +572,12 @@ class LivePiRuntime {
     this.activeTool = null;
     this.abortRequested = false;
     this.isRunning = false;
-
-    const allMessages = this.agent.state.messages.slice();
-    const newMessages = allMessages.slice(this.lastPersistedLength);
-
-    await savePiSession(
-      this.sessionId,
-      this.userId,
-      this.provider,
-      this.model.id,
-      allMessages,
-      this.summary,
-      { persistedLength: this.lastPersistedLength },
-    );
-
-    if (newMessages.length > 0) {
-      await persistPiUsageEvents({
-        sessionId: this.sessionId,
-        userId: this.userId,
-        messages: newMessages,
-      });
-    }
-
-    this.lastPersistedLength = allMessages.length;
+    const persistedCount = await this.persistMessages('agent_end');
     this.publishStatus();
     
     // Emit message_saved event AFTER everything is saved to database
     // This allows notification system to read from DB without race conditions
+    const allMessages = this.agent.state.messages.slice();
     const lastPersistedMessage = allMessages[allMessages.length - 1];
     if (lastPersistedMessage && lastPersistedMessage.role === 'assistant') {
       try {
@@ -634,6 +592,10 @@ class LivePiRuntime {
       } catch (error) {
         console.error('[LiveRuntime] Error emitting message_saved event:', error);
       }
+    }
+
+    if (persistedCount > 0) {
+      console.log(`[LiveRuntime] Final save after agent_end: ${persistedCount} messages for session ${this.sessionId}`);
     }
 
     if (this.pendingReplace) {
@@ -675,27 +637,9 @@ class LivePiRuntime {
 
   private async persistMessagesOnError() {
     try {
-      const allMessages = this.agent.state.messages.slice();
-      if (allMessages.length > this.lastPersistedLength) {
-        await savePiSession(
-          this.sessionId,
-          this.userId,
-          this.provider,
-          this.model.id,
-          allMessages,
-          this.summary,
-          { persistedLength: this.lastPersistedLength },
-        );
-        const newMessages = allMessages.slice(this.lastPersistedLength);
-        if (newMessages.length > 0) {
-          await persistPiUsageEvents({
-            sessionId: this.sessionId,
-            userId: this.userId,
-            messages: newMessages,
-          });
-        }
-        this.lastPersistedLength = allMessages.length;
-        console.log(`[LiveRuntime] Saved ${allMessages.length - this.lastPersistedLength} messages after error for session ${this.sessionId}`);
+      const persistedCount = await this.persistMessages('error');
+      if (persistedCount > 0) {
+        console.log(`[LiveRuntime] Saved ${persistedCount} messages after error for session ${this.sessionId}`);
       }
     } catch (saveError) {
       console.error('[LiveRuntime] Failed to persist messages after error:', saveError);
@@ -709,6 +653,44 @@ class LivePiRuntime {
     this.publish({
       type: 'error',
       error: getErrorMessage(error),
+    });
+  }
+
+  private persistMessages(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
+    this.persistQueue = this.persistQueue.then(async () => {
+      const allMessages = this.agent.state.messages.slice();
+      const startIndex = this.lastPersistedLength;
+
+      if (allMessages.length <= startIndex) {
+        return 0;
+      }
+
+      await savePiSession(
+        this.sessionId,
+        this.userId,
+        this.provider,
+        this.model.id,
+        allMessages,
+        this.summary,
+        { persistedLength: startIndex },
+      );
+
+      const newMessages = allMessages.slice(startIndex);
+      if (newMessages.length > 0) {
+        await persistPiUsageEvents({
+          sessionId: this.sessionId,
+          userId: this.userId,
+          messages: newMessages,
+        });
+      }
+
+      this.lastPersistedLength = allMessages.length;
+      return newMessages.length;
+    });
+
+    return this.persistQueue.catch((error) => {
+      console.error(`[LiveRuntime] Failed to persist messages during ${reason}:`, error);
+      throw error;
     });
   }
 }
