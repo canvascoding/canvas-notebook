@@ -543,9 +543,11 @@ export function AgentSettingsPanel() {
 
   return (
     <div className="space-y-4">
-      <PiProviderSetupCard />
+      <div id="onboarding-settings-agentSettings">
+        <PiProviderSetupCard />
+      </div>
 
-      <Card>
+      <Card id="onboarding-settings-tools">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Wrench className="h-5 w-5" />
@@ -679,7 +681,7 @@ export function AgentSettingsPanel() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="onboarding-settings-managedFiles">
         <CardHeader>
           <CardTitle>{t('agentPanel.files.title')}</CardTitle>
           <CardDescription>{t('agentPanel.files.description')}</CardDescription>

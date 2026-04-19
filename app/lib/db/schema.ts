@@ -141,6 +141,29 @@ export const automationJobs = sqliteTable("automation_jobs", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+export const userHintState = sqliteTable("user_hint_state", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().references(() => user.id),
+  hintKey: text("hint_key").notNull(),
+  page: text("page").notNull(),
+  dismissed: integer("dismissed", { mode: "boolean" }).notNull().default(false),
+  dismissedAt: integer("dismissed_at", { mode: "timestamp" }),
+  version: integer("version").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const pageOnboardingState = sqliteTable("page_onboarding_state", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().references(() => user.id),
+  page: text("page").notNull(),
+  completed: integer("completed", { mode: "boolean" }).notNull().default(false),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  version: integer("version").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 export const automationRuns = sqliteTable("automation_runs", {
   id: text("id").primaryKey(),
   jobId: text("job_id").notNull().references(() => automationJobs.id),

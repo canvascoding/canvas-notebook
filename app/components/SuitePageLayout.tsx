@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 
 import { Button } from '@/components/ui/button';
 
@@ -18,6 +19,7 @@ type SuitePageLayoutProps = {
   mainClassName?: string;
   showLogo?: boolean;
   titleClassName?: string;
+  hintPage?: string;
 };
 
 export function SuitePageLayout({
@@ -27,6 +29,7 @@ export function SuitePageLayout({
   mainClassName,
   showLogo = false,
   titleClassName,
+  hintPage,
 }: SuitePageLayoutProps) {
   const t = useTranslations('common');
 
@@ -61,6 +64,7 @@ export function SuitePageLayout({
                 <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{t('user')}</span>
                 <span className="max-w-[140px] truncate text-xs">{username}</span>
               </div>
+              {hintPage && <HelpDropdown page={hintPage} />}
               <NotebookNavButton />
               <ThemeToggle />
               <LogoutButton />

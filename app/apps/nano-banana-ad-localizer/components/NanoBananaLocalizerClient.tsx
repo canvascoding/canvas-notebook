@@ -202,7 +202,7 @@ export function NanoBananaLocalizerClient() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 md:px-6">
-      <Card>
+      <Card id="onboarding-localizer-reference">
         <CardHeader>
           <CardTitle>{t('cardTitle')}</CardTitle>
           <CardDescription>
@@ -280,7 +280,7 @@ export function NanoBananaLocalizerClient() {
             <p className="text-sm text-muted-foreground">{t('referenceEmpty')}</p>
           )}
 
-          <div className="space-y-2 border border-border bg-background p-3">
+          <div id="onboarding-localizer-markets" className="space-y-2 border border-border bg-background p-3">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('fields.targetMarkets')}</p>
             <div className="flex flex-col sm:flex-row gap-2">
               <Input
@@ -350,7 +350,7 @@ export function NanoBananaLocalizerClient() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="onboarding-localizer-results">
         <CardHeader>
           <CardTitle>{t('currentResults.title')}</CardTitle>
           <CardDescription>{t('currentResults.description')}</CardDescription>

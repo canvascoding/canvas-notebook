@@ -188,6 +188,36 @@ CREATE INDEX IF NOT EXISTS idx_automation_jobs_next_run_at ON automation_jobs (n
 CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
+
+CREATE TABLE IF NOT EXISTS user_hint_state (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  user_id TEXT NOT NULL,
+  hint_key TEXT NOT NULL,
+  page TEXT NOT NULL,
+  dismissed INTEGER NOT NULL DEFAULT 0,
+  dismissed_at INTEGER,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+
+CREATE TABLE IF NOT EXISTS page_onboarding_state (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  user_id TEXT NOT NULL,
+  page TEXT NOT NULL,
+  completed INTEGER NOT NULL DEFAULT 0,
+  completed_at INTEGER,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_hint_state_user_hint ON user_hint_state (user_id, hint_key);
+CREATE INDEX IF NOT EXISTS idx_user_hint_state_user_page ON user_hint_state (user_id, page);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_page_onboarding_state_user_page ON page_onboarding_state (user_id, page);
+CREATE INDEX IF NOT EXISTS idx_page_onboarding_state_user_completed ON page_onboarding_state (user_id, completed);
 `);
 
 // Idempotent column additions for existing volumes

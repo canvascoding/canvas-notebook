@@ -304,7 +304,7 @@ export function PromptHero() {
 
   return (
     <>
-    <div className="mx-auto w-full max-w-2xl">
+    <div id="onboarding-home-promptHero" className="mx-auto w-full max-w-2xl">
       <form onSubmit={handleSubmit} className="space-y-3">
         <h2 className="sr-only">{tHome('hero.placeholder')}</h2>
 

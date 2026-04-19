@@ -48,7 +48,7 @@ export function HomeWorkspaceView() {
         />
       )}
 
-      <section>
+      <section id="onboarding-home-workspace">
         <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
           {t('sections.workspace')}
         </h3>
@@ -68,7 +68,7 @@ export function HomeWorkspaceView() {
         </div>
       </section>
 
-      <section>
+      <section id="onboarding-home-create">
         <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
           {t('sections.create')}
         </h3>
