@@ -162,6 +162,9 @@
     "deleteSingleConfirm": "Möchtest du \"{name}\" wirklich löschen?",
     "fileActions": "Dateiaktionen",
     "copyPath": "Pfad kopieren",
+    "copy": "Kopieren",
+    "paste": "Einfügen",
+    "duplicate": "Duplizieren",
     "rename": "Umbenennen",
     "move": "Verschieben",
     "download": "Herunterladen",
@@ -1189,8 +1192,21 @@
         "description": "Kostengünstige Option für schnelle Iterationen, bei denen Top-Qualität nicht entscheidend ist."
       }
     },
-    "openaiApiKeyRequired": "Diese App benötigt einen OPENAI_API_KEY für die OpenAI-Bildgenerierung. Bitte konfiguriere ihn im Integrations-Tab.",
-    "noProviderKey": "Kein API-Key für einen Bildgenerierungs-Provider konfiguriert. Bitte konfiguriere mindestens einen im Integrations-Tab.",
+    "notices": {
+      "openIntegrations": "Integrations öffnen",
+      "noProvider": {
+        "title": "Es ist noch kein Bild-Provider eingerichtet",
+        "description": "Lege im Integrations-Tab mindestens einen API-Key an, damit du hier Bilder generieren kannst. Sobald ein Provider verbunden ist, erscheinen die passenden Modelle und Optionen automatisch."
+      },
+      "geminiOnly": {
+        "title": "Google Gemini ist bereit",
+        "description": "Du kannst bereits mit Gemini Bilder erzeugen. Wenn du zusätzlich mit OpenAI generieren willst, füge im Integrations-Tab noch einen OPENAI_API_KEY hinzu."
+      },
+      "openaiOnly": {
+        "title": "OpenAI ist bereit",
+        "description": "Du kannst bereits mit OpenAI Bilder erzeugen. Wenn du zusätzlich Gemini nutzen willst, füge im Integrations-Tab noch einen GEMINI_API_KEY hinzu."
+      }
+    },
     "samplePrompts": {
       "skincareProductShot": {
         "label": "Skincare-Produktfoto",

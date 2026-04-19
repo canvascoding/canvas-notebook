@@ -48,6 +48,15 @@ function getExtension(path: string) {
   return parts[parts.length - 1].toLowerCase();
 }
 
+export function findPathInTree(searchPath: string, tree: FileNode[]): boolean {
+  if (searchPath === '.') return true;
+  for (const node of tree) {
+    if (node.path === searchPath) return true;
+    if (node.children && findPathInTree(searchPath, node.children)) return true;
+  }
+  return false;
+}
+
 interface FileStoreState {
   // File tree
   fileTree: FileNode[];
@@ -76,14 +85,37 @@ interface FileStoreState {
   uploadProgress: number | null;
   searchQuery: string;
   autoRefresh: boolean;
+  loadingDirs: Set<string>;
 
   // Multi-select
   isMultiSelectMode: boolean;
-  multiSelectPaths: string[];
+  multiSelectPaths: Set<string>;
   lastSelectedPath: string | null;
+
+  // Context menu
+  contextMenuNode: FileNode | null;
+  openContextMenu: (node: FileNode) => void;
+  closeContextMenu: () => void;
+
+  // Mobile UI state
+  mobileSurface: 'files' | 'editor' | null;
+  setMobileSurface: (surface: 'files' | 'editor' | null) => void;
+  mobileFileOpened: () => void;
+
+  // Bulk move dialog state
+  bulkMoveOpen: boolean;
+  setBulkMoveOpen: (open: boolean) => void;
+
+  // Clipboard state for copy/paste
+  clipboardPaths: Set<string>;
+  clipboardMode: 'copy' | null;
+  copyPaths: () => void;
+  pastePaths: (destDir: string) => Promise<void>;
+  duplicatePath: (path: string) => Promise<void>;
 
   // Actions
   loadFileTree: (path?: string, depth?: number, noCache?: boolean) => Promise<void>;
+  loadSubdirectory: (dirPath: string) => Promise<void>;
   loadFile: (path: string, noCache?: boolean) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
   selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean) => void;
@@ -123,32 +155,110 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   uploadProgress: null,
   searchQuery: '',
   autoRefresh: false,
+  loadingDirs: new Set<string>(),
 
   // Multi-select state
   isMultiSelectMode: false,
-  multiSelectPaths: [],
+  multiSelectPaths: new Set<string>(),
   lastSelectedPath: null,
+
+  // Context menu state
+  contextMenuNode: null,
+  openContextMenu: (node: FileNode) => {
+    set({ contextMenuNode: node });
+  },
+  closeContextMenu: () => {
+    set({ contextMenuNode: null });
+  },
+
+  // Mobile UI state
+  mobileSurface: null,
+  setMobileSurface: (surface: 'files' | 'editor' | null) => {
+    set({ mobileSurface: surface });
+  },
+  mobileFileOpened: () => {
+    set({ mobileSurface: 'editor' });
+  },
+
+  // Bulk move dialog state
+  bulkMoveOpen: false,
+  setBulkMoveOpen: (open: boolean) => {
+    set({ bulkMoveOpen: open });
+  },
+
+  // Clipboard state
+  clipboardPaths: new Set<string>(),
+  clipboardMode: null,
+  copyPaths: () => {
+    const { multiSelectPaths, selectedNode, isMultiSelectMode } = get();
+    if (isMultiSelectMode && multiSelectPaths.size > 0) {
+      set({ clipboardPaths: new Set(multiSelectPaths), clipboardMode: 'copy' });
+    } else if (selectedNode) {
+      set({ clipboardPaths: new Set([selectedNode.path]), clipboardMode: 'copy' });
+    }
+  },
+  pastePaths: async (destDir: string) => {
+    const { clipboardPaths, clipboardMode } = get();
+    if (clipboardMode !== 'copy' || clipboardPaths.size === 0) return;
+
+    try {
+      const response = await fetch('/api/files/copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          sources: Array.from(clipboardPaths),
+          destDir,
+          overwrite: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to paste files');
+      }
+
+      await get().loadFileTree(destDir, undefined, true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to paste files';
+      set({ treeError: message });
+      throw error;
+    }
+  },
+  duplicatePath: async (path: string) => {
+    const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
+
+    try {
+      const response = await fetch('/api/files/copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          sources: [path],
+          destDir: parentDir,
+          overwrite: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to duplicate file');
+      }
+
+      await get().loadFileTree(parentDir, undefined, true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to duplicate file';
+      set({ treeError: message });
+      throw error;
+    }
+  },
 
   // Actions
   loadFileTree: async (path = '.', depth?: number, noCache = false) => {
     const { fileTree, currentDirectory, setCurrentDirectory } = get();
-    
-    // Helper to find a path in the current tree state
-    const findPathInTree = (searchPath: string, tree: FileNode[]): boolean => {
-      if (searchPath === '.') return true;
-      for (const node of tree) {
-        if (node.path === searchPath) return true;
-        if (node.children && findPathInTree(searchPath, node.children)) return true;
-      }
-      return false;
-    };
-    
-    // Determine which directory to actually fetch. 
-    // If path is '.', we use the currentDirectory state if it's still valid.
+
     let activeDir = path === '.' ? currentDirectory : path;
 
-    // Validation: If the active directory is NOT the root AND it's not in our current tree,
-    // it MIGHT be stale. However, we only reset to root if we already have a tree and the path is missing.
     if (activeDir !== '.' && fileTree.length > 0 && !findPathInTree(activeDir, fileTree)) {
       console.warn(`Directory "${activeDir}" not found in current tree. Fetching from root.`);
       activeDir = '.';
@@ -156,14 +266,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
 
     set({ isLoadingTree: true, treeError: null });
-    
-    const depthTarget =
-      typeof depth === 'number'
-        ? depth
-        : Math.max(
-            10,
-            (activeDir === '.' ? 0 : activeDir.split('/').filter(Boolean).length) + 2
-          );
+
+    const depthTarget = typeof depth === 'number' ? depth : 4;
 
     try {
       const url = `/api/files/tree?path=${encodeURIComponent(activeDir)}&depth=${depthTarget}${noCache ? `&noCache=${Date.now()}` : ''}`;
@@ -178,28 +282,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
 
       const { data } = await response.json();
-      
-      // If we fetched a subdirectory, we merge it into the existing tree or replace?
-      // For now, the API returns the tree starting from the requested path.
-      // If activeDir is '.', we replace the whole tree.
-      if (activeDir === '.') {
-        set({ fileTree: data, isLoadingTree: false });
-      } else {
-        // Advanced: Merge subdirectory data into the existing tree.
-        // For simplicity and correctness (to avoid UI bugs), we often just reload from root but with higher depth.
-        // Or we just set the fileTree to what the server returned if the server returned the WHOLE tree context.
-        // Since buildFileTree currently only returns from the path downwards, 
-        // we'll reload from root but with NO CACHE to ensure we see the changes.
-        
-        const rootUrl = `/api/files/tree?path=.&depth=${depthTarget}${noCache ? `&noCache=${Date.now()}` : ''}`;
-        const rootResponse = await fetch(rootUrl, { credentials: 'include' });
-        if (rootResponse.ok) {
-          const rootData = await rootResponse.json();
-          set({ fileTree: rootData.data, isLoadingTree: false });
-        } else {
-          set({ fileTree: data, isLoadingTree: false });
-        }
-      }
+      set({ fileTree: data, isLoadingTree: false });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to load file tree';
@@ -207,6 +290,74 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         treeError: message,
         isLoadingTree: false,
       });
+    }
+  },
+
+  loadSubdirectory: async (dirPath: string) => {
+    const { loadingDirs, expandedDirs, fileTree } = get();
+    if (loadingDirs.has(dirPath)) return;
+
+    const findNodeInTree = (searchPath: string, nodes: FileNode[]): FileNode | null => {
+      for (const node of nodes) {
+        if (node.path === searchPath) return node;
+        if (node.children) {
+          const found = findNodeInTree(searchPath, node.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const existingNode = findNodeInTree(dirPath, fileTree);
+    if (existingNode && existingNode.children && existingNode.children.length > 0) {
+      if (!expandedDirs.has(dirPath)) {
+        const newExpanded = new Set(expandedDirs);
+        newExpanded.add(dirPath);
+        set({ expandedDirs: newExpanded });
+      }
+      return;
+    }
+
+    const newLoading = new Set(loadingDirs);
+    newLoading.add(dirPath);
+    set({ loadingDirs: newLoading });
+
+    try {
+      const url = `/api/files/tree?path=${encodeURIComponent(dirPath)}&depth=1`;
+      const response = await fetch(url, { credentials: 'include' });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to load subdirectory');
+      }
+
+      const { data } = await response.json();
+
+      const mergeSubtree = (nodes: FileNode[], targetPath: string, children: FileNode[]): FileNode[] => {
+        return nodes.map((node) => {
+          if (node.path === targetPath) {
+            return { ...node, children };
+          }
+          if (node.children) {
+            return { ...node, children: mergeSubtree(node.children, targetPath, children) };
+          }
+          return node;
+        });
+      };
+
+      const newTree = mergeSubtree(fileTree, dirPath, data);
+      const newExpanded = new Set(expandedDirs);
+      newExpanded.add(dirPath);
+
+      const newLoading = new Set(loadingDirs);
+      newLoading.delete(dirPath);
+
+      set({ fileTree: newTree, expandedDirs: newExpanded, loadingDirs: newLoading });
+    } catch (error) {
+      const newLoading = new Set(loadingDirs);
+      newLoading.delete(dirPath);
+      set({ loadingDirs: newLoading });
+      console.error('Failed to load subdirectory:', error);
     }
   },
 
@@ -303,14 +454,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (shiftKey && lastSelectedPath) {
       // Shift+Click: Select range from last selected to current
       if (!isMultiSelectMode) {
-        set({ isMultiSelectMode: true, multiSelectPaths: [lastSelectedPath] });
+        set({ isMultiSelectMode: true, multiSelectPaths: new Set([lastSelectedPath]) });
       }
       get().selectRange(lastSelectedPath, node.path, get().fileTree);
       set({ lastSelectedPath: node.path });
     } else if (ctrlOrMeta) {
       // Ctrl/Meta: Toggle selection
       if (!isMultiSelectMode) {
-        set({ selectedNode: null, multiSelectPaths: [] });
+        set({ selectedNode: null, multiSelectPaths: new Set() });
         get().toggleMultiSelectMode();
       }
       get().toggleMultiSelectPath(node.path);
@@ -330,7 +481,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       set({
         selectedNode: { path: node.path, type: node.type, name: node.name },
         currentDirectory: nextDir || '.',
-        multiSelectPaths: [],
+        multiSelectPaths: new Set<string>(),
         isMultiSelectMode: false,
         lastSelectedPath: node.path,
       });
@@ -413,7 +564,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
 
       // Clear multi-select after successful deletion
-      set({ multiSelectPaths: [], isMultiSelectMode: false });
+      set({ multiSelectPaths: new Set(), isMultiSelectMode: false });
 
       // Refresh from the common parent to keep context
       await get().loadFileTree(deepestCommonParent, undefined, true);
@@ -566,11 +717,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
     if (newExpanded.has(path)) {
       newExpanded.delete(path);
+      set({ expandedDirs: newExpanded });
     } else {
-      newExpanded.add(path);
+      get().loadSubdirectory(path);
     }
-
-    set({ expandedDirs: newExpanded });
   },
   collapseAllDirectories: () => {
     set({ expandedDirs: new Set<string>() });
@@ -602,12 +752,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       } else {
         newMultiSelectPaths.add(path);
       }
-      return { multiSelectPaths: Array.from(newMultiSelectPaths) };
+      return { multiSelectPaths: newMultiSelectPaths };
     });
   },
 
   clearMultiSelect: () => {
-    set({ isMultiSelectMode: false, multiSelectPaths: [], lastSelectedPath: null });
+    set({ isMultiSelectMode: false, multiSelectPaths: new Set<string>(), lastSelectedPath: null });
   },
 
   setLastSelectedPath: (path: string | null) => {
@@ -636,9 +786,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const rangePaths = allPaths.slice(start, end + 1);
 
     set((state) => {
-      const newMultiSelectPaths = Array.from(
-        new Set([...state.multiSelectPaths, ...rangePaths])
-      );
+      const newMultiSelectPaths = new Set(state.multiSelectPaths);
+      for (const p of rangePaths) newMultiSelectPaths.add(p);
       return { multiSelectPaths: newMultiSelectPaths };
     });
   },
@@ -661,12 +810,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (dir && dir.children) {
       const childPaths = dir.children.map((child) => child.path);
       set((state) => {
-        const newMultiSelectPaths = Array.from(
-          new Set([...state.multiSelectPaths, ...childPaths])
-        );
+        const newMultiSelectPaths = new Set(state.multiSelectPaths);
+        for (const p of childPaths) newMultiSelectPaths.add(p);
         return { 
           multiSelectPaths: newMultiSelectPaths,
-          isMultiSelectMode: newMultiSelectPaths.length > 0,
+          isMultiSelectMode: newMultiSelectPaths.size > 0,
         };
       });
     }

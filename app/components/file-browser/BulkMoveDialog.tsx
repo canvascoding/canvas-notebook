@@ -139,7 +139,7 @@ export function BulkMoveDialog() {
     clearMultiSelect();
     setOpen(false);
     setIsMoving(false);
-    toast.success(t('moveMultipleSuccess', { count: multiSelectPaths.length }));
+    toast.success(t('moveMultipleSuccess', { count: multiSelectPaths.size }));
   };
 
   const handleConfirmMove = async () => {
@@ -218,7 +218,7 @@ export function BulkMoveDialog() {
       <Dialog open={open && !conflict} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{t('moveMultiple', { count: multiSelectPaths.length })}</DialogTitle>
+            <DialogTitle>{t('moveMultiple', { count: multiSelectPaths.size })}</DialogTitle>
             <DialogDescription>
               {t('moveDescription')}
             </DialogDescription>

@@ -1,16 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Share2 } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Share2, ClipboardCopy, ClipboardPaste, CopyPlus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,21 +16,11 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { useFileStore } from '@/app/store/file-store';
-import { cn } from '@/lib/utils';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { ShareMarkdownDialog } from './ShareMarkdownDialog';
 import { CreateItemDialog } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { DirectoryBrowser } from './DirectoryBrowser';
-
-interface FileContextMenuProps {
-  node: {
-    path: string;
-    name: string;
-    type: 'file' | 'directory';
-  };
-  isRowActive?: boolean;
-}
 
 function getParentPath(path: string) {
   const trimmed = path.replace(/\/+$/, '');
@@ -56,55 +40,74 @@ function joinPath(parent: string, name: string) {
   return `${normalizedParent}/${normalizedName}`;
 }
 
-export function FileContextMenu({ node, isRowActive = false }: FileContextMenuProps) {
+export function FileContextMenu() {
   const t = useTranslations('notebook');
-  const [open, setOpen] = useState(false);
-  
+  const contextMenuNode = useFileStore((s) => s.contextMenuNode);
+  const closeContextMenu = useFileStore((s) => s.closeContextMenu);
+  const openContextMenu = useFileStore((s) => s.openContextMenu);
+
+  const [menuOpen, setMenuOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState('.');
-  const [moveName, setMoveName] = useState(node.name);
+  const [moveName, setMoveName] = useState('');
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
   const [isMovingMultiple, setIsMovingMultiple] = useState(false);
-
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<'file' | 'directory'>('file');
-  
   const [deleteOpen, setDeleteOpen] = useState(false);
-  
   const [shareOpen, setShareOpen] = useState(false);
-  
-  const isProtectedOutputFolder =
-    node.type === 'directory' && isProtectedAppOutputFolder(node.path);
-  
-  const isMarkdown = node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name);
 
-  const { 
-    createPath, 
-    deletePath, 
-    renamePath, 
-    downloadFile, 
+  const node = contextMenuNode;
+
+  useEffect(() => {
+    if (menuOpen && node) {
+      setMoveName(node.name);
+    }
+  }, [menuOpen, node]);
+
+  const {
+    createPath,
+    deletePath,
+    renamePath,
+    downloadFile,
     fileTree,
     multiSelectPaths,
     clearMultiSelect,
+    copyPaths,
+    pastePaths,
+    duplicatePath,
+    clipboardPaths,
+    clipboardMode,
   } = useFileStore();
+
   const parentPath = useMemo(() => {
+    if (!node) return '.';
     if (node.type === 'directory') {
       return node.path;
     }
     return getParentPath(node.path);
   }, [node]);
 
+  const isProtectedOutputFolder = node
+    ? node.type === 'directory' && isProtectedAppOutputFolder(node.path)
+    : false;
+
+  const isMarkdown = node
+    ? node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name)
+    : false;
+
   const handleNewFile = () => {
-    setOpen(false);
+    setMenuOpen(false);
+    closeContextMenu();
     setCreateType('file');
     setCreateOpen(true);
   };
 
   const handleNewFolder = () => {
-    setOpen(false);
+    setMenuOpen(false);
+    closeContextMenu();
     setCreateType('directory');
     setCreateOpen(true);
   };
@@ -118,13 +121,14 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       toast.error(t('protectedFolderRename'));
       return;
     }
-    setOpen(false);
-    setNewName(node.name);
+    setMenuOpen(false);
+    if (node) setNewName(node.name);
     setRenameOpen(true);
+    closeContextMenu();
   };
-  
+
   const handleConfirmRename = async () => {
-    if (!newName || newName === node.name) {
+    if (!node || !newName || newName === node.name) {
       setRenameOpen(false);
       return;
     }
@@ -137,28 +141,30 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       toast.error(t('protectedFolderMove'));
       return;
     }
-    setOpen(false);
-    setMoveName(node.name);
-    setMoveTarget(getParentPath(node.path));
+    setMenuOpen(false);
+    if (node) setMoveName(node.name);
+    if (node) setMoveTarget(getParentPath(node.path));
     setMoveExpandedDirs(new Set());
     setIsMovingMultiple(false);
     setMoveOpen(true);
+    closeContextMenu();
   };
 
   const handleMoveMultiple = () => {
-    if (multiSelectPaths.length === 0) return;
-    
-    const hasProtected = multiSelectPaths.some(path => isProtectedAppOutputFolder(path));
+    if (multiSelectPaths.size === 0) return;
+
+    const hasProtected = Array.from(multiSelectPaths).some(path => isProtectedAppOutputFolder(path));
     if (hasProtected) {
       toast.error(t('protectedFolderMove'));
       return;
     }
-    
-    setOpen(false);
+
+    setMenuOpen(false);
     setMoveTarget('.');
     setMoveExpandedDirs(new Set());
     setIsMovingMultiple(true);
     setMoveOpen(true);
+    closeContextMenu();
   };
 
   const handleDelete = () => {
@@ -166,19 +172,21 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       toast.error(t('protectedFolderDelete'));
       return;
     }
-    setOpen(false);
+    setMenuOpen(false);
     setDeleteOpen(true);
+    closeContextMenu();
   };
 
   const handleConfirmDelete = async () => {
-    await deletePath(node.path);
+    if (node) await deletePath(node.path);
   };
 
   const handleDownload = async () => {
-    await downloadFile(node.path);
+    if (node) await downloadFile(node.path);
   };
 
   const handleCopyPath = async () => {
+    if (!node) return;
     try {
       await navigator.clipboard.writeText(node.path);
     } catch (err) {
@@ -186,9 +194,35 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     }
   };
 
+  const handleCopy = () => {
+    copyPaths();
+    closeContextMenu();
+    setMenuOpen(false);
+  };
+
+  const handlePaste = async () => {
+    if (!node) return;
+    const destDir = node.type === 'directory' ? node.path : getParentPath(node.path);
+    try {
+      await pastePaths(destDir);
+      closeContextMenu();
+      setMenuOpen(false);
+    } catch {}
+  };
+
+  const handleDuplicate = async () => {
+    if (!node) return;
+    try {
+      await duplicatePath(node.path);
+      closeContextMenu();
+      setMenuOpen(false);
+    } catch {}
+  };
+
   const handleShare = () => {
-    setOpen(false);
+    setMenuOpen(false);
     setShareOpen(true);
+    closeContextMenu();
   };
 
   const toggleMoveDir = (path: string) => {
@@ -205,18 +239,18 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
 
   const handleConfirmMove = async () => {
     if (isMovingMultiple) {
-      const pathsToMove = [...multiSelectPaths];
+      const pathsToMove = Array.from(multiSelectPaths);
       let successCount = 0;
-      
+
       for (const path of pathsToMove) {
         const name = path.split('/').pop() || path;
         const destination = moveTarget === '.' ? name : `${moveTarget}/${name}`;
-        
+
         if (path === destination) {
           successCount++;
           continue;
         }
-        
+
         try {
           await renamePath(path, destination);
           successCount++;
@@ -224,10 +258,11 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
           console.error(`Failed to move ${path}:`, error);
         }
       }
-      
+
       clearMultiSelect();
       toast.success(t('moveMultipleSuccess', { count: successCount }));
     } else {
+      if (!node) return;
       const trimmedName = moveName.trim();
       if (!trimmedName) {
         toast.error(t('pleaseEnterName'));
@@ -247,40 +282,22 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
     setMoveOpen(false);
   };
 
-  const showMultiSelectOptions = multiSelectPaths.length > 0;
+  const showMultiSelectOptions = multiSelectPaths.size > 0;
+
+  const handleMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (!open) closeContextMenu();
+  };
 
   return (
     <>
-      <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={cn(
-              'ml-1 text-foreground transition-opacity',
-              isRowActive || open
-                ? 'opacity-100'
-                : 'opacity-100 md:opacity-0 md:group-hover:opacity-70 hover:opacity-100',
-              isRowActive
-                ? 'bg-transparent border-transparent hover:!bg-transparent active:!bg-transparent'
-                : 'bg-transparent border-transparent hover:!bg-accent/70 active:!bg-accent/70'
-            )}
-            onClick={(event) => {
-              event.stopPropagation();
-              setOpen(true);
-            }}
-            onPointerDown={(event) => event.stopPropagation()}
-            aria-label={t('fileActions')}
-          >
-            <MoreHorizontal className="h-4 w-4 text-foreground" />
-          </Button>
-        </DropdownMenuTrigger>
+      <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange} modal={false}>
         <DropdownMenuContent align="end" sideOffset={6}>
           {showMultiSelectOptions && (
             <>
               <DropdownMenuItem onSelect={handleMoveMultiple}>
                 <Move className="h-4 w-4" />
-                {t('moveMultiple', { count: multiSelectPaths.length })}
+                {t('moveMultiple', { count: multiSelectPaths.size })}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>
@@ -294,21 +311,34 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
             {t('newFolder')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={handleCopyPath}>
+          <DropdownMenuItem onSelect={handleCopyPath} disabled={!node}>
             <Copy className="h-4 w-4" />
             {t('copyPath')}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handleRename} disabled={isProtectedOutputFolder}>
+          <DropdownMenuItem onSelect={handleCopy} disabled={!node}>
+            <ClipboardCopy className="h-4 w-4" />
+            {t('copy')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handlePaste} disabled={clipboardMode !== 'copy' || clipboardPaths.size === 0}>
+            <ClipboardPaste className="h-4 w-4" />
+            {t('paste')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleDuplicate} disabled={isProtectedOutputFolder || !node}>
+            <CopyPlus className="h-4 w-4" />
+            {t('duplicate')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={handleRename} disabled={isProtectedOutputFolder || !node}>
             <Pencil className="h-4 w-4" />
             {t('rename')}
           </DropdownMenuItem>
           {!showMultiSelectOptions && (
-            <DropdownMenuItem onSelect={handleMove} disabled={isProtectedOutputFolder}>
+            <DropdownMenuItem onSelect={handleMove} disabled={isProtectedOutputFolder || !node}>
               <Move className="h-4 w-4" />
               {t('move')}
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onSelect={handleDownload}>
+          <DropdownMenuItem onSelect={handleDownload} disabled={!node}>
             <Download className="h-4 w-4" />
             {t('download')}
           </DropdownMenuItem>
@@ -322,7 +352,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
           <DropdownMenuItem
             variant="destructive"
             onSelect={handleDelete}
-            disabled={isProtectedOutputFolder}
+            disabled={isProtectedOutputFolder || !node}
           >
             <Trash2 className="h-4 w-4" />
             {t('delete')}
@@ -341,19 +371,19 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       <DeleteConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-        paths={[node.path]}
+        paths={node ? [node.path] : []}
         skippedCount={0}
         onConfirm={handleConfirmDelete}
       />
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t('renameTitle', { name: node.name })}</DialogTitle>
-              <DialogDescription>
-                {t('renameDescription')}
-              </DialogDescription>
-            </DialogHeader>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{node ? t('renameTitle', { name: node.name }) : ''}</DialogTitle>
+            <DialogDescription>
+              {t('renameDescription')}
+            </DialogDescription>
+          </DialogHeader>
           <div className="py-4">
             <label htmlFor="newName" className="text-xs text-muted-foreground">{t('newName')}</label>
             <Input
@@ -375,7 +405,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{t('moveTitle', { name: node.name })}</DialogTitle>
+            <DialogTitle>{node ? t('moveTitle', { name: node.name }) : ''}</DialogTitle>
             <DialogDescription>
               {t('moveDescription')}
             </DialogDescription>
@@ -416,7 +446,7 @@ export function FileContextMenu({ node, isRowActive = false }: FileContextMenuPr
         </DialogContent>
       </Dialog>
 
-      {isMarkdown && (
+      {isMarkdown && node && (
         <ShareMarkdownDialog
           open={shareOpen}
           onOpenChange={setShareOpen}

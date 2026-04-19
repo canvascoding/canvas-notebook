@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deleteFile } from '@/app/lib/filesystem/workspace-files';
-import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import { batchDelete } from '@/app/lib/filesystem/workspace-files';
+import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { auth } from '@/app/lib/auth';
@@ -45,12 +45,18 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Run deletions in parallel for performance
-    await Promise.all(pathsToDelete.map(p => deleteFile(p)));
-    
-    clearFileTreeCache();
+    const result = await batchDelete(pathsToDelete);
 
-    return NextResponse.json({ success: true, deleted: pathsToDelete });
+    for (const deletedPath of result.deleted) {
+      const parentDir = deletedPath.includes('/') ? deletedPath.substring(0, deletedPath.lastIndexOf('/')) : '.';
+      clearSubtreeCache(parentDir);
+    }
+
+    return NextResponse.json({
+      success: true,
+      deleted: result.deleted,
+      failed: result.failed,
+    });
   } catch (error) {
     console.error('[API] File delete error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete path';
