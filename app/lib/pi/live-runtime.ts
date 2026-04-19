@@ -238,7 +238,7 @@ class LivePiRuntime {
   }
 
   isExpired(now: number) {
-    return !this.agent.state.isStreaming && now - this.lastAccessAt > IDLE_TTL_MS;
+    return !this.agent.state.isStreaming && !this.isRunning && now - this.lastAccessAt > IDLE_TTL_MS;
   }
 
   hasPendingReplace() {
@@ -459,8 +459,9 @@ class LivePiRuntime {
       this.agent.state.tools = this.tools;
     }
 
-    void this.agent.prompt(sanitized).catch((error) => {
+    void this.agent.prompt(sanitized).catch(async (error) => {
       this.publishError(error);
+      await this.persistMessagesOnError();
     });
   }
 
@@ -482,6 +483,10 @@ class LivePiRuntime {
       if (this.activeTool?.toolCallId === event.toolCallId) {
         this.activeTool = null;
       }
+    }
+
+    if (event.type === 'turn_end') {
+      void this.handleTurnEnd();
     }
 
     if (event.type === 'agent_end') {
@@ -548,6 +553,39 @@ class LivePiRuntime {
     const followUpIndex = this.followUpQueue.findIndex((entry) => entry.signature === signature);
     if (followUpIndex !== -1) {
       this.followUpQueue.splice(followUpIndex, 1);
+    }
+  }
+
+  private async handleTurnEnd() {
+    const allMessages = this.agent.state.messages.slice();
+    if (allMessages.length <= this.lastPersistedLength) {
+      return;
+    }
+
+    try {
+      await savePiSession(
+        this.sessionId,
+        this.userId,
+        this.provider,
+        this.model.id,
+        allMessages,
+        this.summary,
+        { persistedLength: this.lastPersistedLength },
+      );
+
+      const newMessages = allMessages.slice(this.lastPersistedLength);
+      if (newMessages.length > 0) {
+        await persistPiUsageEvents({
+          sessionId: this.sessionId,
+          userId: this.userId,
+          messages: newMessages,
+        });
+      }
+
+      this.lastPersistedLength = allMessages.length;
+      console.log(`[LiveRuntime] Incremental save after turn_end: ${newMessages.length} messages for session ${this.sessionId}`);
+    } catch (error) {
+      console.error('[LiveRuntime] Failed to incrementally save after turn_end:', error);
     }
   }
 
@@ -633,6 +671,38 @@ class LivePiRuntime {
       ...this.agent.state.messages,
       createCompactBreakMessage(kind, this.lastCompactionAt.toISOString(), composition.omittedMessages.length),
     ];
+  }
+
+  private async persistMessagesOnError() {
+    try {
+      const allMessages = this.agent.state.messages.slice();
+      if (allMessages.length > this.lastPersistedLength) {
+        await savePiSession(
+          this.sessionId,
+          this.userId,
+          this.provider,
+          this.model.id,
+          allMessages,
+          this.summary,
+          { persistedLength: this.lastPersistedLength },
+        );
+        const newMessages = allMessages.slice(this.lastPersistedLength);
+        if (newMessages.length > 0) {
+          await persistPiUsageEvents({
+            sessionId: this.sessionId,
+            userId: this.userId,
+            messages: newMessages,
+          });
+        }
+        this.lastPersistedLength = allMessages.length;
+        console.log(`[LiveRuntime] Saved ${allMessages.length - this.lastPersistedLength} messages after error for session ${this.sessionId}`);
+      }
+    } catch (saveError) {
+      console.error('[LiveRuntime] Failed to persist messages after error:', saveError);
+    }
+    this.isRunning = false;
+    this.activeTool = null;
+    this.abortRequested = false;
   }
 
   private publishError(error: unknown) {
