@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState, useEffect } from 'react';
-import { Download, FilePlus, FolderPlus, Pencil, Trash2, MoreHorizontal, Copy, Move, Share2, ClipboardCopy, ClipboardPaste, CopyPlus } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Download, FilePlus, FolderPlus, Pencil, Trash2, Copy, Move, Share2, ClipboardCopy, ClipboardPaste, CopyPlus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -43,10 +43,10 @@ function joinPath(parent: string, name: string) {
 export function FileContextMenu() {
   const t = useTranslations('notebook');
   const contextMenuNode = useFileStore((s) => s.contextMenuNode);
+  const contextMenuPosition = useFileStore((s) => s.contextMenuPosition);
+  const isContextMenuOpen = useFileStore((s) => s.isContextMenuOpen);
+  const contextMenuRequestId = useFileStore((s) => s.contextMenuRequestId);
   const closeContextMenu = useFileStore((s) => s.closeContextMenu);
-  const openContextMenu = useFileStore((s) => s.openContextMenu);
-
-  const [menuOpen, setMenuOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveName, setMoveName] = useState('');
@@ -60,12 +60,6 @@ export function FileContextMenu() {
   const [shareOpen, setShareOpen] = useState(false);
 
   const node = contextMenuNode;
-
-  useEffect(() => {
-    if (menuOpen && node) {
-      setMoveName(node.name);
-    }
-  }, [menuOpen, node]);
 
   const {
     createPath,
@@ -283,16 +277,35 @@ export function FileContextMenu() {
   };
 
   const showMultiSelectOptions = multiSelectPaths.size > 0;
+  const menuOpen = isContextMenuOpen && !!node && !!contextMenuPosition;
 
-  const handleMenuOpenChange = (open: boolean) => {
-    setMenuOpen(open);
-    if (!open) closeContextMenu();
-  };
+  if (!node || !contextMenuPosition) {
+    return null;
+  }
 
   return (
     <>
-      <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange} modal={false}>
-        <DropdownMenuContent align="end" sideOffset={6}>
+      <DropdownMenu
+        key={contextMenuRequestId}
+        open={menuOpen}
+        onOpenChange={(open) => {
+          if (!open) closeContextMenu();
+        }}
+        modal={false}
+      >
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-hidden="true"
+            className="pointer-events-none fixed h-1 w-1 opacity-0"
+            style={{ left: contextMenuPosition.x, top: contextMenuPosition.y }}
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          sideOffset={4}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
           {showMultiSelectOptions && (
             <>
               <DropdownMenuItem onSelect={handleMoveMultiple}>
