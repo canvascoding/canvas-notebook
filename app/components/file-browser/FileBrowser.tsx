@@ -262,28 +262,34 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
           <div className="flex items-center gap-1 px-3 py-2">
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
               onClick={toggleMultiSelectMode}
               aria-label={t('toggleSelectMode')}
             >
               <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
+              {isMultiSelectMode ? t('multiSelectDone') : t('select')}
             </Button>
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
               onClick={handleUploadClick}
               aria-label={t('upload')}
             >
               <Upload className="h-4 w-4" />
+              {t('upload')}
             </Button>
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
               onClick={handleDeleteClick}
               disabled={isDeleteDisabled}
               aria-label={t('delete')}
             >
               <Trash2 className="h-4 w-4" />
+              {t('delete')}
             </Button>
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
