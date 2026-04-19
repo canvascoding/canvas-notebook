@@ -191,8 +191,6 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
   closeContextMenu: () => {
     set({
-      contextMenuNode: null,
-      contextMenuPosition: null,
       isContextMenuOpen: false,
     });
   },
