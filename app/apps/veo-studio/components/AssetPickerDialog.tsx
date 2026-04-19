@@ -17,6 +17,8 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
+import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
+import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 
 type AssetKind = 'image' | 'video';
 
@@ -56,6 +58,8 @@ export function AssetPickerDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
+  const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
   const [tab, setTab] = useState<'workspace' | 'upload'>('workspace');
   const t = useTranslations('common.assetPicker');
 
@@ -114,7 +118,7 @@ export function AssetPickerDialog({
     });
   };
 
-  const handleUploadFiles = async (files: FileList | null) => {
+  const handleUploadFiles = async (files: FileList | null, convertParams?: (ConvertParams | null)[]) => {
     if (!files || files.length === 0) return;
     setIsUploading(true);
     setError(null);
@@ -124,6 +128,13 @@ export function AssetPickerDialog({
         formData.append('files', file, file.name);
       });
       formData.append('path', uploadPath);
+
+      if (convertParams && convertParams.length > 0) {
+        const paramsSerializable = convertParams.map((p) =>
+          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
+        );
+        formData.append('convertParams', JSON.stringify(paramsSerializable));
+      }
 
       const response = await fetch('/api/files/upload', {
         method: 'POST',
@@ -145,7 +156,93 @@ export function AssetPickerDialog({
     }
   };
 
+  const handleImagePreprocessConfirm = async (convertParams: (ConvertParams | null)[]) => {
+    if (imagePreprocessPendingFiles.length === 0) return;
+    const fileList = imagePreprocessPendingFiles;
+    setIsUploading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      fileList.forEach((file) => {
+        formData.append('files', file, file.name);
+      });
+      formData.append('path', uploadPath);
+
+      if (convertParams.length > 0) {
+        const paramsSerializable = convertParams.map((p) =>
+          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
+        );
+        formData.append('convertParams', JSON.stringify(paramsSerializable));
+      }
+
+      const response = await fetch('/api/files/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('errors.uploadFailed'));
+      }
+
+      setTab('workspace');
+      setImagePreprocessFiles(null);
+      setImagePreprocessPendingFiles([]);
+      await loadAssets();
+    } catch (uploadError) {
+      const message = uploadError instanceof Error ? uploadError.message : t('errors.uploadFailed');
+      setError(message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleImagePreprocessSkip = async () => {
+    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
+    const HEIC_EXTS = new Set(['heic', 'heif']);
+    const nonHeicFiles = imagePreprocessPendingFiles.filter((f) => {
+      return !HEIC_TYPES.has(f.type.toLowerCase()) && !HEIC_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '');
+    });
+    if (nonHeicFiles.length > 0) {
+      const dt = new DataTransfer();
+      nonHeicFiles.forEach((f) => dt.items.add(f));
+      await handleUploadFiles(dt.files);
+    }
+    setImagePreprocessFiles(null);
+    setImagePreprocessPendingFiles([]);
+  };
+
+  const preprocessFileSelection = async (files: FileList) => {
+    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
+    const HEIC_EXTS = new Set(['heic', 'heif']);
+    const SIZE_THRESHOLD = 1_500_000;
+    const preprocessFiles: import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] = [];
+    const normalFiles: File[] = [];
+
+    for (const file of Array.from(files)) {
+      const isHeic = HEIC_TYPES.has(file.type.toLowerCase()) || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
+      const isImage = file.type.startsWith('image/') || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
+      const isLarge = isImage && file.size > SIZE_THRESHOLD;
+      if (isHeic || isLarge) {
+        preprocessFiles.push({ file, isHeic, isLarge });
+      } else {
+        normalFiles.push(file);
+      }
+    }
+
+    if (normalFiles.length > 0) {
+      const dt = new DataTransfer();
+      normalFiles.forEach((f) => dt.items.add(f));
+      await handleUploadFiles(dt.files);
+    }
+    if (preprocessFiles.length > 0) {
+      setImagePreprocessPendingFiles(preprocessFiles.map((f) => f.file));
+      setImagePreprocessFiles(preprocessFiles);
+    }
+  };
+
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] max-w-4xl border border-border bg-card max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
@@ -255,7 +352,9 @@ export function AssetPickerDialog({
                 accept={acceptType}
                 multiple={multiple}
                 onChange={(event) => {
-                  void handleUploadFiles(event.target.files);
+                  if (event.target.files && event.target.files.length > 0) {
+                    void preprocessFileSelection(event.target.files);
+                  }
                   event.target.value = '';
                 }}
               />
@@ -288,5 +387,14 @@ export function AssetPickerDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <ImagePreprocessDialog
+      open={imagePreprocessFiles !== null}
+      onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}
+      files={imagePreprocessFiles ?? []}
+      onConfirm={handleImagePreprocessConfirm}
+      onSkip={handleImagePreprocessSkip}
+    />
+    </>
   );
 }
