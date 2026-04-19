@@ -206,6 +206,7 @@ class LivePiRuntime {
   private pendingReplace: RuntimeQueueEntry | null = null;
   private activeTool: { toolCallId: string; name: string } | null = null;
   private abortRequested = false;
+  private isRunning = false;
   private summary: PiSessionSummaryState;
   private lastComposition: PiHistoryComposition | null = null;
   private lastPersistedLength: number;
@@ -270,14 +271,14 @@ class LivePiRuntime {
         ? 'aborting'
         : this.activeTool
           ? 'running_tool'
-          : this.agent.state.isStreaming
+          : this.agent.state.isStreaming || this.isRunning
             ? 'streaming'
             : 'idle',
       activeTool: this.activeTool,
       pendingToolCalls: this.agent.state.pendingToolCalls.size,
       followUpQueue: this.followUpQueue.map((entry) => entry.preview),
       steeringQueue: this.steeringQueue.map((entry) => entry.preview),
-      canAbort: this.agent.state.isStreaming || this.abortRequested,
+      canAbort: this.agent.state.isStreaming || this.isRunning || this.abortRequested,
       contextWindow: this.model.contextWindow,
       estimatedHistoryTokens: composition.estimatedHistoryTokens,
       availableHistoryTokens: composition.availableHistoryTokens,
@@ -442,6 +443,7 @@ class LivePiRuntime {
     const sanitized = sanitizeUserMessage(message);
     this.touch();
     this.abortRequested = false;
+    this.isRunning = true;
     this.publishStatus();
 
     // Update agent system prompt with current timezone before starting
@@ -552,6 +554,7 @@ class LivePiRuntime {
   private async handleAgentEnd() {
     this.activeTool = null;
     this.abortRequested = false;
+    this.isRunning = false;
 
     const allMessages = this.agent.state.messages.slice();
     const newMessages = allMessages.slice(this.lastPersistedLength);
