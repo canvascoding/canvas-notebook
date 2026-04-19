@@ -420,11 +420,11 @@
   "home": {
     "header": {
       "logoAlt": "Canvas Notebook logo",
-      "productName": "Canvas Studios",
+      "productName": "Canvas Notebook",
       "productLabel": "Marketing Workspace"
     },
     "hero": {
-      "eyebrow": "Canvas Studios",
+      "eyebrow": "Canvas Notebook",
       "title": "What would you like to create?",
       "description": "Describe your intent or pick a use case. The agent handles the rest.",
       "placeholder": "What would you like to create?",
