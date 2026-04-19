@@ -351,16 +351,21 @@ export function DashboardShell({ username }: DashboardShellProps) {
   }, [handleDesktopChatPrimaryAction, viewportMode]);
 
   useEffect(() => {
-    const handleTerminalToggle = (event: KeyboardEvent) => {
+    const handleKeyboardToggle = (event: KeyboardEvent) => {
       if (viewportMode !== 'desktop') return;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j') {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'j') {
         event.preventDefault();
         setTerminalVisible((prev) => !prev);
+      } else if (key === 'k') {
+        event.preventDefault();
+        handleDesktopChatPrimaryAction();
       }
     };
-    window.addEventListener('keydown', handleTerminalToggle);
-    return () => window.removeEventListener('keydown', handleTerminalToggle);
-  }, [viewportMode]);
+    window.addEventListener('keydown', handleKeyboardToggle);
+    return () => window.removeEventListener('keydown', handleKeyboardToggle);
+  }, [viewportMode, handleDesktopChatPrimaryAction]);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -494,29 +499,32 @@ export function DashboardShell({ username }: DashboardShellProps) {
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                <div className="flex items-center">
-                  <Button
-                    variant={chatVisible ? "default" : "ghost"}
-                    size="sm"
-                    onClick={handleDesktopChatPrimaryAction}
-                    className="gap-2 rounded-r-none px-2 sm:px-3"
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                    <span className="hidden sm:inline">{tCommon('aiChat')}</span>
-                  </Button>
-                  <DropdownMenu modal={false}>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant={chatVisible ? "default" : "ghost"}
-                        size="sm"
-                        className={`rounded-l-none border-l px-2 ${
-                          chatVisible ? 'border-primary-foreground/15' : 'border-border/60'
-                        }`}
-                        aria-label={tNav('openChatModeMenu')}
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center">
+                        <Button
+                          variant={chatVisible ? "default" : "ghost"}
+                          size="sm"
+                          onClick={handleDesktopChatPrimaryAction}
+                          className="gap-2 rounded-r-none px-2 sm:px-3"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          <span className="hidden sm:inline">{tCommon('aiChat')}</span>
+                        </Button>
+                        <DropdownMenu modal={false}>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant={chatVisible ? "default" : "ghost"}
+                              size="sm"
+                              className={`rounded-l-none border-l px-2 ${
+                                chatVisible ? 'border-primary-foreground/15' : 'border-border/60'
+                              }`}
+                              aria-label={tNav('openChatModeMenu')}
+                            >
+                              <ChevronDown className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
                       <DropdownMenuRadioGroup
                         value={desktopChatMode}
@@ -532,8 +540,14 @@ export function DashboardShell({ username }: DashboardShellProps) {
                         </DropdownMenuRadioItem>
                       </DropdownMenuRadioGroup>
                     </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                   </DropdownMenu>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        {tCommon('aiChat')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}K)
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 <div className="hidden lg:flex flex-col items-end shrink-0">
                     <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{tCommon('user')}</span>
                     <span className="text-xs text-foreground/90">{username}</span>
@@ -597,6 +611,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
             <SheetContent
               side="right"
               showCloseButton={false}
+              forceMount
               className="w-full max-w-none gap-0 border-l p-0 sm:max-w-none"
             >
               <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
