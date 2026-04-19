@@ -6,6 +6,7 @@ import {
   Square,
   CheckSquare,
   Loader2,
+  MoreVertical,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -84,6 +85,15 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
     openContextMenu(node, { x: event.clientX, y: event.clientY });
   };
 
+  const handleDotsClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!isMultiSelected) {
+      useFileStore.getState().clearMultiSelect();
+      selectNode(node);
+    }
+    openContextMenu(node, { x: event.clientX, y: event.clientY });
+  };
+
   const getFileIcon = () => {
     return getFileIconComponent({
       name: node.name,
@@ -114,18 +124,6 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
             style={rowPaddingStyle}
             onContextMenu={handleContextMenu}
           >
-            {isMultiSelectMode && (
-              <button
-                onClick={handleCheckboxClick}
-                className="mr-1 flex-shrink-0 p-1 hover:bg-accent/70"
-              >
-                {isMultiSelected ? (
-                  <CheckSquare className="h-4 w-4 text-primary" />
-                ) : (
-                  <Square className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
-            )}
             <CollapsibleTrigger asChild>
               <SidebarMenuButton
                 className={cn(
@@ -149,6 +147,28 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
                 <span className="flex-1 truncate text-sm">{node.name}</span>
               </SidebarMenuButton>
             </CollapsibleTrigger>
+            {isMultiSelectMode ? (
+              <button
+                onClick={handleCheckboxClick}
+                className="ml-auto shrink-0 p-1 hover:bg-accent/70"
+              >
+                {isMultiSelected ? (
+                  <CheckSquare className="h-4 w-4 text-primary" />
+                ) : (
+                  <Square className="h-4 w-4 text-muted-foreground" />
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={handleDotsClick}
+                className={cn(
+                  'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
+                  isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                )}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </SidebarMenuItem>
         {showChildren && (
@@ -182,18 +202,6 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
         style={rowPaddingStyle}
         onContextMenu={handleContextMenu}
       >
-        {isMultiSelectMode && (
-          <button
-            onClick={handleCheckboxClick}
-            className="mr-1 flex-shrink-0 p-1 hover:bg-accent/70"
-          >
-            {isMultiSelected ? (
-              <CheckSquare className="h-4 w-4 text-primary" />
-            ) : (
-              <Square className="h-4 w-4 text-muted-foreground" />
-            )}
-          </button>
-        )}
         <SidebarMenuButton
           className={cn(
             'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
@@ -215,6 +223,28 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
             </span>
           )}
         </SidebarMenuButton>
+        {isMultiSelectMode ? (
+          <button
+            onClick={handleCheckboxClick}
+            className="ml-auto shrink-0 p-1 hover:bg-accent/70"
+          >
+            {isMultiSelected ? (
+              <CheckSquare className="h-4 w-4 text-primary" />
+            ) : (
+              <Square className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+        ) : (
+          <button
+            onClick={handleDotsClick}
+            className={cn(
+              'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
+              isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            )}
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </SidebarMenuItem>
   );
