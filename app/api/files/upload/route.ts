@@ -4,22 +4,26 @@ import { writeFile, createDirectory } from '@/app/lib/filesystem/workspace-files
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
+import { convertImage, isHeicFile } from '@/app/lib/images/convert';
+import { fileTypeFromBuffer } from 'file-type';
 
-// Upload limits
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB per file
-const MAX_TOTAL_SIZE = 500 * 1024 * 1024; // 500MB total per request
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
 const MAX_FILES_PER_REQUEST = 100;
 
-// Valid filename pattern - only allow safe characters
 const VALID_FILENAME_REGEX = /^[a-zA-Z0-9._\-\s\/\(\)]+$/;
 const INVALID_PATH_PATTERNS = ['..', '~', '//', '\\\\', ':', '*', '?', '"', '<', '>', '|'];
 
+interface ConvertParams {
+  format: 'jpg' | 'webp' | 'png';
+  quality: number;
+  maxDimension?: number;
+}
+
 function isValidFilename(filename: string): boolean {
-  // Check for path traversal attempts
   if (INVALID_PATH_PATTERNS.some(pattern => filename.includes(pattern))) {
     return false;
   }
-  // Must match valid characters
   return VALID_FILENAME_REGEX.test(filename);
 }
 
@@ -30,6 +34,16 @@ function sanitizeFilePath(filePath: string): string {
     .map(segment => path.posix.basename(segment))
     .filter(segment => segment.length > 0 && segment !== '.' && segment !== '..');
   return sanitized.join('/');
+}
+
+function replaceExtension(filename: string, newExt: string): string {
+  const lastDot = filename.lastIndexOf('.');
+  const baseName = lastDot > 0 ? filename.slice(0, lastDot) : filename;
+  return baseName + newExt;
+}
+
+function isImageMimeType(mimeType: string): boolean {
+  return mimeType.startsWith('image/');
 }
 
 export async function POST(request: NextRequest) {
@@ -51,6 +65,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const files = formData.getAll('files') as File[];
     const targetDir = formData.get('path')?.toString() || '.';
+    const convertParamsRaw = formData.get('convertParams')?.toString();
 
     if (!files || files.length === 0) {
       return NextResponse.json(
@@ -59,7 +74,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check file count limit
     if (files.length > MAX_FILES_PER_REQUEST) {
       return NextResponse.json(
         { success: false, error: `Maximum ${MAX_FILES_PER_REQUEST} files per upload` },
@@ -67,7 +81,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate total size
     let totalSize = 0;
     for (const file of files) {
       totalSize += file.size;
@@ -86,16 +99,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let convertParamsList: (ConvertParams | null)[] | null = null;
+    if (convertParamsRaw) {
+      try {
+        const parsed = JSON.parse(convertParamsRaw);
+        if (Array.isArray(parsed) && parsed.length === files.length) {
+          convertParamsList = parsed;
+        }
+      } catch {
+        // Invalid JSON — ignore convertParams
+      }
+    }
+
     if (targetDir && targetDir !== '.') {
       await createDirectory(targetDir);
     }
 
     const uploadedFiles: string[] = [];
 
-    for (const file of files) {
-      // Sanitize and validate filename
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       const sanitizedPath = sanitizeFilePath(file.name);
-      
+
       if (!sanitizedPath || !isValidFilename(sanitizedPath)) {
         return NextResponse.json(
           { success: false, error: `Invalid filename: "${file.name}". Only alphanumeric characters, dots, dashes, underscores, spaces, parentheses, and path separators are allowed.` },
@@ -103,18 +128,62 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const buffer = Buffer.from(await file.arrayBuffer());
-      
-      const targetPath = path.posix.join(targetDir, sanitizedPath);
-      
-      // Ensure parent directory exists
+      let buffer: Buffer = Buffer.from(await file.arrayBuffer());
+      let filename = sanitizedPath;
+      let mimeType = file.type || 'application/octet-stream';
+
+      const convertParams = convertParamsList?.[i] ?? null;
+
+      if (convertParams) {
+        try {
+          const result = await convertImage(buffer, filename, {
+            format: convertParams.format,
+            quality: convertParams.quality,
+            maxDimension: convertParams.maxDimension,
+          });
+          buffer = result.buffer as Buffer;
+          filename = replaceExtension(sanitizedPath, path.extname(result.filename) || `.${convertParams.format}`);
+          mimeType = result.mimeType;
+        } catch (err) {
+          console.error(`[API] Image conversion failed for ${file.name}:`, err);
+          return NextResponse.json(
+            { success: false, error: `Image conversion failed for "${file.name}" — file may be corrupt` },
+            { status: 400 }
+          );
+        }
+      } else if (isImageMimeType(mimeType) || isHeicFile(filename, mimeType)) {
+        const detectedType = await fileTypeFromBuffer(buffer);
+        const isHeic = isHeicFile(filename, mimeType) ||
+          (detectedType?.mime === 'image/heic' || detectedType?.mime === 'image/heif' || detectedType?.mime === 'image/heic-sequence');
+
+        if (isHeic) {
+          try {
+            const result = await convertImage(buffer, filename, {
+              format: 'jpg',
+              quality: 80,
+            });
+            buffer = result.buffer as Buffer;
+            filename = replaceExtension(sanitizedPath, '.jpg');
+            mimeType = result.mimeType;
+          } catch (err) {
+            console.error(`[API] HEIC auto-conversion failed for ${file.name}:`, err);
+            return NextResponse.json(
+              { success: false, error: `HEIC conversion failed for "${file.name}" — file may be corrupt` },
+              { status: 400 }
+            );
+          }
+        }
+      }
+
+      const targetPath = path.posix.join(targetDir, filename);
+
       const parentDir = path.posix.dirname(targetPath);
       if (parentDir !== '.' && parentDir !== targetDir && parentDir !== '/') {
-          await createDirectory(parentDir);
+        await createDirectory(parentDir);
       }
 
       await writeFile(targetPath, buffer);
-      uploadedFiles.push(sanitizedPath);
+      uploadedFiles.push(filename);
     }
 
     clearFileTreeCache();
