@@ -41,7 +41,7 @@ import {
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
-import { extractFilePaths } from '@/app/lib/chat/extract-file-paths';
+import { extractFilePaths, isFilePath } from '@/app/lib/chat/extract-file-paths';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
@@ -584,21 +584,6 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
   );
 }
 
-// Check if a URL looks like a file path
-function isFilePath(href: string): boolean {
-  // Skip external URLs, anchors, and empty strings
-  if (!href || href.startsWith('http') || href.startsWith('#') || href.startsWith('mailto:')) {
-    return false;
-  }
-  
-  // Check if it looks like a file path (has extension or is a relative path)
-  const hasExtension = /\.[^./\\]+$/.test(href);
-  const isRelativePath = !href.startsWith('/') && (href.includes('/') || hasExtension);
-  const isAbsoluteWorkspacePath = href.startsWith('/data/workspace/');
-  
-  return isRelativePath || isAbsoluteWorkspacePath;
-}
-
 function MarkdownMessage({ content, variant }: { content: string; variant: 'user' | 'assistant' | 'tool' }) {
   const sharedClasses =
     'break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
@@ -723,6 +708,14 @@ export default function CanvasAgentChat({
   chatContainerWidth,
   isSurfaceVisible = true,
 }: CanvasAgentChatProps) {
+  // DEBUG: track mount/unmount lifecycle
+  useEffect(() => {
+    console.log('[CanvasAgentChat] MOUNTED, isSurfaceVisible=', isSurfaceVisible);
+    return () => {
+      console.log('[CanvasAgentChat] UNMOUNTED');
+    };
+  }, []);
+
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
   const router = useRouter();
@@ -984,6 +977,7 @@ export default function CanvasAgentChat({
   }, [input, isMobile, syncTextareaHeight]);
 
   useEffect(() => {
+    console.log('[CanvasAgentChat] sessionId changed:', sessionId);
     sessionIdRef.current = sessionId;
     // Persist active session so mobile can restore it after Sheet unmount/remount
     if (typeof window !== 'undefined') {
@@ -996,6 +990,7 @@ export default function CanvasAgentChat({
   }, [sessionId]);
 
   useEffect(() => {
+    console.log('[CanvasAgentChat] isSurfaceVisible changed:', isSurfaceVisible, 'sessionId:', sessionId);
     surfaceVisibleRef.current = isSurfaceVisible;
 
     window.dispatchEvent(new CustomEvent('chat-active-session-changed', {
@@ -2427,6 +2422,18 @@ export default function CanvasAgentChat({
 
   // Restore previously active session on remount (mobile Sheet unmount/remount)
   useEffect(() => {
+    const storedSessionId = typeof window !== 'undefined'
+      ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
+      : null;
+    console.log('[CanvasAgentChat] Restore effect running:', {
+      initialPrompt: initialPrompt?.trim() || null,
+      hasStoredInitialPrompt: !!(initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey || '')),
+      requestedSessionId,
+      userStartedNewChat: userStartedNewChatRef.current,
+      sessionId,
+      storedSessionId,
+    });
+
     if (initialPrompt?.trim()) return;
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
       return;
@@ -2435,19 +2442,22 @@ export default function CanvasAgentChat({
     if (userStartedNewChatRef.current) return;
     if (sessionId) return; // already have a session
 
-    const storedSessionId = typeof window !== 'undefined'
-      ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
-      : null;
     if (!storedSessionId) return;
+
+    console.log('[CanvasAgentChat] Attempting to restore session:', storedSessionId);
 
     const restoreSession = async () => {
       try {
         const res = await fetch('/api/sessions');
         const data = await res.json();
+        console.log('[CanvasAgentChat] Restore: fetched sessions, count:', data.sessions?.length);
         if (data.success && data.sessions && data.sessions.length > 0) {
           const targetSession = data.sessions.find((s: AISession) => s.sessionId === storedSessionId);
           if (targetSession) {
+            console.log('[CanvasAgentChat] Restore: found target session, loading...');
             await loadSession(targetSession);
+          } else {
+            console.log('[CanvasAgentChat] Restore: target session NOT found in sessions list');
           }
         }
       } catch (err) {
