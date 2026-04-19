@@ -44,13 +44,13 @@ export function getFileIconComponent({
         );
 
       return (
-        <span className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
+        <span className="relative inline-flex shrink-0 items-center justify-center" style={{ width: '1em', height: '1em' }}>
           {isExpanded ? (
             <FolderOpen className={`${className} text-primary`} />
           ) : (
             <Folder className={`${className} text-primary`} />
           )}
-          <span className="absolute -bottom-1 -right-1 rounded-full bg-background p-[1px]">
+          <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-background p-[1px]">
             {badgeIcon}
           </span>
         </span>
