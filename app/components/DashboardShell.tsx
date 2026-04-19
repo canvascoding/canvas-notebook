@@ -34,6 +34,8 @@ import {
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { LogoutButton } from '@/app/components/LogoutButton';
+import { HintProvider } from '@/app/components/onboarding/HintProvider';
+import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
@@ -412,6 +414,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
       : undefined;
 
   return (
+    <HintProvider page="notebook">
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
       <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
         <div className="relative mx-auto flex h-full items-center justify-between px-4">
@@ -477,8 +480,9 @@ export function DashboardShell({ username }: DashboardShellProps) {
               </div>
             </div>
           ) : null}
-          <div className="flex items-center gap-1.5 md:gap-4">
-            <ThemeToggle />
+            <div className="flex items-center gap-1.5 md:gap-4">
+              <HelpDropdown page="notebook" />
+              <ThemeToggle />
             {isDesktopViewport ? (
               <>
                 <TooltipProvider delayDuration={300}>
@@ -646,6 +650,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
         <main className="flex min-h-0 flex-1 overflow-hidden relative">
           {sidebarVisible ? (
             <div
+              id="onboarding-notebook-fileBrowser"
               style={{ '--desktop-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
               className="relative z-[80] w-[var(--desktop-sidebar-width)] flex-shrink-0 bg-card border-r border-border"
             >
@@ -685,7 +690,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
               terminalVisible={terminalVisible}
               main={
                 <div className="flex h-full w-full overflow-hidden relative">
-                  <div className="flex-1 min-w-0 bg-background">
+                  <div id="onboarding-notebook-editor" className="flex-1 min-w-0 bg-background">
                     <FileEditor />
                   </div>
 
@@ -714,7 +719,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                         `
                     }
                   >
-                    <div className="flex flex-col w-full h-full relative">
+                    <div id="onboarding-notebook-chat" className="flex flex-col w-full h-full relative">
                       <CanvasAgentChat
                         initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                         hideNavHeader={true}
@@ -729,7 +734,8 @@ export function DashboardShell({ username }: DashboardShellProps) {
             />
           </div>
         </main>
-      )}
+        )}
     </div>
+    </HintProvider>
   );
 }

@@ -5,7 +5,8 @@ import packageJson from '../../../package.json';
 
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { HomeWorkspaceView } from '@/app/components/home/HomeWorkspaceView';
-import { HelpNavButton } from '@/app/components/home/HelpNavButton';
+import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
+import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
@@ -39,7 +40,7 @@ export default async function Home() {
             </div>
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
-              <HelpNavButton />
+              <HelpDropdown page="home" />
               <div className="hidden min-[480px]:flex flex-col items-end">
                 <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{tCommon('user')}</span>
                 <span className="max-w-[140px] truncate text-xs">{username}</span>
@@ -56,14 +57,16 @@ export default async function Home() {
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 pt-6 pb-10 md:px-6 md:pt-10">
-          <div className="mx-auto max-w-2xl space-y-6">
-            <div className="text-center">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{tHome('hero.eyebrow')}</p>
-              <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">{tHome('hero.title')}</h1>
-            </div>
+          <HomeHintProvider>
+            <div className="mx-auto max-w-2xl space-y-6">
+              <div className="text-center">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{tHome('hero.eyebrow')}</p>
+                <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">{tHome('hero.title')}</h1>
+              </div>
 
-            <HomeWorkspaceView />
-          </div>
+              <HomeWorkspaceView />
+            </div>
+          </HomeHintProvider>
         </main>
 
         <footer className="border-t border-border bg-background/95">

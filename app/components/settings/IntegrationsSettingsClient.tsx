@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useHintContext } from '@/app/components/onboarding/HintProvider';
 
 type EnvScope = 'integrations' | 'agents';
 
@@ -164,7 +165,7 @@ function EnvEditorCard(props: {
   } = props;
 
   return (
-    <Card>
+    <Card id={card.scope === 'integrations' ? 'onboarding-settings-integrations' : 'onboarding-settings-agentsEnv'}>
       <CardHeader className="px-4 sm:px-6">
         <CardTitle>{t(`scopes.${card.scope}.title`)}</CardTitle>
         <CardDescription>
@@ -311,6 +312,12 @@ export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: bool
   const searchParams = useSearchParams();
 
   const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage'>('general');
+  const { activeTabOverride } = useHintContext();
+
+  const effectiveTab = (activeTabOverride as typeof settingsTab) || settingsTab;
+  const handleTabChange = (value: string) => {
+    setSettingsTab(value as typeof settingsTab);
+  };
   const [editors, setEditors] = useState<Record<EnvScope, ScopeEditorState>>({
     integrations: INITIAL_SCOPE_STATE('integrations'),
     agents: INITIAL_SCOPE_STATE('agents'),
@@ -547,24 +554,24 @@ export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: bool
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
       <Tabs
-        value={settingsTab}
-        onValueChange={(value) => setSettingsTab(value as 'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage')}
+        value={effectiveTab}
+        onValueChange={handleTabChange}
         className="space-y-4"
       >
         <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-5">
           <TabsTrigger value="general" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.general')}
           </TabsTrigger>
-          <TabsTrigger value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
+          <TabsTrigger id="onboarding-settings-integrations" value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.integrations')}
           </TabsTrigger>
-          <TabsTrigger value="agent-settings" className="min-h-9 border border-border data-[state=active]:bg-muted">
+          <TabsTrigger id="onboarding-settings-agentSettings" value="agent-settings" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.agentSettings')}
           </TabsTrigger>
           <TabsTrigger value="workspace" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.workspace')}
           </TabsTrigger>
-          <TabsTrigger value="usage" className="min-h-9 border border-border data-[state=active]:bg-muted">
+          <TabsTrigger id="onboarding-settings-usage" value="usage" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.usage')}
           </TabsTrigger>
         </TabsList>
@@ -573,7 +580,7 @@ export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: bool
           <GeneralSettingsPanel />
         </TabsContent>
 
-        <TabsContent value="integrations" className="space-y-4">
+        <TabsContent value="integrations" className="space-y-4" id="onboarding-settings-integrations">
           {SCOPE_CARDS.map((card) => (
             <EnvEditorCard
               key={card.scope}
@@ -592,7 +599,7 @@ export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: bool
           ))}
         </TabsContent>
 
-        <TabsContent value="agent-settings" className="space-y-4">
+        <TabsContent value="agent-settings" className="space-y-4" id="onboarding-settings-agentSettings">
           <AgentSettingsPanel />
         </TabsContent>
 
@@ -600,7 +607,7 @@ export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: bool
           <WorkspaceSettingsPanel />
         </TabsContent>
 
-        <TabsContent value="usage" className="space-y-4">
+        <TabsContent value="usage" className="space-y-4" id="onboarding-settings-usage">
           <UsageAnalyticsClient isAdmin={isAdmin} />
         </TabsContent>
       </Tabs>

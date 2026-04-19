@@ -256,7 +256,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 md:px-6">
-      <Card>
+      <Card id="onboarding-imageGen-config">
         <CardHeader>
           <CardTitle>{t('cardTitle')}</CardTitle>
           <CardDescription>
@@ -387,7 +387,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
             </div>
           )}
 
-          <div className="flex flex-col gap-1 text-sm">
+          <div id="onboarding-imageGen-references" className="flex flex-col gap-1 text-sm">
             <span className="text-xs text-muted-foreground">{t('fields.referenceImages')}</span>
             <div className="flex items-center gap-2">
               <Button variant="outline" onClick={() => setPickerOpen(true)}>
@@ -483,7 +483,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="onboarding-imageGen-results">
         <CardHeader>
           <CardTitle>{t('currentResults.title')}</CardTitle>
           <CardDescription>{t('currentResults.description')}</CardDescription>

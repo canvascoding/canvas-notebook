@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import { NanoBananaLocalizerClient } from '@/app/apps/nano-banana-ad-localizer/components/NanoBananaLocalizerClient';
+import { LocalizerHintProvider } from '@/app/components/onboarding/LocalizerHintProvider';
 
 export default async function NanoBananaLocalizerPage() {
   const session = await requirePageSession();
@@ -17,7 +18,8 @@ export default async function NanoBananaLocalizerPage() {
   const geminiApiKey = await getGeminiApiKeyFromIntegrations();
 
   return (
-    <SuitePageLayout title={t('title')} username={username}>
+    <SuitePageLayout title={t('title')} username={username} hintPage="localizer">
+        <LocalizerHintProvider>
         {!geminiApiKey && (
           <div className="p-4 md:p-6">
             <Card className="border-destructive/50 bg-destructive/10">
@@ -42,6 +44,7 @@ export default async function NanoBananaLocalizerPage() {
         )}
         
         <NanoBananaLocalizerClient />
+        </LocalizerHintProvider>
     </SuitePageLayout>
   );
 }
