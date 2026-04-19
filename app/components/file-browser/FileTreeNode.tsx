@@ -40,12 +40,12 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
   } = useFileStore();
 
   const isDirectory = node.type === 'directory';
-  const hasChildren = node.children && node.children.length > 0;
   const isExpanded = expandedDirs.has(node.path);
   const isLoading = loadingDirs.has(node.path);
   const isSelected = selectedNode?.path === node.path;
   const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
+  const childNodes = node.children ?? [];
   const rowPaddingStyle = isMobile
     ? { paddingLeft: `${8 + Math.min(depth, 4) * 12}px` }
     : undefined;
@@ -81,7 +81,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
       useFileStore.getState().clearMultiSelect();
       selectNode(node);
     }
-    openContextMenu(node);
+    openContextMenu(node, { x: event.clientX, y: event.clientY });
   };
 
   const getFileIcon = () => {
@@ -101,7 +101,7 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
   };
 
   if (isDirectory) {
-    const showChildren = isExpanded && (hasChildren || isLoading);
+    const showChildren = isExpanded && (childNodes.length > 0 || isLoading);
     return (
       <Collapsible open={isExpanded} onOpenChange={handleToggle}>
         <SidebarMenuItem>
@@ -151,20 +151,22 @@ export function FileTreeNode({ node, depth = 0 }: FileTreeNodeProps) {
             </CollapsibleTrigger>
           </div>
         </SidebarMenuItem>
-        <CollapsibleContent>
-          <SidebarMenuSub className={cn('mr-0 pr-0', isMobile && 'mx-0 border-l-0 px-0 py-0')}>
-            {isLoading ? (
-              <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground" style={isMobile ? { paddingLeft: `${8 + Math.min(depth + 1, 4) * 12}px` } : undefined}>
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span>Loading...</span>
-              </div>
-            ) : (
-              node.children!.map((child) => (
-                <FileTreeNode key={child.path} node={child} depth={depth + 1} />
-              ))
-            )}
-          </SidebarMenuSub>
-        </CollapsibleContent>
+        {showChildren && (
+          <CollapsibleContent>
+            <SidebarMenuSub className={cn('mr-0 pr-0', isMobile && 'mx-0 border-l-0 px-0 py-0')}>
+              {isLoading ? (
+                <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground" style={isMobile ? { paddingLeft: `${8 + Math.min(depth + 1, 4) * 12}px` } : undefined}>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Loading...</span>
+                </div>
+              ) : (
+                childNodes.map((child) => (
+                  <FileTreeNode key={child.path} node={child} depth={depth + 1} />
+                ))
+              )}
+            </SidebarMenuSub>
+          </CollapsibleContent>
+        )}
       </Collapsible>
     );
   }

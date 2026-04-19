@@ -10,6 +10,11 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+export interface ContextMenuPosition {
+  x: number;
+  y: number;
+}
+
 const TEXT_EXTENSIONS = new Set([
   'txt',
   'log',
@@ -46,6 +51,10 @@ function getExtension(path: string) {
   const parts = path.split('.');
   if (parts.length <= 1) return '';
   return parts[parts.length - 1].toLowerCase();
+}
+
+function getParentDirectory(path: string) {
+  return path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
 }
 
 export function findPathInTree(searchPath: string, tree: FileNode[]): boolean {
@@ -94,7 +103,10 @@ interface FileStoreState {
 
   // Context menu
   contextMenuNode: FileNode | null;
-  openContextMenu: (node: FileNode) => void;
+  contextMenuPosition: ContextMenuPosition | null;
+  isContextMenuOpen: boolean;
+  contextMenuRequestId: number;
+  openContextMenu: (node: FileNode, position: ContextMenuPosition) => void;
   closeContextMenu: () => void;
 
   // Mobile UI state
@@ -115,7 +127,9 @@ interface FileStoreState {
 
   // Actions
   loadFileTree: (path?: string, depth?: number, noCache?: boolean) => Promise<void>;
-  loadSubdirectory: (dirPath: string) => Promise<void>;
+  refreshRootTree: (noCache?: boolean) => Promise<void>;
+  refreshDirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
+  loadSubdirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
   loadFile: (path: string, noCache?: boolean) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
   selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean) => void;
@@ -164,11 +178,23 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
   // Context menu state
   contextMenuNode: null,
-  openContextMenu: (node: FileNode) => {
-    set({ contextMenuNode: node });
+  contextMenuPosition: null,
+  isContextMenuOpen: false,
+  contextMenuRequestId: 0,
+  openContextMenu: (node: FileNode, position: ContextMenuPosition) => {
+    set((state) => ({
+      contextMenuNode: node,
+      contextMenuPosition: position,
+      isContextMenuOpen: true,
+      contextMenuRequestId: state.contextMenuRequestId + 1,
+    }));
   },
   closeContextMenu: () => {
-    set({ contextMenuNode: null });
+    set({
+      contextMenuNode: null,
+      contextMenuPosition: null,
+      isContextMenuOpen: false,
+    });
   },
 
   // Mobile UI state
@@ -218,7 +244,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         throw new Error(error.error || 'Failed to paste files');
       }
 
-      await get().loadFileTree(destDir, undefined, true);
+      await get().refreshDirectory(destDir, true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to paste files';
       set({ treeError: message });
@@ -226,7 +252,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
   duplicatePath: async (path: string) => {
-    const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
+    const parentDir = getParentDirectory(path);
 
     try {
       const response = await fetch('/api/files/copy', {
@@ -245,7 +271,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         throw new Error(error.error || 'Failed to duplicate file');
       }
 
-      await get().loadFileTree(parentDir, undefined, true);
+      await get().refreshDirectory(parentDir, true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to duplicate file';
       set({ treeError: message });
@@ -293,7 +319,45 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  loadSubdirectory: async (dirPath: string) => {
+  refreshRootTree: async (noCache = false) => {
+    set({ treeError: null });
+
+    try {
+      const url = `/api/files/tree?path=.&depth=0${noCache ? `&noCache=${Date.now()}` : ''}`;
+      const response = await fetch(url, {
+        credentials: 'include',
+        cache: noCache ? 'no-store' : 'default',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to refresh root tree');
+      }
+
+      const { data } = await response.json();
+      set({ fileTree: data });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to refresh root tree';
+      set({ treeError: message });
+    }
+  },
+
+  refreshDirectory: async (dirPath: string, noCache = false) => {
+    if (dirPath === '.') {
+      await get().refreshRootTree(noCache);
+      return;
+    }
+
+    await get().loadSubdirectory(dirPath, noCache);
+  },
+
+  loadSubdirectory: async (dirPath: string, noCache = false) => {
+    if (dirPath === '.') {
+      await get().refreshRootTree(noCache);
+      return;
+    }
+
     const { loadingDirs, expandedDirs, fileTree } = get();
     if (loadingDirs.has(dirPath)) return;
 
@@ -309,7 +373,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     };
 
     const existingNode = findNodeInTree(dirPath, fileTree);
-    if (existingNode && existingNode.children && existingNode.children.length > 0) {
+    if (!noCache && existingNode && existingNode.children && existingNode.children.length > 0) {
       if (!expandedDirs.has(dirPath)) {
         const newExpanded = new Set(expandedDirs);
         newExpanded.add(dirPath);
@@ -323,8 +387,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ loadingDirs: newLoading });
 
     try {
-      const url = `/api/files/tree?path=${encodeURIComponent(dirPath)}&depth=1`;
-      const response = await fetch(url, { credentials: 'include' });
+      const url = `/api/files/tree?path=${encodeURIComponent(dirPath)}&depth=1${noCache ? `&noCache=${Date.now()}` : ''}`;
+      const response = await fetch(url, {
+        credentials: 'include',
+        cache: noCache ? 'no-store' : 'default',
+      });
 
       if (!response.ok) {
         const error = await response.json();
@@ -507,8 +574,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
 
       // Refresh from parent directory
-      const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
-      await get().loadFileTree(parentDir, undefined, true);
+      const parentDir = getParentDirectory(path);
+      await get().refreshDirectory(parentDir, true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to create path';
@@ -561,9 +628,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       set({ multiSelectPaths: new Set(), isMultiSelectMode: false });
 
-      const firstPath = pathsToDelete[0];
-      const parentDir = firstPath.includes('/') ? firstPath.substring(0, firstPath.lastIndexOf('/')) : '.';
-      await get().loadFileTree(parentDir, undefined, true);
+      const parentDirs = new Set(pathsToDelete.map((deletedPath) => getParentDirectory(deletedPath)));
+      for (const parentDir of parentDirs) {
+        await get().refreshDirectory(parentDir, true);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete path';
       set({ treeError: message });
@@ -614,8 +682,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         set({ currentFile: null, fileError: null });
       }
 
-      const parentDir = oldPath.includes('/') ? oldPath.substring(0, oldPath.lastIndexOf('/')) : '.';
-      await get().loadFileTree(parentDir, undefined, true);
+      const parentDirs = new Set([
+        getParentDirectory(oldPath),
+        getParentDirectory(newPath),
+      ]);
+      for (const parentDir of parentDirs) {
+        await get().refreshDirectory(parentDir, true);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to rename path';
@@ -671,7 +744,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         });
       }
 
-      await get().loadFileTree('.', undefined, true);
+      await get().refreshDirectory(targetDir, true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to upload files';
       set({ treeError: message });

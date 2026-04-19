@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronRight, Folder, FileWarning } from 'lucide-react';
 import {
@@ -23,25 +23,31 @@ interface ConflictState {
 
 export function BulkMoveDialog() {
   const t = useTranslations('notebook');
-  const [open, setOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [isMoving, setIsMoving] = useState(false);
-  const { fileTree, multiSelectPaths, clearMultiSelect, renamePath, loadFileTree } = useFileStore();
+  const {
+    fileTree,
+    multiSelectPaths,
+    clearMultiSelect,
+    renamePath,
+    loadFileTree,
+    bulkMoveOpen,
+    setBulkMoveOpen,
+  } = useFileStore();
 
-  useEffect(() => {
-    const handleOpen = () => {
-      setOpen(true);
-      setMoveTarget('.');
-      setMoveExpandedDirs(new Set());
-      setConflict(null);
-      setIsMoving(false);
-    };
+  const resetDialogState = () => {
+    setMoveTarget('.');
+    setMoveExpandedDirs(new Set());
+    setConflict(null);
+    setIsMoving(false);
+  };
 
-    window.addEventListener('notebook-bulk-move-open', handleOpen);
-    return () => window.removeEventListener('notebook-bulk-move-open', handleOpen);
-  }, []);
+  const closeDialog = () => {
+    resetDialogState();
+    setBulkMoveOpen(false);
+  };
 
   const toggleMoveDir = (path: string) => {
     setMoveExpandedDirs(prev => {
@@ -137,8 +143,7 @@ export function BulkMoveDialog() {
     // Since we already processed some items, we'll start from the current state
     await loadFileTree('.', undefined, true);
     clearMultiSelect();
-    setOpen(false);
-    setIsMoving(false);
+    closeDialog();
     toast.success(t('moveMultipleSuccess', { count: multiSelectPaths.size }));
   };
 
@@ -200,22 +205,27 @@ export function BulkMoveDialog() {
     }
     
     clearMultiSelect();
-    setOpen(false);
-    setIsMoving(false);
     await loadFileTree('.', undefined, true);
+    closeDialog();
     toast.success(t('moveMultipleSuccess', { count: successCount }));
   };
 
   const handleCancel = () => {
     if (isMoving) return; // Prevent closing while moving
-    setOpen(false);
-    setConflict(null);
+    closeDialog();
   };
 
   return (
     <>
       {/* Main Move Dialog */}
-      <Dialog open={open && !conflict} onOpenChange={setOpen}>
+      <Dialog
+        open={bulkMoveOpen && !conflict}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            handleCancel();
+          }
+        }}
+      >
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{t('moveMultiple', { count: multiSelectPaths.size })}</DialogTitle>
@@ -258,7 +268,7 @@ export function BulkMoveDialog() {
       </Dialog>
 
       {/* File Conflict Dialog */}
-      <Dialog open={conflict !== null} onOpenChange={() => {}}>
+      <Dialog open={bulkMoveOpen && conflict !== null} onOpenChange={() => {}}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

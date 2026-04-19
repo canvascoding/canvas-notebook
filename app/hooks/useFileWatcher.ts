@@ -45,7 +45,7 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
     onEvent,
   } = options;
 
-  const { loadSubdirectory } = useFileStore();
+  const { loadSubdirectory, refreshRootTree } = useFileStore();
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -116,13 +116,15 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
       if (isMountedRef.current) {
         const targetDir = pendingDirRef.current;
         const currentExpanded = useFileStore.getState().expandedDirs;
-        if (currentExpanded.has(targetDir) || targetDir === '.') {
+        if (targetDir === '.') {
+          refreshRootTree(true);
+        } else if (currentExpanded.has(targetDir)) {
           loadSubdirectory(targetDir);
         }
         lastReloadRef.current = Date.now();
       }
     }, finalWaitTime);
-  }, [loadSubdirectory]);
+  }, [loadSubdirectory, refreshRootTree]);
 
   const handleFileChange = useCallback((event: FileEvent) => {
     const dir = event.dir || (event.relativePath.includes('/')

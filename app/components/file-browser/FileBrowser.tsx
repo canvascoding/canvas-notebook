@@ -20,7 +20,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { useFileStore, type FileNode, findPathInTree } from '@/app/store/file-store';
+import { useFileStore, findPathInTree } from '@/app/store/file-store';
 import { FileTree } from './FileTree';
 import { FileBreadcrumb } from './FileBreadcrumb';
 import { CreateItemDialog } from './CreateItemDialog';
@@ -28,7 +28,6 @@ import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { useFileWatcher } from '@/app/hooks/useFileWatcher';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
 
 interface FileBrowserProps {
@@ -45,9 +44,8 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletePaths, setDeletePaths] = useState<string[]>([]);
   const [deleteSkippedCount, setDeleteSkippedCount] = useState(0);
-  const isMobile = useIsMobile();
   const isMobileSheet = variant === 'mobile-sheet';
-  
+
   const { isConnected } = useFileWatcher({
     enabled: true,
     debounceMs: 1000,
@@ -55,8 +53,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   });
   
   const {
-    isLoadingTree,
-    loadFileTree,
+    refreshDirectory,
     selectedNode,
     createPath,
     deletePath,
@@ -72,6 +69,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     multiSelectPaths,
     clearMultiSelect,
     downloadFile,
+    setBulkMoveOpen,
   } = useFileStore();
 
   const resolveTargetDir = () => {
@@ -202,7 +200,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
       toast.error(t('protectedFolderMove'));
       return;
     }
-    useFileStore.getState().setBulkMoveOpen(true);
+    setBulkMoveOpen(true);
   };
 
   const handleBulkDownload = async () => {
@@ -219,9 +217,9 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const navigateToDirectory = useCallback(
     async (targetDir: string) => {
       useFileStore.getState().setCurrentDirectory(targetDir);
-      await loadFileTree(targetDir, undefined, true);
+      await refreshDirectory(targetDir, true);
     },
-    [loadFileTree]
+    [refreshDirectory]
   );
 
   return (

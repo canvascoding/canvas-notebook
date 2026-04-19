@@ -248,7 +248,7 @@ export async function buildFileTree(
   depth: number = 4,
   currentDepth: number = 0
 ): Promise<FileNode[]> {
-  if (currentDepth >= depth) {
+  if (currentDepth > depth) {
     return [];
   }
 
@@ -261,7 +261,7 @@ export async function buildFileTree(
     return a.type === 'directory' ? -1 : 1;
   });
 
-  if (currentDepth < depth - 1) {
+  if (currentDepth < depth) {
     await Promise.all(
       files.map(async (file) => {
         if (file.type === 'directory') {

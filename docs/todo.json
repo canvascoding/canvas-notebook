@@ -452,7 +452,7 @@
         "verification": {
           "lint": "npm run lint",
           "e2e": "npm run test:e2e -- --grep \"switch runtime badge to working immediately\""
-        ]
+        }
       }
     },
     {
@@ -474,7 +474,7 @@
           "lint": "npm run lint",
           "build": "npm run build",
           "e2e": "npx playwright test tests/chat-cross-session-notifications.spec.ts"
-        ]
+        }
       }
     },
     {
@@ -496,7 +496,7 @@
           "eslint": "npx eslint app/api/sessions/route.ts app/components/canvas-agent-chat/CanvasAgentChat.tsx app/components/chat/SessionSidebar.tsx app/components/websocket-provider.tsx app/lib/websocket/client.ts server/chat-event-bridge.ts server/websocket-server.ts app/components/DashboardShell.tsx app/[locale]/(routes)/chat/chat-shell.tsx tests/chat-cross-session-notifications.spec.ts",
           "build": "npm run build",
           "e2e": "E2E_EXTERNAL_SERVER=1 npx playwright test tests/chat-cross-session-notifications.spec.ts"
-        ]
+        }
       }
     },
     {
@@ -572,6 +572,133 @@
         ],
         "verification": {
           "build": "npm run build"
+        }
+      }
+    },
+    {
+      "id": "50",
+      "content": "File Explorer Review: Align depth=0 tree semantics with lazy-loading root fetch",
+      "status": "completed",
+      "priority": "high",
+      "phase": "File Explorer Review",
+      "details": {
+        "currentState": [
+          "Initial file tree load already requests /api/files/tree?path=.&depth=0",
+          "buildFileTree() currently returns [] for depth=0 because recursion stops at currentDepth >= depth"
+        ],
+        "targetBehavior": [
+          "depth=0 returns the direct children of the requested directory",
+          "depth=1 keeps returning one additional directory level for subtree fetches"
+        ],
+        "verification": {
+          "build": "User-confirmed npm run build passed after the depth=0 fix",
+          "code": "Validated buildFileTree('.', 0) returns direct root children and depth=1 keeps one additional level",
+          "ui": "Verified in browser against localhost:3000 that the file explorer renders and the context menu flows still work after the lazy-loading fix"
+        }
+      }
+    },
+    {
+      "id": "51",
+      "content": "File Explorer Review: Finish central context menu wiring with explicit open state and click position",
+      "status": "completed",
+      "priority": "high",
+      "phase": "File Explorer Review",
+      "details": {
+        "currentState": [
+          "The store already holds contextMenuNode, but the menu still depended on incomplete trigger-driven dropdown behavior",
+          "Right-click location was not persisted, so the single shared menu instance could not open reliably at the cursor position"
+        ],
+        "targetBehavior": [
+          "The store owns the context-menu node, click position, and explicit open state",
+          "Right-click on file, directory, and multi-select opens one shared menu reliably and allows close/reopen cycles"
+        ],
+        "verification": {
+          "lint": "npx eslint app/store/file-store.ts app/components/file-browser/FileTreeNode.tsx app/components/file-browser/FileContextMenu.tsx",
+          "ui": "Playwright check on localhost:3000 verified directory right-click, file right-click, multi-select right-click, close, and reopen"
+        }
+      }
+    },
+    {
+      "id": "52",
+      "content": "File Explorer Review: Remove remaining window-event dependency from BulkMoveDialog and bind it to the file store",
+      "status": "completed",
+      "priority": "high",
+      "phase": "File Explorer Review",
+      "details": {
+        "currentState": [
+          "FileBrowser already calls setBulkMoveOpen(true), but BulkMoveDialog still listens to notebook-bulk-move-open on window",
+          "The dialog does not yet use bulkMoveOpen as its single source of truth"
+        ],
+        "targetBehavior": [
+          "BulkMoveDialog opens and closes exclusively via store state",
+          "Legacy window event listeners are removed and dialog state resets cleanly on open and close"
+        ],
+        "verification": {
+          "lint": "npx eslint app/components/file-browser/BulkMoveDialog.tsx app/components/file-browser/FileBrowser.tsx",
+          "ui": "Playwright check on localhost:3000 verified multi-select, toolbar bulk-move open, close, and reopen"
+        }
+      }
+    },
+    {
+      "id": "53",
+      "content": "File Explorer Review: Fix clearSubtreeCache path matching for path:depth cache keys",
+      "status": "completed",
+      "priority": "high",
+      "phase": "File Explorer Review",
+      "details": {
+        "currentState": [
+          "The tree cache stores entries as path:depth keys such as .:0 and src:1",
+          "clearSubtreeCache currently compares raw keys against directory paths, so subtree and parent invalidation is incomplete"
+        ],
+        "targetBehavior": [
+          "Cache invalidation parses keys into path and depth components before matching",
+          "Affected directory keys, descendants, and relevant parent entries are invalidated deterministically"
+        ],
+        "verification": {
+          "lint": "npx eslint app/lib/utils/file-tree-cache.ts app/api/files/tree/route.ts",
+          "cache-check": "tsx cache exercise left only docs:0 after invalidating src-related keys"
+        }
+      }
+    },
+    {
+      "id": "54",
+      "content": "File Explorer Review: Separate root refresh from subtree refresh in the file watcher reload flow",
+      "status": "completed",
+      "priority": "high",
+      "phase": "File Explorer Review",
+      "details": {
+        "currentState": [
+          "Watcher events now include dir, but useFileWatcher still funnels root changes through loadSubdirectory('.')",
+          "The file tree has no rendered root node, so merging a subtree into . is not a valid refresh strategy"
+        ],
+        "targetBehavior": [
+          "Root events replace the visible root tree directly",
+          "Non-root events continue to use targeted subtree refresh for expanded directory nodes"
+        ],
+        "verification": {
+          "lint": "npx eslint app/store/file-store.ts app/hooks/useFileWatcher.ts",
+          "ui": "Playwright check on localhost:3000 verified root file create/delete refreshes the visible explorer without manual reload"
+        }
+      }
+    },
+    {
+      "id": "55",
+      "content": "File Explorer Review: Replace remaining broad tree reloads with targeted root or subtree refreshes",
+      "status": "completed",
+      "priority": "high",
+      "phase": "File Explorer Review",
+      "details": {
+        "currentState": [
+          "Several file operations still call loadFileTree(..., undefined, true), which falls back to broader reloads",
+          "The lazy-loading architecture is undermined when create, delete, rename, upload, or copy paths reload more tree than necessary"
+        ],
+        "targetBehavior": [
+          "Each file operation refreshes only the affected root or directory scope",
+          "Legacy broad reloads remain only where a narrower refresh is genuinely unsafe"
+        ],
+        "verification": {
+          "lint": "npx eslint app/store/file-store.ts app/components/file-browser/FileBrowser.tsx",
+          "inventory": "Refresh-path scan now leaves the remaining broad reloads only inside BulkMoveDialog, which is tracked separately by the bulk-move follow-up work"
         }
       }
     }

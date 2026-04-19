@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildFileTree } from '@/app/lib/filesystem/workspace-files';
-import { fileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import { buildFileTreeCacheKey, fileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
 
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const depth = parseInt(searchParams.get('depth') || '4');
     const noCache = searchParams.has('noCache');
 
-    const cacheKey = `${path}:${depth}`;
+    const cacheKey = buildFileTreeCacheKey(path, depth);
     if (!noCache) {
       const cached = fileTreeCache.get(cacheKey);
       if (cached) {
