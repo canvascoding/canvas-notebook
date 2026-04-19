@@ -7,7 +7,7 @@ import {
   FileSpreadsheet,
   FileText,
   Globe,
-  Image as ImageIcon,
+ 
   Languages,
   Palette,
   Presentation,
@@ -26,13 +26,10 @@ const SKILL_ICON_BY_NAME: Record<string, ComponentType<{ className?: string }>> 
   'doc-coauthoring': BookOpen,
   docx: FileText,
   gccli: CalendarDays,
-  'image-generation': ImageIcon,
   pdf: FileText,
   pptx: Presentation,
   qmd: BookOpen,
   transcribe: FileText,
-  'video-generation': Clapperboard,
-
   xlsx: FileSpreadsheet,
   'youtube-transcript': FileText,
 };

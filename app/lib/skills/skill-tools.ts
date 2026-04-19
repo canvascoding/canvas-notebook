@@ -7,7 +7,7 @@ import { getWorkspacePath } from '../utils/workspace-manager';
 import { loadSkillsFromDisk, getSkillsDir, AnthropicSkill, type SkillCommand } from './skill-loader';
 
 const execFileAsync = promisify(execFile);
-const RESERVED_STATIC_COMMAND_NAMES = new Set(['image-generation', 'video-generation', 'ad-localization', 'qmd']);
+const RESERVED_STATIC_COMMAND_NAMES = new Set(['ad-localization', 'qmd']);
 
 // Cache for loaded skills
 let cachedSkills: AnthropicSkill[] = [];
