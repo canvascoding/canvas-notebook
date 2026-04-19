@@ -66,6 +66,7 @@ temp/screenshots/
 !/data/workspace/
 /data/workspace/*
 !/data/workspace/.gitkeep
+.fileexplorer_examples
 
 # typescript
 *.tsbuildinfo
