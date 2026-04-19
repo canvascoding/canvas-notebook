@@ -337,8 +337,13 @@ function handleDisconnect(connection: WebSocketConnection): void {
 /**
  * Start heartbeat to detect stale connections
  */
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+
 function startHeartbeat(wss: WebSocketServer): void {
-  setInterval(() => {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+  }
+  heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws: WebSocket) => {
       const connection = connections.get(ws);
       
@@ -357,6 +362,7 @@ function startHeartbeat(wss: WebSocketServer): void {
       ws.ping();
     });
   }, HEARTBEAT_INTERVAL);
+  heartbeatInterval.unref?.();
 
   console.log('[WebSocket] Heartbeat started (30s interval)');
 }
