@@ -9,6 +9,7 @@ import {
   SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
+import { SidebarProvider } from '@/components/ui/sidebar';
 import {
   useFileStore,
   type FileNode as FileNodeType,
@@ -247,37 +248,64 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
     };
 
     return (
+      <SidebarProvider className="min-h-0">
+        <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1}>
+          {currentDirectory !== '.' && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              onClick={handleNavigateUp}
+            >
+              <span>↑ {t('goUpFolder')}</span>
+            </button>
+          )}
+          <SidebarGroup className="p-0">
+            <SidebarGroupContent>
+              <SidebarMenu className="space-y-0.5">
+                {filteredListChildren && filteredListChildren.length === 0 && !searchQuery && (
+                  <div className="flex h-24 flex-col items-center justify-center gap-2 p-4 text-center">
+                    <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
+                    <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
+                  </div>
+                )}
+                {filteredListChildren?.map((node: FileNodeType) => (
+                  <FileTreeNode
+                    key={node.path}
+                    node={node}
+                    browserMode="list"
+                    onNavigateInto={handleNavigateInto}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+          {filteredListChildren && filteredListChildren.length === 0 && searchQuery && (
+            <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
+              <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
+              <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>
+            </div>
+          )}
+          <FileContextMenu />
+          <BulkMoveDialog />
+        </div>
+      </SidebarProvider>
+    );
+  }
+
+  // tree view
+  return (
+    <SidebarProvider className="min-h-0">
       <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1}>
-        {currentDirectory !== '.' && (
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            onClick={handleNavigateUp}
-          >
-            <span>↑ {t('goUpFolder')}</span>
-          </button>
-        )}
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5">
-              {filteredListChildren && filteredListChildren.length === 0 && !searchQuery && (
-                <div className="flex h-24 flex-col items-center justify-center gap-2 p-4 text-center">
-                  <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
-                  <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
-                </div>
-              )}
-              {filteredListChildren?.map((node: FileNodeType) => (
-                <FileTreeNode
-                  key={node.path}
-                  node={node}
-                  browserMode="list"
-                  onNavigateInto={handleNavigateInto}
-                />
+              {filteredTree.map((node) => (
+                <FileTreeNode key={node.path} node={node} />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {filteredListChildren && filteredListChildren.length === 0 && searchQuery && (
+        {filteredTree.length === 0 && searchQuery && (
           <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
             <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
             <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>
@@ -286,29 +314,6 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
         <FileContextMenu />
         <BulkMoveDialog />
       </div>
-    );
-  }
-
-  // tree view
-  return (
-    <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1}>
-      <SidebarGroup className="p-0">
-        <SidebarGroupContent>
-          <SidebarMenu className="space-y-0.5">
-            {filteredTree.map((node) => (
-              <FileTreeNode key={node.path} node={node} />
-            ))}
-          </SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-      {filteredTree.length === 0 && searchQuery && (
-        <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
-          <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
-          <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>
-        </div>
-      )}
-      <FileContextMenu />
-      <BulkMoveDialog />
-    </div>
+    </SidebarProvider>
   );
 }

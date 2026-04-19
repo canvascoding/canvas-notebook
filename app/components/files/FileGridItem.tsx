@@ -5,6 +5,7 @@ import { useFileStore, type FileNode as FileNodeType } from '@/app/store/file-st
 import { cn } from '@/lib/utils';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
+import { MoreVertical } from 'lucide-react';
 
 interface FileGridItemProps {
   node: FileNodeType;
@@ -97,7 +98,7 @@ export function FileGridItem({ node, onPreviewImage }: FileGridItemProps) {
       onContextMenu={handleContextMenu}
     >
       <div className="flex w-full items-center justify-end gap-0.5 px-1.5 pt-1.5 min-h-[20px]">
-        {isMultiSelectMode && (
+        {isMultiSelectMode ? (
           <button
             onClick={(e) => { e.stopPropagation(); toggleMultiSelectPath(node.path); }}
             className="shrink-0"
@@ -107,6 +108,20 @@ export function FileGridItem({ node, onPreviewImage }: FileGridItemProps) {
             ) : (
               <span className="h-4 w-4 rounded border border-muted-foreground/40" />
             )}
+          </button>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              useFileStore.getState().clearMultiSelect();
+              selectNode(node);
+              openContextMenu(node, { x: e.clientX, y: e.clientY });
+            }}
+            className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-accent/70 transition-opacity"
+            aria-label="More actions"
+          >
+            <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
         )}
       </div>
