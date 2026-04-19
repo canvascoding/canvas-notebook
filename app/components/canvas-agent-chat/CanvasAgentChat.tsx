@@ -747,6 +747,7 @@ export default function CanvasAgentChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hasMoreBefore, setHasMoreBefore] = useState(false);
   const [oldestTimestamp, setOldestTimestamp] = useState<number | null>(null);
+  const [oldestMessageId, setOldestMessageId] = useState<number | null>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -1965,6 +1966,7 @@ export default function CanvasAgentChat({
     setActiveModel(session.model || DEFAULT_MODEL_ID);
     setHasMoreBefore(false);
     setOldestTimestamp(null);
+    setOldestMessageId(null);
     setIsLoadingOlder(false);
     setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
     // Always close history on mobile, conditionally on desktop
@@ -2031,6 +2033,13 @@ export default function CanvasAgentChat({
           const ts = typeof firstRaw.timestamp === 'number' ? firstRaw.timestamp : null;
           if (ts != null) setOldestTimestamp(ts);
         }
+        if (typeof messagesPayload.oldestMessageId === 'number') {
+          setOldestMessageId(messagesPayload.oldestMessageId);
+        } else if (messagesPayload.messages.length > 0) {
+          const firstRaw = messagesPayload.messages[0] as Record<string, unknown>;
+          const id = typeof firstRaw.id === 'number' ? firstRaw.id : null;
+          if (id != null) setOldestMessageId(id);
+        }
       }
 
       if (statusPayload?.success && statusPayload.status) {
@@ -2074,7 +2083,7 @@ export default function CanvasAgentChat({
 
     try {
       const response = await fetch(
-        `/api/sessions/messages?sessionId=${encodeURIComponent(currentSessionId)}&before=${oldestTimestamp}&limit=50`,
+        `/api/sessions/messages?sessionId=${encodeURIComponent(currentSessionId)}&before=${oldestTimestamp}${oldestMessageId !== null ? `&beforeId=${oldestMessageId}` : ''}&limit=50`,
       );
       const payload = await response.json();
 
@@ -2091,6 +2100,9 @@ export default function CanvasAgentChat({
         if (payload.oldestTimestamp != null) {
           setOldestTimestamp(payload.oldestTimestamp);
         }
+        if (typeof payload.oldestMessageId === 'number') {
+          setOldestMessageId(payload.oldestMessageId);
+        }
 
         // Preserve scroll position after prepending messages
         requestAnimationFrame(() => {
@@ -2105,7 +2117,7 @@ export default function CanvasAgentChat({
     } finally {
       setIsLoadingOlder(false);
     }
-  }, [hasMoreBefore, isLoadingOlder, mapRawMessage, oldestTimestamp]);
+  }, [hasMoreBefore, isLoadingOlder, mapRawMessage, oldestMessageId, oldestTimestamp]);
 
   const clearSessionParamFromUrl = useCallback(() => {
     if (typeof window === 'undefined' || !window.location.search.includes('session=')) {

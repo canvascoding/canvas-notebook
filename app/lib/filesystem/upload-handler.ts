@@ -19,6 +19,9 @@ const CATEGORY_MAP: Record<string, string> = {
   'image/bmp': 'image',
   'image/tiff': 'image',
   'image/avif': 'image',
+  'image/heic': 'image',
+  'image/heif': 'image',
+  'image/heic-sequence': 'image',
   
   // Documents
   'application/pdf': 'document',
@@ -118,6 +121,8 @@ function resolveContentTypeFromExtension(filename: string): string | null {
     '.webp': 'image/webp',
     '.svg': 'image/svg+xml',
     '.bmp': 'image/bmp',
+    '.heic': 'image/heic',
+    '.heif': 'image/heif',
     '.pdf': 'application/pdf',
     '.doc': 'application/msword',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

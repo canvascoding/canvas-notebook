@@ -14,6 +14,8 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.bmp': 'image/bmp',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
 };
 
 const DATA_URL_PATTERN = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
@@ -21,7 +23,7 @@ const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/
 
 // Regex to detect image file references in text
 // Supports both quoted: "path/to/file.jpg" and unquoted: path/to/file.jpg
-const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'];
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.heic', '.heif'];
 const EXT_PATTERN = IMAGE_EXTENSIONS.map(ext => ext.replace(/\./g, '\\.')).join('|');
 const IMAGE_PATH_REGEX = new RegExp(`(?:"([^"]*(?:${EXT_PATTERN}))"|\\b([\\w\\-./]+(?:${EXT_PATTERN}))\\b)`, 'gi');
 
