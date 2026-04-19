@@ -93,14 +93,13 @@ export function FileContextMenu() {
     : false;
 
   const handleNewFile = () => {
-    setMenuOpen(false);
     closeContextMenu();
     setCreateType('file');
     setCreateOpen(true);
   };
 
   const handleNewFolder = () => {
-    setMenuOpen(false);
+
     closeContextMenu();
     setCreateType('directory');
     setCreateOpen(true);
@@ -115,7 +114,7 @@ export function FileContextMenu() {
       toast.error(t('protectedFolderRename'));
       return;
     }
-    setMenuOpen(false);
+
     if (node) setNewName(node.name);
     setRenameOpen(true);
     closeContextMenu();
@@ -135,7 +134,7 @@ export function FileContextMenu() {
       toast.error(t('protectedFolderMove'));
       return;
     }
-    setMenuOpen(false);
+
     if (node) setMoveName(node.name);
     if (node) setMoveTarget(getParentPath(node.path));
     setMoveExpandedDirs(new Set());
@@ -153,7 +152,7 @@ export function FileContextMenu() {
       return;
     }
 
-    setMenuOpen(false);
+
     setMoveTarget('.');
     setMoveExpandedDirs(new Set());
     setIsMovingMultiple(true);
@@ -166,7 +165,7 @@ export function FileContextMenu() {
       toast.error(t('protectedFolderDelete'));
       return;
     }
-    setMenuOpen(false);
+
     setDeleteOpen(true);
     closeContextMenu();
   };
@@ -191,7 +190,7 @@ export function FileContextMenu() {
   const handleCopy = () => {
     copyPaths();
     closeContextMenu();
-    setMenuOpen(false);
+
   };
 
   const handlePaste = async () => {
@@ -200,7 +199,7 @@ export function FileContextMenu() {
     try {
       await pastePaths(destDir);
       closeContextMenu();
-      setMenuOpen(false);
+  
     } catch {}
   };
 
@@ -209,12 +208,12 @@ export function FileContextMenu() {
     try {
       await duplicatePath(node.path);
       closeContextMenu();
-      setMenuOpen(false);
+  
     } catch {}
   };
 
   const handleShare = () => {
-    setMenuOpen(false);
+
     setShareOpen(true);
     closeContextMenu();
   };
