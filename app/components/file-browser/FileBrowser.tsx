@@ -249,12 +249,36 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
       )}
       <div className="sticky top-0 z-20 border-b border-border bg-background/95">
         {isMobileSheet ? (
-          <div className="flex items-center gap-2 px-3 py-2">
+          <div className="flex items-center gap-1 px-3 py-2">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={toggleMultiSelectMode}
+              aria-label={t('toggleSelectMode')}
+            >
+              <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleUploadClick}
+              aria-label={t('upload')}
+            >
+              <Upload className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleDeleteClick}
+              disabled={isDeleteDisabled}
+              aria-label={t('delete')}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 gap-2 rounded-full px-3">
+                <Button variant="ghost" size="icon-sm" aria-label={t('moreActions')}>
                   <MoreHorizontal className="h-4 w-4" />
-                  {t('actions')}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" sideOffset={8} className="w-56">
@@ -266,26 +290,13 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                   <FolderPlus className="h-4 w-4" />
                   {t('newFolder')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleUploadClick}>
-                  <Upload className="h-4 w-4" />
-                  {t('uploadFile')}
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={toggleMultiSelectMode}>
-                  <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
-                  {isMultiSelectMode ? t('multiSelectDone') : t('multiSelect')}
-                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={collapseAllDirectories}>
                   <ChevronsDownUp className="h-4 w-4" />
                   {t('collapseAllFolders')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleDeleteClick} disabled={isDeleteDisabled}>
-                  <Trash2 className="h-4 w-4" />
-                  {t('deleteSelection')}
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-
           </div>
         ) : (
           <div className="flex items-center gap-x-2 px-3 py-2">

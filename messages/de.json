@@ -126,6 +126,7 @@
     "resizeFileTree": "Dateibaum-Größe ändern",
     "dropFilesToUpload": "Dateien zum Hochladen ablegen",
     "actions": "Aktionen",
+    "moreActions": "Weitere Aktionen",
     "newFilePrompt": "Neuer Dateiname",
     "newFolderPrompt": "Neuer Ordnername",
     "newFile": "Neue Datei",

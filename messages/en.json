@@ -126,6 +126,7 @@
     "resizeFileTree": "Resize file tree",
     "dropFilesToUpload": "Drop files to upload",
     "actions": "Actions",
+    "moreActions": "More actions",
     "newFilePrompt": "New file name",
     "newFolderPrompt": "New folder name",
     "newFile": "New file",
