@@ -1,7 +1,6 @@
 import 'server-only';
 
 import path from 'path';
-import { GoogleGenAI } from '@google/genai';
 
 import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
@@ -12,6 +11,9 @@ import {
   ensureImageGenerationWorkspace,
 } from '@/app/lib/integrations/image-generation-workspace';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
+import {
+  getImageGenerationProvider,
+} from '@/app/lib/integrations/image-generation-providers';
 
 const IMAGE_MIME: Record<string, string> = {
   png: 'image/png',
@@ -26,22 +28,23 @@ const MIME_EXTENSION: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-const ALLOWED_MODELS = new Set(['gemini-3.1-flash-image-preview', 'gemini-2.5-flash-image']);
-const ALLOWED_ASPECT_RATIOS = new Set(['16:9', '1:1', '9:16', '4:3', '3:4']);
-const MAX_PROMPT_LENGTH = 3_000;
-const MAX_IMAGE_COUNT = 4;
-const MAX_REFERENCE_IMAGES = 10;
-const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_PROMPT_LENGTH_GEMINI = 3_000;
+const MAX_PROMPT_LENGTH_OPENAI = 32_000;
 const MAX_ERROR_MESSAGE_LENGTH = 300;
+const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024;
 
 export const IMAGE_GENERATION_ALL_FAILED_MESSAGE = 'Image generation failed for all requested variations.';
 
 export interface GenerateImageRequestBody {
   prompt?: string;
+  provider?: string;
   model?: string;
   aspectRatio?: string;
   imageCount?: number;
   referenceImagePaths?: string[];
+  quality?: 'low' | 'medium' | 'high' | 'auto';
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  background?: 'transparent' | 'opaque' | 'auto';
 }
 
 export interface GeneratedImageResult {
@@ -55,6 +58,7 @@ export interface GeneratedImageResult {
 
 export interface ImageGenerationResultData {
   model: string;
+  provider: string;
   aspectRatio: string;
   imageCount: number;
   outputDir: string;
@@ -77,8 +81,8 @@ function resolveImageMime(filePath: string): string {
   return mime;
 }
 
-function sanitizePrompt(prompt: string): string {
-  return prompt.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT_LENGTH);
+function sanitizePrompt(prompt: string, maxPromptLength: number): string {
+  return prompt.replace(/\s+/g, ' ').trim().slice(0, maxPromptLength);
 }
 
 function sanitizeErrorMessage(error: unknown): string {
@@ -86,24 +90,7 @@ function sanitizeErrorMessage(error: unknown): string {
   return message.slice(0, MAX_ERROR_MESSAGE_LENGTH);
 }
 
-function resolveAspectRatio(value: string | undefined): string | null {
-  if (!value) return '1:1';
-  return ALLOWED_ASPECT_RATIOS.has(value) ? value : null;
-}
-
-function resolveModel(value: string | undefined): string | null {
-  const candidate = (value || 'gemini-3.1-flash-image-preview').trim();
-  return ALLOWED_MODELS.has(candidate) ? candidate : null;
-}
-
-function resolveImageCount(value: number | undefined): number | null {
-  if (value === undefined) return MAX_IMAGE_COUNT;
-  if (!Number.isInteger(value)) return null;
-  if (value < 1 || value > MAX_IMAGE_COUNT) return null;
-  return value;
-}
-
-function normalizeReferencePaths(input: string[]): string[] {
+function normalizeReferencePaths(input: string[], maxReferences: number): string[] {
   const list: string[] = [];
   const seen = new Set<string>();
 
@@ -134,7 +121,7 @@ function normalizeReferencePaths(input: string[]): string[] {
     }
     seen.add(normalizedPath);
     list.push(normalizedPath);
-    if (list.length >= MAX_REFERENCE_IMAGES) {
+    if (list.length >= maxReferences) {
       break;
     }
   }
@@ -162,32 +149,6 @@ async function loadImageBytes(filePath: string): Promise<{ imageBytes: string; m
   };
 }
 
-function extractInlineImage(response: unknown): { imageBytes: string; mimeType: string } {
-  const candidates = (
-    response as {
-      candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> } }>;
-    }
-  ).candidates;
-
-  for (const candidate of candidates || []) {
-    for (const part of candidate.content?.parts || []) {
-      if (part.inlineData?.data) {
-        return {
-          imageBytes: part.inlineData.data,
-          mimeType: part.inlineData.mimeType || 'image/png',
-        };
-      }
-    }
-  }
-
-  const fallback = response as { data?: string };
-  if (fallback.data) {
-    return { imageBytes: fallback.data, mimeType: 'image/png' };
-  }
-
-  throw new Error('No image was returned by the model');
-}
-
 function extensionFromMime(mimeType: string): string {
   return MIME_EXTENSION[mimeType] || 'png';
 }
@@ -196,74 +157,90 @@ export async function generateImages(
   body: GenerateImageRequestBody,
   callerEmail = 'system',
 ): Promise<ImageGenerationResultData> {
-  const apiKey = await getGeminiApiKeyFromIntegrations();
-  if (!apiKey) {
-    throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.', 400);
+  const providerId = body.provider || 'gemini';
+  const provider = getImageGenerationProvider(providerId);
+
+  if (!provider) {
+    throw new IntegrationServiceError(`Unsupported provider: ${providerId}`, 400);
   }
 
-  const prompt = sanitizePrompt(body.prompt || '');
-  const model = resolveModel(body.model);
-  const aspectRatio = resolveAspectRatio(body.aspectRatio);
-  const imageCount = resolveImageCount(body.imageCount);
-  const referenceImagePaths = normalizeReferencePaths(body.referenceImagePaths || []);
+  const modelCandidate = (body.model || provider.models[0]?.id || '').trim();
+  if (!provider.models.some((m) => m.id === modelCandidate)) {
+    throw new IntegrationServiceError(`Unsupported model "${modelCandidate}" for provider "${providerId}".`, 400);
+  }
 
-  if (!model) {
-    throw new IntegrationServiceError('Unsupported model.', 400);
+  const aspectRatio = body.aspectRatio || '1:1';
+  if (!provider.supportedAspectRatios.includes(aspectRatio)) {
+    throw new IntegrationServiceError(`Unsupported aspect ratio "${aspectRatio}" for provider "${providerId}".`, 400);
   }
-  if (!aspectRatio) {
-    throw new IntegrationServiceError('Unsupported aspect ratio.', 400);
-  }
+
+  const maxImageCount = provider.maxImageCount;
+  const imageCount = (() => {
+    if (body.imageCount === undefined) return Math.min(1, maxImageCount);
+    if (!Number.isInteger(body.imageCount)) return null;
+    if (body.imageCount < 1 || body.imageCount > maxImageCount) return null;
+    return body.imageCount;
+  })();
+
   if (!imageCount) {
-    throw new IntegrationServiceError(`imageCount must be between 1 and ${MAX_IMAGE_COUNT}.`, 400);
+    throw new IntegrationServiceError(`imageCount must be between 1 and ${maxImageCount}.`, 400);
   }
+
+  const referenceImagePaths = normalizeReferencePaths(body.referenceImagePaths || [], provider.maxReferenceImages);
+
+  const maxPromptLength = providerId === 'openai' ? MAX_PROMPT_LENGTH_OPENAI : MAX_PROMPT_LENGTH_GEMINI;
+  const prompt = sanitizePrompt(body.prompt || '', maxPromptLength);
+
   if (!prompt && referenceImagePaths.length === 0) {
     throw new IntegrationServiceError('Prompt or at least one reference image is required.', 400);
+  }
+
+  if (provider.supportsQuality && body.quality && !['low', 'medium', 'high', 'auto'].includes(body.quality)) {
+    throw new IntegrationServiceError('Invalid quality value. Must be low, medium, high, or auto.', 400);
+  }
+  if (provider.supportsOutputFormat && body.outputFormat && !['png', 'jpeg', 'webp'].includes(body.outputFormat)) {
+    throw new IntegrationServiceError('Invalid outputFormat value. Must be png, jpeg, or webp.', 400);
+  }
+  if (provider.supportsBackground && body.background && !['transparent', 'opaque', 'auto'].includes(body.background)) {
+    throw new IntegrationServiceError('Invalid background value. Must be transparent, opaque, or auto.', 400);
+  }
+  if (!provider.supportsQuality && body.quality) {
+    throw new IntegrationServiceError(`Provider "${providerId}" does not support the quality parameter.`, 400);
+  }
+  if (!provider.supportsOutputFormat && body.outputFormat) {
+    throw new IntegrationServiceError(`Provider "${providerId}" does not support the outputFormat parameter.`, 400);
+  }
+  if (!provider.supportsBackground && body.background) {
+    throw new IntegrationServiceError(`Provider "${providerId}" does not support the background parameter.`, 400);
+  }
+
+  if (providerId === 'gemini') {
+    const apiKey = await getGeminiApiKeyFromIntegrations();
+    if (!apiKey) {
+      throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.', 400);
+    }
   }
 
   const referenceImages = await Promise.all(referenceImagePaths.map((filePath) => loadImageBytes(filePath)));
 
   await ensureImageGenerationWorkspace();
-  const ai = new GoogleGenAI({ apiKey });
 
   const generationJobs = Array.from({ length: imageCount }, async (_, index): Promise<GeneratedImageResult> => {
     try {
-      const parts: Array<{ inlineData: { data: string; mimeType: string } } | { text: string }> = [];
-
-      for (const image of referenceImages) {
-        parts.push({
-          inlineData: {
-            data: image.imageBytes,
-            mimeType: image.mimeType,
-          },
-        });
-      }
-
-      if (prompt) {
-        parts.push({ text: prompt });
-      }
-
-      const response = await ai.models.generateContent({
-        model,
-        contents: [
-          {
-            role: 'user',
-            parts,
-          },
-        ],
-        config: {
-          responseModalities: ['IMAGE', 'TEXT'],
-          imageConfig: {
-            aspectRatio,
-            imageSize: '1K',
-          },
-        },
+      const result = await provider.generate({
+        prompt,
+        model: modelCandidate,
+        aspectRatio,
+        referenceImages,
+        quality: body.quality,
+        outputFormat: body.outputFormat,
+        background: body.background,
       });
 
-      const generated = extractInlineImage(response);
-      const extension = extensionFromMime(generated.mimeType);
+      const extension = extensionFromMime(result.mimeType);
       const outputFilename = createImageGenerationOutputFilename(prompt || 'reference', index, extension);
       const outputPath = `${IMAGE_GENERATION_OUTPUT_DIR}/${outputFilename}`;
-      const outputBytes = Buffer.from(generated.imageBytes, 'base64');
+      const outputBytes = Buffer.from(result.imageBytes, 'base64');
       await writeFile(outputPath, outputBytes);
 
       const metadataPath = outputPath.replace(/\.[^.]+$/, '.json');
@@ -273,16 +250,18 @@ export async function generateImages(
           {
             createdAt: new Date().toISOString(),
             createdBy: callerEmail,
-            model,
+            provider: providerId,
+            model: modelCandidate,
             aspectRatio,
             prompt,
             referenceImagePaths,
             variationIndex: index,
             output: {
               path: outputPath,
-              mimeType: generated.mimeType,
+              mimeType: result.mimeType,
               size: outputBytes.length,
             },
+            usage: result.usage || undefined,
           },
           null,
           2,
@@ -309,7 +288,8 @@ export async function generateImages(
   const failureCount = results.length - successCount;
 
   return {
-    model,
+    model: modelCandidate,
+    provider: providerId,
     aspectRatio,
     imageCount,
     outputDir: IMAGE_GENERATION_OUTPUT_DIR,

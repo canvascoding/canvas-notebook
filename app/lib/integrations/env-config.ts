@@ -347,3 +347,28 @@ export async function getGeminiApiKeyFromIntegrations(): Promise<string | null> 
     return process.env.GEMINI_API_KEY || null;
   }
 }
+
+export async function getOpenAIApiKeyFromIntegrations(): Promise<string | null> {
+  try {
+    const state = await readScopedEnvState('integrations');
+    const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
+    
+    const envKey = byKey.get('OPENAI_API_KEY');
+    if (envKey) {
+      console.log('[EnvConfig] Found OPENAI_API_KEY in integrations env file');
+      return envKey;
+    }
+    
+    if (process.env.OPENAI_API_KEY) {
+      console.log('[EnvConfig] Found OPENAI_API_KEY in process.env');
+      return process.env.OPENAI_API_KEY;
+    }
+    
+    console.warn('[EnvConfig] OPENAI_API_KEY not found in integrations env or process.env');
+    console.warn(`[EnvConfig] Integrations env file path: ${state.path}, exists: ${state.exists}`);
+    return null;
+  } catch (error) {
+    console.error('[EnvConfig] Error loading OPENAI_API_KEY:', error);
+    return process.env.OPENAI_API_KEY || null;
+  }
+}
