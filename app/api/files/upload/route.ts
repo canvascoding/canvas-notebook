@@ -4,7 +4,7 @@ import { writeFile, createDirectory } from '@/app/lib/filesystem/workspace-files
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
-import { convertImage, isHeicFile } from '@/app/lib/images/convert';
+import { convertImage, getImageConversionErrorMessage, isHeicFile } from '@/app/lib/images/convert';
 import { fileTypeFromBuffer } from 'file-type';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
         } catch (err) {
           console.error(`[API] Image conversion failed for ${file.name}:`, err);
           return NextResponse.json(
-            { success: false, error: `Image conversion failed for "${file.name}" — file may be corrupt` },
+            { success: false, error: getImageConversionErrorMessage(file.name, err) },
             { status: 400 }
           );
         }
@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
           } catch (err) {
             console.error(`[API] HEIC auto-conversion failed for ${file.name}:`, err);
             return NextResponse.json(
-              { success: false, error: `HEIC conversion failed for "${file.name}" — file may be corrupt` },
+              { success: false, error: getImageConversionErrorMessage(file.name, err) },
               { status: 400 }
             );
           }

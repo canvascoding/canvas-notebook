@@ -1,6 +1,13 @@
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import sharp from 'sharp';
 
 sharp.cache(false);
+
+const execFileAsync = promisify(execFile);
 
 export interface ConvertOptions {
   format: 'jpg' | 'webp' | 'png';
@@ -13,6 +20,22 @@ export interface ConvertResult {
   filename: string;
   mimeType: string;
   size: number;
+}
+
+type ImageConversionErrorCode =
+  | 'buffer_too_large'
+  | 'timeout'
+  | 'unsupported_heic'
+  | 'corrupt_image';
+
+export class ImageConversionError extends Error {
+  code: ImageConversionErrorCode;
+
+  constructor(code: ImageConversionErrorCode, message: string) {
+    super(message);
+    this.name = 'ImageConversionError';
+    this.code = code;
+  }
 }
 
 const MAX_BUFFER_SIZE = 50 * 1024 * 1024;
@@ -35,6 +58,12 @@ const HEIC_MIME_TYPES = new Set([
   'image/heif',
   'image/heic-sequence',
 ]);
+
+const SHARP_HEIC_UNSUPPORTED_PATTERNS = [
+  'support for this compression format has not been built in',
+  'heif: error while loading plugin',
+  'source: bad seek',
+];
 
 type SemaphoreCallback = () => Promise<void>;
 
@@ -98,7 +127,10 @@ export async function convertImage(
   options: ConvertOptions,
 ): Promise<ConvertResult> {
   if (buffer.length > MAX_BUFFER_SIZE) {
-    throw new Error(`Image exceeds maximum buffer size of ${MAX_BUFFER_SIZE / (1024 * 1024)}MB`);
+    throw new ImageConversionError(
+      'buffer_too_large',
+      `Image exceeds maximum buffer size of ${MAX_BUFFER_SIZE / (1024 * 1024)}MB`,
+    );
   }
 
   const release = await conversionSemaphore.acquire();
@@ -107,7 +139,7 @@ export async function convertImage(
       performConversion(buffer, originalName, options),
       new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new Error('Image conversion timed out after 30 seconds')),
+          () => reject(new ImageConversionError('timeout', 'Image conversion timed out after 30 seconds')),
           CONVERSION_TIMEOUT_MS,
         ),
       ),
@@ -124,12 +156,7 @@ async function performConversion(
   options: ConvertOptions,
 ): Promise<ConvertResult> {
   const { format, quality = 80, maxDimension } = options;
-
-  const srcExt = originalName.toLowerCase().split('.').pop() ?? '';
-  const sameFormat =
-    (format === 'jpg' && (srcExt === 'jpg' || srcExt === 'jpeg')) ||
-    (format === 'webp' && srcExt === 'webp') ||
-    (format === 'png' && srcExt === 'png');
+  const sourceIsHeic = isHeicExtension(originalName);
 
   let pipeline = sharp(buffer, { limitInputPixels: false }).rotate();
 
@@ -142,17 +169,6 @@ async function performConversion(
       fit: 'inside',
       withoutEnlargement: true,
     });
-  }
-
-  if (sameFormat && !needsResize) {
-    pipeline = pipeline.withMetadata({ orientation: undefined });
-    const outputBuffer = await pipeline.toBuffer();
-    return {
-      buffer: outputBuffer,
-      filename: originalName,
-      mimeType: FORMAT_MIME_MAP[format],
-      size: outputBuffer.length,
-    };
   }
 
   pipeline = pipeline.withMetadata({ orientation: undefined });
@@ -169,7 +185,24 @@ async function performConversion(
       break;
   }
 
-  const outputBuffer = await pipeline.toBuffer();
+  let outputBuffer: Buffer;
+  try {
+    outputBuffer = await pipeline.toBuffer();
+  } catch (error) {
+    if (sourceIsHeic && isSharpHeicUnsupportedError(error)) {
+      const decoded = await decodeHeicWithSystemFallback(buffer, originalName);
+      return performConversion(decoded.buffer, decoded.filename, options);
+    }
+
+    if (error instanceof ImageConversionError) {
+      throw error;
+    }
+
+    throw new ImageConversionError(
+      'corrupt_image',
+      error instanceof Error ? error.message : 'Image conversion failed',
+    );
+  }
   const filename = replaceExtension(originalName, EXT_MAP[format]);
 
   return {
@@ -178,4 +211,61 @@ async function performConversion(
     mimeType: FORMAT_MIME_MAP[format],
     size: outputBuffer.length,
   };
+}
+
+function isSharpHeicUnsupportedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return SHARP_HEIC_UNSUPPORTED_PATTERNS.some((pattern) => message.includes(pattern));
+}
+
+async function decodeHeicWithSystemFallback(
+  buffer: Buffer,
+  originalName: string,
+): Promise<{ buffer: Buffer; filename: string }> {
+  if (process.platform !== 'darwin') {
+    throw new ImageConversionError(
+      'unsupported_heic',
+      'HEIC conversion is not available in this runtime because native HEIF support is missing',
+    );
+  }
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-heic-'));
+  const inputPath = path.join(tempDir, replaceExtension(path.basename(originalName), '.heic'));
+  const outputPath = path.join(tempDir, replaceExtension(path.basename(originalName), '.png'));
+
+  try {
+    await fs.writeFile(inputPath, buffer);
+    await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', inputPath, '--out', outputPath]);
+    const decodedBuffer = await fs.readFile(outputPath);
+    return {
+      buffer: decodedBuffer,
+      filename: replaceExtension(originalName, '.png'),
+    };
+  } catch (error) {
+    throw new ImageConversionError(
+      'unsupported_heic',
+      error instanceof Error
+        ? `HEIC conversion is not available on this server: ${error.message}`
+        : 'HEIC conversion is not available on this server',
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+export function getImageConversionErrorMessage(fileName: string, error: unknown): string {
+  if (error instanceof ImageConversionError) {
+    switch (error.code) {
+      case 'buffer_too_large':
+        return `${fileName}: Image exceeds the 50 MB conversion limit`;
+      case 'timeout':
+        return `${fileName}: Image conversion timed out`;
+      case 'unsupported_heic':
+        return `${fileName}: HEIC conversion is not available on this server right now`;
+      case 'corrupt_image':
+        return `${fileName}: Image conversion failed — file may be corrupt`;
+    }
+  }
+
+  return `${fileName}: Image conversion failed`;
 }

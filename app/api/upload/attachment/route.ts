@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { saveUploadBuffer } from '@/app/lib/filesystem/upload-handler';
 import { auth } from '@/app/lib/auth';
-import { convertImage, isHeicFile } from '@/app/lib/images/convert';
+import { convertImage, getImageConversionErrorMessage, isHeicFile } from '@/app/lib/images/convert';
 import { fileTypeFromBuffer } from 'file-type';
 
 const MAX_FILE_SIZE_MB = 10;
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
             mimeType = result.mimeType;
           } catch (err) {
             console.error(`[API] Image conversion failed for ${file.name}:`, err);
-            errors.push(`${file.name}: Image conversion failed — file may be corrupt`);
+            errors.push(getImageConversionErrorMessage(file.name, err));
             continue;
           }
         } else if (isImageMimeType(mimeType) || isHeicFile(filename, mimeType)) {
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
               mimeType = result.mimeType;
             } catch (err) {
               console.error(`[API] HEIC auto-conversion failed for ${file.name}:`, err);
-              errors.push(`${file.name}: HEIC conversion failed — file may be corrupt`);
+              errors.push(getImageConversionErrorMessage(file.name, err));
               continue;
             }
           }
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     if (uploadedFiles.length === 0) {
       return NextResponse.json(
         { success: false, error: errors.join('; ') || 'All uploads failed' },
-        { status: 500 },
+        { status: 400 },
       );
     }
 
