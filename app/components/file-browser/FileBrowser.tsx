@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback, type DragEvent } from 'react';
+import { useRef, useState, useCallback, useEffect, type DragEvent } from 'react';
 import { ChevronsDownUp, CheckSquare, Download, FilePlus, FolderPlus, MoreHorizontal, Move, Search, Trash2, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -72,10 +72,15 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     setBulkMoveOpen,
   } = useFileStore();
 
-  const resolveTargetDir = () => {
+  useEffect(() => {
     if (currentDirectory && currentDirectory !== '.' && !findPathInTree(currentDirectory, fileTree)) {
       console.warn(`Target directory "${currentDirectory}" no longer exists. Falling back to root.`);
       useFileStore.getState().setCurrentDirectory('.');
+    }
+  }, [currentDirectory, fileTree]);
+
+  const resolveTargetDir = () => {
+    if (currentDirectory && currentDirectory !== '.' && !findPathInTree(currentDirectory, fileTree)) {
       return '.';
     }
 
@@ -281,12 +286,6 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
               </DropdownMenuContent>
             </DropdownMenu>
             <div className="ml-auto flex items-center gap-2 rounded-full border border-border bg-muted/30 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              <span
-                className={cn(
-                  'h-2 w-2 rounded-full transition-colors',
-                  isConnected ? 'bg-green-500' : 'bg-amber-500'
-                )}
-              />
               {t('sync')}
             </div>
           </div>
@@ -374,19 +373,7 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
                   </TooltipTrigger>
                   <TooltipContent>{t('collapseAll')}</TooltipContent>
                 </Tooltip>
-                <div className="ml-auto flex items-center">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className={cn(
-                        'flex h-2 w-2 rounded-full transition-colors',
-                        isConnected ? 'bg-green-500' : 'bg-amber-500'
-                      )} />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {isConnected ? t('autoRefreshConnected') : t('autoRefreshDisconnected')}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
+
               </div>
             </TooltipProvider>
           </div>
