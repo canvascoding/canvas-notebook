@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, Image, X } from 'lucide-react';
+import { AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -33,8 +33,6 @@ export interface ImagePreprocessDialogProps {
   onSkip?: () => void;
 }
 
-const SIZE_THRESHOLD = 1_500_000;
-
 const QUALITY_PRESETS = [
   { label: 'Low', value: 60 },
   { label: 'Mid', value: 80 },
@@ -61,6 +59,17 @@ function getFormatForFile(file: File, isHeic: boolean): 'jpg' | 'webp' | 'png' {
   return 'jpg';
 }
 
+function getQualityForFile(
+  index: number,
+  perFileQuality: Record<number, number>,
+): number {
+  if (perFileQuality[index] !== undefined) {
+    return perFileQuality[index];
+  }
+
+  return 80;
+}
+
 export function ImagePreprocessDialog({
   open,
   onOpenChange,
@@ -74,22 +83,40 @@ export function ImagePreprocessDialog({
   const [globalFormat, setGlobalFormat] = useState<'jpg' | 'webp' | 'png'>('jpg');
   const [globalQuality, setGlobalQuality] = useState<number>(80);
   const [globalDimension, setGlobalDimension] = useState<number | undefined>(undefined);
-  const [customQuality, setCustomQuality] = useState(false);
-  const [customQualityValue, setCustomQualityValue] = useState(80);
+  const [globalCustomQuality, setGlobalCustomQuality] = useState(false);
+  const [globalCustomQualityValue, setGlobalCustomQualityValue] = useState(80);
   const [perFileFormat, setPerFileFormat] = useState<Record<number, 'jpg' | 'webp' | 'png'>>({});
   const [perFileQuality, setPerFileQuality] = useState<Record<number, number>>({});
+  const [perFileCustomQuality, setPerFileCustomQuality] = useState<Record<number, boolean>>({});
   const [perFileDimension, setPerFileDimension] = useState<Record<number, number | undefined>>({});
 
   const hasHeic = files.some((f) => f.isHeic);
   const allHeic = files.every((f) => f.isHeic);
   const canSkip = !hasHeic;
 
-  const effectiveQuality = customQuality ? customQualityValue : globalQuality;
+  const effectiveGlobalQuality = globalCustomQuality ? globalCustomQualityValue : globalQuality;
+
+  const resetState = useCallback(() => {
+    setApplyToAll(false);
+    setGlobalFormat('jpg');
+    setGlobalQuality(80);
+    setGlobalDimension(undefined);
+    setGlobalCustomQuality(false);
+    setGlobalCustomQualityValue(80);
+    setPerFileFormat({});
+    setPerFileQuality({});
+    setPerFileCustomQuality({});
+    setPerFileDimension({});
+  }, []);
 
   const handleConfirm = useCallback(() => {
     const params: (ConvertParams | null)[] = files.map((f, i) => {
-      const format = applyToAll ? globalFormat : (perFileFormat[i] ?? getFormatForFile(f.file, f.isHeic));
-      const quality = applyToAll ? effectiveQuality : (perFileQuality[i] ?? 80);
+      const format = f.isHeic
+        ? 'jpg'
+        : applyToAll
+          ? globalFormat
+          : (perFileFormat[i] ?? getFormatForFile(f.file, f.isHeic));
+      const quality = applyToAll ? effectiveGlobalQuality : getQualityForFile(i, perFileQuality);
       const maxDimension = applyToAll ? globalDimension : perFileDimension[i];
       return {
         format,
@@ -97,14 +124,21 @@ export function ImagePreprocessDialog({
         maxDimension,
       };
     });
+    resetState();
     onConfirm(params);
-  }, [files, applyToAll, globalFormat, effectiveQuality, globalDimension, perFileFormat, perFileQuality, perFileDimension, onConfirm]);
+  }, [files, applyToAll, globalFormat, effectiveGlobalQuality, globalDimension, perFileFormat, perFileQuality, perFileDimension, onConfirm, resetState]);
 
   const showPerFileControls = !applyToAll && files.length > 1;
+  const handleDialogOpenChange = useCallback((nextOpen: boolean) => {
+    if (!nextOpen) {
+      resetState();
+    }
+    onOpenChange(nextOpen);
+  }, [onOpenChange, resetState]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto px-4 sm:px-6">
         <DialogHeader>
           <DialogTitle>{t('imagePreprocessTitle')}</DialogTitle>
           <DialogDescription>{t('imagePreprocessDescription')}</DialogDescription>
@@ -114,17 +148,22 @@ export function ImagePreprocessDialog({
           {files.map((f, i) => {
             const isHeic = f.isHeic;
             const isLarge = f.isLarge;
-            const fileFormat = applyToAll ? globalFormat : (perFileFormat[i] ?? getFormatForFile(f.file, isHeic));
-            const fileQuality = applyToAll ? effectiveQuality : (perFileQuality[i] ?? 80);
+            const fileFormat = isHeic
+              ? 'jpg'
+              : applyToAll
+                ? globalFormat
+                : (perFileFormat[i] ?? getFormatForFile(f.file, isHeic));
+            const fileQuality = applyToAll ? effectiveGlobalQuality : getQualityForFile(i, perFileQuality);
             const fileDimension = applyToAll ? globalDimension : (perFileDimension[i] ?? undefined);
+            const isCustomQuality = !!perFileCustomQuality[i];
 
             return (
-              <div key={i} className="rounded-lg border border-border p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Image className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="text-sm font-medium truncate">{f.file.name}</span>
+              <div key={i} className="rounded-lg border border-border p-3 sm:p-4 space-y-3">
+                <div className="flex flex-wrap items-start gap-2">
+                  <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 break-all text-sm font-medium">{f.file.name}</span>
                   <span className="text-xs text-muted-foreground shrink-0">({formatSize(f.file.size)})</span>
-                  <div className="flex gap-1 ml-auto shrink-0">
+                  <div className="flex flex-wrap gap-1 sm:ml-auto shrink-0">
                     {isHeic && (
                       <span className="inline-flex items-center rounded-full bg-orange-100 text-orange-800 px-2 py-0.5 text-xs font-medium">
                         HEIC
@@ -139,46 +178,51 @@ export function ImagePreprocessDialog({
                 </div>
 
                 {(showPerFileControls || files.length === 1) && (
-                  <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
                     <div>
                       <label className="text-muted-foreground block mb-1">{t('imagePreprocessFormat')}</label>
-                      <select
-                        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                        value={fileFormat}
-                        disabled={isHeic || applyToAll}
-                        onChange={(e) => {
-                          if (!applyToAll) {
-                            setPerFileFormat((prev) => ({ ...prev, [i]: e.target.value as 'jpg' | 'webp' | 'png' }));
-                          }
-                        }}
-                      >
-                        {isHeic ? (
+                      {isHeic ? (
+                        <div className="rounded-md border border-input bg-muted/50 px-2 py-1 text-sm text-muted-foreground">
+                          JPG
+                        </div>
+                      ) : (
+                        <select
+                          className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                          value={fileFormat}
+                          disabled={applyToAll}
+                          onChange={(e) => {
+                            if (!applyToAll) {
+                              setPerFileFormat((prev) => ({ ...prev, [i]: e.target.value as 'jpg' | 'webp' | 'png' }));
+                            }
+                          }}
+                        >
                           <option value="jpg">JPG</option>
-                        ) : (
-                          <>
-                            <option value="jpg">JPG</option>
-                            <option value="webp">WebP</option>
-                            <option value="png">PNG</option>
-                          </>
-                        )}
-                      </select>
+                          <option value="webp">WebP</option>
+                          <option value="png">PNG</option>
+                        </select>
+                      )}
+                      {isHeic && (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          HEIC-Dateien werden immer zu JPG konvertiert.
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="text-muted-foreground block mb-1">{t('imagePreprocessQuality')}</label>
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-1.5">
                         {QUALITY_PRESETS.map((preset) => (
                           <button
                             key={preset.value}
                             type="button"
-                            className={`px-1.5 py-1 rounded text-xs border ${
-                              (applyToAll ? effectiveQuality : fileQuality) === preset.value
+                            className={`min-w-[3.5rem] px-2 py-1.5 rounded text-xs border ${
+                              (applyToAll ? effectiveGlobalQuality : fileQuality) === preset.value
                                 ? 'bg-primary text-primary-foreground border-primary'
                                 : 'bg-background border-input hover:bg-accent'
                             }`}
                             disabled={applyToAll}
                             onClick={() => {
                               if (!applyToAll) {
-                                setCustomQuality(false);
+                                setPerFileCustomQuality((prev) => ({ ...prev, [i]: false }));
                                 setPerFileQuality((prev) => ({ ...prev, [i]: preset.value }));
                               }
                             }}
@@ -188,26 +232,40 @@ export function ImagePreprocessDialog({
                         ))}
                         <button
                           type="button"
-                          className={`px-1.5 py-1 rounded text-xs border ${
-                            customQuality ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-input hover:bg-accent'
+                          className={`min-w-[4.5rem] px-2 py-1.5 rounded text-xs border ${
+                            isCustomQuality ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-input hover:bg-accent'
                           }`}
                           disabled={applyToAll}
                           onClick={() => {
                             if (!applyToAll) {
-                              setCustomQuality(!customQuality);
+                              setPerFileCustomQuality((prev) => {
+                                const nextValue = !prev[i];
+                                if (nextValue) {
+                                  setPerFileQuality((current) => ({
+                                    ...current,
+                                    [i]: current[i] ?? 80,
+                                  }));
+                                }
+                                return { ...prev, [i]: nextValue };
+                              });
                             }
                           }}
                         >
                           Custom
                         </button>
                       </div>
-                      {customQuality && !applyToAll && (
+                      {isCustomQuality && !applyToAll && (
                         <input
                           type="range"
                           min={1}
                           max={100}
-                          value={customQualityValue}
-                          onChange={(e) => setCustomQualityValue(Number(e.target.value))}
+                          value={fileQuality}
+                          onChange={(e) =>
+                            setPerFileQuality((prev) => ({
+                              ...prev,
+                              [i]: Number(e.target.value),
+                            }))
+                          }
                           className="w-full mt-1"
                         />
                       )}
@@ -239,7 +297,7 @@ export function ImagePreprocessDialog({
           })}
 
           {files.length > 1 && (
-            <div className="flex items-center gap-2 pt-2 border-t border-border">
+            <div className="flex items-center gap-2 pt-3 border-t border-border">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
@@ -253,39 +311,46 @@ export function ImagePreprocessDialog({
           )}
 
           {applyToAll && (
-            <div className="grid grid-cols-3 gap-2 text-xs border border-border rounded-lg p-3">
+            <div className="grid grid-cols-1 gap-3 text-xs border border-border rounded-lg p-3 sm:grid-cols-3 sm:p-4">
               <div>
-                <label className="text-muted-foreground block mb-1">{t('imagePreprocessFormat')}</label>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                  value={globalFormat}
-                  onChange={(e) => setGlobalFormat(e.target.value as 'jpg' | 'webp' | 'png')}
-                >
-                  {allHeic ? (
+                <label className="text-muted-foreground block mb-1">
+                  {hasHeic && !allHeic ? 'Format (nur fuer Nicht-HEIC)' : t('imagePreprocessFormat')}
+                </label>
+                {allHeic ? (
+                  <div className="rounded-md border border-input bg-muted/50 px-2 py-1 text-sm text-muted-foreground">
+                    JPG
+                  </div>
+                ) : (
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                    value={globalFormat}
+                    onChange={(e) => setGlobalFormat(e.target.value as 'jpg' | 'webp' | 'png')}
+                  >
                     <option value="jpg">JPG</option>
-                  ) : (
-                    <>
-                      <option value="jpg">JPG</option>
-                      <option value="webp">WebP</option>
-                      <option value="png">PNG</option>
-                    </>
-                  )}
-                </select>
+                    <option value="webp">WebP</option>
+                    <option value="png">PNG</option>
+                  </select>
+                )}
+                {hasHeic && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    HEIC-Dateien bleiben hier fest auf JPG.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-muted-foreground block mb-1">{t('imagePreprocessQuality')}</label>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1.5">
                   {QUALITY_PRESETS.map((preset) => (
                     <button
                       key={preset.value}
                       type="button"
-                      className={`px-1.5 py-1 rounded text-xs border ${
-                        effectiveQuality === preset.value && !customQuality
+                      className={`min-w-[3.5rem] px-2 py-1.5 rounded text-xs border ${
+                        effectiveGlobalQuality === preset.value && !globalCustomQuality
                           ? 'bg-primary text-primary-foreground border-primary'
                           : 'bg-background border-input hover:bg-accent'
                       }`}
                       onClick={() => {
-                        setCustomQuality(false);
+                        setGlobalCustomQuality(false);
                         setGlobalQuality(preset.value);
                       }}
                     >
@@ -294,23 +359,23 @@ export function ImagePreprocessDialog({
                   ))}
                   <button
                     type="button"
-                    className={`px-1.5 py-1 rounded text-xs border ${
-                      customQuality
+                    className={`min-w-[4.5rem] px-2 py-1.5 rounded text-xs border ${
+                      globalCustomQuality
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-background border-input hover:bg-accent'
                     }`}
-                    onClick={() => setCustomQuality(!customQuality)}
+                    onClick={() => setGlobalCustomQuality(!globalCustomQuality)}
                   >
                     Custom
                   </button>
                 </div>
-                {customQuality && (
+                {globalCustomQuality && (
                   <input
                     type="range"
                     min={1}
                     max={100}
-                    value={customQualityValue}
-                    onChange={(e) => setCustomQualityValue(Number(e.target.value))}
+                    value={globalCustomQualityValue}
+                    onChange={(e) => setGlobalCustomQualityValue(Number(e.target.value))}
                     className="w-full mt-1"
                   />
                 )}
@@ -343,16 +408,19 @@ export function ImagePreprocessDialog({
           )}
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           {canSkip && onSkip && (
-            <Button variant="ghost" onClick={onSkip}>
+            <Button className="w-full sm:w-auto" variant="ghost" onClick={() => {
+              resetState();
+              onSkip();
+            }}>
               {t('imagePreprocessSkip')}
             </Button>
           )}
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button className="w-full sm:w-auto" variant="outline" onClick={() => handleDialogOpenChange(false)}>
             {t('cancel')}
           </Button>
-          <Button onClick={handleConfirm}>
+          <Button className="w-full sm:w-auto" onClick={handleConfirm}>
             {t('imagePreprocessConfirm')}
           </Button>
         </DialogFooter>
