@@ -91,6 +91,10 @@ type ImageGenerationToolParams = {
   aspect_ratio?: string;
   model?: string;
   reference_image_paths?: string[];
+  provider?: string;
+  quality?: string;
+  output_format?: string;
+  background?: string;
 };
 
 type VideoGenerationToolParams = {
@@ -346,20 +350,24 @@ export function createImageGenerationTool(
     name: 'image_generation',
     label: 'Generating images',
     description:
-      'Generates images using the local Canvas image-generation service. Use this direct PI tool for image creation, image variations from workspace-relative reference images, and style-guided image generation. Output: workspace/image-generation/generations/. After a successful result with mediaUrl, the assistant should also embed the generated image in the normal chat reply as Markdown `![generated image](URL)` and still include the URL or path in text.',
+      'Generates images using the local Canvas image-generation service. Use this direct PI tool for image creation, image variations from workspace-relative reference images, and style-guided image generation. Supports both Google Gemini and OpenAI GPT Image providers. Output: workspace/image-generation/generations/. After a successful result with mediaUrl, the assistant should also embed the generated image in the normal chat reply as Markdown `![generated image](URL)` and still include the URL or path in text.',
     parameters: Type.Object({
       prompt: Type.Optional(Type.String({ description: 'Text description of the image to generate. Optional when reference_image_paths is provided.' })),
-      count: Type.Number({ description: 'Number of images to generate (1-4)' }),
-      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9, 1:1, 9:16, 4:3, 3:4. Default: 1:1' })),
-      model: Type.Optional(Type.String({ description: 'Model: gemini-3.1-flash-image-preview (best quality, supports 14 reference images) or gemini-2.5-flash-image (faster, lower cost, supports 3 reference images)' })),
+      count: Type.Number({ description: 'Number of images to generate (1-10, max depends on provider)' }),
+      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9, 1:1, 9:16, 4:3, 3:4. OpenAI also supports auto. Default: 1:1' })),
+      model: Type.Optional(Type.String({ description: 'Model ID. Gemini: gemini-3.1-flash-image-preview (best, 14 refs), gemini-2.5-flash-image (fast, 3 refs). OpenAI: gpt-image-1.5 (best), gpt-image-1, gpt-image-1-mini (fast).' })),
       reference_image_paths: Type.Optional(
         Type.Array(Type.String(), {
           description: 'Workspace-relative reference image paths. Optional, but at least one prompt or reference_image_paths entry is required.',
         }),
       ),
+      provider: Type.Optional(Type.String({ description: 'Provider: gemini or openai. Default: gemini' })),
+      quality: Type.Optional(Type.String({ description: 'Image quality: auto, low, medium, high (OpenAI only)' })),
+      output_format: Type.Optional(Type.String({ description: 'Output format: png, jpeg, webp (OpenAI only)' })),
+      background: Type.Optional(Type.String({ description: 'Background: auto, opaque, transparent (OpenAI only)' })),
     }),
     execute: async (toolCallId, params) => {
-      const { prompt, aspect_ratio, count, model, reference_image_paths } = params as ImageGenerationToolParams;
+      const { prompt, aspect_ratio, count, model, reference_image_paths, provider, quality, output_format, background } = params as ImageGenerationToolParams;
       try {
         const normalizedPrompt = normalizeOptionalString(prompt);
         const referenceImagePaths = normalizeWorkspaceRelativePathList(
@@ -371,14 +379,21 @@ export function createImageGenerationTool(
           throw new Error('Either prompt or reference_image_paths is required.');
         }
 
+        const requestParams: Record<string, unknown> = {
+          prompt: normalizedPrompt,
+          aspectRatio: aspect_ratio || '1:1',
+          imageCount: count,
+          model: model || (provider === 'openai' ? 'gpt-image-1.5' : 'gemini-3.1-flash-image-preview'),
+          referenceImagePaths,
+          provider: provider || 'gemini',
+        };
+
+        if (quality) requestParams.quality = quality;
+        if (output_format) requestParams.outputFormat = output_format;
+        if (background) requestParams.background = background;
+
         const data = await generateImagesFn(
-          {
-            prompt: normalizedPrompt,
-            aspectRatio: aspect_ratio || '1:1',
-            imageCount: count,
-            model: model || 'gemini-3.1-flash-image-preview',
-            referenceImagePaths,
-          },
+          requestParams as Parameters<typeof generateImages>[0],
           'pi-agent',
         );
 

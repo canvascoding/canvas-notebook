@@ -70,6 +70,7 @@ async function main() {
       imageCalls.push(body);
       return {
         model: body.model || 'gemini-3.1-flash-image-preview',
+        provider: body.provider || 'gemini',
         aspectRatio: body.aspectRatio || '1:1',
         imageCount: body.imageCount || 1,
         outputDir: 'image-generation/generations',

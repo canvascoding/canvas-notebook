@@ -18,6 +18,7 @@
     "loading": "Loading...",
     "apiKeyRequired": "API key required",
     "geminiApiKeyRequired": "This app requires a GEMINI_API_KEY. Please configure it in the Integrations tab.",
+    "openaiApiKeyRequired": "This app requires an OPENAI_API_KEY. Please configure it in the Integrations tab.",
     "goToIntegrations": "Go to Integrations",
     "logoAlt": "Canvas Notebook Logo",
     "assetPicker": {
@@ -1099,12 +1100,36 @@
     "title": "Image Generation",
     "cardTitle": "AI Studio Image Generator",
     "cardDescription": "Generate up to {count} image variations with a prompt and optional reference images. Output is saved under",
+    "providerField": "Provider",
+    "providerOptions": {
+      "gemini": { "label": "Google Gemini" },
+      "openai": { "label": "OpenAI GPT Image" }
+    },
     "fields": {
       "model": "Model",
       "aspectRatio": "Aspect Ratio",
       "imageCount": "Number of Variations",
       "referenceImages": "Reference Images",
-      "prompt": "Prompt"
+      "prompt": "Prompt",
+      "quality": "Quality",
+      "outputFormat": "Output Format",
+      "background": "Background"
+    },
+    "qualityOptions": {
+      "auto": { "label": "Auto", "description": "Model selects optimal quality" },
+      "low": { "label": "Low", "description": "Fastest, lowest cost" },
+      "medium": { "label": "Medium", "description": "Balanced quality and cost" },
+      "high": { "label": "High", "description": "Best quality, higher cost" }
+    },
+    "outputFormatOptions": {
+      "png": { "label": "PNG" },
+      "jpeg": { "label": "JPEG" },
+      "webp": { "label": "WebP" }
+    },
+    "backgroundOptions": {
+      "auto": { "label": "Auto" },
+      "opaque": { "label": "Opaque" },
+      "transparent": { "label": "Transparent" }
     },
     "promptPlaceholder": "Describe the image you want to generate...",
     "promptIdeas": "Prompt Ideas",
@@ -1147,8 +1172,25 @@
         "label": "⚡ Fast & Affordable",
         "shortLabel": "Gemini 2.5 Flash Image",
         "description": "Faster generation at lower cost. Supports up to 3 reference images. Great for quick drafts, simple visuals, and faster iteration."
+      },
+      "gptImage15": {
+        "label": "🎨 Best Quality",
+        "shortLabel": "GPT Image 1.5",
+        "description": "State of the art model with superior instruction following, text rendering and editing."
+      },
+      "gptImage1": {
+        "label": "✨ High Quality",
+        "shortLabel": "GPT Image 1",
+        "description": "High quality generation with detailed editing capabilities."
+      },
+      "gptImage1Mini": {
+        "label": "⚡ Fast & Affordable",
+        "shortLabel": "GPT Image 1 Mini",
+        "description": "Cost-effective option for fast iterations where top quality isn't critical."
       }
     },
+    "openaiApiKeyRequired": "This app requires an OPENAI_API_KEY for OpenAI image generation. Configure it in the Integrations tab.",
+    "noProviderKey": "No API key configured for any image generation provider. Please configure at least one in the Integrations tab.",
     "samplePrompts": {
       "skincareProductShot": {
         "label": "Skincare Product Shot",
