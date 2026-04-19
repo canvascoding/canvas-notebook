@@ -1,6 +1,13 @@
 import { readFile } from '@/app/lib/filesystem/workspace-files';
 import { marked } from 'marked';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import crypto from 'crypto';
+import os from 'os';
+import fs from 'fs/promises';
+
+const execFileAsync = promisify(execFile);
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -18,6 +25,76 @@ const MIME_TYPES: Record<string, string> = {
 
 function getMimeType(ext: string): string {
   return MIME_TYPES[ext.toLowerCase()] || 'image/png';
+}
+
+async function renderMermaidToSvg(code: string): Promise<string | null> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mermaid-'));
+  const inputPath = path.join(tmpDir, 'diagram.mmd');
+  const outputPath = path.join(tmpDir, 'diagram.svg');
+
+  try {
+    await fs.writeFile(inputPath, code, 'utf-8');
+
+    const mmdcPath = path.join(
+      process.cwd(),
+      'node_modules',
+      '.bin',
+      'mmdc'
+    );
+
+    await execFileAsync(mmdcPath, [
+      '-i', inputPath,
+      '-o', outputPath,
+      '-t', 'default',
+      '-b', 'white',
+      '--quiet',
+    ], {
+      timeout: 15000,
+    });
+
+    const svgContent = await fs.readFile(outputPath, 'utf-8');
+    return svgContent;
+  } catch (err) {
+    console.warn('[Markdown Export] Failed to render mermaid diagram:', err instanceof Error ? err.message : String(err));
+    return null;
+  } finally {
+    try {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    } catch {}
+  }
+}
+
+async function processMermaidBlocks(markdownContent: string): Promise<string> {
+  const mermaidBlockRegex = /```mermaid\n([\s\S]*?)```/g;
+  const matches = Array.from(markdownContent.matchAll(mermaidBlockRegex));
+
+  if (matches.length === 0) {
+    return markdownContent;
+  }
+
+  let processed = markdownContent;
+
+  for (const match of matches) {
+    const fullMatch = match[0];
+    const mermaidCode = match[1].trim();
+    const svg = await renderMermaidToSvg(mermaidCode);
+
+    if (svg) {
+      processed = processed.replace(fullMatch, `<div class="mermaid-diagram" style="text-align: center; margin: 1em 0;">${svg}</div>`);
+    } else {
+      processed = processed.replace(fullMatch, `<div class="mermaid-diagram-fallback" style="border: 1px solid #e0e0e0; border-radius: 4px; padding: 1em; margin: 1em 0; background: #f9f9f9;"><p style="font-size: 0.85em; color: #666; margin: 0 0 0.5em 0; font-weight: 600;">Mermaid Diagram (preview not available in export)</p><pre style="background: transparent; padding: 0; margin: 0;"><code>${escapeHtml(mermaidCode)}</code></pre></div>`);
+    }
+  }
+
+  return processed;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 async function inlineImagesAsBase64(
@@ -81,8 +158,10 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
 
   const markdownContent = contentBuffer.toString('utf-8');
 
+  const processedMarkdown = await processMermaidBlocks(markdownContent);
+
   marked.use({ gfm: true, breaks: true });
-  let htmlContent = await marked.parse(markdownContent);
+  let htmlContent = await marked.parse(processedMarkdown);
 
   const fileDir = path.dirname(filePath);
   const ext = path.extname(filePath);
@@ -95,7 +174,7 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${fileName}</title>
+  <title>${escapeHtml(fileName)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
@@ -219,6 +298,19 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
       border: none;
       border-top: 1px solid #ccc;
       margin: 2em 0;
+    }
+
+    .mermaid-diagram svg {
+      max-width: 100%;
+      height: auto;
+    }
+
+    .mermaid-diagram-fallback {
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 1em;
+      margin: 1em 0;
+      background: #f9f9f9;
     }
 
     @media print {
