@@ -8,10 +8,11 @@ export default async function SettingsPage() {
   const t = await getTranslations('settings');
 
   const username = session?.user?.name || session?.user?.email || 'User';
+  const isAdmin = session?.user?.role === 'admin';
 
   return (
     <SuitePageLayout title={t('title')} username={username}>
-        <IntegrationsSettingsClient />
+        <IntegrationsSettingsClient isAdmin={isAdmin} />
     </SuitePageLayout>
   );
 }

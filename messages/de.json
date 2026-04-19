@@ -408,13 +408,77 @@
   "home": {
     "header": {
       "logoAlt": "Canvas Notebook Logo",
-      "productName": "Canvas Notebook",
-      "productLabel": "Software Suite"
+      "productName": "Canvas Studios",
+      "productLabel": "Marketing Workspace"
     },
     "hero": {
-      "eyebrow": "Canvas Software Suite",
-      "title": "Wähle eine App und arbeite im gleichen Workspace weiter.",
-      "description": "Alle Apps greifen auf denselben Workspace zu. Neue Bilder, Videos und Inhalte sind dadurch sofort für weitere Schritte verfügbar."
+      "eyebrow": "Canvas Studios",
+      "title": "Was möchtest du erstellen?",
+      "description": "Beschreibe dein Vorhaben oder wähle einen Use Case. Der Agent erledigt den Rest.",
+      "placeholder": "Was möchtest du erstellen?",
+      "submit": "In Notebook öffnen"
+    },
+    "categories": {
+      "campaign": "Kampagne",
+      "creative": "Kreativ",
+      "video": "Video",
+      "strategy": "Strategie",
+      "document": "Dokument"
+    },
+    "inspiration": {
+      "campaign": {
+        "title": "Kampagne",
+        "prompts": [
+          "Entwickle ein Konzept für eine Social-Media-Kampagne",
+          "Erstelle einen Redaktionsplan für 2 Wochen",
+          "Plane Visual-Styles für ein Brand",
+          "Schreibe Hook-Varianten für verschiedene Plattformen",
+          "Entwerfe ein Content-Briefing für ein neues Produkt",
+          "Erstelle eine Kampagnen-Timeline mit Meilensteinen"
+        ]
+      },
+      "creative": {
+        "title": "Kreativ",
+        "prompts": [
+          "Generiere ein Hero-Image für eine Landing Page",
+          "Erstelle Variationen eines Produktfotos",
+          "Lokalisiere ein Ad für den spanischen Markt",
+          "Entwickle ein Style-Guide für Kampagnen-Bilder",
+          "Erstelle ein Moodboard für eine neue Kollektion"
+        ]
+      },
+      "video": {
+        "title": "Video",
+        "prompts": [
+          "Entwickle ein Script für ein 30-Sekunden-Produktvideo",
+          "Plane eine Shot-List für ein Image-Video",
+          "Erstelle Storyboard-Beschreibungen für eine Kampagne",
+          "Schreibe Sprechertext für ein Erklärvideo"
+        ]
+      },
+      "strategy": {
+        "title": "Strategie",
+        "prompts": [
+          "Analysiere den Markt für [Branche]",
+          "Entwickle eine Positionierung für [Produkt]",
+          "Erstelle einen 30-Tage-Marketing-Plan",
+          "Identifiziere die Top-3 Wettbewerber und deren Schwächen"
+        ]
+      },
+      "document": {
+        "title": "Dokument",
+        "prompts": [
+          "Schreibe ein Briefing für [Projektname]",
+          "Erstelle ein Angebot für [Kunde]",
+          "Fasse Meeting-Notizen zu Action-Items zusammen",
+          "Entwickle eine Projekt-Dokumentation"
+        ]
+      }
+    },
+    "sections": {
+      "workspace": "Workspace",
+      "create": "Erstellen",
+      "moreTools": "Weitere Tools"
     },
     "status": {
       "live": "Live",
@@ -459,8 +523,8 @@
     },
     "apps": {
       "notebook": {
-        "title": "Canvas Notebook",
-        "description": "Dateien, Chat, Editor und Terminal im Workspace verwalten."
+        "title": "Notebook",
+        "description": "Dateien, Chat und Editor – dein zentraler Workspace."
       },
       "usage": {
         "title": "Usage Analytics",
@@ -468,19 +532,19 @@
       },
       "imageGeneration": {
         "title": "Image Generation",
-        "description": "Bilder erzeugen und direkt im Workspace speichern."
+        "description": "Kampagnen-Bilder und Visuals per Prompt erzeugen."
       },
       "veo": {
-        "title": "VEO Studio",
-        "description": "Video-Generierung mit Workspace-basierter Ausgabe."
+        "title": "Video Studio",
+        "description": "Kurze Marketing- und Produktvideos generieren."
       },
       "nanoBanana": {
         "title": "Nano Banana Localizer",
-        "description": "Bestehende Ads pro Zielmarkt sprachlich lokalisieren."
+        "description": "Ads für jeden Zielmarkt lokalisieren."
       },
       "automations": {
         "title": "Automationen",
-        "description": "Wiederkehrende Agent-Aufträge für den gemeinsamen Workspace planen."
+        "description": "Wiederkehrende Agent-Aufträge für den Workspace planen."
       },
       "skills": {
         "title": "Skill Gallery",
@@ -539,7 +603,8 @@
       "general": "Allgemein",
       "integrations": "Integrationen",
       "agentSettings": "Agent-Einstellungen",
-      "workspace": "Workspace"
+      "workspace": "Workspace",
+      "usage": "Nutzung"
     },
     "general": {
       "language": "Sprache",
