@@ -2176,13 +2176,20 @@ export default function CanvasAgentChat({
     }
   }, [t]);
 
-  const handleFileUploadMultiple = useCallback(async (files: File[]) => {
+  const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
     setIsUploading(true);
     setUploadError(null);
     
     try {
       const formData = new FormData();
       files.forEach((file) => formData.append('file', file));
+
+      if (convertParams && convertParams.length > 0) {
+        const paramsSerializable = convertParams.map((p) =>
+          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
+        );
+        formData.append('convertParams', JSON.stringify(paramsSerializable));
+      }
       
       const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
       const data = await res.json();
@@ -2224,15 +2231,61 @@ export default function CanvasAgentChat({
     }
   }, []);
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    await handleFileUploadMultiple([file]);
+  const preprocessAndUpload = useCallback(async (files: File[]) => {
+    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
+    const HEIC_EXTS = new Set(['heic', 'heif']);
+    const SIZE_THRESHOLD = 1_500_000;
+    const preprocessFiles: import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] = [];
+    const normalFiles: File[] = [];
+
+    for (const file of files) {
+      const isHeic = HEIC_TYPES.has(file.type.toLowerCase()) || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
+      const isImage = file.type.startsWith('image/') || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
+      const isLarge = isImage && file.size > SIZE_THRESHOLD;
+      if (isHeic || isLarge) {
+        preprocessFiles.push({ file, isHeic, isLarge });
+      } else {
+        normalFiles.push(file);
+      }
+    }
+
+    if (normalFiles.length > 0) {
+      await handleFileUploadMultiple(normalFiles);
+    }
+    if (preprocessFiles.length > 0) {
+      setImagePreprocessPendingFiles(preprocessFiles.map((f) => f.file));
+      setImagePreprocessFiles(preprocessFiles);
+    }
   }, [handleFileUploadMultiple]);
+
+  const handleImagePreprocessConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
+    await handleFileUploadMultiple(imagePreprocessPendingFiles, convertParams);
+    setImagePreprocessFiles(null);
+    setImagePreprocessPendingFiles([]);
+  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
+
+  const handleImagePreprocessSkip = useCallback(async () => {
+    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
+    const HEIC_EXTS = new Set(['heic', 'heif']);
+    const nonHeicFiles = imagePreprocessPendingFiles.filter((f) => {
+      return !HEIC_TYPES.has(f.type.toLowerCase()) && !HEIC_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '');
+    });
+    if (nonHeicFiles.length > 0) {
+      await handleFileUploadMultiple(nonHeicFiles);
+    }
+    setImagePreprocessFiles(null);
+    setImagePreprocessPendingFiles([]);
+  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
+
+  const handleFileUpload = useCallback(async (file: File) => {
+    await preprocessAndUpload([file]);
+  }, [preprocessAndUpload]);
 
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
-    if (files.length > 0) handleFileUploadMultiple(files);
+    if (files.length > 0) preprocessAndUpload(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [handleFileUploadMultiple]);
+  }, [preprocessAndUpload]);
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
@@ -3752,11 +3805,18 @@ export default function CanvasAgentChat({
             title={t('openAgentSettings')}
           >
             <Settings className="h-3 w-3" />
-            <span>{t('settings')}</span>
-          </Link>
-         </div>
+             <span>{t('settings')}</span>
+           </Link>
+          </div>
+        </div>
        </div>
-      </div>
+      <ImagePreprocessDialog
+        open={imagePreprocessFiles !== null}
+        onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}
+        files={imagePreprocessFiles ?? []}
+        onConfirm={handleImagePreprocessConfirm}
+        onSkip={handleImagePreprocessSkip}
+      />
     </div>
   );
 }
