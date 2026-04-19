@@ -312,6 +312,8 @@
     "agentWorking": "Agent is working...",
     "auto": "Auto",
     "toolInput": "Input",
+    "fileReferences": "Files",
+    "openFile": "Open",
     "scrollToBottom": "Scroll to bottom",
     "activeToolPrefix": "Active:",
     "imageMessage": "Image message",
