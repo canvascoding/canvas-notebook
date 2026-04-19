@@ -394,8 +394,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to load subdirectory');
+        let errorMsg = `Failed to load subdirectory (${response.status})`;
+        try {
+          const errorData = await response.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch {
+          // Response was not JSON (e.g. HTML 404 page)
+        }
+        throw new Error(errorMsg);
       }
 
       const { data } = await response.json();
