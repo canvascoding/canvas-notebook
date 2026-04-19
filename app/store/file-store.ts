@@ -263,6 +263,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           sources: [path],
           destDir: parentDir,
           overwrite: false,
+          renameOnCollision: true,
         }),
       });
 
