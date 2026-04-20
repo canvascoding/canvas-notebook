@@ -66,6 +66,22 @@ import {
   type AutomationWeekday,
   type FriendlySchedule,
 } from '../automations/types';
+import {
+  executeStudioGeneration,
+  type StudioGenerateRequest,
+} from '../integrations/studio-generation-service';
+import { listProducts } from '../integrations/studio-product-service';
+import { listPersonas } from '../integrations/studio-persona-service';
+import { StudioServiceError } from '../integrations/studio-errors';
+import { db } from '@/app/lib/db';
+import {
+  studioGenerationOutputs,
+  studioGenerationPersonas,
+  studioGenerationProducts,
+  studioGenerations,
+  studioPresets,
+} from '@/app/lib/db/schema';
+import { and, eq, or as orDrizzle } from 'drizzle-orm';
 
 
 const execAsync = promisify(exec);
@@ -584,6 +600,326 @@ async function executeQmdCommand(args: string[], cwd: string): Promise<{ stdout:
       resolve({ stdout, stderr });
     });
   });
+}
+
+export function createStudioGenerateTool(
+  deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
+): AgentTool {
+  const executeFn = deps.executeStudioGenerationFn ?? executeStudioGeneration;
+  const userId = deps.userId;
+
+  return {
+    name: 'studio_generate',
+    label: 'Generating studio content',
+    description:
+      'Generates images or videos using the Studio system. Supports referencing ' +
+      'saved products (@product), personas (@persona), and studio presets (@studio) ' +
+      'for consistent, branded content. Products and personas provide reference images ' +
+      'that guide the generation. Studio presets define the visual setting (lighting, ' +
+      'camera, background). Output files are saved to workspace/studio-outputs/. ' +
+      'After generation, embed results as Markdown images in the reply.',
+    parameters: Type.Object({
+      prompt: Type.String({ description: 'Text description of the image/video to generate.' }),
+      mode: Type.Optional(Type.Union([Type.Literal('image'), Type.Literal('video')], { description: 'Generation mode: image (default) or video.' })),
+      product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to include as reference images.', maxItems: 5 })),
+      persona_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved personas to include as reference images.', maxItems: 3 })),
+      preset_id: Type.Optional(Type.String({ description: 'ID of a studio preset to apply (lighting, camera, background settings).' })),
+      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 1:1, 16:9, 9:16, 4:3, 3:4. Default: 1:1' })),
+      count: Type.Optional(Type.Number({ description: 'Number of image variations (1-4). Ignored for video. Default: 4' })),
+      provider: Type.Optional(Type.String({ description: 'Provider: gemini or openai. Default: gemini' })),
+    }),
+    execute: async (toolCallId, params) => {
+      const p = params as StudioGenerateRequest;
+      try {
+        if (!userId) {
+          throw new Error('User ID is required for studio generation.');
+        }
+        const result = await executeFn(userId, p);
+        const outputText = result.outputs
+          .map((o) => `![studio-${o.variationIndex}](${o.mediaUrl})`)
+          .join('\n');
+        const summary = `Studio generation completed (${result.mode}, ${result.outputs.length} output(s))\n\n${outputText}`;
+        return {
+          content: [{ type: 'text', text: summary }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = error instanceof StudioServiceError
+          ? error.userMessage
+          : error instanceof Error
+            ? error.message
+            : 'An unexpected error occurred during studio generation.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createStudioEditImageTool(
+  deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
+): AgentTool {
+  const executeFn = deps.executeStudioGenerationFn ?? executeStudioGeneration;
+  const userId = deps.userId;
+
+  return {
+    name: 'studio_edit_image',
+    label: 'Editing studio image',
+    description:
+      'Edits an existing studio-generated image based on text instructions. Uses the ' +
+      'previous output as a reference image and applies the requested changes. Supports ' +
+      'swapping products/personas, changing style, adding/removing elements. The original ' +
+      'image is preserved; a new output is created.',
+    parameters: Type.Object({
+      source_output_id: Type.String({
+        description: 'ID of the studio generation output to edit (from studioGenerationOutputs).',
+      }),
+      instruction: Type.String({
+        description: 'What to change: "add white flowers", "swap persona to Ada", "make background darker".',
+      }),
+      product_ids: Type.Optional(Type.Array(Type.String(), {
+        description: 'New product IDs to use. Omit to keep the current products from the source generation.',
+        maxItems: 5,
+      })),
+      persona_ids: Type.Optional(Type.Array(Type.String(), {
+        description: 'New persona IDs to use. Omit to keep the current personas from the source generation.',
+        maxItems: 3,
+      })),
+      preset_id: Type.Optional(Type.String({
+        description: 'New preset ID to apply. Omit to keep the source generation preset.',
+      })),
+    }),
+    execute: async (_toolCallId, params) => {
+      const { source_output_id, instruction, product_ids, persona_ids, preset_id } = params as {
+        source_output_id: string;
+        instruction: string;
+        product_ids?: string[];
+        persona_ids?: string[];
+        preset_id?: string;
+      };
+
+      try {
+        if (!userId) {
+          throw new Error('User ID is required for studio image editing.');
+        }
+
+        const [sourceOutput] = await db
+          .select({
+            id: studioGenerationOutputs.id,
+            filePath: studioGenerationOutputs.filePath,
+            generationId: studioGenerationOutputs.generationId,
+            mediaUrl: studioGenerationOutputs.mediaUrl,
+          })
+          .from(studioGenerationOutputs)
+          .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+          .where(and(
+            eq(studioGenerationOutputs.id, source_output_id),
+            eq(studioGenerations.userId, userId),
+          ))
+          .limit(1);
+
+        if (!sourceOutput) {
+          throw new StudioServiceError(
+            `Output '${source_output_id}' not found or has been deleted.`,
+            `Output '${source_output_id}' wurde nicht gefunden oder wurde gelöscht.`,
+            'NOT_FOUND',
+          );
+        }
+
+        if (!sourceOutput.filePath) {
+          throw new StudioServiceError(
+            `Reference image file for output not found on disk.`,
+            'Reference image file for output not found on disk. The file may have been deleted.',
+            'FILE_NOT_FOUND',
+          );
+        }
+
+        const [sourceGeneration] = await db
+          .select({
+            id: studioGenerations.id,
+            prompt: studioGenerations.prompt,
+            rawPrompt: studioGenerations.rawPrompt,
+            studioPresetId: studioGenerations.studioPresetId,
+          })
+          .from(studioGenerations)
+          .where(and(eq(studioGenerations.id, sourceOutput.generationId), eq(studioGenerations.userId, userId)))
+          .limit(1);
+
+        if (!sourceGeneration) {
+          throw new StudioServiceError(
+            `Source generation for output '${source_output_id}' not found.`,
+            `Die ursprüngliche Generierung für Output '${source_output_id}' wurde nicht gefunden.`,
+            'NOT_FOUND',
+          );
+        }
+
+        const originalPrompt = sourceGeneration.prompt || sourceGeneration.rawPrompt || '';
+        const composedPrompt = originalPrompt
+          ? `${originalPrompt}\n\nEdit instruction: ${instruction.trim()}`
+          : instruction.trim();
+
+        const result = await executeFn(userId, {
+          prompt: composedPrompt,
+          mode: 'image',
+          source_output_id,
+          product_ids,
+          persona_ids,
+          preset_id: preset_id ?? sourceGeneration.studioPresetId ?? undefined,
+        });
+
+        const outputText = result.outputs
+          .map((o) => `![studio-edit-${o.variationIndex}](${o.mediaUrl})`)
+          .join('\n');
+        const summary = `Studio edit completed from output ${source_output_id} (${result.outputs.length} output(s))\n\n${outputText}`;
+
+        return {
+          content: [{ type: 'text', text: summary }],
+          details: {
+            ...result,
+            sourceOutputId: source_output_id,
+            sourceGenerationId: sourceGeneration.id,
+            sourceMediaUrl: sourceOutput.mediaUrl,
+          },
+        };
+      } catch (error: unknown) {
+        const message = error instanceof StudioServiceError
+          ? error.userMessage
+          : error instanceof Error
+            ? error.message
+            : 'An unexpected error occurred during studio image editing.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createStudioListProductsTool(
+  deps: { listProductsFn?: typeof listProducts; userId?: string } = {},
+): AgentTool {
+  const listFn = deps.listProductsFn ?? listProducts;
+  const userId = deps.userId;
+
+  return {
+    name: 'studio_list_products',
+    label: 'Listing products',
+    description: 'Lists all saved products in the Studio library. Returns product IDs, names, descriptions, and image count. Use this to find product IDs for studio_generate.',
+    parameters: Type.Object({
+      search: Type.Optional(Type.String({ description: 'Optional search term to filter products by name.' })),
+    }),
+    execute: async (toolCallId, params) => {
+      const { search } = params as { search?: string };
+      try {
+        if (!userId) {
+          throw new Error('User ID is required.');
+        }
+        const products = await listFn(userId, search);
+        const text = products.length === 0
+          ? 'No products found.'
+          : products.map((p: { id: string; name: string; description?: string | null; imageCount: number }) =>
+              `• ${p.name} (ID: ${p.id}) — ${p.imageCount} image(s)${p.description ? ` — ${p.description}` : ''}`
+            ).join('\n');
+        return {
+          content: [{ type: 'text', text }],
+          details: { products },
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to list products.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createStudioListPersonasTool(
+  deps: { listPersonasFn?: typeof listPersonas; userId?: string } = {},
+): AgentTool {
+  const listFn = deps.listPersonasFn ?? listPersonas;
+  const userId = deps.userId;
+
+  return {
+    name: 'studio_list_personas',
+    label: 'Listing personas',
+    description: 'Lists all saved personas (characters) in the Studio library. Returns persona IDs, names, descriptions, and image count. Use this to find persona IDs for studio_generate.',
+    parameters: Type.Object({
+      search: Type.Optional(Type.String({ description: 'Optional search term to filter personas by name.' })),
+    }),
+    execute: async (toolCallId, params) => {
+      const { search } = params as { search?: string };
+      try {
+        if (!userId) {
+          throw new Error('User ID is required.');
+        }
+        const personas = await listFn(userId, search);
+        const text = personas.length === 0
+          ? 'No personas found.'
+          : personas.map((p: { id: string; name: string; description?: string | null; imageCount: number }) =>
+              `• ${p.name} (ID: ${p.id}) — ${p.imageCount} image(s)${p.description ? ` — ${p.description}` : ''}`
+            ).join('\n');
+        return {
+          content: [{ type: 'text', text }],
+          details: { personas },
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to list personas.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createStudioListPresetsTool(): AgentTool {
+  return {
+    name: 'studio_list_presets',
+    label: 'Listing studio presets',
+    description: 'Lists all available studio presets (visual settings). Returns preset IDs, names, descriptions, and categories. Use this to find preset IDs for studio_generate.',
+    parameters: Type.Object({
+      category: Type.Optional(Type.String({ description: 'Filter by category: fashion, product, food, lifestyle, etc.' })),
+    }),
+    execute: async (toolCallId, params) => {
+      const { category } = params as { category?: string };
+      try {
+        const presets = await db.select({
+          id: studioPresets.id,
+          name: studioPresets.name,
+          description: studioPresets.description,
+          category: studioPresets.category,
+          isDefault: studioPresets.isDefault,
+        })
+          .from(studioPresets)
+          .where(category
+            ? orDrizzle(eq(studioPresets.isDefault, true), eq(studioPresets.category, category))
+            : eq(studioPresets.isDefault, true),
+          );
+
+        const text = presets.length === 0
+          ? 'No studio presets found.'
+          : presets.map((p) =>
+              `• ${p.name} (ID: ${p.id}) [${p.category || 'uncategorized'}]${p.description ? ` — ${p.description}` : ''}`
+            ).join('\n');
+        return {
+          content: [{ type: 'text', text }],
+          details: { presets },
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to list presets.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
 }
 
 /**
@@ -1245,6 +1581,7 @@ export const piTools: AgentTool[] = [
   // Canvas Notebook Skills
   createImageGenerationTool(),
   createVideoGenerationTool(),
+  createStudioListPresetsTool(),
   {
     name: 'ad_localization',
     label: 'Localizing ads',
@@ -1312,6 +1649,11 @@ const automationToolMetadata: { name: string; label: string; description: string
   { name: 'update_automation_job', label: 'Updating automation job', description: 'Updates an existing automation job.' },
   { name: 'delete_automation_job', label: 'Deleting automation job', description: 'Permanently deletes an automation job and all its run history.' },
   { name: 'trigger_automation_job', label: 'Triggering automation job', description: 'Manually triggers an automation job to run immediately.' },
+  { name: 'studio_generate', label: 'Generating studio content', description: 'Generates images/videos using the Studio system with product, persona, and preset references.' },
+  { name: 'studio_edit_image', label: 'Editing studio image', description: 'Edits an existing Studio-generated image using a source output plus text instructions.' },
+  { name: 'studio_list_products', label: 'Listing products', description: 'Lists all saved products in the Studio library.' },
+  { name: 'studio_list_personas', label: 'Listing personas', description: 'Lists all saved personas in the Studio library.' },
+  { name: 'studio_list_presets', label: 'Listing studio presets', description: 'Lists all available studio presets (visual settings).' },
 ];
 
 export async function getPiToolMetadata(): Promise<{ name: string; label: string; description: string }[]> {
@@ -1548,6 +1890,10 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
         }
       },
     },
+    createStudioGenerateTool({ userId }),
+    createStudioEditImageTool({ userId }),
+    createStudioListProductsTool({ userId }),
+    createStudioListPersonasTool({ userId }),
   ] : [];
 
   let allTools: AgentTool[];
