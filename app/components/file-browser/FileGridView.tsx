@@ -273,12 +273,10 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
             <p className="text-xs text-muted-foreground/60">{t('uploadFilesToGetStarted')}</p>
           </div>
         ) : (
-          <div className={cn(
-            'grid gap-3',
-            variant === 'fullscreen'
-              ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8'
-              : 'grid-cols-2'
-          )}>
+          <div
+            className={cn('grid gap-3', variant === 'fullscreen' && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8')}
+            style={variant !== 'fullscreen' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' } : undefined}
+          >
             {gridItems.map((node) => (
               <FileGridItem
                 key={node.path}
@@ -362,7 +360,11 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     );
 
     if (variant === 'fullscreen') {
-      return <div className="h-full max-w-5xl mx-auto w-full">{listContent}</div>;
+      return (
+        <SidebarProvider className="min-h-0">
+          <div className="h-full w-full max-w-5xl mx-auto">{listContent}</div>
+        </SidebarProvider>
+      );
     }
 
     return (
@@ -396,7 +398,11 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   );
 
   if (variant === 'fullscreen') {
-    return <div className="h-full max-w-5xl mx-auto w-full">{treeContent}</div>;
+    return (
+      <SidebarProvider className="min-h-0">
+        <div className="h-full w-full max-w-5xl mx-auto">{treeContent}</div>
+      </SidebarProvider>
+    );
   }
 
   return (
