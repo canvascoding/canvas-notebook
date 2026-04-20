@@ -44,7 +44,8 @@
         "loadFailed": "Assets konnten nicht geladen werden.",
         "uploadFailed": "Upload fehlgeschlagen."
       }
-    }
+    },
+    "studio": "Studio"
   },
   "navigation": {
     "hideSidebar": "Sidebar ausblenden",
@@ -95,25 +96,171 @@
     "redirecting": "Weiterleitung zum Login..."
   },
   "onboarding": {
-    "logoAlt": "Canvas Logo",
-    "welcome": "Willkommen!",
-    "description": "Du bist mit dem per Environment konfigurierten Admin bereits angemeldet. Richte jetzt deinen KI-Provider ein. Benutzerverwaltung erfolgt ausschließlich über die Container-Environment.",
-    "languageTitle": "Sprache wählen",
-    "languageDescription": "Wähle deine bevorzugte Sprache für die Benutzeroberfläche.",
-    "languageActive": "Aktiv",
-    "languageContinue": "Weiter",
-    "providerTitle": "Provider & Modell",
-    "providerDescription": "Wähle deinen Provider, richte Authentifizierung ein und speichere dieselbe PI-Konfiguration wie später unter Settings.",
-    "saveProvider": "Provider speichern & weiter",
-    "saveSuccessMessage": "Provider-Konfiguration gespeichert.",
-    "providerSaved": "Provider eingerichtet!",
-    "skipSetup": "Später einrichten",
-    "setupComplete": "Einrichtung abgeschlossen",
-    "setupCompleteDescription": "Provider, Modelle und weitere Agent-Einstellungen kannst du jederzeit unter Settings anpassen.",
-    "toApp": "Zur App",
-    "completing": "Wird abgeschlossen...",
-    "completionError": "Onboarding konnte nicht abgeschlossen werden",
-    "unexpectedError": "Unerwarteter Fehler beim Abschließen des Onboardings"
+    "hints": {
+      "home": {
+        "promptHero": {
+          "title": "Was erstellen?",
+          "description": "Beschreibe, was du erstellen möchtest — oder nutze die Kategorien unten für Inspiration."
+        },
+        "workspace": {
+          "title": "Workspace",
+          "description": "Dein Workspace: Im Notebook verwaltest du Dateien und chattest mit dem Agent. Automations plant wiederkehrende Aufträge."
+        },
+        "create": {
+          "title": "Direkt erstellen",
+          "description": "Bilder, Videos und lokalisierte Ads generieren — ohne Umweg über den Chat."
+        }
+      },
+      "notebook": {
+        "fileBrowser": {
+          "title": "Dateibrowser",
+          "description": "Hier siehst du alle Dateien im Workspace. Neu erstellen, hochladen oder per Drag & Drop einfügen."
+        },
+        "editor": {
+          "title": "Editor",
+          "description": "Öffne eine Datei aus dem Dateibaum, um sie hier zu bearbeiten."
+        },
+        "editorMode": {
+          "title": "Ansichtsmodus",
+          "description": "Oben rechts kannst du zwischen Editor, Editor mit Vorschau und reiner Vorschau umschalten."
+        },
+        "chat": {
+          "title": "Agent-Chat",
+          "description": "Chatte mit dem Agent, lade Dateien per @-Referenz, oder starte mit einem Prompt-Vorschlag."
+        }
+      },
+      "imageGen": {
+        "config": {
+          "title": "Konfiguration",
+          "description": "Wähle Provider und Modell, definiere Seitenverhältnis und Anzahl — dann prompten."
+        },
+        "references": {
+          "title": "Referenzbilder",
+          "description": "Lade Referenzbilder hoch, um den Output visuell zu steuern."
+        },
+        "results": {
+          "title": "Ergebnisse",
+          "description": "Generierte Bilder erscheinen hier. Klicke für eine Großansicht oder lade sie herunter."
+        }
+      },
+      "veo": {
+        "mode": {
+          "title": "Videomodus",
+          "description": "Wähle den Modus: Text-to-Video, Frames-to-Video, References-to-Video oder Video verlängern."
+        },
+        "config": {
+          "title": "Einstellungen",
+          "description": "Stelle Seitenverhältnis und Auflösung ein, bevor du generierst."
+        },
+        "results": {
+          "title": "Ergebnisse",
+          "description": "Dein Video erscheint hier. Gespeicherte Outputs findest du ebenfalls in dieser Sektion."
+        }
+      },
+      "localizer": {
+        "reference": {
+          "title": "Referenz-Ad",
+          "description": "Lade das Ad-Bild hoch, das du lokalisieren möchtest."
+        },
+        "markets": {
+          "title": "Zielmärkte",
+          "description": "Füge Zielmärkte hinzu (z.B. US, FR, ES). Pro Markt wird eine lokalisierte Variante erstellt."
+        },
+        "results": {
+          "title": "Ergebnisse",
+          "description": "Die lokalisierten Ads erscheinen hier, eins pro Zielmarkt."
+        }
+      },
+      "studio": {
+        "models": {
+          "title": "Modell-Bibliothek",
+          "description": "Verwalte Produkte und Personas als referenzierbare Modelle für KI-Generierungen."
+        }
+      },
+      "settings": {
+        "agentSettings": {
+          "title": "Provider & Modell",
+          "description": "Hier wählst du den AI-Provider und das Modell. Die Auswahl bestimmt, welcher Agent deine Prompts bearbeitet."
+        },
+        "managedFiles": {
+          "title": "Agent-Prompt",
+          "description": "Diese Dateien steuern das Verhalten und Wissen deines Agents. AGENTS.md ist die Hauptanweisung, weitere Dateien ergänzen Identität, Wissen und Fähigkeiten."
+        },
+        "tools": {
+          "title": "Tools",
+          "description": "Hier aktivierst oder deaktivierst du einzelne Agent-Tools. Deaktiviere Tools, die du nicht brauchst, um den Agenten zu fokussieren."
+        },
+        "integrations": {
+          "title": "Integrations-Env",
+          "description": "Hier verwaltest du API-Keys und Umgebungsvariablen für externe Dienste — z.B. Gemini, OpenAI, Brave. Im KV-Modus kannst du einzelne Werte bearbeiten, im Raw-Modus die ganze Datei."
+        },
+        "agentsEnv": {
+          "title": "Agenten-Env",
+          "description": "Separate Umgebungsvariablen für Agent-spezifische Provider wie OpenRouter, Ollama oder Anthropic."
+        },
+        "studio": {
+          "title": "Studio",
+          "comingSoon": "Coming Soon — Diese Funktion ist bald verfügbar.",
+          "common": {
+            "loading": "Lade..."
+          },
+          "tabs": {
+            "create": "Erstellen",
+            "bulk": "Bulk",
+            "models": "Modelle",
+            "presets": "Presets"
+          },
+          "modelLibrary": {
+            "products": "Produkte",
+            "personas": "Personas",
+            "newProduct": "Neues Produkt",
+            "newPersona": "Neue Persona",
+            "searchPlaceholder": "Modelle suchen...",
+            "emptyProductTitle": "Noch keine Produkte",
+            "emptyProductDescription": "Erstelle dein erstes Produkt, um Bilder für KI-Generierungen zu referenzieren.",
+            "emptyPersonaTitle": "Noch keine Personas",
+            "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen."
+          },
+          "modelCreate": {
+            "name": "Name",
+            "description": "Beschreibung",
+            "images": "Bilder",
+            "dropzone": "Bilder hier ablegen oder klicken zum Auswählen",
+            "maxImages": "Maximal {max} Bilder",
+            "urlImport": "Von URL importieren",
+            "urlPlaceholder": "https://example.com/image.jpg",
+            "addUrl": "Hinzufügen",
+            "productNamePlaceholder": "z.B. Mein Produkt",
+            "personaNamePlaceholder": "z.B. Meine Persona",
+            "descriptionPlaceholder": "Optionale Beschreibung...",
+            "nameRequired": "Name ist erforderlich",
+            "createFailed": "Erstellung fehlgeschlagen",
+            "save": "Speichern"
+          },
+          "modelDetail": {
+            "notFound": "Nicht gefunden",
+            "save": "Speichern",
+            "cancel": "Abbrechen",
+            "images": "Bilder",
+            "addImages": "Bilder hinzufügen",
+            "noDescription": "Keine Beschreibung",
+            "deleteProduct": "Produkt löschen",
+            "deletePersona": "Persona löschen",
+            "deleteConfirmMessage": "Dieses Modell wird möglicherweise in Generierungen referenziert. Die Referenz wird als [Gelöscht] markiert. Fortfahren?",
+            "confirmDelete": "Löschen"
+          }
+        },
+        "usage": {
+          "title": "Usage",
+          "description": "Hier siehst du Token-Verbrauch, Kosten und Nutzungsstatistiken. Filtere nach Zeitraum, Provider oder Modell."
+        }
+      }
+    },
+    "helpDropdown": {
+      "repeatTutorial": "Tutorial wiederholen",
+      "completeOnboarding": "Onboarding abschließen",
+      "openHelp": "Hilfe öffnen"
+    }
   },
   "notebook": {
     "badge": "Notebook",
@@ -1104,28 +1251,28 @@
       "configured": "Konfiguriert",
       "default": "Standard"
     },
-  "artifacts": {
-    "title": "Run-Artefakte",
-    "openResultFile": "Ergebnisdatei öffnen",
-    "piSession": "PI Session"
-  },
-  "session": {
-    "title": "Run-Chat",
-    "description": "Read-only Verlauf der verknüpften Session. Du kannst die Session jederzeit im Chat weiterführen.",
-    "openChat": "Im Chat öffnen",
-    "continueChat": "Session fortsetzen",
-    "loading": "Lade Chatverlauf...",
-    "empty": "Noch keine Chat-Nachrichten vorhanden.",
-    "pending": "Die Session wurde angelegt, aber noch nicht vollständig persistiert.",
-    "noSession": "Für diesen Lauf wurde noch keine Session angelegt.",
-    "emptyMessage": "Keine Textausgabe vorhanden.",
-    "roles": {
-      "user": "User",
-      "assistant": "Assistant",
-      "toolResult": "Tool",
-      "system": "System"
-    }
-  },
+    "artifacts": {
+      "title": "Run-Artefakte",
+      "openResultFile": "Ergebnisdatei öffnen",
+      "piSession": "PI Session"
+    },
+    "session": {
+      "title": "Run-Chat",
+      "description": "Read-only Verlauf der verknüpften Session. Du kannst die Session jederzeit im Chat weiterführen.",
+      "openChat": "Im Chat öffnen",
+      "continueChat": "Session fortsetzen",
+      "loading": "Lade Chatverlauf...",
+      "empty": "Noch keine Chat-Nachrichten vorhanden.",
+      "pending": "Die Session wurde angelegt, aber noch nicht vollständig persistiert.",
+      "noSession": "Für diesen Lauf wurde noch keine Session angelegt.",
+      "emptyMessage": "Keine Textausgabe vorhanden.",
+      "roles": {
+        "user": "User",
+        "assistant": "Assistant",
+        "toolResult": "Tool",
+        "system": "System"
+      }
+    },
     "jobStatus": {
       "active": "Aktiv",
       "paused": "Pausiert"
@@ -1195,15 +1342,15 @@
         "loadDirectories": "Ordner konnten nicht geladen werden."
       }
     },
-  "errors": {
-    "loadJobs": "Automationen konnten nicht geladen werden.",
-    "loadRuns": "Läufe konnten nicht geladen werden.",
-    "loadLogs": "Logs konnten nicht geladen werden.",
-    "loadSession": "Der Chatverlauf konnte nicht geladen werden.",
-    "saveJob": "Automation konnte nicht gespeichert werden.",
-    "runNow": "Lauf konnte nicht gestartet werden.",
-    "deleteJob": "Automation konnte nicht gelöscht werden."
-  },
+    "errors": {
+      "loadJobs": "Automationen konnten nicht geladen werden.",
+      "loadRuns": "Läufe konnten nicht geladen werden.",
+      "loadLogs": "Logs konnten nicht geladen werden.",
+      "loadSession": "Der Chatverlauf konnte nicht geladen werden.",
+      "saveJob": "Automation konnte nicht gespeichert werden.",
+      "runNow": "Lauf konnte nicht gestartet werden.",
+      "deleteJob": "Automation konnte nicht gelöscht werden."
+    },
     "toasts": {
       "jobUpdated": "Automation aktualisiert.",
       "jobCreated": "Automation erstellt.",
@@ -1219,8 +1366,12 @@
     "cardDescription": "Erzeuge bis zu {count} Bildvariationen mit Prompt und optionalen Referenzbildern. Ausgabe im Workspace unter",
     "providerField": "Provider",
     "providerOptions": {
-      "gemini": { "label": "Google Gemini" },
-      "openai": { "label": "OpenAI GPT Image" }
+      "gemini": {
+        "label": "Google Gemini"
+      },
+      "openai": {
+        "label": "OpenAI GPT Image"
+      }
     },
     "fields": {
       "model": "Modell",
@@ -1233,20 +1384,44 @@
       "background": "Hintergrund"
     },
     "qualityOptions": {
-      "auto": { "label": "Auto", "description": "Modell wählt optimale Qualität" },
-      "low": { "label": "Niedrig", "description": "Am schnellsten, niedrigste Kosten" },
-      "medium": { "label": "Mittel", "description": "Ausgewogene Qualität und Kosten" },
-      "high": { "label": "Hoch", "description": "Beste Qualität, höhere Kosten" }
+      "auto": {
+        "label": "Auto",
+        "description": "Modell wählt optimale Qualität"
+      },
+      "low": {
+        "label": "Niedrig",
+        "description": "Am schnellsten, niedrigste Kosten"
+      },
+      "medium": {
+        "label": "Mittel",
+        "description": "Ausgewogene Qualität und Kosten"
+      },
+      "high": {
+        "label": "Hoch",
+        "description": "Beste Qualität, höhere Kosten"
+      }
     },
     "outputFormatOptions": {
-      "png": { "label": "PNG" },
-      "jpeg": { "label": "JPEG" },
-      "webp": { "label": "WebP" }
+      "png": {
+        "label": "PNG"
+      },
+      "jpeg": {
+        "label": "JPEG"
+      },
+      "webp": {
+        "label": "WebP"
+      }
     },
     "backgroundOptions": {
-      "auto": { "label": "Auto" },
-      "opaque": { "label": "Deckend" },
-      "transparent": { "label": "Transparent" }
+      "auto": {
+        "label": "Auto"
+      },
+      "opaque": {
+        "label": "Deckend"
+      },
+      "transparent": {
+        "label": "Transparent"
+      }
     },
     "promptPlaceholder": "Beschreibe das gewünschte Bild...",
     "promptIdeas": "Prompt-Ideen",
@@ -1691,173 +1866,6 @@
       "close": "Schließen",
       "videoTitle": "{title} Video",
       "moreActions": "Weitere Aktionen"
-    }
-  },
-  "onboarding": {
-    "hints": {
-      "home": {
-        "promptHero": {
-          "title": "Was erstellen?",
-          "description": "Beschreibe, was du erstellen möchtest — oder nutze die Kategorien unten für Inspiration."
-        },
-        "workspace": {
-          "title": "Workspace",
-          "description": "Dein Workspace: Im Notebook verwaltest du Dateien und chattest mit dem Agent. Automations plant wiederkehrende Aufträge."
-        },
-        "create": {
-          "title": "Direkt erstellen",
-          "description": "Bilder, Videos und lokalisierte Ads generieren — ohne Umweg über den Chat."
-        }
-      },
-      "notebook": {
-        "fileBrowser": {
-          "title": "Dateibrowser",
-          "description": "Hier siehst du alle Dateien im Workspace. Neu erstellen, hochladen oder per Drag & Drop einfügen."
-        },
-        "editor": {
-          "title": "Editor",
-          "description": "Öffne eine Datei aus dem Dateibaum, um sie hier zu bearbeiten."
-        },
-        "editorMode": {
-          "title": "Ansichtsmodus",
-          "description": "Oben rechts kannst du zwischen Editor, Editor mit Vorschau und reiner Vorschau umschalten."
-        },
-        "chat": {
-          "title": "Agent-Chat",
-          "description": "Chatte mit dem Agent, lade Dateien per @-Referenz, oder starte mit einem Prompt-Vorschlag."
-        }
-      },
-      "imageGen": {
-        "config": {
-          "title": "Konfiguration",
-          "description": "Wähle Provider und Modell, definiere Seitenverhältnis und Anzahl — dann prompten."
-        },
-        "references": {
-          "title": "Referenzbilder",
-          "description": "Lade Referenzbilder hoch, um den Output visuell zu steuern."
-        },
-        "results": {
-          "title": "Ergebnisse",
-          "description": "Generierte Bilder erscheinen hier. Klicke für eine Großansicht oder lade sie herunter."
-        }
-      },
-      "veo": {
-        "mode": {
-          "title": "Videomodus",
-          "description": "Wähle den Modus: Text-to-Video, Frames-to-Video, References-to-Video oder Video verlängern."
-        },
-        "config": {
-          "title": "Einstellungen",
-          "description": "Stelle Seitenverhältnis und Auflösung ein, bevor du generierst."
-        },
-        "results": {
-          "title": "Ergebnisse",
-          "description": "Dein Video erscheint hier. Gespeicherte Outputs findest du ebenfalls in dieser Sektion."
-        }
-      },
-      "localizer": {
-        "reference": {
-          "title": "Referenz-Ad",
-          "description": "Lade das Ad-Bild hoch, das du lokalisieren möchtest."
-        },
-        "markets": {
-          "title": "Zielmärkte",
-          "description": "Füge Zielmärkte hinzu (z.B. US, FR, ES). Pro Markt wird eine lokalisierte Variante erstellt."
-        },
-        "results": {
-          "title": "Ergebnisse",
-          "description": "Die lokalisierten Ads erscheinen hier, eins pro Zielmarkt."
-        }
-      },
-      "studio": {
-        "models": {
-          "title": "Modell-Bibliothek",
-          "description": "Verwalte Produkte und Personas als referenzierbare Modelle für KI-Generierungen."
-        }
-      },
-      "settings": {
-        "agentSettings": {
-          "title": "Provider & Modell",
-          "description": "Hier wählst du den AI-Provider und das Modell. Die Auswahl bestimmt, welcher Agent deine Prompts bearbeitet."
-        },
-        "managedFiles": {
-          "title": "Agent-Prompt",
-          "description": "Diese Dateien steuern das Verhalten und Wissen deines Agents. AGENTS.md ist die Hauptanweisung, weitere Dateien ergänzen Identität, Wissen und Fähigkeiten."
-        },
-        "tools": {
-          "title": "Tools",
-          "description": "Hier aktivierst oder deaktivierst du einzelne Agent-Tools. Deaktiviere Tools, die du nicht brauchst, um den Agenten zu fokussieren."
-        },
-        "integrations": {
-          "title": "Integrations-Env",
-          "description": "Hier verwaltest du API-Keys und Umgebungsvariablen für externe Dienste — z.B. Gemini, OpenAI, Brave. Im KV-Modus kannst du einzelne Werte bearbeiten, im Raw-Modus die ganze Datei."
-        },
-        "agentsEnv": {
-          "title": "Agenten-Env",
-          "description": "Separate Umgebungsvariablen für Agent-spezifische Provider wie OpenRouter, Ollama oder Anthropic."
-        },
-  "studio": {
-    "title": "Studio",
-    "comingSoon": "Coming Soon — Diese Funktion ist bald verfügbar.",
-    "common": {
-      "loading": "Lade..."
-    },
-    "tabs": {
-      "create": "Erstellen",
-      "bulk": "Bulk",
-      "models": "Modelle",
-      "presets": "Presets"
-    },
-    "modelLibrary": {
-      "products": "Produkte",
-      "personas": "Personas",
-      "newProduct": "Neues Produkt",
-      "newPersona": "Neue Persona",
-      "searchPlaceholder": "Modelle suchen...",
-      "emptyProductTitle": "Noch keine Produkte",
-      "emptyProductDescription": "Erstelle dein erstes Produkt, um Bilder für KI-Generierungen zu referenzieren.",
-      "emptyPersonaTitle": "Noch keine Personas",
-      "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen."
-    },
-    "modelCreate": {
-      "name": "Name",
-      "description": "Beschreibung",
-      "images": "Bilder",
-      "dropzone": "Bilder hier ablegen oder klicken zum Auswählen",
-      "maxImages": "Maximal {max} Bilder",
-      "urlImport": "Von URL importieren",
-      "urlPlaceholder": "https://example.com/image.jpg",
-      "addUrl": "Hinzufügen",
-      "productNamePlaceholder": "z.B. Mein Produkt",
-      "personaNamePlaceholder": "z.B. Meine Persona",
-      "descriptionPlaceholder": "Optionale Beschreibung...",
-      "nameRequired": "Name ist erforderlich",
-      "createFailed": "Erstellung fehlgeschlagen",
-      "save": "Speichern"
-    },
-    "modelDetail": {
-      "notFound": "Nicht gefunden",
-      "save": "Speichern",
-      "cancel": "Abbrechen",
-      "images": "Bilder",
-      "addImages": "Bilder hinzufügen",
-      "noDescription": "Keine Beschreibung",
-      "deleteProduct": "Produkt löschen",
-      "deletePersona": "Persona löschen",
-      "deleteConfirmMessage": "Dieses Modell wird möglicherweise in Generierungen referenziert. Die Referenz wird als [Gelöscht] markiert. Fortfahren?",
-      "confirmDelete": "Löschen"
-    }
-  },
-  "usage": {
-          "title": "Usage",
-          "description": "Hier siehst du Token-Verbrauch, Kosten und Nutzungsstatistiken. Filtere nach Zeitraum, Provider oder Modell."
-        }
-      }
-    },
-    "helpDropdown": {
-      "repeatTutorial": "Tutorial wiederholen",
-      "completeOnboarding": "Onboarding abschließen",
-      "openHelp": "Hilfe öffnen"
     }
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
 
-import { Link } from '@/i18n/navigation';
+import { Link, usePathname } from '@/i18n/navigation';
 import type { ReactNode } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -31,6 +31,10 @@ export function SuitePageLayout({
   hintPage,
 }: SuitePageLayoutProps) {
   const t = useTranslations('common');
+  const pathname = usePathname();
+  const isStudioSubroute = pathname.startsWith('/studio/');
+  const backHref = isStudioSubroute ? '/studio' : '/';
+  const backLabel = isStudioSubroute ? t('studio') : t('suite');
 
   const content = (
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
@@ -39,9 +43,9 @@ export function SuitePageLayout({
           <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
             <div className="min-w-0 flex items-center gap-2 sm:gap-3">
               <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
-                <Link href="/">
+                <Link href={backHref}>
                   <ArrowLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">{t('suite')}</span>
+                  <span className="hidden sm:inline">{backLabel}</span>
                 </Link>
               </Button>
 
@@ -65,9 +69,5 @@ export function SuitePageLayout({
     </div>
   );
 
-  if (hintPage) {
-    return <HintProvider page={hintPage}>{content}</HintProvider>;
-  }
-
-  return content;
+  return <HintProvider page={hintPage ?? ''}>{content}</HintProvider>;
 }
