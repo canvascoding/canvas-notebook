@@ -89,9 +89,28 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
 
   const handleDotsClick = (event: React.MouseEvent) => {
     event.stopPropagation();
+    event.preventDefault();
     if (!isMultiSelected) {
       useFileStore.getState().clearMultiSelect();
       selectNode(node);
+    }
+    openContextMenu(node, { x: event.clientX, y: event.clientY });
+  };
+
+  const handleContextMenuForListMode = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isMultiSelected) {
+      useFileStore.getState().clearMultiSelect();
+    }
+    openContextMenu(node, { x: event.clientX, y: event.clientY });
+  };
+
+  const handleDotsClickForListMode = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    if (!isMultiSelected) {
+      useFileStore.getState().clearMultiSelect();
     }
     openContextMenu(node, { x: event.clientX, y: event.clientY });
   };
@@ -122,7 +141,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
               isMobile ? 'py-1.5' : 'py-0.5',
               isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
             )}
-            onContextMenu={handleContextMenu}
+            onContextMenu={handleContextMenuForListMode}
           >
             <SidebarMenuButton
               className={cn(
@@ -152,7 +171,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
               </button>
             ) : (
               <button
-                onClick={handleDotsClick}
+                onClick={handleDotsClickForListMode}
                 className={cn(
                   'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
                   isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'

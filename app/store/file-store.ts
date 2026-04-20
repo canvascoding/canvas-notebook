@@ -117,6 +117,7 @@ interface FileStoreState {
 
   // Mobile UI state
   mobileSurface: 'files' | 'editor' | null;
+  mobileFileOpenedCount: number;
   setMobileSurface: (surface: 'files' | 'editor' | null) => void;
   mobileFileOpened: () => void;
 
@@ -213,11 +214,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
   // Mobile UI state
   mobileSurface: null,
+  mobileFileOpenedCount: 0,
   setMobileSurface: (surface: 'files' | 'editor' | null) => {
     set({ mobileSurface: surface });
   },
   mobileFileOpened: () => {
-    set({ mobileSurface: 'editor' });
+    set((state) => ({ mobileSurface: 'editor', mobileFileOpenedCount: state.mobileFileOpenedCount + 1 }));
   },
 
   // Bulk move dialog state
