@@ -295,6 +295,14 @@ export function DashboardShell() {
     return () => window.removeEventListener('resize', handleViewport);
   }, [shouldForceChatOpen]);
 
+  const handleMobileFileSelect = useCallback(() => {
+    if (viewportMode !== 'mobile') return;
+    setMobileSurface('editor');
+    setMobileExplorerOpen(false);
+    setMobileChatOpen(false);
+  }, [viewportMode]);
+
+  // Handle file opens from non-FileBrowser contexts (e.g. chat file references)
   useEffect(() => {
     let prevCount = useFileStore.getState().mobileFileOpenedCount;
     const unsub = useFileStore.subscribe((state) => {
@@ -583,7 +591,7 @@ export function DashboardShell() {
               </SheetHeader>
               <div className="min-h-0 flex-1">
                 <SidebarProvider className="h-full min-h-0">
-                  <FileBrowser variant="mobile-sheet" />
+                  <FileBrowser variant="mobile-sheet" onFileSelect={handleMobileFileSelect} />
                 </SidebarProvider>
               </div>
             </SheetContent>
