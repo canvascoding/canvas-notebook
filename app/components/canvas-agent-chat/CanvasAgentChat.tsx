@@ -42,6 +42,7 @@ import {
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
 import { extractFilePaths, isFilePath } from '@/app/lib/chat/extract-file-paths';
+import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
@@ -530,6 +531,14 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
   const fileTree = fileStore.fileTree;
   const pathname = useLocalePathname();
   const locale = useLocale();
+  const [isValid, setIsValid] = React.useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    const normalizedPath = href.replace(/^\.\/|\/$/g, '');
+    validateFileExists(normalizedPath, fileTree).then((exists) => {
+      setIsValid(exists);
+    });
+  }, [href, fileTree]);
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -537,7 +546,7 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
 
     const normalizedPath = href.replace(/^\.\/|\/$/g, '');
 
-    if (!normalizedPath) return;
+    if (!normalizedPath || isValid === false) return;
 
     if (pathname.includes('/chat')) {
       const notebookPath = getPathname({
@@ -590,6 +599,10 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
       fileStore.mobileFileOpened();
     }
   };
+
+  if (isValid === false) {
+    return <span className="text-muted-foreground">{children}</span>;
+  }
 
   return (
     <button
