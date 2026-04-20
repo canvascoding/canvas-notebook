@@ -27,6 +27,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
+    if (!run) {
+      return NextResponse.json({ success: false, error: 'Automation already has an in-flight run.' }, { status: 409 });
+    }
     dispatchAutomationRunExecution(run.id);
     return NextResponse.json({ success: true, data: run }, { status: 202 });
   } catch (error) {

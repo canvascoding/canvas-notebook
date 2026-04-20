@@ -16,9 +16,11 @@ export async function POST(request: NextRequest) {
     for (const job of dueJobs) {
       const anchor = job.nextRunAt ? new Date(job.nextRunAt) : now;
       try {
-        await scheduleAutomationJobRun(job.id, 'scheduled', now);
-        await advanceAutomationJobSchedule(job.id, anchor);
-        queued.push(job.id);
+        const run = await scheduleAutomationJobRun(job.id, 'scheduled', now);
+        if (run) {
+          await advanceAutomationJobSchedule(job.id, anchor);
+          queued.push(job.id);
+        }
       } catch (error) {
         console.warn(`[Scheduler API] Failed to queue job ${job.id}:`, error instanceof Error ? error.message : error);
       }
