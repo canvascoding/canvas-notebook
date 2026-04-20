@@ -10,9 +10,9 @@ import { Languages, User, Mail, KeyRound, Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 const LOGIN_ENV_KEYS = [
-  { key: 'BOOTSTRAP_ADMIN_EMAIL', translationKey: 'loginInfo.emailKey' },
-  { key: 'BOOTSTRAP_ADMIN_PASSWORD', translationKey: 'loginInfo.passwordKey' },
-  { key: 'BOOTSTRAP_ADMIN_NAME', translationKey: 'loginInfo.nameKey' },
+  { key: 'BOOTSTRAP_ADMIN_EMAIL', translationKey: 'general.loginInfo.emailKey' },
+  { key: 'BOOTSTRAP_ADMIN_PASSWORD', translationKey: 'general.loginInfo.passwordKey' },
+  { key: 'BOOTSTRAP_ADMIN_NAME', translationKey: 'general.loginInfo.nameKey' },
 ] as const;
 
 export function GeneralSettingsPanel({ userName = '', userEmail = '' }: { userName?: string; userEmail?: string }) {
