@@ -43,19 +43,6 @@ function flattenDirectoryChildren(nodes: FileNodeType[], dirPath: string): FileN
   return null;
 }
 
-function collectImagePaths(nodes: FileNodeType[]): string[] {
-  const imageExts = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico']);
-  const result: string[] = [];
-  for (const node of nodes) {
-    if (node.type === 'file') {
-      const ext = node.name.split('.').pop()?.toLowerCase() || '';
-      if (imageExts.has(ext)) result.push(node.path);
-    }
-    if (node.children) result.push(...collectImagePaths(node.children));
-  }
-  return result;
-}
-
 interface FileGridViewProps {
   viewMode: FilesViewMode;
   onPreviewImage: (path: string) => void;
@@ -82,6 +69,8 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
     loadFile,
     mobileFileOpened,
   } = useFileStore();
+
+  const activeDirectoryChildren = flattenDirectoryChildren(fileTree, currentDirectory);
 
   useEffect(() => {
     let cancelled = false;
@@ -200,9 +189,18 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
   }
 
   if (viewMode === 'grid') {
+    const gridItems = searchQuery
+      ? filteredTree
+      : (activeDirectoryChildren ?? []);
+
+    const handleOpenDirectory = async (dirPath: string) => {
+      useFileStore.getState().setCurrentDirectory(dirPath);
+      await loadSubdirectory(dirPath, true);
+    };
+
     return (
       <div ref={containerRef} className="h-full overflow-y-auto p-3 md:p-4">
-        {filteredTree.length === 0 && !searchQuery ? (
+        {gridItems.length === 0 && !searchQuery ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
             <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
             <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
@@ -210,16 +208,17 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
           </div>
         ) : (
           <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
-            {filteredTree.map((node) => (
+            {gridItems.map((node) => (
               <FileGridItem
                 key={node.path}
                 node={node}
                 onPreviewImage={onPreviewImage}
+                onOpenDirectory={handleOpenDirectory}
               />
             ))}
           </div>
         )}
-        {filteredTree.length === 0 && searchQuery && (
+        {gridItems.length === 0 && searchQuery && (
           <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
             <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
             <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>

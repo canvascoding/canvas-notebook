@@ -1,43 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { listDirectory } from '@/app/lib/filesystem/workspace-files';
+import { getCachedFileReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
 import { searchFileReferenceEntries, type FileReferenceEntry } from '@/app/lib/filesystem/file-reference-search';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-
-async function collectFilesRecursive(dirPath: string): Promise<FileReferenceEntry[]> {
-  try {
-    const entries = await listDirectory(dirPath);
-    const files: FileReferenceEntry[] = [];
-
-    for (const entry of entries) {
-      if (entry.type === 'directory') {
-        // Recursively collect files from subdirectories
-        try {
-          const subFiles = await collectFilesRecursive(entry.path);
-          files.push(...subFiles);
-        } catch {
-          // Skip directories we can't read
-        }
-      } else {
-        // Check if it's an image
-        const extension = entry.path.split('.').pop()?.toLowerCase();
-        const isImage = extension ? ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(extension) : false;
-        
-        files.push({
-          name: entry.name,
-          path: entry.path,
-          type: 'file',
-          extension,
-          isImage,
-        });
-      }
-    }
-
-    return files;
-  } catch {
-    return [];
-  }
-}
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -53,8 +18,7 @@ export async function GET(request: NextRequest) {
     const query = searchParams.get('q')?.toLowerCase() || '';
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     
-    // Get all files recursively
-    const allFiles = await collectFilesRecursive('.');
+    const allFiles = await getCachedFileReferenceEntries();
 
     const filteredFiles = searchFileReferenceEntries(allFiles, query);
     

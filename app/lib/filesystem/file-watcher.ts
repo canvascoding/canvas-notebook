@@ -1,6 +1,7 @@
 import { promises as fs, watch as fsWatch, FSWatcher } from 'fs';
 import path from 'path';
 import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
+import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 
 const DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
@@ -271,6 +272,7 @@ class FileWatcherService {
         ? event.relativePath.substring(0, event.relativePath.lastIndexOf('/'))
         : '.';
       clearSubtreeCache(dirPath);
+      invalidateFileReferenceCache();
       this.broadcastEvent({ ...event, dir: dirPath });
     }
 
@@ -279,6 +281,9 @@ class FileWatcherService {
 
   private broadcastEvent(event: FileEvent): void {
     for (const [clientId, client] of this.clients) {
+      if (!this.isClientSubscribedToEvent(clientId, event)) {
+        continue;
+      }
       try {
         client.send(event);
       } catch (error) {
@@ -287,6 +292,12 @@ class FileWatcherService {
         this.clients.delete(clientId);
       }
     }
+  }
+
+  private isClientSubscribedToEvent(clientId: string, event: FileEvent): boolean {
+    const eventDir = event.dir || '.';
+    const subscribers = this.subscriptions.get(eventDir);
+    return subscribers?.has(clientId) ?? false;
   }
 
   private stopWatchingPath(fullPath: string): void {
