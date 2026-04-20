@@ -298,32 +298,14 @@ export function DashboardShell({ username }: DashboardShellProps) {
   }, [shouldForceChatOpen]);
 
   useEffect(() => {
-    let prevMobileSurface = useFileStore.getState().mobileSurface;
+    let prevCount = useFileStore.getState().mobileFileOpenedCount;
     const unsub = useFileStore.subscribe((state) => {
-      if (state.mobileSurface !== prevMobileSurface) {
-        prevMobileSurface = state.mobileSurface;
+      if (state.mobileFileOpenedCount !== prevCount) {
+        prevCount = state.mobileFileOpenedCount;
         if (viewportMode !== 'mobile') return;
-        if (state.mobileSurface === 'editor') {
-          setMobileSurface('editor');
-          setMobileExplorerOpen(false);
-          setMobileChatOpen(false);
-        }
-      }
-    });
-    return unsub;
-  }, [viewportMode]);
-
-  useEffect(() => {
-    let prevMobileSurface = useFileStore.getState().mobileSurface;
-    const unsub = useFileStore.subscribe((state) => {
-      if (state.mobileSurface !== prevMobileSurface) {
-        prevMobileSurface = state.mobileSurface;
-        if (viewportMode !== 'mobile') return;
-        if (state.mobileSurface === 'editor') {
-          setMobileExplorerOpen(false);
-          setMobileChatOpen(false);
-          setMobileSurface('editor');
-        }
+        setMobileSurface('editor');
+        setMobileExplorerOpen(false);
+        setMobileChatOpen(false);
       }
     });
     return unsub;
