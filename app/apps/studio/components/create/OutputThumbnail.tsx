@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { Film, ImageIcon } from 'lucide-react';
+import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { OutputHoverOverlay } from './OutputHoverOverlay';
 
 interface OutputThumbnailProps {
@@ -12,7 +13,12 @@ interface OutputThumbnailProps {
   title: string;
   type: 'image' | 'video';
   generationMode: string;
+  generation: StudioGeneration;
+  output: StudioGenerationOutput;
   onOpen: (outputId: string) => void;
+  onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 export function OutputThumbnail({
@@ -22,7 +28,12 @@ export function OutputThumbnail({
   title,
   type,
   generationMode,
+  generation,
+  output,
   onOpen,
+  onToggleFavorite,
+  onCreateVariation,
+  onCreateVideo,
 }: OutputThumbnailProps) {
   return (
     <div className="group relative aspect-square overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -49,7 +60,16 @@ export function OutputThumbnail({
       </div>
 
       <div className="relative z-[2]">
-        <OutputHoverOverlay mediaUrl={mediaUrl} type={type} />
+        <OutputHoverOverlay
+          mediaUrl={mediaUrl}
+          type={type}
+          isFavorite={output.isFavorite}
+          generation={generation}
+          output={output}
+          onToggleFavorite={onToggleFavorite}
+          onCreateVariation={onCreateVariation}
+          onCreateVideo={onCreateVideo}
+        />
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex items-center justify-between bg-gradient-to-t from-black/80 via-black/25 to-transparent px-3 pb-3 pt-10 text-white">

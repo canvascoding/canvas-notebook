@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect } from 'react';
-import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2 } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { OutputDetailChat } from './OutputDetailChat';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +17,9 @@ interface OutputDetailViewProps {
   open: boolean;
   onClose: () => void;
   onSelectOutput: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
+  onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioGeneration) {
@@ -27,7 +30,17 @@ function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioG
   return generation.aspectRatio;
 }
 
-export function OutputDetailView({ generation, output, generations, open, onClose, onSelectOutput }: OutputDetailViewProps) {
+export function OutputDetailView({
+  generation,
+  output,
+  generations,
+  open,
+  onClose,
+  onSelectOutput,
+  onToggleFavorite,
+  onCreateVariation,
+  onCreateVideo,
+}: OutputDetailViewProps) {
   useEffect(() => {
     if (!open) return;
 
@@ -124,9 +137,17 @@ export function OutputDetailView({ generation, output, generations, open, onClos
                     <Download className="h-4 w-4" />
                     Download
                   </Button>
-                  <Button variant="outline" className="gap-2 rounded-full" disabled>
+                  <Button variant="outline" className="gap-2 rounded-full" onClick={() => onToggleFavorite(generation, output)}>
+                    <Star className={`h-4 w-4 ${output.isFavorite ? 'fill-current text-amber-500' : ''}`} />
+                    Favorit
+                  </Button>
+                  <Button variant="outline" className="gap-2 rounded-full" onClick={() => onCreateVariation(generation, output)}>
                     <RefreshCcw className="h-4 w-4" />
                     Remix
+                  </Button>
+                  <Button variant="outline" className="gap-2 rounded-full" onClick={() => onCreateVideo(generation, output)} disabled={output.type !== 'image'}>
+                    <Film className="h-4 w-4" />
+                    Video
                   </Button>
                   <Button variant="outline" className="gap-2 rounded-full" disabled>
                     <Trash2 className="h-4 w-4" />

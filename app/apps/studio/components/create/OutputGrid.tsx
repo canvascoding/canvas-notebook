@@ -10,9 +10,19 @@ interface OutputGridProps {
   generations: StudioGeneration[];
   emptyState: ReactNode;
   onOutputOpen: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
+  onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
-export function OutputGrid({ generations, emptyState, onOutputOpen }: OutputGridProps) {
+export function OutputGrid({
+  generations,
+  emptyState,
+  onOutputOpen,
+  onToggleFavorite,
+  onCreateVariation,
+  onCreateVideo,
+}: OutputGridProps) {
   const getExpectedOutputCount = (generation: StudioGeneration) => {
     if (generation.mode === 'video') {
       return 1;
@@ -87,8 +97,13 @@ export function OutputGrid({ generations, emptyState, onOutputOpen }: OutputGrid
           filePath={output.filePath}
           type={output.type}
           generationMode={output.generationMode}
+          generation={output.generation}
+          output={output}
           title={output.type === 'video' ? 'Video output' : 'Image output'}
           onOpen={() => onOutputOpen({ generation: output.generation, output })}
+          onToggleFavorite={onToggleFavorite}
+          onCreateVariation={onCreateVariation}
+          onCreateVideo={onCreateVideo}
         />
       ))}
     </div>
