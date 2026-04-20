@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import Image from 'next/image';
+
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { ArrowLeft } from 'lucide-react';
@@ -28,19 +28,13 @@ export function ChatShell() {
                 <span className="hidden sm:inline">{tCommon('suite')}</span>
               </Link>
             </Button>
-            <Image src="/logo.jpg" alt={tCommon('logoAlt')} width={32} height={32} className="shrink-0 border border-border" />
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
           </div>
-          <div className="flex items-center gap-1.5 md:gap-4">
-            <NotebookNavButton />
-            <ThemeToggle />
-
-            <div className="hidden lg:flex flex-col items-end shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{t('userLabel')}</span>
-              <span className="text-xs text-foreground/90">{t('user')}</span>
+            <div className="flex items-center gap-1.5 md:gap-4">
+              <NotebookNavButton />
+              <ThemeToggle />
+              <LogoutButton />
             </div>
-            <LogoutButton />
-          </div>
         </div>
       </header>
 
