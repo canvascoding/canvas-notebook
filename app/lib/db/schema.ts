@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -185,3 +185,179 @@ export const automationRuns = sqliteTable("automation_runs", {
   metadataJson: text("metadata_json"), // JSON with provider, model, status, etc. (replaces run.json)
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+export const studioProducts = sqliteTable("studio_products", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  thumbnailPath: text("thumbnail_path"),
+  metadata: text("metadata"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userIdx: index("idx_studio_products_user").on(table.userId),
+  createdIdx: index("idx_studio_products_created").on(table.createdAt),
+}));
+
+export const studioProductImages = sqliteTable("studio_product_images", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull().references(() => studioProducts.id, { onDelete: 'cascade' }),
+  filePath: text("file_path").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size"),
+  sourceType: text("source_type").notNull(),
+  sourceUrl: text("source_url"),
+  sortOrder: integer("sort_order").notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  productIdx: index("idx_studio_product_images_product").on(table.productId),
+}));
+
+export const studioPersonas = sqliteTable("studio_personas", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  thumbnailPath: text("thumbnail_path"),
+  metadata: text("metadata"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userIdx: index("idx_studio_personas_user").on(table.userId),
+  createdIdx: index("idx_studio_personas_created").on(table.createdAt),
+}));
+
+export const studioPersonaImages = sqliteTable("studio_persona_images", {
+  id: text("id").primaryKey(),
+  personaId: text("persona_id").notNull().references(() => studioPersonas.id, { onDelete: 'cascade' }),
+  filePath: text("file_path").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size"),
+  sourceType: text("source_type").notNull(),
+  sourceUrl: text("source_url"),
+  sortOrder: integer("sort_order").notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  personaIdx: index("idx_studio_persona_images_persona").on(table.personaId),
+}));
+
+export const studioPresets = sqliteTable("studio_presets", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => user.id, { onDelete: 'cascade' }),
+  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category"),
+  blocks: text("blocks").notNull(),
+  previewImagePath: text("preview_image_path"),
+  tags: text("tags"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userIdx: index("idx_studio_presets_user").on(table.userId),
+  categoryIdx: index("idx_studio_presets_category").on(table.category),
+  createdIdx: index("idx_studio_presets_created").on(table.createdAt),
+}));
+
+export const studioGenerations = sqliteTable("studio_generations", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  mode: text("mode").notNull(),
+  prompt: text("prompt"),
+  rawPrompt: text("raw_prompt"),
+  studioPresetId: text("studio_preset_id").references(() => studioPresets.id, { onDelete: 'set null' }),
+  aspectRatio: text("aspect_ratio").notNull().default('1:1'),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  bulkJobId: text("bulk_job_id"),
+  piSessionId: text("pi_session_id"),
+  sourceGenerationId: text("source_generation_id"),
+  metadata: text("metadata"),
+  status: text("status").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userIdx: index("idx_studio_generations_user").on(table.userId),
+  statusIdx: index("idx_studio_generations_status").on(table.status),
+  createdIdx: index("idx_studio_generations_created").on(table.createdAt),
+}));
+
+export const studioGenerationOutputs = sqliteTable("studio_generation_outputs", {
+  id: text("id").primaryKey(),
+  generationId: text("generation_id").notNull().references(() => studioGenerations.id, { onDelete: 'cascade' }),
+  variationIndex: integer("variation_index").notNull(),
+  type: text("type").notNull(),
+  filePath: text("file_path").notNull(),
+  mediaUrl: text("media_url"),
+  fileSize: integer("file_size"),
+  mimeType: text("mime_type"),
+  width: integer("width"),
+  height: integer("height"),
+  isFavorite: integer("is_favorite", { mode: "boolean" }).notNull().default(false),
+  piSessionId: text("pi_session_id"),
+  metadata: text("metadata"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  generationIdx: index("idx_studio_gen_outputs_generation").on(table.generationId),
+  createdIdx: index("idx_studio_gen_outputs_created").on(table.createdAt),
+}));
+
+export const studioGenerationProducts = sqliteTable("studio_generation_products", {
+  generationId: text("generation_id").notNull().references(() => studioGenerations.id, { onDelete: 'cascade' }),
+  productId: text("product_id").notNull().references(() => studioProducts.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  pk: primaryKey(table.generationId, table.productId),
+  generationIdx: index("idx_gen_products_generation").on(table.generationId),
+  productIdx: index("idx_gen_products_product").on(table.productId),
+}));
+
+export const studioGenerationPersonas = sqliteTable("studio_generation_personas", {
+  generationId: text("generation_id").notNull().references(() => studioGenerations.id, { onDelete: 'cascade' }),
+  personaId: text("persona_id").notNull().references(() => studioPersonas.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  pk: primaryKey(table.generationId, table.personaId),
+  generationIdx: index("idx_gen_personas_generation").on(table.generationId),
+  personaIdx: index("idx_gen_personas_persona").on(table.personaId),
+}));
+
+export const studioBulkJobs = sqliteTable("studio_bulk_jobs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  name: text("name"),
+  studioPresetId: text("studio_preset_id").references(() => studioPresets.id, { onDelete: 'set null' }),
+  additionalPrompt: text("additional_prompt"),
+  aspectRatio: text("aspect_ratio").notNull().default('1:1'),
+  versionsPerProduct: integer("versions_per_product").notNull().default(1),
+  status: text("status").notNull(),
+  totalLineItems: integer("total_line_items").notNull(),
+  completedLineItems: integer("completed_line_items").notNull().default(0),
+  failedLineItems: integer("failed_line_items").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userIdx: index("idx_studio_bulk_jobs_user").on(table.userId),
+  statusIdx: index("idx_studio_bulk_jobs_status").on(table.status),
+  createdIdx: index("idx_studio_bulk_jobs_created").on(table.createdAt),
+}));
+
+export const studioBulkJobLineItems = sqliteTable("studio_bulk_job_line_items", {
+  id: text("id").primaryKey(),
+  bulkJobId: text("bulk_job_id").notNull().references(() => studioBulkJobs.id, { onDelete: 'cascade' }),
+  productId: text("product_id").references(() => studioProducts.id, { onDelete: 'set null' }),
+  personaId: text("persona_id").references(() => studioPersonas.id, { onDelete: 'set null' }),
+  studioPresetId: text("studio_preset_id").references(() => studioPresets.id, { onDelete: 'set null' }),
+  customPrompt: text("custom_prompt"),
+  generationId: text("generation_id").references(() => studioGenerations.id, { onDelete: 'set null' }),
+  status: text("status").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  bulkJobIdx: index("idx_studio_bulk_job_line_items_bulk_job").on(table.bulkJobId),
+  statusIdx: index("idx_studio_bulk_job_line_items_status").on(table.status),
+}));
