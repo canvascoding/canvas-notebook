@@ -37,7 +37,7 @@ export function rehypeMermaid() {
           node.tagName = 'div';
           node.properties = {
             className: ['mermaid-container'],
-            'dataMermaidCode': rawCode,
+            'data-mermaid-code': rawCode,
           };
           node.children = [];
         }

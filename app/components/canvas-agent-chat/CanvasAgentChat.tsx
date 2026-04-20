@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
+import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
 import type { Usage } from '@mariozechner/pi-ai';
 import { useTranslations } from 'next-intl';
 import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
@@ -673,6 +674,10 @@ function MarkdownMessage({
       const codeString = String(children).replace(/\n$/, '');
       if (lang === 'mermaid') {
         return <MermaidDiagram code={codeString} />;
+      }
+      // Inline code without language - check if it's a color code
+      if (!lang && isColorCode(codeString)) {
+        return <ColorSwatch color={codeString} />;
       }
       return (
         <code className={className} {...props}>
