@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { ChevronDown, MessageSquare, Terminal, Wrench } from 'lucide-react';
+import { ChevronDown, Terminal, Wrench } from 'lucide-react';
 import { Settings } from 'lucide-react';
 
 interface MoreToolsLink {
@@ -13,7 +13,6 @@ interface MoreToolsLink {
 }
 
 const MORE_TOOLS_LINKS: MoreToolsLink[] = [
-  { labelKey: 'chat', href: '/chat', icon: MessageSquare },
   { labelKey: 'terminal', href: '/terminal', icon: Terminal },
   { labelKey: 'skills', href: '/skills', icon: Wrench },
   { labelKey: 'settings', href: '/settings', icon: Settings },
