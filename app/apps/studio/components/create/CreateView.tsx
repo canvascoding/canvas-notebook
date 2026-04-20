@@ -1,12 +1,18 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
+import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
+import { useStudioProducts } from '../../hooks/useStudioProducts';
+import type { StudioGenerationMode } from '../../types/generation';
+import type { StudioPreset } from '../../types/presets';
 import { OutputGrid } from './OutputGrid';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { PromptBar } from './PromptBar';
+import { ControlBar } from './ControlBar';
+import { FrameUpload } from './FrameUpload';
 
 const STARTING_POINTS = [
   {
@@ -65,14 +71,60 @@ function EmptyState() {
 
 export function CreateView() {
   const generationHook = useStudioGeneration();
+  const productsHook = useStudioProducts();
+  const personasHook = useStudioPersonas();
   const presetsHook = useStudioPresets();
   const { fetchGenerations, generations } = generationHook;
+  const { fetchProducts, products } = productsHook;
+  const { fetchPersonas, personas } = personasHook;
   const { fetchPresets, presets } = presetsHook;
+  const [mode, setMode] = useState<StudioGenerationMode>('image');
+  const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [count, setCount] = useState(4);
+  const [rawPrompt, setRawPrompt] = useState('');
+  const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
+  const [personaRefs, setPersonaRefs] = useState<Array<{ id: string; name: string }>>([]);
+  const [presetRef, setPresetRef] = useState<StudioPreset | null>(null);
+  const [negativePrompt, setNegativePrompt] = useState('');
+  const [extraReferenceUrls, setExtraReferenceUrls] = useState<string[]>([]);
+  const [startFrame, setStartFrame] = useState<File | null>(null);
+  const [endFrame, setEndFrame] = useState<File | null>(null);
 
   useEffect(() => {
     void fetchGenerations();
+    void fetchProducts();
+    void fetchPersonas();
     void fetchPresets();
-  }, [fetchGenerations, fetchPresets]);
+  }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets]);
+
+  const canGenerate = useMemo(() => {
+    return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null;
+  }, [personaRefs.length, presetRef, productRefs.length, rawPrompt]);
+
+  const handleGenerate = async () => {
+    const prompt = negativePrompt.trim()
+      ? `${rawPrompt.trim()}\n\nAvoid: ${negativePrompt.trim()}`
+      : rawPrompt.trim();
+
+    const result = await generationHook.generate({
+      prompt,
+      mode,
+      product_ids: productRefs.map((product) => product.id),
+      persona_ids: personaRefs.map((persona) => persona.id),
+      preset_id: presetRef?.id,
+      aspect_ratio: aspectRatio,
+      count: mode === 'video' ? 1 : count,
+      provider: 'gemini',
+    });
+
+    if (result) {
+      setRawPrompt('');
+      setNegativePrompt('');
+      setExtraReferenceUrls([]);
+      setStartFrame(null);
+      setEndFrame(null);
+    }
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -86,28 +138,94 @@ export function CreateView() {
 
       <div className="sticky bottom-0 border-t border-border/80 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85 md:px-6">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
-          <div className="rounded-[28px] border border-border/70 bg-card/90 p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5" />
-              Prompt Bar
-            </div>
-            <div className="min-h-24 rounded-3xl border border-dashed border-border/70 bg-background/70 px-4 py-4 text-sm leading-6 text-muted-foreground">
-              Prompt input, @-references, and inline chips will live here in the next step.
-            </div>
-          </div>
+          {mode === 'video' ? (
+            <FrameUpload
+              startFrame={startFrame}
+              endFrame={endFrame}
+              onStartFrameChange={setStartFrame}
+              onEndFrameChange={setEndFrame}
+            />
+          ) : null}
 
-          <div className="flex flex-wrap items-center gap-2 rounded-[24px] border border-border/70 bg-card/90 px-4 py-3 shadow-sm">
-            <Badge variant="secondary" className="rounded-full px-3 py-1">Image</Badge>
-            <Badge variant="outline" className="rounded-full px-3 py-1">Preset ready: {presets.length}</Badge>
+          <PromptBar
+            value={{
+              rawPrompt,
+              productRefs,
+              personaRefs,
+              presetRef,
+              negativePrompt,
+              extraReferenceUrls,
+            }}
+            products={products}
+            personas={personas}
+            presets={presets}
+            onRawPromptChange={setRawPrompt}
+            onProductAdd={(product) => {
+              setProductRefs((current) =>
+                current.some((item) => item.id === product.id)
+                  ? current
+                  : [...current, { id: product.id, name: product.name }],
+              );
+            }}
+            onPersonaAdd={(persona) => {
+              setPersonaRefs((current) =>
+                current.some((item) => item.id === persona.id)
+                  ? current
+                  : [...current, { id: persona.id, name: persona.name }],
+              );
+            }}
+            onPresetSelect={setPresetRef}
+            onReferenceRemove={(type, id) => {
+              if (type === 'product') {
+                setProductRefs((current) => current.filter((item) => item.id !== id));
+                return;
+              }
+              if (type === 'persona') {
+                setPersonaRefs((current) => current.filter((item) => item.id !== id));
+                return;
+              }
+              setPresetRef((current) => (current?.id === id ? null : current));
+            }}
+            onNegativePromptChange={setNegativePrompt}
+            onExtraReferenceUrlAdd={(url) => {
+              setExtraReferenceUrls((current) => (current.includes(url) ? current : [...current, url]));
+            }}
+            onExtraReferenceUrlRemove={(url) => {
+              setExtraReferenceUrls((current) => current.filter((item) => item !== url));
+            }}
+          />
+
+          <ControlBar
+            mode={mode}
+            onModeChange={(nextMode) => {
+              setMode(nextMode);
+              setCount(nextMode === 'video' ? 1 : 4);
+            }}
+            presets={presets}
+            selectedPreset={presetRef}
+            onPresetChange={setPresetRef}
+            aspectRatio={aspectRatio}
+            onAspectRatioChange={setAspectRatio}
+            count={count}
+            onCountChange={setCount}
+            onGenerate={handleGenerate}
+            isGenerating={generationHook.loading}
+            canGenerate={canGenerate}
+          />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="rounded-full px-3 py-1">
+              {mode === 'video' ? 'Video mode' : 'Image mode'}
+            </Badge>
+            <Badge variant="outline" className="rounded-full px-3 py-1">Presets: {presets.length}</Badge>
+            <Badge variant="outline" className="rounded-full px-3 py-1">Products: {products.length}</Badge>
+            <Badge variant="outline" className="rounded-full px-3 py-1">Personas: {personas.length}</Badge>
             <Badge variant="outline" className="rounded-full px-3 py-1">Recent generations: {generations.length}</Badge>
-            <div className="ml-auto flex gap-2">
-              <Button type="button" variant="outline" size="sm" disabled>
-                More Options
-              </Button>
-              <Button type="button" size="sm" disabled>
-                Generate
-              </Button>
-            </div>
+            {generationHook.error ? (
+              <Badge variant="outline" className="rounded-full border-red-500/40 text-red-700 dark:text-red-300">
+                {generationHook.error}
+              </Badge>
+            ) : null}
           </div>
         </div>
       </div>

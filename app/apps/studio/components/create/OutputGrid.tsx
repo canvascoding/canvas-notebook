@@ -12,6 +12,29 @@ interface OutputGridProps {
 }
 
 export function OutputGrid({ generations, emptyState }: OutputGridProps) {
+  const getExpectedOutputCount = (generation: StudioGeneration) => {
+    if (generation.mode === 'video') {
+      return 1;
+    }
+
+    try {
+      const parsed = generation.metadata ? JSON.parse(generation.metadata) : null;
+      const count = typeof parsed?.expectedCount === 'number' ? parsed.expectedCount : 1;
+      return Math.max(1, Math.min(count, 4));
+    } catch {
+      return 1;
+    }
+  };
+
+  const getGenerationError = (generation: StudioGeneration) => {
+    try {
+      const parsed = generation.metadata ? JSON.parse(generation.metadata) : null;
+      return typeof parsed?.error === 'string' ? parsed.error : generation.metadata || null;
+    } catch {
+      return generation.metadata || null;
+    }
+  };
+
   const pendingGenerations = generations.filter(
     (generation) =>
       (generation.status === 'pending' || generation.status === 'generating') &&
@@ -40,15 +63,17 @@ export function OutputGrid({ generations, emptyState }: OutputGridProps) {
 
   return (
     <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-      {pendingGenerations.map((generation) => (
-        <OutputProcessingSkeleton key={generation.id} mode={generation.mode} />
-      ))}
+      {pendingGenerations.flatMap((generation) =>
+        Array.from({ length: getExpectedOutputCount(generation) }, (_, index) => (
+          <OutputProcessingSkeleton key={`${generation.id}-${index}`} mode={generation.mode} />
+        )),
+      )}
 
       {failedGenerations.map((generation) => (
         <OutputErrorCard
           key={generation.id}
           mode={generation.mode}
-          message={generation.metadata || null}
+          message={getGenerationError(generation)}
         />
       ))}
 
