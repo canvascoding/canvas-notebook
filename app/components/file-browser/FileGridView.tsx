@@ -10,7 +10,6 @@ import {
   SidebarGroupContent,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { SidebarProvider } from '@/components/ui/sidebar';
 import {
   useFileStore,
   type FileNode as FileNodeType,
@@ -361,17 +360,11 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
 
     if (variant === 'fullscreen') {
       return (
-        <SidebarProvider className="min-h-0">
-          <div className="h-full w-full max-w-5xl mx-auto">{listContent}</div>
-        </SidebarProvider>
+        <div className="h-full w-full max-w-5xl mx-auto">{listContent}</div>
       );
     }
 
-    return (
-      <SidebarProvider className="min-h-0">
-        {listContent}
-      </SidebarProvider>
-    );
+    return listContent;
   }
 
   // tree view
@@ -399,15 +392,9 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
 
   if (variant === 'fullscreen') {
     return (
-      <SidebarProvider className="min-h-0">
-        <div className="h-full w-full max-w-5xl mx-auto">{treeContent}</div>
-      </SidebarProvider>
+      <div className="h-full w-full max-w-5xl mx-auto">{treeContent}</div>
     );
   }
 
-  return (
-    <SidebarProvider className="min-h-0">
-      {treeContent}
-    </SidebarProvider>
-  );
+  return treeContent;
 }
