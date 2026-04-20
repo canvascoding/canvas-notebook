@@ -307,7 +307,7 @@ function EnvEditorCard(props: {
   );
 }
 
-export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: boolean }) {
+export function IntegrationsSettingsClient({ isAdmin = false, userName = '', userEmail = '' }: { isAdmin?: boolean; userName?: string; userEmail?: string }) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
@@ -577,7 +577,7 @@ export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: bool
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
-          <GeneralSettingsPanel />
+          <GeneralSettingsPanel userName={userName} userEmail={userEmail} />
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-4" id="onboarding-settings-integrations">

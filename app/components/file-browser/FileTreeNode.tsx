@@ -24,9 +24,10 @@ interface FileTreeNodeProps {
   depth?: number;
   browserMode?: BrowserMode;
   onNavigateInto?: (node: FileNodeType) => void;
+  onOpenFile?: (path: string) => void;
 }
 
-export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigateInto }: FileTreeNodeProps) {
+export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile }: FileTreeNodeProps) {
   const isMobile = useIsMobile();
   const {
     expandedDirs,
@@ -66,10 +67,11 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
       selectNode(node, ctrlOrMeta, shiftKey);
       if (node.type === 'file') {
         loadFile(node.path, true);
+        onOpenFile?.(node.path);
         mobileFileOpened();
       }
     },
-    [node, selectNode, loadFile, mobileFileOpened]
+    [node, selectNode, loadFile, onOpenFile, mobileFileOpened]
   );
 
   const handleCheckboxClick = (event: React.MouseEvent) => {
@@ -255,7 +257,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
                 </div>
               ) : (
                 childNodes.map((child) => (
-                  <FileTreeNode key={child.path} node={child} depth={depth + 1} browserMode={browserMode} onNavigateInto={onNavigateInto} />
+                  <FileTreeNode key={child.path} node={child} depth={depth + 1} browserMode={browserMode} onNavigateInto={onNavigateInto} onOpenFile={onOpenFile} />
                 ))
               )}
             </SidebarMenuSub>

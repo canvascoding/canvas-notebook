@@ -48,11 +48,9 @@ function IntegrationNotice({
 }
 
 export default async function ImageGenerationPage() {
-  const session = await requirePageSession();
+  await requirePageSession();
   const t = await getTranslations('imageGeneration');
-  const tCommon = await getTranslations('common');
 
-  const username = session?.user?.name || session?.user?.email || tCommon('user');
   const [geminiApiKey, openaiApiKey] = await Promise.all([
     getGeminiApiKeyFromIntegrations(),
     getOpenAIApiKeyFromIntegrations(),
@@ -67,7 +65,7 @@ export default async function ImageGenerationPage() {
   if (hasOpenAI) availableProviders.push('openai');
 
   return (
-    <SuitePageLayout title={t('title')} username={username} hintPage="imageGen">
+    <SuitePageLayout title={t('title')} hintPage="imageGen">
       {!hasAnyProvider ? (
         <IntegrationNotice
           title={t('notices.noProvider.title')}

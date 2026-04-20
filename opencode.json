@@ -5,6 +5,10 @@
       "type": "remote",
       "url": "https://mcp.sentry.dev/mcp/canvas-holdings/canvas-notebook",
       "oauth": {}
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest"]
     }
   }
 }

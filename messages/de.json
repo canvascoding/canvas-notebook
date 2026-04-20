@@ -636,7 +636,18 @@
     "general": {
       "language": "Sprache",
       "languageDescription": "Wähle die Sprache der Benutzeroberfläche. Die Änderung wird sofort angewendet.",
-      "languageActive": "Aktiv"
+      "languageActive": "Aktiv",
+      "loginInfoTitle": "Login-Informationen",
+      "loginInfoDescription": "Deine aktuellen Zugangsdaten und wie du sie ändern kannst.",
+      "loginInfoEmail": "E-Mail",
+      "loginInfoName": "Name",
+      "loginInfoSelfHostedNote": "In der Self-Hosted-Variante können die Zugangsdaten nur über Umgebungsvariablen geändert werden, bevor der Container gestartet wird. Nach dem Ändern der Werte muss der Container neu gestartet werden.",
+      "loginInfoEnvKeys": "Umgebungsvariablen",
+      "loginInfo": {
+        "emailKey": "Login-E-Mail",
+        "passwordKey": "Login-Passwort",
+        "nameKey": "Anzeigename (optional, Standard: Administrator)"
+      }
     },
     "scopes": {
       "integrations": {

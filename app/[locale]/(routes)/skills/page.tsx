@@ -20,10 +20,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function SkillsPage() {
   const session = await requirePageSession();
   const t = await getTranslations('skills');
-
-  const username = session?.user?.name || session?.user?.email || 'User';
   
-  // Load enabled skills from config to set correct initial state
   const piConfig = await readPiRuntimeConfig();
   const enabledSkills = piConfig.enabledSkills || [];
   
@@ -39,7 +36,7 @@ export default async function SkillsPage() {
   };
 
   return (
-    <SuitePageLayout title={t('title')} username={username} showLogo>
+    <SuitePageLayout title={t('title')} showLogo>
       <SkillsPageClient
         skills={skills}
         stats={stats}

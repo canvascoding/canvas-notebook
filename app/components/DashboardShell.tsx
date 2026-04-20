@@ -46,9 +46,7 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { useFileStore } from '@/app/store/file-store';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 
-interface DashboardShellProps {
-  username: string;
-}
+
 
 type MobileSurface = 'editor' | 'terminal';
 type DesktopChatMode = 'side' | 'fullscreen';
@@ -110,7 +108,7 @@ function MobileNotebookEmptyState({
   );
 }
 
-export function DashboardShell({ username }: DashboardShellProps) {
+export function DashboardShell() {
   const tNotebook = useTranslations('notebook');
   const tCommon = useTranslations('common');
   const tChat = useTranslations('chat');
@@ -534,10 +532,7 @@ export function DashboardShell({ username }: DashboardShellProps) {
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                <div className="hidden lg:flex flex-col items-end shrink-0">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{tCommon('user')}</span>
-                    <span className="text-xs text-foreground/90">{username}</span>
-                </div>
+
               </>
             ) : null}
             <LogoutButton />

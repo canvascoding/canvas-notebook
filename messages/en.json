@@ -636,7 +636,18 @@
     "general": {
       "language": "Language",
       "languageDescription": "Choose the interface language. Changes are applied immediately.",
-      "languageActive": "Active"
+      "languageActive": "Active",
+      "loginInfoTitle": "Login Information",
+      "loginInfoDescription": "Your current login credentials and how to change them.",
+      "loginInfoEmail": "Email",
+      "loginInfoName": "Name",
+      "loginInfoSelfHostedNote": "In the self-hosted version, login credentials can only be changed via environment variables before starting the container. Restart the container after changing the values.",
+      "loginInfoEnvKeys": "Environment variables",
+      "loginInfo": {
+        "emailKey": "Login email",
+        "passwordKey": "Login password",
+        "nameKey": "Display name (optional, default: Administrator)"
+      }
     },
     "scopes": {
       "integrations": {
