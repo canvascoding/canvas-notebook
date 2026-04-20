@@ -631,7 +631,8 @@
       "integrations": "Integrations",
       "agentSettings": "Agent Settings",
       "workspace": "Workspace",
-      "usage": "Usage"
+      "usage": "Usage",
+      "skills": "Skills"
     },
     "general": {
       "language": "Language",

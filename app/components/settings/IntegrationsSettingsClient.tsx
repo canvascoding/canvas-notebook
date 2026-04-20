@@ -7,6 +7,7 @@ import { Eye, EyeOff, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
+import { SkillsPanel } from '@/app/components/settings/SkillsPanel';
 import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSettingsPanel';
 import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
 import { Button } from '@/components/ui/button';
@@ -311,7 +312,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
-  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage' | 'skills'>('general');
   const { activeTabOverride } = useHintContext();
 
   const effectiveTab = (activeTabOverride as typeof settingsTab) || settingsTab;
@@ -385,6 +386,8 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
       setSettingsTab('integrations');
     } else if (tab === 'usage') {
       setSettingsTab('usage');
+    } else if (tab === 'skills') {
+      setSettingsTab('skills');
     }
   }, [searchParams]);
 
@@ -558,7 +561,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         onValueChange={handleTabChange}
         className="space-y-4"
       >
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-6">
           <TabsTrigger value="general" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.general')}
           </TabsTrigger>
@@ -573,6 +576,9 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
           </TabsTrigger>
           <TabsTrigger value="usage" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.usage')}
+          </TabsTrigger>
+          <TabsTrigger value="skills" className="min-h-9 border border-border data-[state=active]:bg-muted">
+            {t('tabs.skills')}
           </TabsTrigger>
         </TabsList>
 
@@ -609,6 +615,10 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
 
         <TabsContent value="usage" className="space-y-4" id="onboarding-settings-usage">
           <UsageAnalyticsClient isAdmin={isAdmin} />
+        </TabsContent>
+
+        <TabsContent value="skills" className="space-y-4">
+          <SkillsPanel />
         </TabsContent>
       </Tabs>
     </div>
