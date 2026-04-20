@@ -670,15 +670,20 @@ function MarkdownMessage({
       );
     },
     code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
-      const lang = className?.replace('language-', '').replace('hljs', '').trim();
       const codeString = String(children).replace(/\n$/, '');
+      
+      // First check if it's a color code (before language detection)
+      // This handles both inline code and code blocks that might have hljs classes
+      const cleanedCode = codeString.replace(/\n$/, '').trim();
+      if (isColorCode(cleanedCode)) {
+        return <ColorSwatch color={cleanedCode} />;
+      }
+      
+      const lang = className?.replace('language-', '').replace('hljs', '').trim();
       if (lang === 'mermaid') {
         return <MermaidDiagram code={codeString} />;
       }
-      // Inline code without language - check if it's a color code
-      if (!lang && isColorCode(codeString)) {
-        return <ColorSwatch color={codeString} />;
-      }
+      
       return (
         <code className={className} {...props}>
           {children}
