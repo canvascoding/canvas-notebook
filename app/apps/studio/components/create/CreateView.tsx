@@ -266,7 +266,12 @@ export function CreateView() {
       <OutputDetailView
         generation={selectedGeneration}
         output={selectedOutput}
+        generations={generations}
         open={selectedGeneration !== null && selectedOutput !== null}
+        onSelectOutput={({ generation, output }) => {
+          setSelectedGeneration(generation);
+          setSelectedOutput(output);
+        }}
         onClose={() => {
           setSelectedGeneration(null);
           setSelectedOutput(null);

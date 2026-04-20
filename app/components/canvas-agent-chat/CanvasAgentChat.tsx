@@ -72,6 +72,7 @@ import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialo
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
 
 interface Attachment {
   name: string;
@@ -184,6 +185,9 @@ interface CanvasAgentChatProps {
   hideNavHeader?: boolean;
   chatContainerWidth?: number;
   isSurfaceVisible?: boolean;
+  forcedSessionId?: string | null;
+  requestContext?: ChatRequestContext;
+  onMediaClick?: (mediaUrl: string) => void;
 }
 
 const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ className?: string }>> = {
@@ -617,7 +621,15 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
   );
 }
 
-function MarkdownMessage({ content, variant }: { content: string; variant: 'user' | 'assistant' | 'tool' }) {
+function MarkdownMessage({
+  content,
+  variant,
+  onMediaClick,
+}: {
+  content: string;
+  variant: 'user' | 'assistant' | 'tool';
+  onMediaClick?: (mediaUrl: string) => void;
+}) {
   const sharedClasses =
     'break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
   const toneClasses =
@@ -639,6 +651,21 @@ function MarkdownMessage({ content, variant }: { content: string; variant: 'user
         >
           {children}
         </a>
+      );
+    },
+    img: ({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+      if (typeof src !== 'string' || !src) return null;
+      const clickable = Boolean(onMediaClick);
+      return (
+        <button
+          type="button"
+          className={`my-3 block overflow-hidden rounded-2xl border border-border/70 bg-background/70 ${clickable ? 'cursor-pointer transition hover:border-primary/40' : 'cursor-default'}`}
+          onClick={() => { if (onMediaClick) onMediaClick(src); }}
+          disabled={!clickable}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={alt || ''} className="max-h-[320px] w-auto max-w-full object-contain" />
+        </button>
       );
     },
     code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
@@ -740,6 +767,9 @@ export default function CanvasAgentChat({
   hideNavHeader = false,
   chatContainerWidth,
   isSurfaceVisible = true,
+  forcedSessionId,
+  requestContext,
+  onMediaClick,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
@@ -748,6 +778,7 @@ export default function CanvasAgentChat({
   const requestedSessionId = searchParams.get('session');
   const pathname = useLocalePathname();
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
+  const resolvedRequestedSessionId = forcedSessionId ?? requestedSessionId;
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
   const { planningMode, togglePlanningMode } = usePlanModeStore();
@@ -891,6 +922,15 @@ export default function CanvasAgentChat({
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
   }, [runtimeStatus]);
+
+  const buildRequestContext = useCallback((activeFilePath: string | null): ChatRequestContext => ({
+    activeFilePath,
+    userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    currentTime: new Date().toISOString(),
+    planningMode,
+    currentPage: typeof window !== 'undefined' ? window.location.pathname : undefined,
+    ...requestContext,
+  }), [planningMode, requestContext]);
 
   const resolveSessionTitle = useCallback((targetSessionId: string, title: string | null | undefined) => {
     const optimisticTitle = optimisticSessionTitlesRef.current[targetSessionId];
@@ -1674,10 +1714,6 @@ export default function CanvasAgentChat({
     currentAssistantIdRef.current = null;
 
     try {
-      // Get user's timezone and current time from browser
-      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const currentTime = new Date().toISOString();
-
       const activeFilePath = currentFile?.path ?? null;
 
       const response = await fetch('/api/stream', {
@@ -1686,11 +1722,7 @@ export default function CanvasAgentChat({
         body: JSON.stringify({
           sessionId: targetSessionId,
           ...(promptMessage ? { message: promptMessage, messages: [promptMessage] } : {}),
-          context: {
-            userTimeZone,
-            currentTime,
-            ...(activeFilePath ? { activeFilePath } : {}),
-          },
+          context: buildRequestContext(activeFilePath),
         }),
         signal: controller.signal,
       });
@@ -1736,7 +1768,7 @@ export default function CanvasAgentChat({
         void refreshRuntimeStatus(targetSessionId);
       }
     }
-  }, [appendSystemMessage, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection, t]);
+  }, [appendSystemMessage, buildRequestContext, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection, t]);
 
   // Listen for WebSocket agent events (from other tabs / background runs).
   // Skip events for sessions where this tab already owns an SSE stream —
@@ -1847,21 +1879,13 @@ export default function CanvasAgentChat({
     // Use WebSocket to send message
     appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
     
-    // Get user's timezone and current time from browser
-    const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const currentTime = new Date().toISOString();
     const activeFilePath = currentFile?.path ?? null;
     
     // Send message with full context
-    sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>, {
-      activeFilePath,
-      userTimeZone,
-      currentTime,
-      planningMode,
-    });
+    sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>, buildRequestContext(activeFilePath));
 
     return;
-  }, [appendOptimisticUserMessage, attachments, currentFile, ensureSession, input, sendMessage, showHistory, isMobile, setOptimisticRuntimePhase, shouldShowHistoryAsOverlay, scanForImageReferences, planningMode]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, currentFile, ensureSession, input, sendMessage, showHistory, isMobile, setOptimisticRuntimePhase, shouldShowHistoryAsOverlay, scanForImageReferences]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -2577,10 +2601,10 @@ export default function CanvasAgentChat({
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;
-    if (requestedSessionId) return;
+    if (resolvedRequestedSessionId) return;
     if (userStartedNewChatRef.current) return;
     void fetchHistory();
-  }, [fetchHistory, initialPrompt, requestedSessionId]);
+  }, [fetchHistory, initialPrompt, resolvedRequestedSessionId]);
 
   // Fetch history when showing history panel and it's empty (mobile bug fix)
   useEffect(() => {
@@ -2595,18 +2619,20 @@ export default function CanvasAgentChat({
       return;
     }
     if (userStartedNewChatRef.current) return;
-    if (!requestedSessionId) return;
+    if (!resolvedRequestedSessionId) return;
 
     const loadRequestedSession = async () => {
       try {
         const res = await fetch('/api/sessions');
         const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
         if (data?.success && data.sessions && data.sessions.length > 0) {
-          const targetSession = data.sessions.find((session: AISession) => session.sessionId === requestedSessionId);
+          const targetSession = data.sessions.find((session: AISession) => session.sessionId === resolvedRequestedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
-            requestedSessionCleanupRef.current = requestedSessionId;
-            clearSessionParamFromUrl();
+            if (!forcedSessionId) {
+              requestedSessionCleanupRef.current = resolvedRequestedSessionId;
+              clearSessionParamFromUrl();
+            }
           }
         }
       } catch (err) {
@@ -2615,7 +2641,7 @@ export default function CanvasAgentChat({
     };
 
     void loadRequestedSession();
-  }, [clearSessionParamFromUrl, initialPrompt, initialPromptStorageKey, loadSession, requestedSessionId]);
+  }, [clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, resolvedRequestedSessionId]);
 
   // Restore previously active session on remount (mobile Sheet unmount/remount)
   useEffect(() => {
@@ -2623,7 +2649,7 @@ export default function CanvasAgentChat({
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
       return;
     }
-    if (requestedSessionId) return;
+    if (resolvedRequestedSessionId) return;
     if (userStartedNewChatRef.current) return;
     if (sessionId) return;
 
@@ -2654,10 +2680,10 @@ export default function CanvasAgentChat({
   }, []);
 
   useEffect(() => {
-    if (requestedSessionCleanupRef.current && !requestedSessionId) {
+    if (requestedSessionCleanupRef.current && !resolvedRequestedSessionId) {
       requestedSessionCleanupRef.current = null;
     }
-  }, [requestedSessionId]);
+  }, [resolvedRequestedSessionId]);
 
   // Poll runtime status only while the agent is active; fetch once on session switch
   const isAgentActive = runtimeStatus != null && runtimeStatus.phase !== 'idle';
@@ -3550,7 +3576,7 @@ export default function CanvasAgentChat({
                               <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">{message.toolArgs}</pre>
                             </div>
                           ) : null}
-                          <MarkdownMessage content={bodyContent} variant="tool" />
+                          <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />
                         </div>
                       ) : null}
                     </div>
@@ -3564,12 +3590,12 @@ export default function CanvasAgentChat({
                       </div>
 
                       {isUser ? (
-                        <MarkdownMessage content={bodyContent} variant="user" />
+                        <MarkdownMessage content={bodyContent} variant="user" onMediaClick={onMediaClick} />
                       ) : isAssistant ? (
                         isStreamingAssistant ? (
                           <StreamingMessageIndicator />
                         ) : (
-                          <MarkdownMessage content={bodyContent} variant="assistant" />
+                          <MarkdownMessage content={bodyContent} variant="assistant" onMediaClick={onMediaClick} />
                         )
                       ) : (
                         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>

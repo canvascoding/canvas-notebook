@@ -15,6 +15,7 @@ export interface StudioGenerationOutput {
   width: number | null;
   height: number | null;
   isFavorite: boolean;
+  piSessionId?: string | null;
   createdAt: string;
   metadata?: string | null;
 }
