@@ -120,7 +120,7 @@ test.describe('Ollama Provider Integration', () => {
     await modelSelect.selectOption('llama3.1');
     
     // Set thinking level
-    const thinkingSelect = page.locator('select').filter({ hasText: /none|low|medium|high/i }).first();
+    const thinkingSelect = page.locator('select').filter({ hasText: /off|minimal|low|medium|high/i }).first();
     if (await thinkingSelect.isVisible()) {
       await thinkingSelect.selectOption('medium');
     }

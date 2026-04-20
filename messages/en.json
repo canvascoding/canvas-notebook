@@ -578,6 +578,10 @@
       "files": {
         "title": "Files",
         "description": "Browse, preview, and manage all your workspace files."
+      },
+      "settings": {
+        "title": "Settings",
+        "description": "Manage workspace settings and configuration."
       }
     },
     "footer": {
@@ -818,10 +822,12 @@
       "openTerminal": "Open terminal",
       "thinkingLevel": "Thinking level",
       "thinkingLevels": {
-        "none": "None (default)",
+        "off": "Off (default)",
+        "minimal": "Minimal",
         "low": "Low",
         "medium": "Medium",
-        "high": "High / Reasoning"
+        "high": "High / Reasoning",
+        "xhigh": "Extra High"
       },
       "providerStatus": "Provider status",
       "checking": "Checking...",

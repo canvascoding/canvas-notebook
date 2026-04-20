@@ -346,7 +346,7 @@ export function PiProviderSetupCard({
         next.providers[providerId] = {
           id: providerId,
           model: '',
-          thinking: 'none',
+          thinking: 'off',
           enabledTools: [],
         };
       }
@@ -369,7 +369,7 @@ export function PiProviderSetupCard({
         next.providers[providerId] = {
           id: providerId,
           model: '',
-          thinking: 'none',
+          thinking: 'off',
           enabledTools: [],
         };
       }
@@ -663,14 +663,16 @@ export function PiProviderSetupCard({
             <span className="font-semibold">{t('provider.thinkingLevel')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              value={activeProviderConfig?.thinking || 'none'}
+              value={activeProviderConfig?.thinking || 'off'}
               onChange={(event) => setPiProviderField(piConfigDraft.activeProvider, 'thinking', event.target.value as PiThinkingLevel)}
               disabled={configSaving}
             >
-              <option value="none">{t('provider.thinkingLevels.none')}</option>
+              <option value="off">{t('provider.thinkingLevels.off')}</option>
+              <option value="minimal">{t('provider.thinkingLevels.minimal')}</option>
               <option value="low">{t('provider.thinkingLevels.low')}</option>
               <option value="medium">{t('provider.thinkingLevels.medium')}</option>
               <option value="high">{t('provider.thinkingLevels.high')}</option>
+              <option value="xhigh">{t('provider.thinkingLevels.xhigh')}</option>
             </select>
           </label>
 

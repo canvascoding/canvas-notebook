@@ -176,7 +176,13 @@ export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
   }
 
   try {
-    return JSON.parse(rawContent) as PiRuntimeConfig;
+    const config = JSON.parse(rawContent) as PiRuntimeConfig;
+    for (const provider of Object.values(config.providers)) {
+      if ((provider.thinking as string) === 'none') {
+        provider.thinking = 'off';
+      }
+    }
+    return config;
   } catch {
     return DEFAULT_PI_CONFIG;
   }

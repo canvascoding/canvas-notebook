@@ -578,6 +578,10 @@
       "files": {
         "title": "Dateien",
         "description": "Alle Workspace-Dateien durchsuchen, voranschaun und verwalten."
+      },
+      "settings": {
+        "title": "Einstellungen",
+        "description": "Workspace-Einstellungen und Konfiguration verwalten."
       }
     },
     "footer": {
@@ -818,10 +822,12 @@
       "openTerminal": "Terminal öffnen",
       "thinkingLevel": "Denkstufe",
       "thinkingLevels": {
-        "none": "Keine (Standard)",
+        "off": "Aus (Standard)",
+        "minimal": "Minimal",
         "low": "Niedrig",
         "medium": "Mittel",
-        "high": "Hoch / Reasoning"
+        "high": "Hoch / Reasoning",
+        "xhigh": "Sehr hoch"
       },
       "providerStatus": "Provider-Status",
       "checking": "Prüfe...",
