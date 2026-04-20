@@ -6,8 +6,9 @@ import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
-import type { StudioGenerationMode } from '../../types/generation';
+import type { StudioGeneration, StudioGenerationMode, StudioGenerationOutput } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
+import { OutputDetailView } from './OutputDetailView';
 import { OutputGrid } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
 import { PromptBar } from './PromptBar';
@@ -89,6 +90,8 @@ export function CreateView() {
   const [extraReferenceUrls, setExtraReferenceUrls] = useState<string[]>([]);
   const [startFrame, setStartFrame] = useState<File | null>(null);
   const [endFrame, setEndFrame] = useState<File | null>(null);
+  const [selectedGeneration, setSelectedGeneration] = useState<StudioGeneration | null>(null);
+  const [selectedOutput, setSelectedOutput] = useState<StudioGenerationOutput | null>(null);
 
   useEffect(() => {
     void fetchGenerations();
@@ -100,6 +103,29 @@ export function CreateView() {
   const canGenerate = useMemo(() => {
     return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null;
   }, [personaRefs.length, presetRef, productRefs.length, rawPrompt]);
+
+  useEffect(() => {
+    if (!selectedGeneration || !selectedOutput) {
+      return;
+    }
+
+    const nextGeneration = generations.find((generation) => generation.id === selectedGeneration.id);
+    const nextOutput = nextGeneration?.outputs.find((output) => output.id === selectedOutput.id) ?? null;
+
+    if (!nextGeneration || !nextOutput) {
+      setSelectedGeneration(null);
+      setSelectedOutput(null);
+      return;
+    }
+
+    if (nextGeneration !== selectedGeneration) {
+      setSelectedGeneration(nextGeneration);
+    }
+
+    if (nextOutput !== selectedOutput) {
+      setSelectedOutput(nextOutput);
+    }
+  }, [generations, selectedGeneration, selectedOutput]);
 
   const handleGenerate = async () => {
     const prompt = negativePrompt.trim()
@@ -131,7 +157,14 @@ export function CreateView() {
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.12),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.12),_transparent_32%)]">
-            <OutputGrid generations={generations} emptyState={<EmptyState />} />
+            <OutputGrid
+              generations={generations}
+              emptyState={<EmptyState />}
+              onOutputOpen={({ generation, output }) => {
+                setSelectedGeneration(generation);
+                setSelectedOutput(output);
+              }}
+            />
           </div>
         </div>
       </div>
@@ -229,6 +262,16 @@ export function CreateView() {
           </div>
         </div>
       </div>
+
+      <OutputDetailView
+        generation={selectedGeneration}
+        output={selectedOutput}
+        open={selectedGeneration !== null && selectedOutput !== null}
+        onClose={() => {
+          setSelectedGeneration(null);
+          setSelectedOutput(null);
+        }}
+      />
     </div>
   );
 }
