@@ -12,6 +12,7 @@ import {
   generatePresetPreviewPath,
   writeAssetFile,
 } from '@/app/lib/integrations/studio-workspace';
+import { ensureDefaultStudioPresetsSeeded } from '@/app/lib/integrations/studio-preset-defaults';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 
 const PRESET_CATEGORIES = [
@@ -434,6 +435,7 @@ export async function getPreset(presetId: string): Promise<StudioPresetRecord | 
 }
 
 export async function listPresets(userId: string, category?: string): Promise<StudioPresetRecord[]> {
+  await ensureDefaultStudioPresetsSeeded();
   const categoryFilter = validateCategory(category);
   const visibilityCondition = or(
     eq(studioPresets.userId, userId),
