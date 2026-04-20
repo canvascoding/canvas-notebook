@@ -1,12 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
+
 import { Geist, Geist_Mono } from "next/font/google";
 import "@uiw/react-md-editor/markdown-editor.css";
 import "@uiw/react-markdown-preview/markdown.css";
 import "@xterm/xterm/css/xterm.css";
 import "../globals.css";
 import { Toaster } from "@/components/ui/sonner";
-import { AppThemeProvider, themeScript } from "@/app/components/ThemeProvider";
+import { AppThemeProvider } from "@/app/components/ThemeProvider";
 import { WebSocketProvider } from '@/app/components/websocket-provider';
 import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
@@ -87,10 +87,12 @@ export default async function LocaleLayout({
 
   return (
     <html lang={locale} suppressHydrationWarning>
+      <head>
+        <script src="/theme-init.js" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeScript }} />
         <NextIntlClientProvider messages={messages}>
           <AppThemeProvider>
             <WebSocketProvider>
