@@ -1493,6 +1493,58 @@
       "australia": "Australien"
     }
   },
+  "studio": {
+    "title": "Studio",
+    "comingSoon": "Coming Soon — Diese Funktion ist bald verfügbar.",
+    "common": {
+      "loading": "Lade..."
+    },
+    "tabs": {
+      "create": "Erstellen",
+      "bulk": "Bulk",
+      "models": "Modelle",
+      "presets": "Presets"
+    },
+    "modelLibrary": {
+      "products": "Produkte",
+      "personas": "Personas",
+      "newProduct": "Neues Produkt",
+      "newPersona": "Neue Persona",
+      "searchPlaceholder": "Modelle suchen...",
+      "emptyProductTitle": "Noch keine Produkte",
+      "emptyProductDescription": "Erstelle dein erstes Produkt, um Bilder für KI-Generierungen zu referenzieren.",
+      "emptyPersonaTitle": "Noch keine Personas",
+      "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen."
+    },
+    "modelCreate": {
+      "name": "Name",
+      "description": "Beschreibung",
+      "images": "Bilder",
+      "dropzone": "Bilder hier ablegen oder klicken zum Auswählen",
+      "maxImages": "Maximal {max} Bilder",
+      "urlImport": "Von URL importieren",
+      "urlPlaceholder": "https://example.com/image.jpg",
+      "addUrl": "Hinzufügen",
+      "productNamePlaceholder": "z.B. Mein Produkt",
+      "personaNamePlaceholder": "z.B. Meine Persona",
+      "descriptionPlaceholder": "Optionale Beschreibung...",
+      "nameRequired": "Name ist erforderlich",
+      "createFailed": "Erstellung fehlgeschlagen",
+      "save": "Speichern"
+    },
+    "modelDetail": {
+      "notFound": "Nicht gefunden",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "images": "Bilder",
+      "addImages": "Bilder hinzufügen",
+      "noDescription": "Keine Beschreibung",
+      "deleteProduct": "Produkt löschen",
+      "deletePersona": "Persona löschen",
+      "deleteConfirmMessage": "Dieses Modell wird möglicherweise in Generierungen referenziert. Die Referenz wird als [Gelöscht] markiert. Fortfahren?",
+      "confirmDelete": "Löschen"
+    }
+  },
   "usage": {
     "title": "Nutzung",
     "header": {

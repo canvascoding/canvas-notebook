@@ -1493,6 +1493,58 @@
       "australia": "Australia"
     }
   },
+  "studio": {
+    "title": "Studio",
+    "comingSoon": "Coming Soon — This feature will be available soon.",
+    "common": {
+      "loading": "Loading..."
+    },
+    "tabs": {
+      "create": "Create",
+      "bulk": "Bulk",
+      "models": "Models",
+      "presets": "Presets"
+    },
+    "modelLibrary": {
+      "products": "Products",
+      "personas": "Personas",
+      "newProduct": "New Product",
+      "newPersona": "New Persona",
+      "searchPlaceholder": "Search models...",
+      "emptyProductTitle": "No products yet",
+      "emptyProductDescription": "Create your first product to reference images in AI generations.",
+      "emptyPersonaTitle": "No personas yet",
+      "emptyPersonaDescription": "Create your first persona to use consistent characters in generations."
+    },
+    "modelCreate": {
+      "name": "Name",
+      "description": "Description",
+      "images": "Images",
+      "dropzone": "Drop images here or click to select",
+      "maxImages": "Up to {max} images",
+      "urlImport": "Import from URL",
+      "urlPlaceholder": "https://example.com/image.jpg",
+      "addUrl": "Add",
+      "productNamePlaceholder": "e.g. My Product",
+      "personaNamePlaceholder": "e.g. My Persona",
+      "descriptionPlaceholder": "Optional description...",
+      "nameRequired": "Name is required",
+      "createFailed": "Creation failed",
+      "save": "Save"
+    },
+    "modelDetail": {
+      "notFound": "Not found",
+      "save": "Save",
+      "cancel": "Cancel",
+      "images": "Images",
+      "addImages": "Add images",
+      "noDescription": "No description",
+      "deleteProduct": "Delete product",
+      "deletePersona": "Delete persona",
+      "deleteConfirmMessage": "This model may be referenced in generations. The reference will be marked as [Deleted]. Continue?",
+      "confirmDelete": "Delete"
+    }
+  },
   "usage": {
     "title": "Usage",
     "header": {
