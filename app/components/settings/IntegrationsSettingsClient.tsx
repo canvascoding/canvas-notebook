@@ -165,7 +165,7 @@ function EnvEditorCard(props: {
   } = props;
 
   return (
-    <Card id={card.scope === 'integrations' ? 'onboarding-settings-integrations' : 'onboarding-settings-agentsEnv'}>
+    <Card id={card.scope === 'integrations' ? 'onboarding-settings-env-integrations' : 'onboarding-settings-env-agents'}>
       <CardHeader className="px-4 sm:px-6">
         <CardTitle>{t(`scopes.${card.scope}.title`)}</CardTitle>
         <CardDescription>
@@ -562,16 +562,16 @@ export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: bool
           <TabsTrigger value="general" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.general')}
           </TabsTrigger>
-          <TabsTrigger id="onboarding-settings-integrations" value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
+          <TabsTrigger value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.integrations')}
           </TabsTrigger>
-          <TabsTrigger id="onboarding-settings-agentSettings" value="agent-settings" className="min-h-9 border border-border data-[state=active]:bg-muted">
+          <TabsTrigger value="agent-settings" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.agentSettings')}
           </TabsTrigger>
           <TabsTrigger value="workspace" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.workspace')}
           </TabsTrigger>
-          <TabsTrigger id="onboarding-settings-usage" value="usage" className="min-h-9 border border-border data-[state=active]:bg-muted">
+          <TabsTrigger value="usage" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.usage')}
           </TabsTrigger>
         </TabsList>
@@ -599,7 +599,7 @@ export function IntegrationsSettingsClient({ isAdmin = false }: { isAdmin?: bool
           ))}
         </TabsContent>
 
-        <TabsContent value="agent-settings" className="space-y-4" id="onboarding-settings-agentSettings">
+        <TabsContent value="agent-settings" className="space-y-4">
           <AgentSettingsPanel />
         </TabsContent>
 

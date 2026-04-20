@@ -1,3 +1,5 @@
+'use client';
+
 import Image from 'next/image';
 import { Link } from '@/i18n/navigation';
 import type { ReactNode } from 'react';
@@ -9,6 +11,7 @@ import { LogoutButton } from '@/app/components/LogoutButton';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
+import { HintProvider } from '@/app/components/onboarding/HintProvider';
 
 import { Button } from '@/components/ui/button';
 
@@ -33,7 +36,7 @@ export function SuitePageLayout({
 }: SuitePageLayoutProps) {
   const t = useTranslations('common');
 
-  return (
+  const content = (
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="flex h-full flex-col">
         <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
@@ -76,4 +79,10 @@ export function SuitePageLayout({
       </div>
     </div>
   );
+
+  if (hintPage) {
+    return <HintProvider page={hintPage}>{content}</HintProvider>;
+  }
+
+  return content;
 }

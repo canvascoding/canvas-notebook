@@ -28,7 +28,6 @@ export const ONBOARDING_PAGES: Record<string, PageDefinition> = {
     hints: [
       { hintKey: 'notebook.fileBrowser', page: 'notebook', targetId: 'onboarding-notebook-fileBrowser' },
       { hintKey: 'notebook.editor', page: 'notebook', targetId: 'onboarding-notebook-editor' },
-      { hintKey: 'notebook.editorMode', page: 'notebook', targetId: 'onboarding-notebook-editorMode' },
       { hintKey: 'notebook.chat', page: 'notebook', targetId: 'onboarding-notebook-chat' },
     ],
   },
@@ -46,7 +45,7 @@ export const ONBOARDING_PAGES: Record<string, PageDefinition> = {
     version: 1,
     hints: [
       { hintKey: 'veo.mode', page: 'veo', targetId: 'onboarding-veo-mode' },
-      { hintKey: 'veo.config', page: 'veo', targetId: 'onboarding-veo-mode' },
+      { hintKey: 'veo.config', page: 'veo', targetId: 'onboarding-veo-config' },
       { hintKey: 'veo.results', page: 'veo', targetId: 'onboarding-veo-results' },
     ],
   },
@@ -67,7 +66,7 @@ export const ONBOARDING_PAGES: Record<string, PageDefinition> = {
       { hintKey: 'settings.managedFiles', page: 'settings', targetId: 'onboarding-settings-managedFiles', requiredTab: 'agent-settings' },
       { hintKey: 'settings.tools', page: 'settings', targetId: 'onboarding-settings-tools', requiredTab: 'agent-settings' },
       { hintKey: 'settings.integrations', page: 'settings', targetId: 'onboarding-settings-integrations', requiredTab: 'integrations' },
-      { hintKey: 'settings.agentsEnv', page: 'settings', targetId: 'onboarding-settings-agentsEnv', requiredTab: 'integrations' },
+      { hintKey: 'settings.agentsEnv', page: 'settings', targetId: 'onboarding-settings-env-agents', requiredTab: 'integrations' },
       { hintKey: 'settings.usage', page: 'settings', targetId: 'onboarding-settings-usage', requiredTab: 'usage' },
     ],
   },

@@ -37,6 +37,9 @@ export function useHintContext() {
   return useContext(HintContext);
 }
 
+const TARGET_POLL_ATTEMPTS = 10;
+const TARGET_POLL_INTERVAL_MS = 300;
+
 export function HintProvider({ page, children }: HintProviderProps) {
   const {
     state,
@@ -68,19 +71,35 @@ export function HintProvider({ page, children }: HintProviderProps) {
     if (!hint) return;
 
     const effectiveId = hint.targetId;
-    const checkTarget = () => {
+    let attempts = 0;
+    let cancelled = false;
+
+    const pollTarget = () => {
+      if (cancelled) return;
       const el = document.getElementById(effectiveId);
-      if (!el) {
-        console.warn(`[onboarding] Target element #${effectiveId} not found, skipping hint`);
-        setSkipHint(true);
-      } else {
+      if (el) {
         setSkipHint(false);
+        return;
       }
+      attempts++;
+      if (attempts >= TARGET_POLL_ATTEMPTS) {
+        console.warn(`[onboarding] Target element #${effectiveId} not found after ${TARGET_POLL_ATTEMPTS} attempts, auto-dismissing hint`);
+        void dismissCurrent();
+        return;
+      }
+      setTimeout(pollTarget, TARGET_POLL_INTERVAL_MS);
     };
 
-    const timer = setTimeout(checkTarget, 500);
-    return () => clearTimeout(timer);
-  }, [state?.currentHintKey, state?.completed, loading, error, getCurrentHintTexts]);
+    const timer = setTimeout(pollTarget, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [state?.currentHintKey, state?.completed, loading, error, getCurrentHintTexts, dismissCurrent]);
+
+  useEffect(() => {
+    setSkipHint(false);
+  }, [state?.currentHintKey]);
 
   const showHint = !loading && !error && state && !state.completed && state.currentHintKey && currentHint && !skipHint;
 
