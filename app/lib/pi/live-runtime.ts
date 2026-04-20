@@ -22,6 +22,7 @@ import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-st
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
+import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block';
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import { and, eq } from 'drizzle-orm';
 
@@ -91,6 +92,17 @@ export type PiRuntimePromptContext = {
   userTimeZone?: string;
   currentTime?: string;
   planningMode?: boolean;
+  currentPage?: string;
+  studioContext?: {
+    generationId?: string;
+    currentOutputId?: string;
+    generationPrompt?: string | null;
+    generationPresetId?: string | null;
+    generationProductIds?: string[];
+    generationPersonaIds?: string[];
+    outputFilePath?: string | null;
+    outputMediaUrl?: string | null;
+  };
 };
 
 type RuntimeSubscriber = (event: PiRuntimeStreamEvent) => void;
@@ -176,6 +188,8 @@ type PiRuntimePromptDispatchTarget = {
   setTimeZoneContext: (timeZone: string, currentTime: string) => void;
   setActiveFileContext: (path: string | null) => void;
   setPlanningMode: (enabled: boolean) => void;
+  setPageContext: (page: string | undefined) => void;
+  setStudioContext: (context: PiRuntimePromptContext['studioContext']) => void;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
@@ -189,6 +203,8 @@ function applyPiRuntimePromptContext(
 
   runtime.setActiveFileContext(context?.activeFilePath ?? null);
   runtime.setPlanningMode(context?.planningMode ?? false);
+  runtime.setPageContext(context?.currentPage);
+  runtime.setStudioContext(context?.studioContext);
 }
 
 class LivePiRuntime {
@@ -217,6 +233,8 @@ class LivePiRuntime {
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
   private activeFileContext: string | null = null;
   private planningMode = false;
+  private pageContext: string | null = null;
+  private studioContext: PiRuntimePromptContext['studioContext'] | null = null;
   private persistLock = false;
   private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
   agentUnsubscribe: (() => void) | null = null;
@@ -411,6 +429,61 @@ class LivePiRuntime {
     this.planningMode = enabled;
   }
 
+  setPageContext(page: string | undefined): void {
+    this.pageContext = page ?? null;
+  }
+
+  setStudioContext(context: PiRuntimePromptContext['studioContext']) {
+    this.studioContext = context ?? null;
+  }
+
+  private getStudioContextBlock(): string | null {
+    if (!this.studioContext) {
+      return null;
+    }
+
+    const lines = [
+      '## Active Studio Output Context',
+      'The user is iterating on a specific Studio output in the detail view.',
+    ];
+
+    if (this.studioContext.currentOutputId) {
+      lines.push(`Current output ID: ${this.studioContext.currentOutputId}`);
+    }
+    if (this.studioContext.generationId) {
+      lines.push(`Generation ID: ${this.studioContext.generationId}`);
+    }
+    if (this.studioContext.generationPrompt) {
+      lines.push(`Generation prompt: ${this.studioContext.generationPrompt}`);
+    }
+    if (this.studioContext.generationPresetId) {
+      lines.push(`Preset ID: ${this.studioContext.generationPresetId}`);
+    }
+    if (this.studioContext.generationProductIds?.length) {
+      lines.push(`Product IDs: ${this.studioContext.generationProductIds.join(', ')}`);
+    }
+    if (this.studioContext.generationPersonaIds?.length) {
+      lines.push(`Persona IDs: ${this.studioContext.generationPersonaIds.join(', ')}`);
+    }
+    if (this.studioContext.outputFilePath) {
+      lines.push(`Output file path: ${this.studioContext.outputFilePath}`);
+    }
+    if (this.studioContext.outputMediaUrl) {
+      lines.push(`Output media URL: ${this.studioContext.outputMediaUrl}`);
+    }
+
+    lines.push('When editing this asset, prefer `studio_edit_image` and use the current output ID as the source unless the user selects a different output.');
+    return lines.join('\n');
+  }
+
+  private getPageContextBlock(): string | null {
+    if (!this.pageContext) return null;
+    if (this.pageContext.startsWith('/studio')) {
+      return STUDIO_SYSTEM_PROMPT_BLOCK;
+    }
+    return null;
+  }
+
   private getSystemPromptWithTimeZone(): string {
     let prompt = this.systemPrompt;
 
@@ -437,6 +510,16 @@ class LivePiRuntime {
 
     if (this.planningMode) {
       prompt += '\n\n' + PLANNING_MODE_GUIDANCE;
+    }
+
+    const pageBlock = this.getPageContextBlock();
+    if (pageBlock) {
+      prompt += '\n\n' + pageBlock;
+    }
+
+    const studioBlock = this.getStudioContextBlock();
+    if (studioBlock) {
+      prompt += '\n\n' + studioBlock;
     }
 
     return prompt;

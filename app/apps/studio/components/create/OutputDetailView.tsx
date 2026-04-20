@@ -5,6 +5,7 @@
 import { useEffect } from 'react';
 import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Trash2 } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
+import { OutputDetailChat } from './OutputDetailChat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -12,8 +13,10 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 interface OutputDetailViewProps {
   generation: StudioGeneration | null;
   output: StudioGenerationOutput | null;
+  generations: StudioGeneration[];
   open: boolean;
   onClose: () => void;
+  onSelectOutput: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
 }
 
 function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioGeneration) {
@@ -24,7 +27,7 @@ function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioG
   return generation.aspectRatio;
 }
 
-export function OutputDetailView({ generation, output, open, onClose }: OutputDetailViewProps) {
+export function OutputDetailView({ generation, output, generations, open, onClose, onSelectOutput }: OutputDetailViewProps) {
   useEffect(() => {
     if (!open) return;
 
@@ -134,44 +137,12 @@ export function OutputDetailView({ generation, output, open, onClose }: OutputDe
             </div>
 
             <aside className="flex min-h-0 flex-col bg-card/55">
-              <div className="border-b border-border/70 px-4 py-4 sm:px-5">
-                <p className="text-sm font-semibold text-foreground">PI-Agent-Chat</p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Die Chat-Integration aus AP6 To-do 2 wird hier als naechster Schritt angedockt.
-                </p>
-              </div>
-
-              <div className="flex min-h-0 flex-1 flex-col justify-between gap-4 p-4 sm:p-5">
-                <div className="space-y-3 overflow-y-auto pr-1">
-                  <div className="rounded-3xl border border-border/70 bg-background/90 p-4 shadow-sm">
-                    <p className="text-sm font-medium text-foreground">Bildkontext bereit</p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Dieses Panel bleibt bereits neben dem Output sichtbar und ist bereit fuer die wiederverwendete
-                      Canvas-Agent-Chat-Komponente.
-                    </p>
-                  </div>
-
-                  <div className="rounded-3xl border border-dashed border-border/80 bg-background/70 p-4">
-                    <p className="text-sm font-medium text-foreground">Aktueller Fokus</p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <Badge variant="secondary" className="rounded-full px-3 py-1">
-                        {output.type === 'video' ? <Film className="mr-1 h-3.5 w-3.5" /> : <ImageIcon className="mr-1 h-3.5 w-3.5" />}
-                        Output aktiv
-                      </Badge>
-                      <Badge variant="outline" className="rounded-full px-3 py-1">
-                        Session folgt in To-do 2
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-[28px] border border-border/70 bg-background/90 p-4 shadow-sm">
-                  <p className="text-sm font-medium text-foreground">Describe changes...</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Der Eingabebereich wird mit der echten Chat-Session im naechsten AP6-Schritt ersetzt.
-                  </p>
-                </div>
-              </div>
+              <OutputDetailChat
+                generation={generation}
+                output={output}
+                generations={generations}
+                onSelectOutput={onSelectOutput}
+              />
             </aside>
           </div>
         </div>
