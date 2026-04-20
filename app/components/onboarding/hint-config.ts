@@ -1,8 +1,8 @@
 export interface HintDefinition {
   hintKey: string;
   page: string;
-  targetId: string;
-  mobileTargetId?: string;
+  targetSelector: string;
+  mobileTargetSelector?: string;
   requiredTab?: string;
 }
 
@@ -17,57 +17,57 @@ export const ONBOARDING_PAGES: Record<string, PageDefinition> = {
     page: 'home',
     version: 1,
     hints: [
-      { hintKey: 'home.promptHero', page: 'home', targetId: 'onboarding-home-promptHero' },
-      { hintKey: 'home.workspace', page: 'home', targetId: 'onboarding-home-workspace' },
-      { hintKey: 'home.create', page: 'home', targetId: 'onboarding-home-create' },
+      { hintKey: 'home.promptHero', page: 'home', targetSelector: '#onboarding-home-promptHero' },
+      { hintKey: 'home.workspace', page: 'home', targetSelector: '#onboarding-home-workspace' },
+      { hintKey: 'home.create', page: 'home', targetSelector: '#onboarding-home-create' },
     ],
   },
   notebook: {
     page: 'notebook',
     version: 1,
     hints: [
-      { hintKey: 'notebook.fileBrowser', page: 'notebook', targetId: 'onboarding-notebook-fileBrowser' },
-      { hintKey: 'notebook.editor', page: 'notebook', targetId: 'onboarding-notebook-editor' },
-      { hintKey: 'notebook.chat', page: 'notebook', targetId: 'onboarding-notebook-chat' },
+      { hintKey: 'notebook.fileBrowser', page: 'notebook', targetSelector: '#onboarding-notebook-fileBrowser' },
+      { hintKey: 'notebook.editor', page: 'notebook', targetSelector: '#onboarding-notebook-editor' },
+      { hintKey: 'notebook.chat', page: 'notebook', targetSelector: '#onboarding-notebook-chat' },
     ],
   },
   imageGen: {
     page: 'imageGen',
     version: 1,
     hints: [
-      { hintKey: 'imageGen.config', page: 'imageGen', targetId: 'onboarding-imageGen-config' },
-      { hintKey: 'imageGen.references', page: 'imageGen', targetId: 'onboarding-imageGen-references' },
-      { hintKey: 'imageGen.results', page: 'imageGen', targetId: 'onboarding-imageGen-results' },
+      { hintKey: 'imageGen.config', page: 'imageGen', targetSelector: '#onboarding-imageGen-config' },
+      { hintKey: 'imageGen.references', page: 'imageGen', targetSelector: '#onboarding-imageGen-references' },
+      { hintKey: 'imageGen.results', page: 'imageGen', targetSelector: '#onboarding-imageGen-results' },
     ],
   },
   veo: {
     page: 'veo',
     version: 1,
     hints: [
-      { hintKey: 'veo.mode', page: 'veo', targetId: 'onboarding-veo-mode' },
-      { hintKey: 'veo.config', page: 'veo', targetId: 'onboarding-veo-config' },
-      { hintKey: 'veo.results', page: 'veo', targetId: 'onboarding-veo-results' },
+      { hintKey: 'veo.mode', page: 'veo', targetSelector: '#onboarding-veo-mode' },
+      { hintKey: 'veo.config', page: 'veo', targetSelector: '#onboarding-veo-config' },
+      { hintKey: 'veo.results', page: 'veo', targetSelector: '#onboarding-veo-results' },
     ],
   },
   localizer: {
     page: 'localizer',
     version: 1,
     hints: [
-      { hintKey: 'localizer.reference', page: 'localizer', targetId: 'onboarding-localizer-reference' },
-      { hintKey: 'localizer.markets', page: 'localizer', targetId: 'onboarding-localizer-markets' },
-      { hintKey: 'localizer.results', page: 'localizer', targetId: 'onboarding-localizer-results' },
+      { hintKey: 'localizer.reference', page: 'localizer', targetSelector: '#onboarding-localizer-reference' },
+      { hintKey: 'localizer.markets', page: 'localizer', targetSelector: '#onboarding-localizer-markets' },
+      { hintKey: 'localizer.results', page: 'localizer', targetSelector: '#onboarding-localizer-results' },
     ],
   },
   settings: {
     page: 'settings',
     version: 1,
     hints: [
-      { hintKey: 'settings.agentSettings', page: 'settings', targetId: 'onboarding-settings-agentSettings', requiredTab: 'agent-settings' },
-      { hintKey: 'settings.managedFiles', page: 'settings', targetId: 'onboarding-settings-managedFiles', requiredTab: 'agent-settings' },
-      { hintKey: 'settings.tools', page: 'settings', targetId: 'onboarding-settings-tools', requiredTab: 'agent-settings' },
-      { hintKey: 'settings.integrations', page: 'settings', targetId: 'onboarding-settings-integrations', requiredTab: 'integrations' },
-      { hintKey: 'settings.agentsEnv', page: 'settings', targetId: 'onboarding-settings-env-agents', requiredTab: 'integrations' },
-      { hintKey: 'settings.usage', page: 'settings', targetId: 'onboarding-settings-usage', requiredTab: 'usage' },
+      { hintKey: 'settings.agentSettings', page: 'settings', targetSelector: '#onboarding-settings-agentSettings', requiredTab: 'agent-settings' },
+      { hintKey: 'settings.managedFiles', page: 'settings', targetSelector: '#onboarding-settings-managedFiles', requiredTab: 'agent-settings' },
+      { hintKey: 'settings.tools', page: 'settings', targetSelector: '#onboarding-settings-tools', requiredTab: 'agent-settings' },
+      { hintKey: 'settings.integrations', page: 'settings', targetSelector: '#onboarding-settings-integrations', requiredTab: 'integrations' },
+      { hintKey: 'settings.agentsEnv', page: 'settings', targetSelector: '#onboarding-settings-env-agents', requiredTab: 'integrations' },
+      { hintKey: 'settings.usage', page: 'settings', targetSelector: '#onboarding-settings-usage', requiredTab: 'usage' },
     ],
   },
 };
