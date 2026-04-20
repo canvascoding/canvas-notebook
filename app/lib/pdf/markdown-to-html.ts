@@ -338,6 +338,12 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
       margin: 2em 0;
     }
 
+    .mermaid-diagram {
+      margin: 1.5em 0;
+      padding: 1em 0;
+      text-align: center;
+    }
+
     .mermaid-diagram svg {
       max-width: 100%;
       height: auto;

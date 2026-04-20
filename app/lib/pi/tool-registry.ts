@@ -1720,12 +1720,7 @@ const automationToolMetadata: { name: string; label: string; description: string
   { name: 'update_automation_job', label: 'Updating automation job', description: 'Updates an existing automation job.' },
   { name: 'delete_automation_job', label: 'Deleting automation job', description: 'Permanently deletes an automation job and all its run history.' },
   { name: 'trigger_automation_job', label: 'Triggering automation job', description: 'Manually triggers an automation job to run immediately.' },
-  { name: 'studio_generate', label: 'Generating studio content', description: 'Generates images/videos using the Studio system with product, persona, and preset references.' },
-  { name: 'studio_edit_image', label: 'Editing studio image', description: 'Edits an existing Studio-generated image using a source output plus text instructions.' },
-  { name: 'studio_list_products', label: 'Listing products', description: 'Lists all saved products in the Studio library.' },
-  { name: 'studio_list_personas', label: 'Listing personas', description: 'Lists all saved personas in the Studio library.' },
-  { name: 'studio_list_presets', label: 'Listing studio presets', description: 'Lists all available studio presets (visual settings).' },
-  { name: 'studio_bulk_generate', label: 'Starting bulk generation', description: 'Starts a bulk generation job that applies a studio preset and prompt to multiple products sequentially.' },
+
 ];
 
 export async function getPiToolMetadata(): Promise<{ name: string; label: string; description: string }[]> {

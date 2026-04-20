@@ -2,12 +2,13 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import mermaid from 'mermaid';
-import { ZoomIn, ZoomOut, RotateCcw, Download, Maximize2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Download, Maximize2, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
   DialogTitle,
   DialogDescription,
+  DialogClose,
 } from '@/components/ui/dialog';
 
 mermaid.initialize({
@@ -125,7 +126,15 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
     if (!el) return;
     const handler = (e: WheelEvent) => {
       e.preventDefault();
-      setZoom((z) => Math.min(5, Math.max(0.25, z - e.deltaY * 0.001)));
+      const isZoom = e.ctrlKey || e.metaKey;
+      if (isZoom) {
+        // Zoom with Ctrl/Cmd + wheel
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        setZoom((z) => Math.min(5, Math.max(0.25, z * delta)));
+      } else {
+        // Pan with wheel
+        setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+      }
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
@@ -234,8 +243,8 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
   return (
     <>
       <div
-        className={`mermaid-diagram my-3 relative flex justify-center overflow-x-auto [&_svg]:max-w-full [&_svg]:h-auto ${
-          interactive ? 'group cursor-pointer opacity-90 hover:opacity-100 hover:shadow-md transition-shadow' : ''
+        className={`mermaid-diagram my-3 relative flex justify-center overflow-x-auto pb-6 [&_svg]:max-w-full [&_svg]:h-auto ${
+          interactive ? 'group cursor-pointer' : ''
         }`}
         onClick={interactive ? openDialog : undefined}
         role={interactive ? 'button' : undefined}
@@ -244,19 +253,23 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
       >
         <div ref={containerRef} dangerouslySetInnerHTML={{ __html: svg }} />
         {interactive && (
-          <div className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/40 p-1 transition-opacity group-hover:opacity-100 opacity-0">
+          <div className="pointer-events-none absolute bottom-1 right-1 flex items-center gap-1 rounded bg-black/60 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <Maximize2 className="size-3.5 text-white" />
+            <span className="text-[10px] text-white font-medium">Click to expand</span>
           </div>
         )}
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent layout="viewport" showCloseButton className="p-0 gap-0">
+        <DialogContent layout="viewport" showCloseButton={false} className="p-0 gap-0">
           <DialogTitle className="sr-only">Mermaid Diagram Fullscreen</DialogTitle>
           <DialogDescription className="sr-only">Interactive mermaid diagram view with zoom and pan controls</DialogDescription>
 
           <div className="flex items-center justify-between border-b px-3 py-2 bg-muted/50">
-            <span className="text-xs text-muted-foreground tabular-nums">{Math.round(zoom * 100)}%</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground tabular-nums">{Math.round(zoom * 100)}%</span>
+              <span className="text-xs text-muted-foreground/60 hidden sm:inline">(Ctrl/Cmd + Scroll to zoom)</span>
+            </div>
             <div className="flex items-center gap-1">
               <button onClick={zoomOut} className="rounded p-1.5 hover:bg-muted transition-colors" title="Zoom Out">
                 <ZoomOut className="size-4" />
@@ -270,6 +283,9 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
               <button onClick={handleDownload} className="rounded p-1.5 hover:bg-muted transition-colors" title="Download SVG">
                 <Download className="size-4" />
               </button>
+              <DialogClose className="rounded p-1.5 hover:bg-muted transition-colors" title="Close">
+                <X className="size-4" />
+              </DialogClose>
             </div>
           </div>
 
