@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { NotebookPen, Workflow, ImageIcon, Clapperboard, Globe, FolderOpen, MessageSquare } from 'lucide-react';
+import { NotebookPen, Workflow, ImageIcon, Clapperboard, Globe, FolderOpen, MessageSquare, Sparkles } from 'lucide-react';
 import { PromptHero } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
@@ -115,6 +115,14 @@ export function HomeWorkspaceView() {
               title={tApps('nanoBanana.title')}
               description={tApps('nanoBanana.description')}
               href="/nano-banana-localizer"
+            />
+          </div>
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={Sparkles}
+              title={tApps('studio.title')}
+              description={tApps('studio.description')}
+              href="/studio"
             />
           </div>
         </div>
