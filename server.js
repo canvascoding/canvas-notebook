@@ -264,6 +264,18 @@ try {
   console.error('[Startup] Stack trace:', error.stack);
 }
 
+try {
+  console.log('[Startup] Running orphaned-assets cleanup...');
+  const { cleanupOrphanedStudioAssets } = require('./app/lib/cleanup/orphaned-assets');
+  cleanupOrphanedStudioAssets().then((result) => {
+    console.log(`[Startup] Orphaned-assets cleanup: ${result.deleted} files deleted, ${result.errors.length} errors`);
+  }).catch((err) => {
+    console.warn('[Startup] Orphaned-assets cleanup failed:', err.message);
+  });
+} catch (err) {
+  console.warn('[Startup] Orphaned-assets cleanup could not be loaded:', err.message);
+}
+
 // Spawn the standalone HTTP-based scheduler as a child process.
 // This avoids the ESM-only dependency chain (pi-agent-core → pi-ai) that
 // cannot be loaded via tsx's CJS transform in server.js.
