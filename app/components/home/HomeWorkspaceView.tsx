@@ -52,7 +52,7 @@ export function HomeWorkspaceView() {
         <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
           {t('sections.workspace')}
         </h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <ToolCard
             icon={NotebookPen}
             title={tApps('notebook.title')}
