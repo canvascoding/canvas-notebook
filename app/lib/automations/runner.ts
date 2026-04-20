@@ -172,7 +172,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   };
   const config = {
     model,
-    thinkingLevel: (providerConfig?.thinking || 'none') as ThinkingLevel,
+    thinkingLevel: (providerConfig?.thinking || 'off') as ThinkingLevel,
     convertToLlm: async (messages: AgentMessage[]) => normalizePiMessagesForLlm(messages),
     getApiKey: resolvePiApiKey,
     sessionId: piSessionId,

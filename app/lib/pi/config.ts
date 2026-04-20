@@ -2,7 +2,7 @@
  * PI-first Runtime Configuration Schema
  */
 
-export type PiThinkingLevel = 'none' | 'low' | 'medium' | 'high';
+export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export type OllamaMode = 'local' | 'cloud';
 
@@ -52,13 +52,13 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
     google: {
       id: 'google',
       model: 'gemini-1.5-pro',
-      thinking: 'none',
+      thinking: 'off',
       enabledTools: [],
     },
     ollama: {
       id: 'ollama',
       model: 'llama3.1',
-      thinking: 'none',
+      thinking: 'off',
       enabledTools: [],
       ollamaMode: 'local',
     },
