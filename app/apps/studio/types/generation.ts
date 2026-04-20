@@ -1,0 +1,64 @@
+import type { StudioPreset } from './presets';
+
+export type StudioGenerationMode = 'image' | 'video';
+export type StudioGenerationStatus = 'pending' | 'generating' | 'completed' | 'failed';
+
+export interface StudioGenerationOutput {
+  id: string;
+  generationId: string;
+  variationIndex: number;
+  type: 'image' | 'video';
+  filePath: string;
+  mediaUrl: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
+  width: number | null;
+  height: number | null;
+  isFavorite: boolean;
+  createdAt: string;
+  metadata?: string | null;
+}
+
+export interface StudioGeneration {
+  id: string;
+  userId: string;
+  mode: StudioGenerationMode;
+  prompt: string | null;
+  rawPrompt: string | null;
+  studioPresetId: string | null;
+  aspectRatio: string;
+  provider: string;
+  model: string;
+  status: StudioGenerationStatus;
+  outputs: StudioGenerationOutput[];
+  products?: string[];
+  personas?: string[];
+  product_ids?: string[];
+  persona_ids?: string[];
+  studioPreset?: StudioPreset | null;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: string | null;
+}
+
+export interface StudioGeneratePayload {
+  prompt: string;
+  mode?: StudioGenerationMode;
+  product_ids?: string[];
+  persona_ids?: string[];
+  preset_id?: string;
+  aspect_ratio?: string;
+  count?: number;
+  provider?: string;
+  source_output_id?: string;
+  pi_session_id?: string;
+}
+
+export interface StudioGenerateResponse {
+  success: boolean;
+  generationId: string;
+  status: StudioGenerationStatus;
+  mode: StudioGenerationMode;
+  prompt: string;
+  outputs: StudioGenerationOutput[];
+}
