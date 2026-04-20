@@ -73,6 +73,7 @@ import {
 import { listProducts } from '../integrations/studio-product-service';
 import { listPersonas } from '../integrations/studio-persona-service';
 import { StudioServiceError } from '../integrations/studio-errors';
+import { createBulkJob } from '../integrations/studio-bulk-service';
 import { db } from '@/app/lib/db';
 import {
   studioGenerationOutputs,
@@ -789,6 +790,76 @@ export function createStudioEditImageTool(
           : error instanceof Error
             ? error.message
             : 'An unexpected error occurred during studio image editing.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createStudioBulkGenerateTool(
+  deps: { createBulkJobFn?: typeof createBulkJob; userId?: string } = {},
+): AgentTool {
+  const createFn = deps.createBulkJobFn ?? createBulkJob;
+  const userId = deps.userId;
+
+  return {
+    name: 'studio_bulk_generate',
+    label: 'Starting bulk generation',
+    description:
+      'Starts a bulk generation job that applies a studio preset and prompt to multiple ' +
+      'products. Processes sequentially (max 20 products). Returns a job ID for tracking. ' +
+      'Only one bulk job per user can run at a time.',
+    parameters: Type.Object({
+      product_ids: Type.Array(Type.String(), {
+        description: 'Product IDs to generate for (max 20).',
+        maxItems: 20,
+      }),
+      prompt: Type.String({
+        description: 'Base prompt applied to all products.',
+      }),
+      preset_id: Type.Optional(Type.String({
+        description: 'Studio preset to apply to all products.',
+      })),
+      aspect_ratio: Type.Optional(Type.String({ description: 'Default: 1:1' })),
+      versions_per_product: Type.Optional(Type.Number({
+        description: 'Variations per product (1-4). Default: 1',
+      })),
+    }),
+    execute: async (toolCallId, params) => {
+      const { product_ids, prompt, preset_id, aspect_ratio, versions_per_product } = params as {
+        product_ids: string[];
+        prompt: string;
+        preset_id?: string;
+        aspect_ratio?: string;
+        versions_per_product?: number;
+      };
+
+      try {
+        if (!userId) {
+          throw new Error('User ID is required for bulk generation.');
+        }
+
+        const job = await createFn(userId, {
+          productIds: product_ids,
+          prompt,
+          presetId: preset_id,
+          aspectRatio: aspect_ratio,
+          versionsPerProduct: versions_per_product,
+        });
+
+        return {
+          content: [{ type: 'text', text: `Bulk generation started. Job ID: ${job.id}\nTotal line items: ${job.totalLineItems}\nStatus: ${job.status}` }],
+          details: { jobId: job.id, totalLineItems: job.totalLineItems, status: job.status },
+        };
+      } catch (error: unknown) {
+        const message = error instanceof StudioServiceError
+          ? error.userMessage
+          : error instanceof Error
+            ? error.message
+            : 'An unexpected error occurred during bulk generation.';
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
           details: { error: message },
@@ -1654,6 +1725,7 @@ const automationToolMetadata: { name: string; label: string; description: string
   { name: 'studio_list_products', label: 'Listing products', description: 'Lists all saved products in the Studio library.' },
   { name: 'studio_list_personas', label: 'Listing personas', description: 'Lists all saved personas in the Studio library.' },
   { name: 'studio_list_presets', label: 'Listing studio presets', description: 'Lists all available studio presets (visual settings).' },
+  { name: 'studio_bulk_generate', label: 'Starting bulk generation', description: 'Starts a bulk generation job that applies a studio preset and prompt to multiple products sequentially.' },
 ];
 
 export async function getPiToolMetadata(): Promise<{ name: string; label: string; description: string }[]> {
@@ -1892,6 +1964,7 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
     },
     createStudioGenerateTool({ userId }),
     createStudioEditImageTool({ userId }),
+    createStudioBulkGenerateTool({ userId }),
     createStudioListProductsTool({ userId }),
     createStudioListPersonasTool({ userId }),
   ] : [];

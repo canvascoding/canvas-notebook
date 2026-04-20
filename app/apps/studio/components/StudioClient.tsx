@@ -3,6 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
+import { BulkGenerateView } from './bulk/BulkGenerateView';
 
 const tabs = [
   { key: 'create', path: '/studio/create' },
@@ -51,7 +52,7 @@ export function StudioClient() {
           <p className="text-muted-foreground">{t('comingSoon')}</p>
         )}
         {activeTab === 'bulk' && (
-          <p className="text-muted-foreground">{t('comingSoon')}</p>
+          <BulkGenerateView />
         )}
         {activeTab === 'presets' && (
           <p className="text-muted-foreground">{t('comingSoon')}</p>
