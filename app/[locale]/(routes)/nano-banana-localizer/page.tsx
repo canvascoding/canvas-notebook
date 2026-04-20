@@ -13,11 +13,10 @@ export default async function NanoBananaLocalizerPage() {
   const t = await getTranslations('nanoBanana');
   const tCommon = await getTranslations('common');
 
-  const username = session?.user?.name || session?.user?.email || tCommon('user');
   const geminiApiKey = await getGeminiApiKeyFromIntegrations();
 
   return (
-    <SuitePageLayout title={t('title')} username={username} hintPage="localizer">
+    <SuitePageLayout title={t('title')} hintPage="localizer">
         {!geminiApiKey && (
           <div className="p-4 md:p-6">
             <Card className="border-destructive/50 bg-destructive/10">

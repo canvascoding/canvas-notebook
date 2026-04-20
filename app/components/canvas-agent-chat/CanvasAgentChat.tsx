@@ -2849,10 +2849,7 @@ export default function CanvasAgentChat({
             <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
               <Link href="/usage">{t('usage')}</Link>
             </Button>
-            <div className="hidden lg:flex flex-col items-end shrink-0">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{t('userLabel')}</span>
-              <span className="text-xs text-foreground/90">{t('user')}</span>
-            </div>
+
             <LogoutButton />
           </div>
         </div>

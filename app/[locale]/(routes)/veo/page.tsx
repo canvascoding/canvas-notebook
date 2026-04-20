@@ -13,11 +13,10 @@ export default async function VeoPage() {
   const t = await getTranslations('veo');
   const tCommon = await getTranslations('common');
 
-  const username = session?.user?.name || session?.user?.email || tCommon('user');
   const geminiApiKey = await getGeminiApiKeyFromIntegrations();
 
   return (
-    <SuitePageLayout title={t('title')} username={username} hintPage="veo">
+    <SuitePageLayout title={t('title')} hintPage="veo">
         {!geminiApiKey && (
           <div className="p-4 md:p-6">
             <Card className="border-destructive/50 bg-destructive/10">

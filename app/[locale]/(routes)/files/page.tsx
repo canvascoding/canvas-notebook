@@ -7,7 +7,7 @@ export const metadata = {
 };
 
 export default async function FilesPage() {
-  const session = await requirePageSession();
+  await requirePageSession();
 
-  return <FilesContainer username={session?.user?.name || session?.user?.email || 'User'} />;
+  return <FilesContainer />;
 }

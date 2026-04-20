@@ -17,7 +17,6 @@ import { Button } from '@/components/ui/button';
 
 type SuitePageLayoutProps = {
   title: string;
-  username: string;
   children: ReactNode;
   mainClassName?: string;
   showLogo?: boolean;
@@ -27,7 +26,6 @@ type SuitePageLayoutProps = {
 
 export function SuitePageLayout({
   title,
-  username,
   children,
   mainClassName,
   showLogo = false,
@@ -63,10 +61,7 @@ export function SuitePageLayout({
             </div>
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
-              <div className="hidden min-[480px]:flex flex-col items-end">
-                <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{t('user')}</span>
-                <span className="max-w-[140px] truncate text-xs">{username}</span>
-              </div>
+
               {hintPage && <HelpDropdown page={hintPage} />}
               <NotebookNavButton />
               <ThemeToggle />

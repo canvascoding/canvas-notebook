@@ -6,12 +6,9 @@ import HelpPageClient from './HelpPageClient';
 export default async function HelpPage() {
   const session = await requirePageSession();
   const t = await getTranslations('help');
-  const tCommon = await getTranslations('common');
-
-  const username = session?.user?.name || session?.user?.email || tCommon('user');
 
   return (
-    <SuitePageLayout title={t('title')} username={username} showLogo>
+    <SuitePageLayout title={t('title')} showLogo>
       <HelpPageClient />
     </SuitePageLayout>
   );

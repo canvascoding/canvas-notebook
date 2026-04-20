@@ -21,10 +21,7 @@ const releaseTagUrl = `${repositoryUrl}/releases/tag/${releaseTag}`;
 
 export default async function Home() {
   const tHome = await getTranslations('home');
-  const tCommon = await getTranslations('common');
-  const session = await requirePageSession();
-
-  const username = session?.user?.name || session?.user?.email || tCommon('user');
+  await requirePageSession();
 
   return (
     <HomeHintProvider>
@@ -42,10 +39,7 @@ export default async function Home() {
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
               <HelpDropdown page="home" />
-              <div className="hidden min-[480px]:flex flex-col items-end">
-                <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{tCommon('user')}</span>
-                <span className="max-w-[140px] truncate text-xs">{username}</span>
-              </div>
+
               <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2" title="Settings">
                 <Link href="/settings">
                   <Settings className="h-4 w-4" />

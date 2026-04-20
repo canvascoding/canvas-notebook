@@ -7,12 +7,13 @@ export default async function SettingsPage() {
   const session = await requirePageSession();
   const t = await getTranslations('settings');
 
-  const username = session?.user?.name || session?.user?.email || 'User';
   const isAdmin = session?.user?.role === 'admin';
+  const userName = session?.user?.name || '';
+  const userEmail = session?.user?.email || '';
 
   return (
-    <SuitePageLayout title={t('title')} username={username} hintPage="settings">
-        <IntegrationsSettingsClient isAdmin={isAdmin} />
+    <SuitePageLayout title={t('title')} hintPage="settings">
+        <IntegrationsSettingsClient isAdmin={isAdmin} userName={userName} userEmail={userEmail} />
     </SuitePageLayout>
   );
 }

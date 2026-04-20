@@ -28,10 +28,9 @@ import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
-  username?: string;
 }
 
-export function FileBrowser({ variant = 'default', username }: FileBrowserProps) {
+export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
   const t = useTranslations('notebook');
   const tCommon = useTranslations('common');
   const dragCounter = useRef(0);
@@ -318,12 +317,7 @@ export function FileBrowser({ variant = 'default', username }: FileBrowserProps)
           <div className="flex items-center gap-1.5 md:gap-4">
             <NotebookNavButton />
             <ThemeToggle />
-            {username && (
-              <div className="hidden lg:flex flex-col items-end shrink-0">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{tCommon('user')}</span>
-                <span className="text-xs text-foreground/90">{username}</span>
-              </div>
-            )}
+
             <LogoutButton />
           </div>
         </div>
