@@ -263,7 +263,9 @@
     "noFilesFound": "Keine Dateien gefunden",
     "uploadFilesToGetStarted": "Lade Dateien hoch, um zu starten",
     "noResultsFound": "Keine Ergebnisse gefunden",
-    "noFilesMatch": "Keine Dateien passen zu \"{query}\""
+    "noFilesMatch": "Keine Dateien passen zu \"{query}\"",
+    "previous": "Zurück",
+    "next": "Weiter"
   },
   "chat": {
     "metadataTitle": "Canvas Chat | Canvas Notebook",

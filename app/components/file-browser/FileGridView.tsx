@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, AlertCircle, FolderOpen } from 'lucide-react';
 import {
@@ -13,14 +13,12 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import {
   useFileStore,
   type FileNode as FileNodeType,
-  type BrowserMode,
   findPathInTree,
 } from '@/app/store/file-store';
-import { FileTreeNode } from '@/app/components/file-browser/FileTreeNode';
-import { FileContextMenu } from '@/app/components/file-browser/FileContextMenu';
-import { BulkMoveDialog } from '@/app/components/file-browser/BulkMoveDialog';
+import { FileTreeNode } from './FileTreeNode';
+import { FileContextMenu } from './FileContextMenu';
+import { BulkMoveDialog } from './BulkMoveDialog';
 import { FileGridItem } from './FileGridItem';
-import type { FilesViewMode } from './FilesContainer';
 
 function getParentDirectory(path: string) {
   return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.';
@@ -44,14 +42,14 @@ function flattenDirectoryChildren(nodes: FileNodeType[], dirPath: string): FileN
 }
 
 interface FileGridViewProps {
-  viewMode: FilesViewMode;
-  onPreviewImage: (path: string) => void;
+  variant?: 'default' | 'mobile-sheet' | 'fullscreen';
+  onOpenFile?: (path: string) => void;
 }
 
-export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
+export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewProps) {
   const t = useTranslations('notebook');
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isRestoring] = [false];
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const {
     fileTree,
@@ -64,10 +62,7 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
     selectAllInDirectory,
     clearMultiSelect,
     searchQuery,
-    expandedDirs,
-    selectNode,
-    loadFile,
-    mobileFileOpened,
+    browserMode,
   } = useFileStore();
 
   const activeDirectoryChildren = flattenDirectoryChildren(fileTree, currentDirectory);
@@ -76,38 +71,83 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
     let cancelled = false;
 
     const restoreExplorer = async () => {
-      const { currentDirectory: curDir, expandedDirs: curExpanded } = useFileStore.getState();
-      const hasRestorableState = curDir !== '.' || curExpanded.size > 0;
+      const {
+        currentDirectory: curDir,
+        expandedDirs: curExpanded,
+        searchQuery: curSearch,
+        selectedNode,
+      } = useFileStore.getState();
 
-      if (!hasRestorableState) {
+      const hasRestorableState =
+        selectedNode !== null ||
+        curDir !== '.' ||
+        curExpanded.size > 0 ||
+        curSearch.trim().length > 0;
+
+      if (variant !== 'mobile-sheet' || !hasRestorableState) {
         await loadFileTree('.', 0);
         return;
       }
 
-      const expandedPaths = Array.from(curExpanded).sort((a, b) => {
-        const depthDiff = getDirectoryDepth(a) - getDirectoryDepth(b);
-        return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
-      });
+      setIsRestoring(true);
 
-      await refreshRootTree(true);
-      if (cancelled) return;
-
-      for (const dirPath of expandedPaths) {
-        if (cancelled || dirPath === '.') continue;
-        const currentTree = useFileStore.getState().fileTree;
-        const parentDir = getParentDirectory(dirPath);
-        const parentExists = parentDir === '.'
-          ? currentTree.some((node) => node.type === 'directory' && node.path === dirPath.split('/')[0])
-          : findPathInTree(parentDir, currentTree);
-        if (!parentExists) continue;
-        await loadSubdirectory(dirPath, true);
+      try {
+        await refreshRootTree(true);
         if (cancelled) return;
+
+        const expandedPaths = Array.from(curExpanded).sort((a, b) => {
+          const depthDiff = getDirectoryDepth(a) - getDirectoryDepth(b);
+          return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
+        });
+
+        const validExpandedDirs = new Set<string>();
+
+        for (const dirPath of expandedPaths) {
+          if (cancelled || dirPath === '.') continue;
+          const currentTree = useFileStore.getState().fileTree;
+          const parentDir = getParentDirectory(dirPath);
+          const parentExists = parentDir === '.'
+            ? currentTree.some((node) => node.type === 'directory' && node.path === dirPath.split('/')[0])
+            : findPathInTree(parentDir, currentTree);
+          if (!parentExists) continue;
+          await loadSubdirectory(dirPath, true);
+          if (cancelled) return;
+
+          const nextTree = useFileStore.getState().fileTree;
+          if (findPathInTree(dirPath, nextTree)) {
+            validExpandedDirs.add(dirPath);
+          }
+        }
+
+        useFileStore.setState((state) => ({
+          expandedDirs: new Set(
+            Array.from(state.expandedDirs).filter((dirPath) => dirPath === '.' || validExpandedDirs.has(dirPath))
+          ),
+        }));
+
+        const restoredTree = useFileStore.getState().fileTree;
+        const currentDirExists = curDir === '.' || findPathInTree(curDir, restoredTree);
+
+        if (!currentDirExists) {
+          const fallbackDir = selectedNode?.type === 'directory'
+            ? selectedNode.path
+            : selectedNode?.path
+              ? getParentDirectory(selectedNode.path)
+              : '.';
+          useFileStore.getState().setCurrentDirectory(
+            fallbackDir !== '.' && findPathInTree(fallbackDir, restoredTree) ? fallbackDir : '.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsRestoring(false);
+        }
       }
     };
 
     void restoreExplorer();
     return () => { cancelled = true; };
-  }, [loadFileTree, loadSubdirectory, refreshRootTree]);
+  }, [loadFileTree, loadSubdirectory, refreshRootTree, variant]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -125,7 +165,14 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
   }, [currentDirectory, selectAllInDirectory, clearMultiSelect]);
 
   useEffect(() => {
-    if (viewMode !== 'list') return;
+    if (browserMode !== 'grid') return;
+    if (currentDirectory === '.') return;
+    if (activeDirectoryChildren !== null) return;
+    void loadSubdirectory(currentDirectory, true);
+  }, [activeDirectoryChildren, currentDirectory, loadSubdirectory, browserMode]);
+
+  useEffect(() => {
+    if (browserMode !== 'list') return;
     if (currentDirectory === '.') return;
     const tree = useFileStore.getState().fileTree;
     let nodeExists = false;
@@ -139,7 +186,7 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
     };
     findNode(tree, currentDirectory);
     if (!nodeExists || !hasChildren) loadSubdirectory(currentDirectory, true);
-  }, [viewMode, currentDirectory, loadSubdirectory]);
+  }, [browserMode, currentDirectory, loadSubdirectory]);
 
   const filterTree = (nodes: FileNodeType[], query: string): FileNodeType[] => {
     if (!query) return nodes;
@@ -160,15 +207,23 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
 
   const filteredTree = searchQuery ? filterTree(fileTree, searchQuery.toLowerCase()) : fileTree;
 
-  const listDirChildren = viewMode === 'list'
+  const listDirChildren = browserMode === 'list'
     ? flattenDirectoryChildren(fileTree, currentDirectory)
     : null;
 
-  const filteredListChildren = viewMode === 'list' && listDirChildren
+  const filteredListChildren = browserMode === 'list' && listDirChildren
     ? (searchQuery ? listDirChildren.filter((n: FileNodeType) => n.name.toLowerCase().includes(searchQuery.toLowerCase())) : listDirChildren)
     : null;
 
-  if (isLoadingTree) {
+  const handleFileOpen = useCallback((path: string) => {
+    if (onOpenFile) {
+      onOpenFile(path);
+    } else {
+      void useFileStore.getState().loadFile(path, true);
+    }
+  }, [onOpenFile]);
+
+  if (isLoadingTree || isRestoring) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -188,7 +243,17 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
     );
   }
 
-  if (viewMode === 'grid') {
+  if (fileTree.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+        <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
+        <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
+        <p className="text-xs text-muted-foreground/60">{t('uploadFilesToGetStarted')}</p>
+      </div>
+    );
+  }
+
+  if (browserMode === 'grid') {
     const gridItems = searchQuery
       ? filteredTree
       : (activeDirectoryChildren ?? []);
@@ -212,7 +277,7 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
               <FileGridItem
                 key={node.path}
                 node={node}
-                onPreviewImage={onPreviewImage}
+                onOpenFile={handleFileOpen}
                 onOpenDirectory={handleOpenDirectory}
               />
             ))}
@@ -230,7 +295,7 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
     );
   }
 
-  if (viewMode === 'list') {
+  if (browserMode === 'list') {
     const handleNavigateInto = async (node: FileNodeType) => {
       if (node.type === 'directory') {
         useFileStore.getState().setCurrentDirectory(node.path);
@@ -273,6 +338,7 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
                     node={node}
                     browserMode="list"
                     onNavigateInto={handleNavigateInto}
+                    onOpenFile={handleFileOpen}
                   />
                 ))}
               </SidebarMenu>
@@ -299,7 +365,7 @@ export function FileGridView({ viewMode, onPreviewImage }: FileGridViewProps) {
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5">
               {filteredTree.map((node) => (
-                <FileTreeNode key={node.path} node={node} />
+                <FileTreeNode key={node.path} node={node} onOpenFile={handleFileOpen} />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>

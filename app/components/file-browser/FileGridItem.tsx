@@ -9,7 +9,7 @@ import { MoreVertical } from 'lucide-react';
 
 interface FileGridItemProps {
   node: FileNodeType;
-  onPreviewImage: (path: string) => void;
+  onOpenFile: (path: string) => void;
   onOpenDirectory?: (path: string) => void;
 }
 
@@ -28,7 +28,7 @@ function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-export function FileGridItem({ node, onPreviewImage, onOpenDirectory }: FileGridItemProps) {
+export function FileGridItem({ node, onOpenFile, onOpenDirectory }: FileGridItemProps) {
   const {
     selectedNode,
     isMultiSelectMode,
@@ -67,10 +67,10 @@ export function FileGridItem({ node, onPreviewImage, onOpenDirectory }: FileGrid
           toggleDirectory(node.path);
         }
       } else {
-        onPreviewImage(node.path);
+        onOpenFile(node.path);
       }
     },
-    [node, selectNode, isMultiSelectMode, toggleMultiSelectPath, isDirectory, onPreviewImage, onOpenDirectory, toggleDirectory]
+    [node, selectNode, isMultiSelectMode, toggleMultiSelectPath, isDirectory, onOpenFile, onOpenDirectory, toggleDirectory]
   );
 
   const handleContextMenu = useCallback(
