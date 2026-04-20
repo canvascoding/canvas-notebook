@@ -88,5 +88,9 @@ export async function deleteAssetDir(relativePath: string): Promise<void> {
 }
 
 export function getStudioOutputFullPath(filePath: string): string {
-  return path.join(getStudioOutputsRoot(), filePath);
+  const normalized = filePath.replace(/^\/+/, '');
+  const relativePath = normalized.startsWith(`${STUDIO_OUTPUTS_ROOT_DIR}/`)
+    ? normalized.slice(STUDIO_OUTPUTS_ROOT_DIR.length + 1)
+    : normalized;
+  return path.join(getStudioOutputsRoot(), relativePath);
 }

@@ -70,6 +70,11 @@ export const ONBOARDING_PAGES: Record<string, PageDefinition> = {
       { hintKey: 'settings.usage', page: 'settings', targetSelector: '#onboarding-settings-usage', requiredTab: 'usage' },
     ],
   },
+  studio: {
+    page: 'studio',
+    version: 1,
+    hints: [],
+  },
 };
 
 export const ALL_PAGES = Object.values(ONBOARDING_PAGES);
