@@ -52,31 +52,39 @@ export function HomeWorkspaceView() {
         <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
           {t('sections.workspace')}
         </h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <ToolCard
-            icon={NotebookPen}
-            title={tApps('notebook.title')}
-            description={tApps('notebook.description')}
-            href="/notebook"
-          />
-          <ToolCard
-            icon={MessageSquare}
-            title={tApps('chat.title')}
-            description={tApps('chat.description')}
-            href="/chat"
-          />
-          <ToolCard
-            icon={FolderOpen}
-            title={tApps('files.title')}
-            description={tApps('files.description')}
-            href="/files"
-          />
-          <ToolCard
-            icon={Workflow}
-            title={tApps('automations.title')}
-            description={tApps('automations.description')}
-            href="/automationen"
-          />
+        <div className="flex flex-wrap justify-center gap-3">
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={NotebookPen}
+              title={tApps('notebook.title')}
+              description={tApps('notebook.description')}
+              href="/notebook"
+            />
+          </div>
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={MessageSquare}
+              title={tApps('chat.title')}
+              description={tApps('chat.description')}
+              href="/chat"
+            />
+          </div>
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={FolderOpen}
+              title={tApps('files.title')}
+              description={tApps('files.description')}
+              href="/files"
+            />
+          </div>
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={Workflow}
+              title={tApps('automations.title')}
+              description={tApps('automations.description')}
+              href="/automationen"
+            />
+          </div>
         </div>
       </section>
 
@@ -84,25 +92,31 @@ export function HomeWorkspaceView() {
         <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
           {t('sections.create')}
         </h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <ToolCard
-            icon={ImageIcon}
-            title={tApps('imageGeneration.title')}
-            description={tApps('imageGeneration.description')}
-            href="/image-generation"
-          />
-          <ToolCard
-            icon={Clapperboard}
-            title={tApps('veo.title')}
-            description={tApps('veo.description')}
-            href="/veo"
-          />
-          <ToolCard
-            icon={Globe}
-            title={tApps('nanoBanana.title')}
-            description={tApps('nanoBanana.description')}
-            href="/nano-banana-localizer"
-          />
+        <div className="flex flex-wrap justify-center gap-3">
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={ImageIcon}
+              title={tApps('imageGeneration.title')}
+              description={tApps('imageGeneration.description')}
+              href="/image-generation"
+            />
+          </div>
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={Clapperboard}
+              title={tApps('veo.title')}
+              description={tApps('veo.description')}
+              href="/veo"
+            />
+          </div>
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={Globe}
+              title={tApps('nanoBanana.title')}
+              description={tApps('nanoBanana.description')}
+              href="/nano-banana-localizer"
+            />
+          </div>
         </div>
       </section>
 
