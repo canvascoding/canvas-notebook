@@ -546,7 +546,7 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
 
     const normalizedPath = href.replace(/^\.\/|\/$/g, '');
 
-    if (!normalizedPath || isValid === false) return;
+    if (!normalizedPath) return;
 
     if (pathname.includes('/chat')) {
       const notebookPath = getPathname({
@@ -600,15 +600,17 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
     }
   };
 
-  if (isValid === false) {
-    return <span className="text-muted-foreground">{children}</span>;
-  }
+  const isNotFound = isValid === false;
 
   return (
     <button
       onClick={handleClick}
-      className="cursor-pointer underline underline-offset-2 text-primary hover:text-primary/80 transition-colors"
-      title={`Open ${href}`}
+      className={`underline underline-offset-2 transition-colors ${
+        isNotFound
+          ? 'text-muted-foreground cursor-not-allowed'
+          : 'cursor-pointer text-primary hover:text-primary/80'
+      }`}
+      title={isNotFound ? `File not found: ${href}` : `Open ${href}`}
     >
       {children}
     </button>
