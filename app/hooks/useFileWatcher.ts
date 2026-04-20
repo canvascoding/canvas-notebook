@@ -119,7 +119,7 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
         if (targetDir === '.') {
           refreshRootTree(true);
         } else if (currentExpanded.has(targetDir)) {
-          loadSubdirectory(targetDir);
+          loadSubdirectory(targetDir, true);
         }
         lastReloadRef.current = Date.now();
       }
