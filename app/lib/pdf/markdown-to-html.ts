@@ -97,6 +97,41 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
+// Regex patterns for color detection (same as in color-swatch.tsx)
+const HEX_REGEX = /^#([0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
+const RGB_REGEX = /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/;
+const RGBA_REGEX = /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*[\d.]+\s*\)$/;
+const HSL_REGEX = /^hsl\(\s*\d+\s*,\s*\d+%?\s*,\s*\d+%?\s*\)$/;
+const HSLA_REGEX = /^hsla\(\s*\d+\s*,\s*\d+%?\s*,\s*\d+%?\s*,\s*[\d.]+\s*\)$/;
+
+function isColorCode(str: string): boolean {
+  const trimmed = str.trim();
+  return HEX_REGEX.test(trimmed) || 
+         RGB_REGEX.test(trimmed) || 
+         RGBA_REGEX.test(trimmed) || 
+         HSL_REGEX.test(trimmed) || 
+         HSLA_REGEX.test(trimmed);
+}
+
+function processColorCodes(htmlContent: string): string {
+  // Find inline <code> elements and replace color codes with styled spans
+  return htmlContent.replace(/&lt;code&gt;([^&]*)&lt;\/code&gt;/g, (match, codeContent) => {
+    const decodedContent = codeContent
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"');
+    
+    if (isColorCode(decodedContent)) {
+      const color = decodedContent.trim();
+      const swatchStyle = `display:inline-block;width:14px;height:14px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);margin-left:4px;vertical-align:middle;background-color:${color};`;
+      return `<span style="display:inline-flex;align-items:center;gap:4px;"><code style="font-size:0.75rem;">${codeContent}</code><span style="${swatchStyle}"></span></span>`;
+    }
+    
+    return match;
+  });
+}
+
 async function inlineImagesAsBase64(
   htmlContent: string,
   markdownDir: string
@@ -162,6 +197,9 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
 
   marked.use({ gfm: true, breaks: true });
   let htmlContent = await marked.parse(processedMarkdown);
+
+  // Post-process color codes in the HTML
+  htmlContent = processColorCodes(htmlContent);
 
   const fileDir = path.dirname(filePath);
   const ext = path.extname(filePath);
