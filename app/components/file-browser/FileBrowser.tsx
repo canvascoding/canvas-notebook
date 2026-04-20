@@ -28,9 +28,10 @@ import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
+  onFileSelect?: (path: string) => void;
 }
 
-export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
+export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserProps) {
   const t = useTranslations('notebook');
   const tCommon = useTranslations('common');
   const dragCounter = useRef(0);
@@ -190,7 +191,8 @@ export function FileBrowser({ variant = 'default' }: FileBrowserProps) {
     } else {
       void useFileStore.getState().loadFile(path, true);
     }
-  }, [isFullscreen]);
+    onFileSelect?.(path);
+  }, [isFullscreen, onFileSelect]);
 
   const toolbarHandlers: FileToolbarHandlers = {
     onToggleMultiSelect: toggleMultiSelectMode,

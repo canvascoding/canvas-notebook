@@ -222,7 +222,7 @@ export function useFileWatcher(options: UseFileWatcherOptions = {}): UseFileWatc
   useEffect(() => {
     if (!isConnected) return;
     const expanded = useFileStore.getState().expandedDirs;
-    if (clientIdRef.current && expanded.size >= 0) {
+    if (clientIdRef.current && expanded.size > 0) {
       scheduleSync();
     }
   }, [isConnected, scheduleSync]);
