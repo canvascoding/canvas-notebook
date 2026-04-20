@@ -25,13 +25,6 @@ async function listFilesRecursive(dir: string, baseDir: string): Promise<string[
   return results;
 }
 
-function toRelativePath(absoluteOrRelativePath: string, root: string): string {
-  if (absoluteOrRelativePath.startsWith(root)) {
-    return path.relative(root, absoluteOrRelativePath).replace(/\\/g, '/');
-  }
-  return absoluteOrRelativePath.replace(/\\/g, '/');
-}
-
 function normalizePath(p: string): string {
   return p.replace(/\\/g, '/');
 }
@@ -71,7 +64,6 @@ export async function cleanupOrphanedStudioAssets(): Promise<{ deleted: number; 
     for (const diskFile of allDiskFiles) {
       if (!dbFilePaths.has(diskFile)) {
         try {
-          const isAsset = assetsFiles.map(normalizePath).includes(diskFile);
           const relativePath = diskFile;
           await deleteAssetFile(relativePath);
           deleted++;
