@@ -2927,7 +2927,7 @@ export default function CanvasAgentChat({
             </button>
             {showSkillsLink && (
               <Link
-                href="/skills"
+                href="/settings?tab=skills"
                 aria-label={t('viewSkills')}
                 className="group flex items-center gap-1 border border-border bg-muted/50 px-2 py-1 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                 title={t('viewSkills')}
