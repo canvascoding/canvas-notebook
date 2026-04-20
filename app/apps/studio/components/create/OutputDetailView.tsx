@@ -124,9 +124,15 @@ export function OutputDetailView({
 
               <div className="space-y-4 border-t border-border/70 bg-background/92 px-4 py-4 backdrop-blur sm:px-6">
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary" className="rounded-full px-3 py-1">
-                    {presetName}
-                  </Badge>
+                  {presetName ? (
+                    <Badge variant="secondary" className="rounded-full px-3 py-1">
+                      {presetName}
+                    </Badge>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
+                      [Gelöscht]
+                    </span>
+                  )}
                   <Badge variant="outline" className="rounded-full px-3 py-1">
                     AR {aspectRatioLabel}
                   </Badge>
