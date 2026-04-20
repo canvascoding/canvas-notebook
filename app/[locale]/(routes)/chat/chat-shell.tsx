@@ -34,9 +34,7 @@ export function ChatShell() {
           <div className="flex items-center gap-1.5 md:gap-4">
             <NotebookNavButton />
             <ThemeToggle />
-            <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
-              <Link href="/usage">{t('usage')}</Link>
-            </Button>
+
             <div className="hidden lg:flex flex-col items-end shrink-0">
               <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{t('userLabel')}</span>
               <span className="text-xs text-foreground/90">{t('user')}</span>
