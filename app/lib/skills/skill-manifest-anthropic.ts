@@ -18,6 +18,8 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
+import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
+import { enableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
 
 // Skill metadata from YAML frontmatter
 export interface SkillFrontmatter {
@@ -552,7 +554,20 @@ export async function createSkillDirectory(
     const skillMdPath = path.join(skillPath, 'SKILL.md');
     const skillContent = createDefaultSkillMd(name, description, content);
     await fs.writeFile(skillMdPath, skillContent, 'utf-8');
-    
+
+    // Auto-enable the new skill in pi-runtime-config
+    try {
+      const config = await readPiRuntimeConfig();
+      if (!areAllSkillsEnabled(config.enabledSkills)) {
+        const allSkillNames = await getSkillNames();
+        config.enabledSkills = enableSkillInConfig(name, config.enabledSkills, allSkillNames);
+        await writePiRuntimeConfig(config);
+        console.log(`[SkillLoader] Auto-enabled skill "${name}" in config`);
+      }
+    } catch (cfgError) {
+      console.warn(`[SkillLoader] Could not auto-enable skill "${name}" in config:`, cfgError);
+    }
+
     console.log(`[SkillLoader] Created skill: ${skillPath}`);
     return { success: true, path: skillPath };
     
