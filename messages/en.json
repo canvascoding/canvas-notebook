@@ -581,6 +581,10 @@
         "title": "Files",
         "description": "Browse, preview, and manage all your workspace files."
       },
+      "studio": {
+        "title": "Studio",
+        "description": "Manage products, personas, and presets, and create AI-generated images."
+      },
       "settings": {
         "title": "Settings",
         "description": "Manage workspace settings and configuration."
@@ -1692,6 +1696,12 @@
           "description": "Localized ads appear here, one per target market."
         }
       },
+      "studio": {
+        "models": {
+          "title": "Model Library",
+          "description": "Manage products and personas as referenceable models for AI generations."
+        }
+      },
       "settings": {
         "agentSettings": {
           "title": "Provider & model",
@@ -1713,7 +1723,59 @@
           "title": "Agents env",
           "description": "Separate environment variables for agent-specific providers like OpenRouter, Ollama, or Anthropic."
         },
-        "usage": {
+  "studio": {
+    "title": "Studio",
+    "comingSoon": "Coming Soon — This feature will be available soon.",
+    "common": {
+      "loading": "Loading..."
+    },
+    "tabs": {
+      "create": "Create",
+      "bulk": "Bulk",
+      "models": "Models",
+      "presets": "Presets"
+    },
+    "modelLibrary": {
+      "products": "Products",
+      "personas": "Personas",
+      "newProduct": "New Product",
+      "newPersona": "New Persona",
+      "searchPlaceholder": "Search models...",
+      "emptyProductTitle": "No products yet",
+      "emptyProductDescription": "Create your first product to reference images in AI generations.",
+      "emptyPersonaTitle": "No personas yet",
+      "emptyPersonaDescription": "Create your first persona to use consistent characters in generations."
+    },
+    "modelCreate": {
+      "name": "Name",
+      "description": "Description",
+      "images": "Images",
+      "dropzone": "Drop images here or click to select",
+      "maxImages": "Up to {max} images",
+      "urlImport": "Import from URL",
+      "urlPlaceholder": "https://example.com/image.jpg",
+      "addUrl": "Add",
+      "productNamePlaceholder": "e.g. My Product",
+      "personaNamePlaceholder": "e.g. My Persona",
+      "descriptionPlaceholder": "Optional description...",
+      "nameRequired": "Name is required",
+      "createFailed": "Creation failed",
+      "save": "Save"
+    },
+    "modelDetail": {
+      "notFound": "Not found",
+      "save": "Save",
+      "cancel": "Cancel",
+      "images": "Images",
+      "addImages": "Add images",
+      "noDescription": "No description",
+      "deleteProduct": "Delete product",
+      "deletePersona": "Delete persona",
+      "deleteConfirmMessage": "This model may be referenced in generations. The reference will be marked as [Deleted]. Continue?",
+      "confirmDelete": "Delete"
+    }
+  },
+  "usage": {
           "title": "Usage",
           "description": "View token usage, costs, and analytics. Filter by date range, provider, or model."
         }
