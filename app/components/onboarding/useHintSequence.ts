@@ -127,8 +127,8 @@ export function useHintSequence(page: string) {
       return {
         title: t(`${pageName}.${hintName}.title`),
         description: t(`${pageName}.${hintName}.description`),
-        targetId: hintDef.targetId,
-        mobileTargetId: hintDef.mobileTargetId ?? hintDef.targetId,
+        targetSelector: hintDef.targetSelector,
+        mobileTargetSelector: hintDef.mobileTargetSelector ?? hintDef.targetSelector,
         requiredTab: hintDef.requiredTab,
       };
     } catch {

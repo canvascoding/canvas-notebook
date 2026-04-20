@@ -70,20 +70,20 @@ export function HintProvider({ page, children }: HintProviderProps) {
     const hint = getCurrentHintTexts();
     if (!hint) return;
 
-    const effectiveId = hint.targetId;
+    const effectiveSelector = hint.targetSelector;
     let attempts = 0;
     let cancelled = false;
 
     const pollTarget = () => {
       if (cancelled) return;
-      const el = document.getElementById(effectiveId);
+      const el = document.querySelector(effectiveSelector);
       if (el) {
         setSkipHint(false);
         return;
       }
       attempts++;
       if (attempts >= TARGET_POLL_ATTEMPTS) {
-        console.warn(`[onboarding] Target element #${effectiveId} not found after ${TARGET_POLL_ATTEMPTS} attempts, auto-dismissing hint`);
+        console.warn(`[onboarding] Target element "${effectiveSelector}" not found after ${TARGET_POLL_ATTEMPTS} attempts, auto-dismissing hint`);
         void dismissCurrent();
         return;
       }
@@ -122,8 +122,8 @@ export function HintProvider({ page, children }: HintProviderProps) {
         <HintTooltip
           title={currentHint.title}
           description={currentHint.description}
-          targetId={currentHint.targetId}
-          mobileTargetId={currentHint.mobileTargetId}
+          targetSelector={currentHint.targetSelector}
+          mobileTargetSelector={currentHint.mobileTargetSelector}
           onDismiss={handleDismiss}
           dismissing={dismissing}
         />
