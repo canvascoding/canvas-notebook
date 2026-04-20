@@ -11,6 +11,7 @@ interface FileGridItemProps {
   node: FileNodeType;
   onOpenFile: (path: string) => void;
   onOpenDirectory?: (path: string) => void;
+  size?: 'sm' | 'lg';
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'heic', 'heif']);
@@ -28,7 +29,7 @@ function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-export function FileGridItem({ node, onOpenFile, onOpenDirectory }: FileGridItemProps) {
+export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }: FileGridItemProps) {
   const {
     selectedNode,
     isMultiSelectMode,
@@ -90,6 +91,14 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory }: FileGridItem
     ? toPreviewUrl(node.path, 256, { preset: 'mini' })
     : undefined;
 
+  const isLg = size === 'lg';
+  const thumbClass = isLg
+    ? 'h-24 w-24 sm:h-28 sm:w-28 md:h-32 md:w-32 lg:h-36 lg:w-36'
+    : 'h-20 w-20 sm:h-24 sm:w-24 md:h-28 md:w-28';
+  const iconClass = isLg
+    ? 'h-14 w-14 sm:h-16 sm:w-16 md:h-20 md:w-20'
+    : 'h-12 w-12 sm:h-14 sm:w-14 md:h-16 md:w-16';
+
   return (
     <div
       className={cn(
@@ -132,7 +141,7 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory }: FileGridItem
 
       <div className="flex w-full flex-1 items-center justify-center px-3 py-2">
         {showImagePreview && thumbnailSrc ? (
-          <div className="relative h-20 w-20 sm:h-24 sm:w-24 md:h-28 md:w-28 overflow-hidden rounded-md bg-muted/30">
+          <div className={cn('relative overflow-hidden rounded-md bg-muted/30', thumbClass)}>
             <img
               src={thumbnailSrc}
               alt={node.name}
@@ -143,8 +152,8 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory }: FileGridItem
             />
           </div>
         ) : (
-          <div className="relative flex h-20 w-20 sm:h-24 sm:w-24 md:h-28 md:w-28 items-center justify-center">
-            {getFileIconComponent({ name: node.name, path: node.path, type: node.type, isExpanded: false, className: 'h-12 w-12 sm:h-14 sm:w-14 md:h-16 md:w-16' })}
+          <div className={cn('relative flex items-center justify-center', thumbClass)}>
+            {getFileIconComponent({ name: node.name, path: node.path, type: node.type, isExpanded: false, className: iconClass })}
           </div>
         )}
       </div>
