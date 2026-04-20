@@ -44,7 +44,8 @@
         "loadFailed": "Failed to load assets.",
         "uploadFailed": "Upload failed."
       }
-    }
+    },
+    "studio": "Studio"
   },
   "navigation": {
     "hideSidebar": "Hide sidebar",
@@ -95,25 +96,171 @@
     "redirecting": "Redirecting to login..."
   },
   "onboarding": {
-    "logoAlt": "Canvas logo",
-    "welcome": "Welcome!",
-    "description": "You are already logged in as the admin configured via environment. Set up your AI provider now. User management is handled exclusively through container environment variables.",
-    "languageTitle": "Choose language",
-    "languageDescription": "Select your preferred language for the interface.",
-    "languageActive": "Active",
-    "languageContinue": "Continue",
-    "providerTitle": "Provider & Model",
-    "providerDescription": "Choose your provider, set up authentication, and save the same PI configuration as you would later in Settings.",
-    "saveProvider": "Save provider & continue",
-    "saveSuccessMessage": "Provider configuration saved.",
-    "providerSaved": "Provider set up!",
-    "skipSetup": "Set up later",
-    "setupComplete": "Setup complete",
-    "setupCompleteDescription": "Providers, models, and other agent settings can be adjusted anytime in Settings.",
-    "toApp": "Go to app",
-    "completing": "Completing...",
-    "completionError": "Could not complete onboarding",
-    "unexpectedError": "Unexpected error while completing onboarding"
+    "hints": {
+      "home": {
+        "promptHero": {
+          "title": "What to create?",
+          "description": "Describe what you want to create — or use the categories below for inspiration."
+        },
+        "workspace": {
+          "title": "Workspace",
+          "description": "Your workspace: manage files and chat with the agent in Notebook. Automations schedules recurring tasks."
+        },
+        "create": {
+          "title": "Create directly",
+          "description": "Generate images, videos, and localized ads — without going through chat."
+        }
+      },
+      "notebook": {
+        "fileBrowser": {
+          "title": "File browser",
+          "description": "View all files in your workspace. Create new ones, upload, or drag & drop."
+        },
+        "editor": {
+          "title": "Editor",
+          "description": "Open a file from the file tree to edit it here."
+        },
+        "editorMode": {
+          "title": "View mode",
+          "description": "Switch between editor, editor with preview, and pure preview in the top-right corner."
+        },
+        "chat": {
+          "title": "Agent chat",
+          "description": "Chat with the agent, reference files with @, or start with a prompt suggestion."
+        }
+      },
+      "imageGen": {
+        "config": {
+          "title": "Configuration",
+          "description": "Choose provider and model, set aspect ratio and count — then prompt."
+        },
+        "references": {
+          "title": "Reference images",
+          "description": "Upload reference images to visually guide the output."
+        },
+        "results": {
+          "title": "Results",
+          "description": "Generated images appear here. Click for full view or download."
+        }
+      },
+      "veo": {
+        "mode": {
+          "title": "Video mode",
+          "description": "Choose the mode: Text-to-Video, Frames-to-Video, References-to-Video, or Extend Video."
+        },
+        "config": {
+          "title": "Settings",
+          "description": "Set aspect ratio and resolution before generating."
+        },
+        "results": {
+          "title": "Results",
+          "description": "Your video appears here. Saved outputs are also in this section."
+        }
+      },
+      "localizer": {
+        "reference": {
+          "title": "Reference ad",
+          "description": "Upload the ad image you want to localize."
+        },
+        "markets": {
+          "title": "Target markets",
+          "description": "Add target markets (e.g. US, FR, ES). A localized variant is created per market."
+        },
+        "results": {
+          "title": "Results",
+          "description": "Localized ads appear here, one per target market."
+        }
+      },
+      "studio": {
+        "models": {
+          "title": "Model Library",
+          "description": "Manage products and personas as referenceable models for AI generations."
+        }
+      },
+      "settings": {
+        "agentSettings": {
+          "title": "Provider & model",
+          "description": "Choose the AI provider and model. This determines which agent processes your prompts."
+        },
+        "managedFiles": {
+          "title": "Agent prompt",
+          "description": "These files control your agent's behavior and knowledge. AGENTS.md is the main instruction, other files add identity, memory, and skills."
+        },
+        "tools": {
+          "title": "Tools",
+          "description": "Enable or disable individual agent tools. Disable tools you don't need to keep the agent focused."
+        },
+        "integrations": {
+          "title": "Integrations env",
+          "description": "Manage API keys and environment variables for external services — e.g. Gemini, OpenAI, Brave. Use KV mode to edit individual values, or Raw mode for the full file."
+        },
+        "agentsEnv": {
+          "title": "Agents env",
+          "description": "Separate environment variables for agent-specific providers like OpenRouter, Ollama, or Anthropic."
+        },
+        "studio": {
+          "title": "Studio",
+          "comingSoon": "Coming Soon — This feature will be available soon.",
+          "common": {
+            "loading": "Loading..."
+          },
+          "tabs": {
+            "create": "Create",
+            "bulk": "Bulk",
+            "models": "Models",
+            "presets": "Presets"
+          },
+          "modelLibrary": {
+            "products": "Products",
+            "personas": "Personas",
+            "newProduct": "New Product",
+            "newPersona": "New Persona",
+            "searchPlaceholder": "Search models...",
+            "emptyProductTitle": "No products yet",
+            "emptyProductDescription": "Create your first product to reference images in AI generations.",
+            "emptyPersonaTitle": "No personas yet",
+            "emptyPersonaDescription": "Create your first persona to use consistent characters in generations."
+          },
+          "modelCreate": {
+            "name": "Name",
+            "description": "Description",
+            "images": "Images",
+            "dropzone": "Drop images here or click to select",
+            "maxImages": "Up to {max} images",
+            "urlImport": "Import from URL",
+            "urlPlaceholder": "https://example.com/image.jpg",
+            "addUrl": "Add",
+            "productNamePlaceholder": "e.g. My Product",
+            "personaNamePlaceholder": "e.g. My Persona",
+            "descriptionPlaceholder": "Optional description...",
+            "nameRequired": "Name is required",
+            "createFailed": "Creation failed",
+            "save": "Save"
+          },
+          "modelDetail": {
+            "notFound": "Not found",
+            "save": "Save",
+            "cancel": "Cancel",
+            "images": "Images",
+            "addImages": "Add images",
+            "noDescription": "No description",
+            "deleteProduct": "Delete product",
+            "deletePersona": "Delete persona",
+            "deleteConfirmMessage": "This model may be referenced in generations. The reference will be marked as [Deleted]. Continue?",
+            "confirmDelete": "Delete"
+          }
+        },
+        "usage": {
+          "title": "Usage",
+          "description": "View token usage, costs, and analytics. Filter by date range, provider, or model."
+        }
+      }
+    },
+    "helpDropdown": {
+      "repeatTutorial": "Repeat tutorial",
+      "completeOnboarding": "Complete onboarding",
+      "openHelp": "Open help"
+    }
   },
   "notebook": {
     "badge": "Notebook",
@@ -1104,28 +1251,28 @@
       "configured": "Configured",
       "default": "Default"
     },
-  "artifacts": {
-    "title": "Run artifacts",
-    "openResultFile": "Open result file",
-    "piSession": "PI session"
-  },
-  "session": {
-    "title": "Run chat",
-    "description": "Read-only history of the linked session. You can continue the same session in chat at any time.",
-    "openChat": "Open in chat",
-    "continueChat": "Continue session",
-    "loading": "Loading chat history...",
-    "empty": "No chat messages available yet.",
-    "pending": "The session was created but has not been fully persisted yet.",
-    "noSession": "No session has been created for this run yet.",
-    "emptyMessage": "No text output available.",
-    "roles": {
-      "user": "User",
-      "assistant": "Assistant",
-      "toolResult": "Tool",
-      "system": "System"
-    }
-  },
+    "artifacts": {
+      "title": "Run artifacts",
+      "openResultFile": "Open result file",
+      "piSession": "PI session"
+    },
+    "session": {
+      "title": "Run chat",
+      "description": "Read-only history of the linked session. You can continue the same session in chat at any time.",
+      "openChat": "Open in chat",
+      "continueChat": "Continue session",
+      "loading": "Loading chat history...",
+      "empty": "No chat messages available yet.",
+      "pending": "The session was created but has not been fully persisted yet.",
+      "noSession": "No session has been created for this run yet.",
+      "emptyMessage": "No text output available.",
+      "roles": {
+        "user": "User",
+        "assistant": "Assistant",
+        "toolResult": "Tool",
+        "system": "System"
+      }
+    },
     "jobStatus": {
       "active": "Active",
       "paused": "Paused"
@@ -1195,15 +1342,15 @@
         "loadDirectories": "Folders could not be loaded."
       }
     },
-  "errors": {
-    "loadJobs": "Automations could not be loaded.",
-    "loadRuns": "Runs could not be loaded.",
-    "loadLogs": "Logs could not be loaded.",
-    "loadSession": "Chat history could not be loaded.",
-    "saveJob": "Automation could not be saved.",
-    "runNow": "Run could not be started.",
-    "deleteJob": "Automation could not be deleted."
-  },
+    "errors": {
+      "loadJobs": "Automations could not be loaded.",
+      "loadRuns": "Runs could not be loaded.",
+      "loadLogs": "Logs could not be loaded.",
+      "loadSession": "Chat history could not be loaded.",
+      "saveJob": "Automation could not be saved.",
+      "runNow": "Run could not be started.",
+      "deleteJob": "Automation could not be deleted."
+    },
     "toasts": {
       "jobUpdated": "Automation updated.",
       "jobCreated": "Automation created.",
@@ -1219,8 +1366,12 @@
     "cardDescription": "Generate up to {count} image variations with a prompt and optional reference images. Output is saved under",
     "providerField": "Provider",
     "providerOptions": {
-      "gemini": { "label": "Google Gemini" },
-      "openai": { "label": "OpenAI GPT Image" }
+      "gemini": {
+        "label": "Google Gemini"
+      },
+      "openai": {
+        "label": "OpenAI GPT Image"
+      }
     },
     "fields": {
       "model": "Model",
@@ -1233,20 +1384,44 @@
       "background": "Background"
     },
     "qualityOptions": {
-      "auto": { "label": "Auto", "description": "Model selects optimal quality" },
-      "low": { "label": "Low", "description": "Fastest, lowest cost" },
-      "medium": { "label": "Medium", "description": "Balanced quality and cost" },
-      "high": { "label": "High", "description": "Best quality, higher cost" }
+      "auto": {
+        "label": "Auto",
+        "description": "Model selects optimal quality"
+      },
+      "low": {
+        "label": "Low",
+        "description": "Fastest, lowest cost"
+      },
+      "medium": {
+        "label": "Medium",
+        "description": "Balanced quality and cost"
+      },
+      "high": {
+        "label": "High",
+        "description": "Best quality, higher cost"
+      }
     },
     "outputFormatOptions": {
-      "png": { "label": "PNG" },
-      "jpeg": { "label": "JPEG" },
-      "webp": { "label": "WebP" }
+      "png": {
+        "label": "PNG"
+      },
+      "jpeg": {
+        "label": "JPEG"
+      },
+      "webp": {
+        "label": "WebP"
+      }
     },
     "backgroundOptions": {
-      "auto": { "label": "Auto" },
-      "opaque": { "label": "Opaque" },
-      "transparent": { "label": "Transparent" }
+      "auto": {
+        "label": "Auto"
+      },
+      "opaque": {
+        "label": "Opaque"
+      },
+      "transparent": {
+        "label": "Transparent"
+      }
     },
     "promptPlaceholder": "Describe the image you want to generate...",
     "promptIdeas": "Prompt Ideas",
@@ -1691,173 +1866,6 @@
       "close": "Close",
       "videoTitle": "{title} video",
       "moreActions": "More actions"
-    }
-  },
-  "onboarding": {
-    "hints": {
-      "home": {
-        "promptHero": {
-          "title": "What to create?",
-          "description": "Describe what you want to create — or use the categories below for inspiration."
-        },
-        "workspace": {
-          "title": "Workspace",
-          "description": "Your workspace: manage files and chat with the agent in Notebook. Automations schedules recurring tasks."
-        },
-        "create": {
-          "title": "Create directly",
-          "description": "Generate images, videos, and localized ads — without going through chat."
-        }
-      },
-      "notebook": {
-        "fileBrowser": {
-          "title": "File browser",
-          "description": "View all files in your workspace. Create new ones, upload, or drag & drop."
-        },
-        "editor": {
-          "title": "Editor",
-          "description": "Open a file from the file tree to edit it here."
-        },
-        "editorMode": {
-          "title": "View mode",
-          "description": "Switch between editor, editor with preview, and pure preview in the top-right corner."
-        },
-        "chat": {
-          "title": "Agent chat",
-          "description": "Chat with the agent, reference files with @, or start with a prompt suggestion."
-        }
-      },
-      "imageGen": {
-        "config": {
-          "title": "Configuration",
-          "description": "Choose provider and model, set aspect ratio and count — then prompt."
-        },
-        "references": {
-          "title": "Reference images",
-          "description": "Upload reference images to visually guide the output."
-        },
-        "results": {
-          "title": "Results",
-          "description": "Generated images appear here. Click for full view or download."
-        }
-      },
-      "veo": {
-        "mode": {
-          "title": "Video mode",
-          "description": "Choose the mode: Text-to-Video, Frames-to-Video, References-to-Video, or Extend Video."
-        },
-        "config": {
-          "title": "Settings",
-          "description": "Set aspect ratio and resolution before generating."
-        },
-        "results": {
-          "title": "Results",
-          "description": "Your video appears here. Saved outputs are also in this section."
-        }
-      },
-      "localizer": {
-        "reference": {
-          "title": "Reference ad",
-          "description": "Upload the ad image you want to localize."
-        },
-        "markets": {
-          "title": "Target markets",
-          "description": "Add target markets (e.g. US, FR, ES). A localized variant is created per market."
-        },
-        "results": {
-          "title": "Results",
-          "description": "Localized ads appear here, one per target market."
-        }
-      },
-      "studio": {
-        "models": {
-          "title": "Model Library",
-          "description": "Manage products and personas as referenceable models for AI generations."
-        }
-      },
-      "settings": {
-        "agentSettings": {
-          "title": "Provider & model",
-          "description": "Choose the AI provider and model. This determines which agent processes your prompts."
-        },
-        "managedFiles": {
-          "title": "Agent prompt",
-          "description": "These files control your agent's behavior and knowledge. AGENTS.md is the main instruction, other files add identity, memory, and skills."
-        },
-        "tools": {
-          "title": "Tools",
-          "description": "Enable or disable individual agent tools. Disable tools you don't need to keep the agent focused."
-        },
-        "integrations": {
-          "title": "Integrations env",
-          "description": "Manage API keys and environment variables for external services — e.g. Gemini, OpenAI, Brave. Use KV mode to edit individual values, or Raw mode for the full file."
-        },
-        "agentsEnv": {
-          "title": "Agents env",
-          "description": "Separate environment variables for agent-specific providers like OpenRouter, Ollama, or Anthropic."
-        },
-  "studio": {
-    "title": "Studio",
-    "comingSoon": "Coming Soon — This feature will be available soon.",
-    "common": {
-      "loading": "Loading..."
-    },
-    "tabs": {
-      "create": "Create",
-      "bulk": "Bulk",
-      "models": "Models",
-      "presets": "Presets"
-    },
-    "modelLibrary": {
-      "products": "Products",
-      "personas": "Personas",
-      "newProduct": "New Product",
-      "newPersona": "New Persona",
-      "searchPlaceholder": "Search models...",
-      "emptyProductTitle": "No products yet",
-      "emptyProductDescription": "Create your first product to reference images in AI generations.",
-      "emptyPersonaTitle": "No personas yet",
-      "emptyPersonaDescription": "Create your first persona to use consistent characters in generations."
-    },
-    "modelCreate": {
-      "name": "Name",
-      "description": "Description",
-      "images": "Images",
-      "dropzone": "Drop images here or click to select",
-      "maxImages": "Up to {max} images",
-      "urlImport": "Import from URL",
-      "urlPlaceholder": "https://example.com/image.jpg",
-      "addUrl": "Add",
-      "productNamePlaceholder": "e.g. My Product",
-      "personaNamePlaceholder": "e.g. My Persona",
-      "descriptionPlaceholder": "Optional description...",
-      "nameRequired": "Name is required",
-      "createFailed": "Creation failed",
-      "save": "Save"
-    },
-    "modelDetail": {
-      "notFound": "Not found",
-      "save": "Save",
-      "cancel": "Cancel",
-      "images": "Images",
-      "addImages": "Add images",
-      "noDescription": "No description",
-      "deleteProduct": "Delete product",
-      "deletePersona": "Delete persona",
-      "deleteConfirmMessage": "This model may be referenced in generations. The reference will be marked as [Deleted]. Continue?",
-      "confirmDelete": "Delete"
-    }
-  },
-  "usage": {
-          "title": "Usage",
-          "description": "View token usage, costs, and analytics. Filter by date range, provider, or model."
-        }
-      }
-    },
-    "helpDropdown": {
-      "repeatTutorial": "Repeat tutorial",
-      "completeOnboarding": "Complete onboarding",
-      "openHelp": "Open help"
     }
   }
 }
