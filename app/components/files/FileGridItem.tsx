@@ -34,9 +34,7 @@ export function FileGridItem({ node, onPreviewImage }: FileGridItemProps) {
     multiSelectPaths,
     toggleMultiSelectPath,
     selectNode,
-    loadFile,
     toggleDirectory,
-    mobileFileOpened,
     openContextMenu,
   } = useFileStore();
 
@@ -63,22 +61,12 @@ export function FileGridItem({ node, onPreviewImage }: FileGridItemProps) {
       selectNode(node);
       if (isDirectory) {
         toggleDirectory(node.path);
-      } else if (showImagePreview) {
+      } else {
         onPreviewImage(node.path);
       }
     },
-    [node, selectNode, isMultiSelectMode, toggleMultiSelectPath, isDirectory, showImagePreview, onPreviewImage, toggleDirectory]
+    [node, selectNode, isMultiSelectMode, toggleMultiSelectPath, isDirectory, onPreviewImage, toggleDirectory]
   );
-
-  const handleDoubleClick = useCallback(() => {
-    if (isDirectory) return;
-    if (showImagePreview) {
-      onPreviewImage(node.path);
-    } else {
-      loadFile(node.path, true);
-      mobileFileOpened();
-    }
-  }, [isDirectory, showImagePreview, node.path, onPreviewImage, loadFile, mobileFileOpened]);
 
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => {
@@ -106,7 +94,6 @@ export function FileGridItem({ node, onPreviewImage }: FileGridItemProps) {
         isDirectory && 'border-dashed'
       )}
       onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
     >
       <div className="flex w-full items-center justify-end gap-0.5 px-1.5 pt-1.5 min-h-[20px]">

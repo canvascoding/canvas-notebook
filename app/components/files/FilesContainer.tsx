@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, type DragEvent } from 'react';
 import Image from 'next/image';
-import { ArrowLeft, CheckSquare, ChevronsDownUp, FilePlus, FolderPlus, FolderTree, List, LayoutGrid, MoreHorizontal, Move, Search, Trash2, Upload, X } from 'lucide-react';
+import { ArrowLeft, CheckSquare, ChevronsDownUp, FilePlus, FolderPlus, FolderTree, List, LayoutGrid, Move, Search, Trash2, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -32,13 +32,21 @@ import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
 import { FileGridView } from './FileGridView';
-import { ImagePreviewDialog } from './ImagePreviewDialog';
+import { FilePreviewDialog } from './FilePreviewDialog';
 import { Link } from '@/i18n/navigation';
+import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { LogoutButton } from '@/app/components/LogoutButton';
+import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 
 export type FilesViewMode = 'grid' | 'list' | 'tree';
 
-export function FilesContainer() {
+interface FilesContainerProps {
+  username: string;
+}
+
+export function FilesContainer({ username }: FilesContainerProps) {
   const t = useTranslations('notebook');
+  const tCommon = useTranslations('common');
   const dragCounter = useState(0);
   const dragCounterRef = dragCounter[0];
   const setDragCounter = dragCounter[1];
@@ -216,17 +224,26 @@ export function FilesContainer() {
 
   return (
     <div className="flex h-[100dvh] flex-col bg-background text-foreground">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-        <div className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 md:px-6">
-          <div className="min-w-0 flex items-center gap-3">
-            <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2">
+      <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
+        <div className="mx-auto flex h-full items-center justify-between px-4">
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
               <Link href="/">
                 <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">{t('home')}</span>
+                <span className="hidden sm:inline">{tCommon('suite')}</span>
               </Link>
             </Button>
-            <Image src="/logo.jpg" alt="Canvas Notebook" width={28} height={28} className="shrink-0 border border-border" />
-            <h1 className="truncate text-sm font-semibold md:text-lg">{t('filesTitle')}</h1>
+            <Image src="/logo.jpg" alt={tCommon('logoAlt')} width={32} height={32} className="shrink-0 border border-border" />
+            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('filesTitle')}</h1>
+          </div>
+          <div className="flex items-center gap-1.5 md:gap-4">
+            <NotebookNavButton />
+            <ThemeToggle />
+            <div className="hidden lg:flex flex-col items-end shrink-0">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">{tCommon('user')}</span>
+              <span className="text-xs text-foreground/90">{username}</span>
+            </div>
+            <LogoutButton />
           </div>
         </div>
       </header>
@@ -383,10 +400,9 @@ export function FilesContainer() {
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} defaultPath={resolveTargetDir()} onUpload={handleUpload} />
       <DeleteConfirmDialog open={deleteOpen} onOpenChange={setDeleteOpen} paths={deletePaths} skippedCount={deleteSkippedCount} onConfirm={handleConfirmDelete} />
       <ImagePreprocessDialog open={imagePreprocess.dialogState !== null} onOpenChange={(open) => { if (!open) imagePreprocess.setDialogState(null); }} files={imagePreprocess.dialogState?.files ?? []} onConfirm={imagePreprocess.handleConfirm} onSkip={imagePreprocess.handleSkip} />
-      <ImagePreviewDialog
+      <FilePreviewDialog
         path={previewPath}
         fileTree={fileTree}
-        currentDirectory={currentDirectory}
         onClose={() => setPreviewPath(null)}
       />
     </div>
