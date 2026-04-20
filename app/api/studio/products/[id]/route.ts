@@ -36,7 +36,7 @@ export async function PATCH(
   }
   try {
     if (body.name !== undefined || body.description !== undefined) {
-      const updated = await updateProduct(id, {
+      await updateProduct(id, {
         name: body.name?.trim(),
         description: body.description?.trim(),
       });
