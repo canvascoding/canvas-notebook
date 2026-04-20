@@ -164,6 +164,15 @@ export function CreateView() {
                 setSelectedGeneration(generation);
                 setSelectedOutput(output);
               }}
+              onToggleFavorite={(generation, output) => {
+                void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
+              }}
+              onCreateVariation={(generation, output) => {
+                void generationHook.createVariation(generation, output);
+              }}
+              onCreateVideo={(generation, output) => {
+                void generationHook.createVideoFromOutput(generation, output);
+              }}
             />
           </div>
         </div>
@@ -271,6 +280,15 @@ export function CreateView() {
         onSelectOutput={({ generation, output }) => {
           setSelectedGeneration(generation);
           setSelectedOutput(output);
+        }}
+        onToggleFavorite={(generation, output) => {
+          void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
+        }}
+        onCreateVariation={(generation, output) => {
+          void generationHook.createVariation(generation, output);
+        }}
+        onCreateVideo={(generation, output) => {
+          void generationHook.createVideoFromOutput(generation, output);
         }}
         onClose={() => {
           setSelectedGeneration(null);

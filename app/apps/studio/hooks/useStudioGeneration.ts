@@ -23,6 +23,9 @@ interface UseStudioGenerationReturn {
   fetchGeneration: (id: string, options?: { silent?: boolean }) => Promise<StudioGeneration | null>;
   generate: (payload: StudioGeneratePayload) => Promise<StudioGeneration | null>;
   deleteGeneration: (id: string) => Promise<boolean>;
+  toggleFavorite: (generationId: string, outputId: string, isFavorite: boolean) => Promise<boolean>;
+  createVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => Promise<StudioGeneration | null>;
+  createVideoFromOutput: (generation: StudioGeneration, output: StudioGenerationOutput) => Promise<StudioGeneration | null>;
   stopPolling: () => void;
 }
 
@@ -45,6 +48,17 @@ function mergeGenerationLists(current: StudioGeneration[], next: StudioGeneratio
     const right = new Date(a.createdAt).getTime();
     return left - right;
   });
+}
+
+function updateOutputInGeneration(
+  generation: StudioGeneration,
+  outputId: string,
+  updater: (output: StudioGenerationOutput) => StudioGenerationOutput,
+): StudioGeneration {
+  return {
+    ...generation,
+    outputs: generation.outputs.map((output) => (output.id === outputId ? updater(output) : output)),
+  };
 }
 
 function createPendingGeneration(
@@ -241,6 +255,75 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     }
   }, [activeGenerationId, stopPolling]);
 
+  const toggleFavorite = useCallback(async (generationId: string, outputId: string, isFavorite: boolean) => {
+    setError(null);
+    setGenerations((current) =>
+      current.map((generation) =>
+        generation.id === generationId
+          ? updateOutputInGeneration(generation, outputId, (output) => ({ ...output, isFavorite }))
+          : generation,
+      ),
+    );
+    setCurrentGeneration((current) =>
+      current?.id === generationId ? updateOutputInGeneration(current, outputId, (output) => ({ ...output, isFavorite })) : current,
+    );
+
+    try {
+      const response = await fetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isFavorite }),
+      });
+      await parseJsonResponse(response);
+      return true;
+    } catch (err) {
+      setError(toErrorMessage(err, 'Failed to update favorite'));
+      setGenerations((current) =>
+        current.map((generation) =>
+          generation.id === generationId
+            ? updateOutputInGeneration(generation, outputId, (output) => ({ ...output, isFavorite: !isFavorite }))
+            : generation,
+        ),
+      );
+      setCurrentGeneration((current) =>
+        current?.id === generationId
+          ? updateOutputInGeneration(current, outputId, (output) => ({ ...output, isFavorite: !isFavorite }))
+          : current,
+      );
+      return false;
+    }
+  }, []);
+
+  const createVariation = useCallback(async (generation: StudioGeneration, output: StudioGenerationOutput) => {
+    return generate({
+      prompt: generation.rawPrompt || generation.prompt || '',
+      mode: 'image',
+      product_ids: generation.product_ids ?? [],
+      persona_ids: generation.persona_ids ?? [],
+      preset_id: generation.studioPresetId ?? undefined,
+      aspect_ratio: generation.aspectRatio,
+      count: 4,
+      provider: generation.provider,
+      source_output_id: output.id,
+      pi_session_id: output.piSessionId ?? undefined,
+    });
+  }, [generate]);
+
+  const createVideoFromOutput = useCallback(async (generation: StudioGeneration, output: StudioGenerationOutput) => {
+    return generate({
+      prompt: generation.rawPrompt || generation.prompt || '',
+      mode: 'video',
+      product_ids: generation.product_ids ?? [],
+      persona_ids: generation.persona_ids ?? [],
+      preset_id: generation.studioPresetId ?? undefined,
+      aspect_ratio: generation.aspectRatio,
+      count: 1,
+      provider: generation.provider,
+      source_output_id: output.id,
+      pi_session_id: output.piSessionId ?? undefined,
+    });
+  }, [generate]);
+
   useEffect(() => {
     if (!activeGenerationId) {
       if (intervalRef.current) {
@@ -285,6 +368,9 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     fetchGeneration,
     generate,
     deleteGeneration,
+    toggleFavorite,
+    createVariation,
+    createVideoFromOutput,
     stopPolling,
   };
 }

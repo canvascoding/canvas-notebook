@@ -1,14 +1,30 @@
 'use client';
 
 import { Download, Film, RefreshCcw, Star } from 'lucide-react';
+import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { Button } from '@/components/ui/button';
 
 interface OutputHoverOverlayProps {
   mediaUrl: string | null;
   type: 'image' | 'video';
+  isFavorite: boolean;
+  generation: StudioGeneration;
+  output: StudioGenerationOutput;
+  onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
-export function OutputHoverOverlay({ mediaUrl, type }: OutputHoverOverlayProps) {
+export function OutputHoverOverlay({
+  mediaUrl,
+  type,
+  isFavorite,
+  generation,
+  output,
+  onToggleFavorite,
+  onCreateVariation,
+  onCreateVideo,
+}: OutputHoverOverlayProps) {
   const handleDownload = () => {
     if (!mediaUrl) return;
     window.open(mediaUrl, '_blank', 'noopener,noreferrer');
@@ -26,13 +42,13 @@ export function OutputHoverOverlay({ mediaUrl, type }: OutputHoverOverlayProps) 
         <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={handleDownload}>
           <Download className="h-4 w-4" />
         </Button>
-        <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" disabled>
-          <Star className="h-4 w-4" />
+        <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onToggleFavorite(generation, output)}>
+          <Star className={`h-4 w-4 ${isFavorite ? 'fill-current text-amber-300' : ''}`} />
         </Button>
-        <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" disabled>
+        <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onCreateVariation(generation, output)}>
           <RefreshCcw className="h-4 w-4" />
         </Button>
-        <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" disabled={type !== 'video'}>
+        <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onCreateVideo(generation, output)} disabled={type !== 'image'}>
           <Film className="h-4 w-4" />
         </Button>
       </div>
