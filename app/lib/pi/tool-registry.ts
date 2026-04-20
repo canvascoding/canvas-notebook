@@ -1529,6 +1529,12 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
             throw new Error(`Automation job "${jobId}" not found.`);
           }
           const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
+          if (!run) {
+            return {
+              content: [{ type: 'text', text: 'Automation already has an in-flight run.' }],
+              details: { jobId, skipped: true },
+            };
+          }
           return {
             content: [{ type: 'text', text: `Automation job triggered successfully\nRun ID: ${run.id}` }],
             details: { jobId, run },

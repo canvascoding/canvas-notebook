@@ -449,7 +449,7 @@ export async function hasInFlightAutomationRun(jobId: string): Promise<boolean> 
   return Boolean(row);
 }
 
-export async function scheduleAutomationJobRun(jobId: string, triggerType: AutomationRunRecord['triggerType'], scheduledFor: Date): Promise<AutomationRunRecord> {
+export async function scheduleAutomationJobRun(jobId: string, triggerType: AutomationRunRecord['triggerType'], scheduledFor: Date): Promise<AutomationRunRecord | null> {
   await failStaleAutomationRuns(jobId);
 
   return db.transaction(async (tx) => {
@@ -467,7 +467,7 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
       ),
     });
     if (inFlightRun) {
-      throw new Error('Automation already has an in-flight run.');
+      return null;
     }
 
     const now = new Date();
