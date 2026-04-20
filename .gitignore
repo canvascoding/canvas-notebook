@@ -73,6 +73,7 @@ temp/screenshots/
 next-env.d.ts
 
 /docs
+/.opencode
 
 # Sentry Config File
 .env.sentry-build-plugin
