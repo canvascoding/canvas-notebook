@@ -278,7 +278,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <FileGridView variant={variant} onOpenFile={handleOpenFile} />
       </div>
 
