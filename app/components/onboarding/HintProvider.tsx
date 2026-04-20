@@ -5,7 +5,7 @@ import { useHintSequence } from './useHintSequence';
 import { HintTooltip } from './HintTooltip';
 
 interface HintProviderProps {
-  page: string;
+  page?: string;
   children: ReactNode;
 }
 
@@ -40,7 +40,7 @@ export function useHintContext() {
 const TARGET_POLL_ATTEMPTS = 10;
 const TARGET_POLL_INTERVAL_MS = 300;
 
-export function HintProvider({ page, children }: HintProviderProps) {
+export function HintProvider({ page = '', children }: HintProviderProps) {
   const {
     state,
     loading,
