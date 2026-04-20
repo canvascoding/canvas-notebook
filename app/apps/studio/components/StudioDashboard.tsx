@@ -35,9 +35,9 @@ function RecentGenerationThumbnail({
   onClick,
 }: {
   generation: StudioGeneration;
-  onClick: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onClick: () => void;
 }) {
-  const completedOutputs = generation.outputs.filter((o) => o.mediaUrl);
+  const completedOutputs = generation.outputs.filter((o: StudioGenerationOutput) => o.mediaUrl);
   if (completedOutputs.length === 0) return null;
 
   const output = completedOutputs[0];
@@ -45,9 +45,10 @@ function RecentGenerationThumbnail({
   return (
     <button
       type="button"
-      onClick={() => onClick(generation, output)}
+      onClick={onClick}
       className="group relative aspect-square overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
     >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={output.mediaUrl!}
         alt={generation.prompt || 'Studio output'}
@@ -102,7 +103,7 @@ export function StudioDashboard() {
     router.push(`/studio/create?${params.toString()}`);
   };
 
-  const handleRecentClick = (_generation: StudioGeneration, _output: StudioGenerationOutput) => {
+  const handleRecentClick = () => {
     router.push('/studio/create');
   };
 
