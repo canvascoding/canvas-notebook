@@ -27,6 +27,7 @@ export default async function Home() {
   const username = session?.user?.name || session?.user?.email || tCommon('user');
 
   return (
+    <HomeHintProvider>
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="flex h-full flex-col">
         <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
@@ -57,7 +58,6 @@ export default async function Home() {
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 pt-6 pb-10 md:px-6 md:pt-10">
-          <HomeHintProvider>
             <div className="mx-auto max-w-2xl space-y-6">
               <div className="text-center">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{tHome('hero.eyebrow')}</p>
@@ -66,7 +66,6 @@ export default async function Home() {
 
               <HomeWorkspaceView />
             </div>
-          </HomeHintProvider>
         </main>
 
         <footer className="border-t border-border bg-background/95">
@@ -116,7 +115,8 @@ export default async function Home() {
             </div>
           </div>
         </footer>
-      </div>
-    </div>
-  );
+       </div>
+     </div>
+    </HomeHintProvider>
+   );
 }

@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { HelpCircle, RotateCcw, Check, BookOpen } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
+import { useHintContext } from './HintProvider';
 import { useHintSequence } from './useHintSequence';
 import { ONBOARDING_PAGES } from './hint-config';
 
@@ -18,7 +19,14 @@ export function HelpDropdown({ page }: HelpDropdownProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const hasHintsForPage = page ? !!ONBOARDING_PAGES[page] : false;
-  const { state, completePage, resetPage } = useHintSequence(page ?? '');
+
+  const hintContext = useHintContext();
+  const isInProvider = hintContext.page === page && !!page;
+
+  const ownSequence = useHintSequence(page ?? '');
+  const state = isInProvider ? hintContext.state : ownSequence.state;
+  const completePageFn = isInProvider ? hintContext.completePage : ownSequence.completePage;
+  const resetPageFn = isInProvider ? hintContext.resetPage : ownSequence.resetPage;
   const isCompleted = state?.completed ?? false;
 
   useEffect(() => {
@@ -36,14 +44,14 @@ export function HelpDropdown({ page }: HelpDropdownProps) {
   const handleRepeatTutorial = async () => {
     setOpen(false);
     if (page) {
-      await resetPage();
+      await resetPageFn();
     }
   };
 
   const handleCompleteOnboarding = async () => {
     setOpen(false);
     if (page) {
-      await completePage();
+      await completePageFn();
     }
   };
 

@@ -105,26 +105,20 @@ export async function PATCH(request: NextRequest) {
   }
 
   const now = new Date();
-  const existingRows = await db.select().from(userHintState).where(
-    and(eq(userHintState.userId, userId), eq(userHintState.hintKey, hintKey))
-  );
 
-  if (existingRows.length > 0) {
-    await db.update(userHintState)
-      .set({ dismissed: true, dismissedAt: now, updatedAt: now })
-      .where(and(eq(userHintState.userId, userId), eq(userHintState.hintKey, hintKey)));
-  } else {
-    await db.insert(userHintState).values({
-      userId,
-      hintKey,
-      page: hintDef.page,
-      dismissed: true,
-      dismissedAt: now,
-      version: pageDef.version,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
+  await db.insert(userHintState).values({
+    userId,
+    hintKey,
+    page: hintDef.page,
+    dismissed: true,
+    dismissedAt: now,
+    version: pageDef.version,
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoUpdate({
+    target: [userHintState.userId, userHintState.hintKey],
+    set: { dismissed: true, dismissedAt: now, updatedAt: now },
+  });
 
   const allHintsForPage = await db.select().from(userHintState).where(
     and(eq(userHintState.userId, userId), eq(userHintState.page, hintDef.page))

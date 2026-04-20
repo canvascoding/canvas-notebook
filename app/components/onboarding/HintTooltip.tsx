@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 
 interface HintTooltipProps {
@@ -102,16 +102,43 @@ export function HintTooltip({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  const reposition = useCallback(() => {
+    const targetEl = document.getElementById(effectiveTargetId);
+    const tooltipEl = tooltipRef.current;
+    if (!targetEl || !tooltipEl) return;
 
-    const checkTarget = () => {
+    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    requestAnimationFrame(() => {
+      const pos = computePosition(targetEl, tooltipEl);
+      setPosition(pos);
+      setVisible(true);
+    });
+  }, [effectiveTargetId]);
+
+  useEffect(() => {
+    if (isMobileView) {
+      const targetEl = document.getElementById(effectiveTargetId);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      const timer = setTimeout(() => {
+        setVisible(true);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+
+    let cancelled = false;
+    setVisible(false);
+    setPosition(null);
+
+    const pollForElements = () => {
       if (cancelled) return;
       const targetEl = document.getElementById(effectiveTargetId);
       const tooltipEl = tooltipRef.current;
       if (!targetEl || !tooltipEl) {
-        const retryTimer = setTimeout(checkTarget, 200);
-        return () => clearTimeout(retryTimer);
+        const retryTimer = setTimeout(pollForElements, 150);
+        return;
       }
 
       targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -124,12 +151,23 @@ export function HintTooltip({
       });
     };
 
-    const timer = setTimeout(checkTarget, 100);
+    const initialTimer = setTimeout(pollForElements, 100);
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      clearTimeout(initialTimer);
     };
-  }, [effectiveTargetId]);
+  }, [effectiveTargetId, isMobileView]);
+
+  useEffect(() => {
+    if (!visible || isMobileView) return;
+
+    const handleResize = () => {
+      reposition();
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [visible, isMobileView, reposition]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -146,6 +184,13 @@ export function HintTooltip({
       closeBtnRef.current.focus();
     }
   }, [visible]);
+
+  const arrowClasses: Record<Placement, string> = {
+    top: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-full border-x-transparent border-b-transparent border-t-popover',
+    bottom: 'top-0 left-1/2 -translate-x-1/2 -translate-y-full border-x-transparent border-t-transparent border-b-popover',
+    left: 'right-0 top-1/2 -translate-y-1/2 translate-x-full border-y-transparent border-l-transparent border-r-popover',
+    right: 'left-0 top-1/2 -translate-y-1/2 -translate-x-full border-y-transparent border-r-transparent border-l-popover',
+  };
 
   if (isMobileView) {
     return (
@@ -179,14 +224,7 @@ export function HintTooltip({
     );
   }
 
-  if (!position) return null;
-
-  const arrowClasses: Record<Placement, string> = {
-    top: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-full border-x-transparent border-b-transparent border-t-popover',
-    bottom: 'top-0 left-1/2 -translate-x-1/2 -translate-y-full border-x-transparent border-t-transparent border-b-popover',
-    left: 'right-0 top-1/2 -translate-y-1/2 translate-x-full border-y-transparent border-l-transparent border-r-popover',
-    right: 'left-0 top-1/2 -translate-y-1/2 -translate-x-full border-y-transparent border-r-transparent border-l-popover',
-  };
+  const isHidden = !position;
 
   return (
     <div
@@ -194,15 +232,18 @@ export function HintTooltip({
       className={`fixed z-[100] max-w-[320px] min-w-[200px] rounded-lg border border-border bg-popover p-3 shadow-lg transition-opacity duration-200 ${
         visible ? 'opacity-100' : 'opacity-0'
       }`}
-      style={{
-        top: position.top,
-        left: position.left,
-      }}
+      style={isHidden
+        ? { visibility: 'hidden', pointerEvents: 'none' }
+        : {
+            top: position!.top,
+            left: position!.left,
+          }
+      }
       role="dialog"
       aria-label={title}
     >
       <div
-        className={`absolute h-0 w-0 border-[8px] ${arrowClasses[position.placement]}`}
+        className={`absolute h-0 w-0 border-[8px] ${position ? arrowClasses[position.placement] : ''}`}
       />
       <div className="flex items-start justify-between gap-2">
         <h4 className="text-sm font-semibold text-popover-foreground">{title}</h4>

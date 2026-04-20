@@ -5,7 +5,6 @@ import { getGeminiApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations } from
 import { Button } from '@/components/ui/button';
 import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import { ImageGenerationClient } from '@/app/apps/image-generation/components/ImageGenerationClient';
-import { ImageGenHintProvider } from '@/app/components/onboarding/ImageGenHintProvider';
 
 type NoticeTone = 'warning' | 'critical';
 
@@ -69,7 +68,6 @@ export default async function ImageGenerationPage() {
 
   return (
     <SuitePageLayout title={t('title')} username={username} hintPage="imageGen">
-      <ImageGenHintProvider>
       {!hasAnyProvider ? (
         <IntegrationNotice
           title={t('notices.noProvider.title')}
@@ -95,7 +93,6 @@ export default async function ImageGenerationPage() {
         />
       ) : null}
       {hasAnyProvider ? <ImageGenerationClient availableProviders={availableProviders} /> : null}
-      </ImageGenHintProvider>
     </SuitePageLayout>
   );
 }

@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import { VeoStudioClient } from '@/app/apps/veo-studio/components/VeoStudioClient';
-import { VeoHintProvider } from '@/app/components/onboarding/VeoHintProvider';
 
 export default async function VeoPage() {
   const session = await requirePageSession();
@@ -19,7 +18,6 @@ export default async function VeoPage() {
 
   return (
     <SuitePageLayout title={t('title')} username={username} hintPage="veo">
-        <VeoHintProvider>
         {!geminiApiKey && (
           <div className="p-4 md:p-6">
             <Card className="border-destructive/50 bg-destructive/10">
@@ -44,7 +42,6 @@ export default async function VeoPage() {
         )}
         
         <VeoStudioClient />
-        </VeoHintProvider>
     </SuitePageLayout>
   );
 }

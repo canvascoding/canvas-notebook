@@ -213,7 +213,7 @@ export function VeoStudioClient() {
             <span className="font-mono">veo-studio/video-generation</span>.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4" id="onboarding-veo-config">
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t('fields.mode')}</span>
