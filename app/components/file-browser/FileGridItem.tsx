@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useFileStore, type FileNode as FileNodeType } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
@@ -47,9 +47,15 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
   const showImagePreview = isImageNode(node);
 
   const [thumbnailError, setThumbnailError] = useState(false);
+  const contextMenuJustOpened = useRef(false);
 
   const handleClick = useCallback(
     (event: React.MouseEvent) => {
+      if (event.button !== 0) return;
+      if (contextMenuJustOpened.current) {
+        contextMenuJustOpened.current = false;
+        return;
+      }
       const ctrlOrMeta = event.ctrlKey || event.metaKey;
       const shiftKey = event.shiftKey;
       if (ctrlOrMeta || shiftKey) {
@@ -78,6 +84,7 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
     (event: React.MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
+      contextMenuJustOpened.current = true;
       if (!isMultiSelected) {
         useFileStore.getState().clearMultiSelect();
         selectNode(node);
