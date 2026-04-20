@@ -158,9 +158,7 @@ export function DashboardShell() {
     window.localStorage.setItem('canvas.leftSidebarWidth', String(sidebarWidth));
   }, [sidebarWidth]);
 
-  useEffect(() => {
-    window.localStorage.setItem('canvas.chatVisible', String(chatVisible));
-  }, [chatVisible]);
+
 
   useEffect(() => {
     window.localStorage.setItem('canvas.terminalVisible', String(terminalVisible));
@@ -280,12 +278,7 @@ export function DashboardShell() {
         setSidebarVisible(true);
         if (!desktopDefaultChatAppliedRef.current) {
           desktopDefaultChatAppliedRef.current = true;
-          if (shouldForceChatOpen) {
-            setChatVisible(true);
-          } else {
-            const storedChat = window.localStorage.getItem('canvas.chatVisible');
-            setChatVisible(storedChat !== null ? storedChat === 'true' : true);
-          }
+          setChatVisible(true);
         }
       }
     };
