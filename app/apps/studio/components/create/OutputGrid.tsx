@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { StudioGeneration } from '../../types/generation';
+import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { OutputErrorCard } from './OutputErrorCard';
 import { OutputProcessingSkeleton } from './OutputProcessingSkeleton';
 import { OutputThumbnail } from './OutputThumbnail';
@@ -9,9 +9,10 @@ import { OutputThumbnail } from './OutputThumbnail';
 interface OutputGridProps {
   generations: StudioGeneration[];
   emptyState: ReactNode;
+  onOutputOpen: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
 }
 
-export function OutputGrid({ generations, emptyState }: OutputGridProps) {
+export function OutputGrid({ generations, emptyState, onOutputOpen }: OutputGridProps) {
   const getExpectedOutputCount = (generation: StudioGeneration) => {
     if (generation.mode === 'video') {
       return 1;
@@ -49,6 +50,7 @@ export function OutputGrid({ generations, emptyState }: OutputGridProps) {
 
   const outputs = generations.flatMap((generation) =>
     generation.outputs.map((output) => ({
+      generation,
       ...output,
       generationId: generation.id,
       generationStatus: generation.status,
@@ -80,11 +82,13 @@ export function OutputGrid({ generations, emptyState }: OutputGridProps) {
       {outputs.map((output) => (
         <OutputThumbnail
           key={output.id}
+          id={output.id}
           mediaUrl={output.mediaUrl}
           filePath={output.filePath}
           type={output.type}
           generationMode={output.generationMode}
           title={output.type === 'video' ? 'Video output' : 'Image output'}
+          onOpen={() => onOutputOpen({ generation: output.generation, output })}
         />
       ))}
     </div>
