@@ -8,6 +8,14 @@ export function isFilePath(href: string): boolean {
     return false;
   }
 
+  if (href.startsWith('/api/')) {
+    return false;
+  }
+
+  if (href.startsWith('/') && !href.startsWith('/data/workspace/')) {
+    return false;
+  }
+
   const hasExtension = /\.[^./\\]+$/.test(href);
   const isRelativePath = !href.startsWith('/') && (href.includes('/') || hasExtension);
   const isAbsoluteWorkspacePath = href.startsWith('/data/workspace/');

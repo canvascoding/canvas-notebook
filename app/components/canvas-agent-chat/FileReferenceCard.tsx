@@ -8,6 +8,7 @@ import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation
 import { useLocale } from 'next-intl';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import type { FilePathEntry } from '@/app/lib/chat/extract-file-paths';
+import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 
 interface FileReferenceCardProps {
   paths: FilePathEntry[];
@@ -19,6 +20,20 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
   const fileTree = fileStore.fileTree;
   const pathname = useLocalePathname();
   const locale = useLocale();
+  const [validPaths, setValidPaths] = React.useState<FilePathEntry[]>([]);
+
+  React.useEffect(() => {
+    const validate = async () => {
+      const valid = await Promise.all(
+        paths.map(async (entry) => {
+          const exists = await validateFileExists(entry.path, fileTree);
+          return exists ? entry : null;
+        })
+      );
+      setValidPaths(valid.filter(Boolean) as FilePathEntry[]);
+    };
+    validate();
+  }, [paths, fileTree]);
 
   const handleOpen = (filePath: string) => {
     const normalizedPath = filePath.replace(/^\.\/|\/$/g, '');
@@ -76,7 +91,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
     }
   };
 
-  if (paths.length === 0) return null;
+  if (validPaths.length === 0) return null;
 
   return (
     <div className="mt-3 border-t border-border/60 pt-2">
@@ -84,7 +99,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
         {t('fileReferences')}
       </div>
       <div className="flex flex-col gap-1">
-        {paths.map((entry) => {
+        {validPaths.map((entry) => {
           const fileName = entry.label || entry.path.split('/').pop() || entry.path;
           return (
             <button
