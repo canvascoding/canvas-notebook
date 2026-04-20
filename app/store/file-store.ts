@@ -10,7 +10,7 @@ export interface FileNode {
   children?: FileNode[];
 }
 
-export type BrowserMode = 'tree' | 'list';
+export type BrowserMode = 'tree' | 'list' | 'grid';
 
 export interface ContextMenuPosition {
   x: number;
@@ -170,7 +170,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   currentFile: null,
 
   browserMode: (typeof window !== 'undefined'
-    ? (localStorage.getItem('canvas-browser-mode') as BrowserMode) || (window.innerWidth < 768 ? 'list' : 'tree')
+    ? (() => {
+        const stored = localStorage.getItem('canvas-browser-mode');
+        if (stored === 'tree' || stored === 'list' || stored === 'grid') return stored as BrowserMode;
+        return window.innerWidth < 768 ? 'list' : 'tree';
+      })()
     : 'tree') as BrowserMode,
   setBrowserMode: (mode: BrowserMode) => {
     if (typeof window !== 'undefined') {
