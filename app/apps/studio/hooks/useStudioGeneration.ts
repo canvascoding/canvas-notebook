@@ -163,6 +163,32 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     setLoading(true);
     setError(null);
 
+    const temporaryId = `temp-${crypto.randomUUID()}`;
+    const expectedCount = payload.mode === 'video' ? 1 : Math.min(Math.max(payload.count ?? 4, 1), 4);
+    const temporaryGeneration: StudioGeneration = {
+      id: temporaryId,
+      userId: '',
+      mode: payload.mode ?? 'image',
+      prompt: payload.prompt,
+      rawPrompt: payload.prompt,
+      studioPresetId: payload.preset_id ?? null,
+      aspectRatio: payload.aspect_ratio ?? '1:1',
+      provider: payload.provider ?? 'gemini',
+      model: '',
+      status: 'pending',
+      outputs: [],
+      products: payload.product_ids ?? [],
+      personas: payload.persona_ids ?? [],
+      product_ids: payload.product_ids ?? [],
+      persona_ids: payload.persona_ids ?? [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      metadata: JSON.stringify({ expectedCount }),
+    };
+
+    setCurrentGeneration(temporaryGeneration);
+    setGenerations((current) => mergeGenerationLists(current, temporaryGeneration));
+
     try {
       const response = await fetch('/api/studio/generate', {
         method: 'POST',
@@ -172,11 +198,26 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       const data = await parseJsonResponse(response);
       const generation = createPendingGeneration(data.generationId, payload, data as StudioGenerateResponse);
       setCurrentGeneration(generation);
-      setGenerations((current) => mergeGenerationLists(current, generation));
+      setGenerations((current) => {
+        const withoutTemporary = current.filter((item) => item.id !== temporaryId);
+        return mergeGenerationLists(withoutTemporary, generation);
+      });
       setActiveGenerationId(data.generationId);
       return generation;
     } catch (err) {
-      setError(toErrorMessage(err, 'Failed to create generation'));
+      const message = toErrorMessage(err, 'Failed to create generation');
+      setError(message);
+      const failedGeneration: StudioGeneration = {
+        ...temporaryGeneration,
+        status: 'failed',
+        updatedAt: new Date().toISOString(),
+        metadata: JSON.stringify({ expectedCount, error: message }),
+      };
+      setCurrentGeneration(failedGeneration);
+      setGenerations((current) => {
+        const withoutTemporary = current.filter((item) => item.id !== temporaryId);
+        return mergeGenerationLists(withoutTemporary, failedGeneration);
+      });
       return null;
     } finally {
       setLoading(false);

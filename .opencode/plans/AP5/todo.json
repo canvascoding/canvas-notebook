@@ -1,0 +1,315 @@
+{
+  "arbeitspaket": "AP5 — UI: Create View + Presets + @-Referenzierung",
+  "beschreibung": "Die Haupt-Kreativ-Oberflaeche: Output-Grid, PromptBar, Presets und erweitertes @-Dropdown.",
+  "abhaengigkeiten": ["AP3 — Route-Pages und UI-Grundgeruest", "AP4 — Generation-Service und Agent-Tools"],
+  "todos": [
+    {
+      "id": 1,
+      "titel": "Preset-Backend: studio-preset-service.ts + API-Routen",
+      "status": "done",
+      "detail": "Preset CRUD Service und alle API-Routen fuer Presets erstellen. Default-Presets werden geseedet.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "219–260",
+        "zielDateien": [
+          "app/lib/integrations/studio-preset-service.ts",
+          "app/api/studio/presets/route.ts",
+          "app/api/studio/presets/[id]/route.ts",
+          "app/api/studio/presets/[id]/preview/route.ts",
+          "app/api/studio/presets/blocks/route.ts"
+        ],
+        "abhaengigkeiten": [
+          "app/lib/db/schema.ts (studioPresets)",
+          "app/lib/integrations/studio-workspace.ts",
+          "app/lib/integrations/studio-errors.ts"
+        ]
+      },
+      "schritte": [
+        "studio-preset-service.ts erstellen: createPreset, getPreset, listPresets (userId=NULL System-Presets UND userId=currentUser), updatePreset, deletePreset",
+        "listPresets: WICHTIG — muss sowohl userId=NULL (System-Defaults) ALS AUCH userId=currentUser zurueckgeben",
+        "API /api/studio/presets/route.ts: GET (list) + POST (create)",
+        "API /api/studio/presets/[id]/route.ts: GET + PATCH + DELETE",
+        "API /api/studio/presets/[id]/preview/route.ts: POST (Preview-Bild generieren)",
+        "API /api/studio/presets/blocks/route.ts: GET (verfuegbare Block-Typen katalogisieren)"
+      ],
+      "fertigstellungskriterien": [
+        "Preset-Service mit CRUD implementiert",
+        "5 API-Routen erstellt",
+        "listPresets gibt System-Defaults + User-Presets zurueck"
+      ]
+    },
+    {
+      "id": 2,
+      "titel": "15 Default-Presets seeden",
+      "status": "done",
+      "detail": "Seed-Migration mit 15 Default-Presets inkl. Preview-Bilder. Kategorien: fashion, product, food, lifestyle, beauty, tech, interior, automotive.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "245–253",
+        "zielDateien": ["data/seeds/studio-presets/", "Drizzle Seed-Migration"],
+        "kontext": "15 Preset-Definitionen (Name, Blocks, Kategorie, Tags). Preview-PNGs in data/seeds/studio-presets/ ablegen. Seed-Migration kopiert PNGs nach studio-assets/presets/{id}/ + setzt previewImagePath in DB."
+      },
+      "schritte": [
+        "15 Preset-Definitionen erstellen (Name, Blocks-JSON, Kategorie, Tags) — siehe Block-Types aus AP1: lighting/camera/props/background/subject",
+        "Erlaubte Kategorien: fashion, product, food, lifestyle, beauty, tech, interior, automotive",
+        "15 Preview-Bild-Prompts vorbereiten und generieren (oder Platzhalter-Bilder)",
+        "Preview-PNGs in data/seeds/studio-presets/ ablegen",
+        "Seed-Skript erstellen: Default-Presets (userId=NULL, isDefault=true) in DB INSERT + Preview-PNGs nach studio-assets/presets/{id}/ kopieren + previewImagePath updaten",
+        "Seed beim ersten Server-Start oder manuell ausfuehrbar"
+      ],
+      "fertigstellungskriterien": [
+        "15 Default-Presets in DB",
+        "Preview-Bilder auf Disk",
+        "previewImagePath in DB referenziert korrekt"
+      ]
+    },
+    {
+      "id": 3,
+      "titel": "Preset Types + Hooks erstellen",
+      "status": "done",
+      "detail": "TypeScript-Types fuer Presets/Generation und React Hooks fuer Generation (Polling) und Preset-CRUD.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "77–92, 150–168",
+        "zielDateien": [
+          "app/apps/studio/types/presets.ts",
+          "app/apps/studio/types/generation.ts",
+          "app/apps/studio/hooks/useStudioGeneration.ts",
+          "app/apps/studio/hooks/useStudioPresets.ts"
+        ]
+      },
+      "schritte": [
+        "presets.ts: StudioPreset Interface (id, userId, name, description, category, blocks, previewImagePath, tags, isDefault, createdAt, updatedAt). StudioBlock Interface (type, id, label, promptFragment, category, thumbnailPath?)",
+        "generation.ts: StudioGeneration Interface (id, userId, mode, prompt, rawPrompt, studioPresetId, aspectRatio, provider, model, status, outputs, products, personas, createdAt, updatedAt). StudioGenerationOutput Interface (id, generationId, variationIndex, type, filePath, mediaUrl, fileSize, mimeType, width, height, isFavorite, createdAt)",
+        "useStudioGeneration.ts: POST /api/studio/generate → generationId, Polling GET /api/studio/generations/{id} alle 10s, stop bei completed/failed, Status-Management",
+        "useStudioPresets.ts: CRUD via /api/studio/presets Endpoints"
+      ],
+      "fertigstellungskriterien": [
+        "Types mit korrekten Feldern",
+        "Generation-Hook mit Polling-Logik",
+        "Preset-Hook mit CRUD"
+      ]
+    },
+    {
+      "id": 4,
+      "titel": "CreateView.tsx Haupt-Layout erstellen",
+      "status": "done",
+      "detail": "Vollbild-Layout: Output-Grid oben (intern scrollbar), PromptBar unten (fixiert). Platzhalter-Seite aus AP3 ersetzen.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "16–47",
+        "zielDatei": "app/apps/studio/components/create/CreateView.tsx",
+        "kontext": "Layout: Header (SuitePageLayout) → Output-Grid (scrollt intern) → Frame-Uploads (nur Video) → PromptBar (fixiert unten) → ControlBar"
+      },
+      "schritte": [
+        "Ordner app/apps/studio/components/create/ erstellen",
+        "CreateView.tsx erstellen: Vollbild-Layout mit flex-col, Grid oben (flex-1 overflow-auto), PromptBar unten (fixiert, nicht scrollend)",
+        "Platzhalter-Seite /studio/create/page.tsx aus AP3 durch echte CreateView-Referenz ersetzen",
+        "Leerer State: Inspiration-Karten / Starting Points wenn keine Outputs",
+        "Responsive Layout"
+      ],
+      "fertigstellungskriterien": [
+        "CreateView zeigt Grid + fixierte PromptBar",
+        "Leerer State bei keinen Outputs",
+        "Ersetzt Platzhalter aus AP3"
+      ]
+    },
+    {
+      "id": 5,
+      "titel": "OutputGrid + OutputThumbnail + HoverOverlay erstellen",
+      "status": "done",
+      "detail": "Output-Grid mit 1:1 Thumbnails, Hover-Overlay mit Quick-Actions, Responsive Spalten.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "95–117",
+        "zielDateien": [
+          "app/apps/studio/components/create/OutputGrid.tsx",
+          "app/apps/studio/components/create/OutputThumbnail.tsx",
+          "app/apps/studio/components/create/OutputHoverOverlay.tsx"
+        ]
+      },
+      "schritte": [
+        "OutputGrid.tsx: Responsive Spalten (3 mobile, 4 tablet, 6 desktop), intern scrollbar, reverse chronological, leerer State mit Starting Points",
+        "OutputThumbnail.tsx: 1:1 Thumbnail mit object-fit:cover + aspect-ratio:1/1, laedt Bild via mediaUrl, Klick oeffnet Detail-View (AP6)",
+        "OutputHoverOverlay.tsx: Hover → Quick-Action-Icons: Download, Favorit (⭐), Variationen (🔄), Video (🎬)",
+        "Neueste Generation oben links einfuegen"
+      ],
+      "fertigstellungskriterien": [
+        "Grid scrollt intern, PromptBar bleibt fixiert",
+        "1:1 Thumbnails mit object-fit:cover",
+        "Hover-Overlay mit Quick-Actions"
+      ]
+    },
+    {
+      "id": 6,
+      "titel": "Processing-States erstellen (Skeleton + Error)",
+      "status": "done",
+      "detail": "Skeleton-Thumbnails fuer laufende Generierungen und Fehler-Cards mit Retry.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "120–168",
+        "zielDateien": [
+          "app/apps/studio/components/create/OutputProcessingSkeleton.tsx",
+          "app/apps/studio/components/create/OutputErrorCard.tsx"
+        ]
+      },
+      "schritte": [
+        "OutputProcessingSkeleton.tsx: Puls-Shimmer-Animation, zeigt Mode-Label + Zeit-Indikator (Image: ~12s, Video: Video·2m)",
+        "OutputErrorCard.tsx: Roter Rahmen, Fehler-Icon, Retry-Button",
+        "Sobald POST /api/studio/generate → generationId erhalten: N Skeletons im Grid einfuegen",
+        "Bei completed: Skeleton ersetzen durch echtes Thumbnail + Polling stoppen",
+        "Bei failed: Skeleton ersetzen durch Error-Card + Polling stoppen"
+      ],
+      "fertigstellungskriterien": [
+        "Skeleton mit Puls-Animation",
+        "Error-Card mit Retry-Button",
+        "Skeleton→Thumbnail/Error-Transition korrekt"
+      ]
+    },
+    {
+      "id": 7,
+      "titel": "PromptBar + ControlBar erstellen",
+      "status": "done",
+      "detail": "Fixierte Prompt-Eingabe mit @-Autocomplete und Steuerleiste unterhalb.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "172–216",
+        "zielDateien": [
+          "app/apps/studio/components/create/PromptBar.tsx",
+          "app/apps/studio/components/create/ControlBar.tsx"
+        ],
+        "kontext": "PromptBar State: rawPrompt + productRefs + personaRefs + presetRef als strukturierter State (NICHT Text-Parsing). @-Chips sind rein visuell, IDs aus State nicht aus Prompt-Text. Generate sendet {prompt, product_ids, persona_ids, preset_id}. StudioPicker wird ausgeblendet wenn keine Presets: {hasPresets && <StudioPicker />}"
+      },
+      "schritte": [
+        "PromptBar.tsx: Fixiert am unteren Rand, @-Trigger oeffnet Kategorie-Dropdown, Referenz-Tags als Inline-Chips (farblich je Typ), Serialisierung bei Generate",
+        "Strukturierter State: { rawPrompt, productRefs: [{id, name}], personaRefs: [{id, name}], presetRef: {id} }",
+        "ControlBar.tsx: Mode-Toggle (IMAGE↔VIDEO), Studio-Picker (ausblenden wenn keine Presets), AR-Picker, Count (1-4 fuer Image, 1 fuer Video), Generate-Button",
+        "Generate: Baut POST /api/studio/generate Body aus strukturiertem State",
+        "+ Button fuer weitere Optionen (zusaetzliche Referenzbilder, Negativ-Prompt)"
+      ],
+      "fertigstellungskriterien": [
+        "PromptBar fixiert, @-Trigger funktioniert",
+        "Strukturierter State (kein Text-Parsing)",
+        "ControlBar zeigt alle Steuerelemente",
+        "StudioPicker ausgeblendet bei fehlenden Presets"
+      ]
+    },
+    {
+      "id": 8,
+      "titel": "ModeToggle + StudioPicker + FrameUpload erstellen",
+      "status": "done",
+      "detail": "Sub-Komponenten der ControlBar.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "205–216",
+        "zielDateien": [
+          "app/apps/studio/components/create/ModeToggle.tsx",
+          "app/apps/studio/components/create/StudioPicker.tsx",
+          "app/apps/studio/components/create/FrameUpload.tsx"
+        ]
+      },
+      "schritte": [
+        "ModeToggle.tsx: Dropdown IMAGE↔VIDEO, steuert Provider + Output-Typ",
+        "StudioPicker.tsx: Dropdown mit Preset-Liste (Kategorie-Gruppen), waehlt Preset → PromptFragment wird angefuegt. Ausgeblendet wenn keine Presets verfuegbar",
+        "FrameUpload.tsx: Start/End Frame Upload, nur sichtbar im Video-Modus, ueber dem Prompt-Feld"
+      ],
+      "fertigstellungskriterien": [
+        "ModeToggle steuert Modus",
+        "StudioPicker waehlt Preset",
+        "FrameUpload nur im Video-Modus sichtbar"
+      ]
+    },
+    {
+      "id": 9,
+      "titel": "AspectRatioPicker + AspectRatioIcon erstellen",
+      "status": "pending",
+      "detail": "Visueller Aspect-Ratio-Picker mit SVG-Icons pro Seitenverhaeltnis.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "283–337",
+        "zielDateien": [
+          "app/apps/studio/components/shared/AspectRatioPicker.tsx",
+          "app/apps/studio/components/shared/AspectRatioIcon.tsx"
+        ],
+        "kontext": "10 Aspect Ratios (1:1, 16:9, 9:16, 4:3, 3:4, 2:3, 4:5, 5:4, 3:2, 21:9). 3 Kategorien: Social Media (1:1, 4:5, 9:16), Photo (3:2, 4:3, 5:4, 3:4, 2:3), Video/Cinema (16:9, 21:9). Provider-Filter: OpenAI hat 'auto', Gemini nicht. Popover mit 3-Spalten Grid, Keyboard-navigierbar."
+      },
+      "schritte": [
+        "AspectRatioIcon.tsx: Dynamische SVG-Icons pro Ratio. <rect> mit viewBox proportional, rounded corners, gefuellt wenn selected",
+        "AspectRatioPicker.tsx: Popover mit 3-Spalten Grid (2 auf Mobile), Trigger-Button mit aktuellem Icon + Label, Kategorie-Gruppierung, Provider-zulaessige Ratios filtern",
+        "Optional: 'auto' Option (nur OpenAI) zeigt '~' Icon + 'Auto' Label",
+        "Keyboard-Navigierbar (Tab + Enter)"
+      ],
+      "fertigstellungskriterien": [
+        "Alle 10 Ratios mit korrekten SVG-Icons",
+        "Popover mit Kategorien",
+        "Provider-Filter funktioniert"
+      ]
+    },
+    {
+      "id": 10,
+      "titel": "@-Referenzierung erweitern (zweistufiges Dropdown)",
+      "status": "pending",
+      "detail": "Bestehendes @-Dropdown in composer-references.ts um Kategorien (Produkt, Persona, Studio) erweitern.",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "263–280",
+        "zielDateien": [
+          "app/apps/canvas-agent/lib/composer-references.ts",
+          "app/apps/canvas-agent/components/ComposerReferencePicker.tsx"
+        ],
+        "kontext": "Neuer Flow: (1) User tippt @ → Kategorie-Auswahl: Datei (bestehend), Produkt, Persona, Studio. (2) Kategorie waehlen → gefilterte Objekt-Liste. (3) Objekt waehlen → Tag im Prompt. Serverseitig: @[Produkt: Aura Serum] → Produkt-ID → Referenzbilder."
+      },
+      "schritte": [
+        "composer-references.ts lesen um findActiveComposerReference() zu verstehen",
+        "Erweitern: Nach @ erst Kategorie-Stufe (Datei/Produkt/Persona/Studio), dann Objekt-Stufe",
+        "ComposerReferencePicker.tsx erweitern: Zweistufiges Dropdown (Kategorie → Objekte)",
+        "Neue Kategorien mit Icons: 📁 Datei, 📦 Produkt, 🎭 Persona, 🎬 Studio",
+        "Objekt-Listen: Produkte via /api/studio/products, Personas via /api/studio/personas, Presets via /api/studio/presets",
+        "Ausgewaehltes Objekt → Tag im Prompt + im strukturierten State (productRefs/personaRefs/presetRef)"
+      ],
+      "fertigstellungskriterien": [
+        "@-Trigger zeigt Kategorien",
+        "Kategorie → Objekt-Auswahl funktioniert",
+        "Tags als strukturierte Referenzen im State"
+      ]
+    },
+    {
+      "id": 11,
+      "titel": "PresetLibrary UI erstellen",
+      "status": "pending",
+      "detail": "Preset-Galerie auf /studio/presets (ersetzt Platzhalter aus AP3).",
+      "referenzen": {
+        "planDatei": ".opencode/plans/AP5/ui-create-view-presets-referenzierung.md",
+        "planZeilen": "254–260",
+        "zielDateien": [
+          "app/apps/studio/components/presets/PresetLibrary.tsx",
+          "app/apps/studio/components/presets/PresetCard.tsx"
+        ]
+      },
+      "schritte": [
+        "PresetLibrary.tsx: Grid-Ansicht aller Presets (Default + Custom), Filter nach Kategorie",
+        "PresetCard.tsx: Preview-Bild + Name + Kategorie-Tag",
+        "Klick auf Preset → Detail-View oder Preset als Referenz in PromptBar setzen",
+        "Platzhalter-Seite /studio/presets/page.tsx durch echte PresetLibrary-Referenz ersetzen"
+      ],
+      "fertigstellungskriterien": [
+        "Preset-Galerie zeigt Default + Custom Presets",
+        "Kategorie-Filter funktioniert",
+        "Ersetzt Platzhalter aus AP3"
+      ]
+    },
+    {
+      "id": 12,
+      "titel": "Build-Check durchfuehren",
+      "status": "pending",
+      "detail": "npm run build und UI-Test im Browser.",
+      "referenzen": {},
+      "schritte": [
+        "npm run build ausfuehren",
+        "Fehler beheben",
+        "UI im Browser testen: /studio/create mit Output-Grid, PromptBar, ControlBar, AR-Picker, @-Dropdown, Presets"
+      ],
+      "fertigstellungskriterien": ["npm run build erfolgreich", "Alle AP5-Komponenten im Browser sichtbar und interaktiv"]
+    }
+  ]
+}
