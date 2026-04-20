@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -71,6 +72,7 @@ function EmptyState() {
 }
 
 export function CreateView() {
+  const searchParams = useSearchParams();
   const generationHook = useStudioGeneration();
   const productsHook = useStudioProducts();
   const personasHook = useStudioPersonas();
@@ -92,6 +94,13 @@ export function CreateView() {
   const [endFrame, setEndFrame] = useState<File | null>(null);
   const [selectedGeneration, setSelectedGeneration] = useState<StudioGeneration | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<StudioGenerationOutput | null>(null);
+
+  useEffect(() => {
+    const promptParam = searchParams.get('prompt');
+    if (promptParam) {
+      setRawPrompt(promptParam);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     void fetchGenerations();

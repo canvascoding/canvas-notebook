@@ -705,19 +705,37 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         throw err;
       }
 
-      const { selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
-      
-      if (currentDirectory === oldPath || currentDirectory.startsWith(oldPath + '/')) {
-        const updatedDir = currentDirectory.replace(oldPath, newPath);
-        setCurrentDirectory(updatedDir);
+      const { expandedDirs, selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
+
+      const isDescendant = (p: string) =>
+        p === oldPath || p.startsWith(oldPath + '/');
+      const remapPath = (p: string) =>
+        p === oldPath ? newPath : p.replace(oldPath + '/', newPath + '/');
+
+      let updatedExpandedDirs = expandedDirs;
+      if (expandedDirs.has(oldPath) || [...expandedDirs].some(isDescendant)) {
+        const remapped = new Set<string>();
+        for (const dir of expandedDirs) {
+          remapped.add(isDescendant(dir) ? remapPath(dir) : dir);
+        }
+        updatedExpandedDirs = remapped;
+        set({ expandedDirs: updatedExpandedDirs });
       }
 
-      if (selectedNode?.path === oldPath) {
-        set({ selectedNode: null });
+      if (currentDirectory === oldPath || currentDirectory.startsWith(oldPath + '/')) {
+        setCurrentDirectory(remapPath(currentDirectory));
       }
-      if (currentFile?.path === oldPath) {
-        set({ currentFile: null, fileError: null });
-      }
+
+      const updatedSelectedNode = selectedNode
+        ? (isDescendant(selectedNode.path) ? { ...selectedNode, path: remapPath(selectedNode.path) } : selectedNode)
+        : null;
+      const updatedCurrentFile = currentFile && isDescendant(currentFile.path)
+        ? { ...currentFile, path: remapPath(currentFile.path) }
+        : currentFile;
+      set({
+        selectedNode: updatedSelectedNode,
+        ...(updatedCurrentFile !== currentFile ? { currentFile: updatedCurrentFile, fileError: null } : {}),
+      });
 
       const parentDirs = new Set([
         getParentDirectory(oldPath),
@@ -725,6 +743,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       ]);
       for (const parentDir of parentDirs) {
         await get().refreshDirectory(parentDir, true);
+      }
+
+      const childExpandedDirs = [...updatedExpandedDirs]
+        .filter(d => d === newPath || d.startsWith(newPath + '/'))
+        .sort((a, b) => a.split('/').length - b.split('/').length);
+
+      for (const dir of childExpandedDirs) {
+        if (dir !== newPath) {
+          await get().loadSubdirectory(dir, true);
+        }
       }
     } catch (error) {
       const message =
