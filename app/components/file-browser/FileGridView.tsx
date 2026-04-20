@@ -8,6 +8,7 @@ import {
   SidebarMenu,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarProvider,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import {
@@ -326,27 +327,29 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
             <span>↑ {t('goUpFolder')}</span>
           </button>
         )}
-        <SidebarGroup className="p-0">
-          <SidebarGroupContent>
-            <SidebarMenu className="space-y-0.5">
-              {filteredListChildren && filteredListChildren.length === 0 && !searchQuery && (
-                <div className="flex h-24 flex-col items-center justify-center gap-2 p-4 text-center">
-                  <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
-                  <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
-                </div>
-              )}
-              {filteredListChildren?.map((node: FileNodeType) => (
-                <FileTreeNode
-                  key={node.path}
-                  node={node}
-                  browserMode="list"
-                  onNavigateInto={handleNavigateInto}
-                  onOpenFile={handleFileOpen}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <SidebarProvider>
+          <SidebarGroup className="p-0">
+            <SidebarGroupContent>
+              <SidebarMenu className="space-y-0.5">
+                {filteredListChildren && filteredListChildren.length === 0 && !searchQuery && (
+                  <div className="flex h-24 flex-col items-center justify-center gap-2 p-4 text-center">
+                    <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
+                    <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
+                  </div>
+                )}
+                {filteredListChildren?.map((node: FileNodeType) => (
+                  <FileTreeNode
+                    key={node.path}
+                    node={node}
+                    browserMode="list"
+                    onNavigateInto={handleNavigateInto}
+                    onOpenFile={handleFileOpen}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarProvider>
         {filteredListChildren && filteredListChildren.length === 0 && searchQuery && (
           <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
             <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
@@ -370,15 +373,17 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   // tree view
   const treeContent = (
     <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1}>
-      <SidebarGroup className="p-0">
-        <SidebarGroupContent>
-          <SidebarMenu className="space-y-0.5">
-            {filteredTree.map((node) => (
-              <FileTreeNode key={node.path} node={node} onOpenFile={handleFileOpen} />
-            ))}
-          </SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <SidebarProvider>
+        <SidebarGroup className="p-0">
+          <SidebarGroupContent>
+            <SidebarMenu className="space-y-0.5">
+              {filteredTree.map((node) => (
+                <FileTreeNode key={node.path} node={node} onOpenFile={handleFileOpen} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarProvider>
       {filteredTree.length === 0 && searchQuery && (
         <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
           <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>

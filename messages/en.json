@@ -1543,6 +1543,27 @@
       "deletePersona": "Delete persona",
       "deleteConfirmMessage": "This model may be referenced in generations. The reference will be marked as [Deleted]. Continue?",
       "confirmDelete": "Delete"
+    },
+    "dashboard": {
+      "tabLabel": "Overview",
+      "startingPointsBadge": "Starting Points",
+      "headline": "Start with a visual direction, then build from products, personas, and presets.",
+      "subheadline": "Your outputs will appear here in reverse chronological order. Use the prompt bar to create images or videos.",
+      "quickActionsTitle": "Quick Actions",
+      "quickActions": {
+        "newProduct": "New Product",
+        "newProductDesc": "Create a new product with images.",
+        "generateImages": "Generate Images",
+        "generateImagesDesc": "Create AI-generated images and videos.",
+        "startBulk": "Bulk Generate",
+        "startBulkDesc": "Start a batch generation for multiple products.",
+        "viewPresets": "View Presets",
+        "viewPresetsDesc": "Browse and manage your presets."
+      },
+      "startingPointsTitle": "Inspiration",
+      "recreate": "Recreate",
+      "recentGenerationsTitle": "Recent Generations",
+      "viewAll": "View All"
     }
   },
   "usage": {

@@ -1543,6 +1543,27 @@
       "deletePersona": "Persona löschen",
       "deleteConfirmMessage": "Dieses Modell wird möglicherweise in Generierungen referenziert. Die Referenz wird als [Gelöscht] markiert. Fortfahren?",
       "confirmDelete": "Löschen"
+    },
+    "dashboard": {
+      "tabLabel": "Übersicht",
+      "startingPointsBadge": "Starting Points",
+      "headline": "Starte mit einer visuellen Richtung, dann baue auf Produkten, Personas und Presets auf.",
+      "subheadline": "Deine Outputs erscheinen hier in umgekehrter Reihenfolge. Nutze die Prompt-Leiste zum Erstellen von Bildern und Videos.",
+      "quickActionsTitle": "Schnellstart",
+      "quickActions": {
+        "newProduct": "Neues Produkt",
+        "newProductDesc": "Erstelle ein neues Produkt mit Bildern.",
+        "generateImages": "Bilder generieren",
+        "generateImagesDesc": "Erstelle KI-generierte Bilder und Videos.",
+        "startBulk": "Bulk-Generierung",
+        "startBulkDesc": "Starte eine Batch-Generierung für mehrere Produkte.",
+        "viewPresets": "Presets ansehen",
+        "viewPresetsDesc": "Durchsuche und verwalte deine Presets."
+      },
+      "startingPointsTitle": "Inspiration",
+      "recreate": "Nachbilden",
+      "recentGenerationsTitle": "Letzte Generierungen",
+      "viewAll": "Alle anzeigen"
     }
   },
   "usage": {

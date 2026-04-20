@@ -4,8 +4,12 @@ import { useTranslations } from 'next-intl';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { BulkGenerateView } from './bulk/BulkGenerateView';
+import { StudioDashboard } from './StudioDashboard';
+import { CreateView } from './create/CreateView';
+import { ModelLibrary } from './models/ModelLibrary';
 
 const tabs = [
+  { key: 'dashboard', path: '/studio' },
   { key: 'create', path: '/studio/create' },
   { key: 'bulk', path: '/studio/bulk' },
   { key: 'models', path: '/studio/models' },
@@ -17,7 +21,10 @@ export function StudioClient() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const activeTab = tabs.find((tab) => pathname?.startsWith(tab.path))?.key ?? 'models';
+  const activeTab = tabs.find((tab) => {
+    if (tab.key === 'dashboard') return pathname === '/studio' || pathname === '/studio/';
+    return pathname?.startsWith(tab.path);
+  })?.key ?? 'dashboard';
 
   return (
     <div className="flex h-full flex-col">
@@ -36,7 +43,7 @@ export function StudioClient() {
                   : 'text-muted-foreground',
               )}
             >
-              {t(`tabs.${tab.key}`)}
+              {tab.key === 'dashboard' ? t('dashboard.tabLabel') : t(`tabs.${tab.key}`)}
               {activeTab === tab.key && (
                 <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
               )}
@@ -45,15 +52,10 @@ export function StudioClient() {
         </nav>
       </div>
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        {activeTab === 'models' && (
-          <p className="text-muted-foreground">{t('comingSoon')}</p>
-        )}
-        {activeTab === 'create' && (
-          <p className="text-muted-foreground">{t('comingSoon')}</p>
-        )}
-        {activeTab === 'bulk' && (
-          <BulkGenerateView />
-        )}
+        {activeTab === 'dashboard' && <StudioDashboard />}
+        {activeTab === 'create' && <CreateView />}
+        {activeTab === 'bulk' && <BulkGenerateView />}
+        {activeTab === 'models' && <ModelLibrary />}
         {activeTab === 'presets' && (
           <p className="text-muted-foreground">{t('comingSoon')}</p>
         )}

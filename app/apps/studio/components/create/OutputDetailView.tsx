@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect } from 'react';
-import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { OutputDetailChat } from './OutputDetailChat';
 import { Badge } from '@/components/ui/badge';
@@ -64,9 +64,17 @@ export function OutputDetailView({
     window.open(output.mediaUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const presetName = generation.studioPreset?.name || 'No preset';
+  const presetName = generation.studioPreset?.name || (generation.studioPresetId ? null : 'No preset');
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
+
+  const productNames = generation.products ?? [];
+  const personaNames = generation.personas ?? [];
+  const productIds = generation.product_ids ?? [];
+  const personaIds = generation.persona_ids ?? [];
+
+  const orphanedProductCount = productIds.length - productNames.length;
+  const orphanedPersonaCount = personaIds.length - personaNames.length;
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
@@ -131,6 +139,44 @@ export function OutputDetailView({
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Prompt</p>
                   <p className="max-w-4xl text-sm leading-6 text-foreground">{prompt}</p>
                 </div>
+
+                {(productNames.length > 0 || personaNames.length > 0 || orphanedProductCount > 0 || orphanedPersonaCount > 0) && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Referenzen</p>
+                    <div className="flex flex-wrap gap-2">
+                      {productNames.map((name, i) => (
+                        <Badge key={`product-${i}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
+                          <Box className="h-3 w-3" />
+                          {name}
+                        </Badge>
+                      ))}
+                      {Array.from({ length: orphanedProductCount }).map((_, i) => (
+                        <span
+                          key={`orphaned-product-${i}`}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground"
+                        >
+                          <Box className="h-3 w-3" />
+                          [Gelöscht]
+                        </span>
+                      ))}
+                      {personaNames.map((name, i) => (
+                        <Badge key={`persona-${i}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
+                          <User className="h-3 w-3" />
+                          {name}
+                        </Badge>
+                      ))}
+                      {Array.from({ length: orphanedPersonaCount }).map((_, i) => (
+                        <span
+                          key={`orphaned-persona-${i}`}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground"
+                        >
+                          <User className="h-3 w-3" />
+                          [Gelöscht]
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" className="gap-2 rounded-full" onClick={handleDownload} disabled={!output.mediaUrl}>

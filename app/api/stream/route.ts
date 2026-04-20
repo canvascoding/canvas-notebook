@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
     const currentTime = typeof ctx.currentTime === 'string' ? ctx.currentTime : undefined;
     const activeFilePath = typeof ctx.activeFilePath === 'string' ? ctx.activeFilePath : null;
     const planningMode = ctx.planningMode === true;
+    const currentPage = typeof ctx.currentPage === 'string' ? ctx.currentPage : undefined;
 
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
     const promptMessage = resolvePromptMessage(payload);
@@ -105,6 +106,9 @@ export async function POST(request: NextRequest) {
 
     // Set planning mode for this prompt
     runtimeInstance.setPlanningMode(planningMode);
+
+    // Set page context for this prompt
+    runtimeInstance.setPageContext(currentPage);
 
     const encoder = new TextEncoder();
 
