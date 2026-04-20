@@ -2840,7 +2840,6 @@ export default function CanvasAgentChat({
                 <span className="hidden sm:inline">{tCommon('suite')}</span>
               </Link>
             </Button>
-            <Image src="/logo.jpg" alt={tCommon('logoAlt')} width={32} height={32} className="shrink-0 border border-border" />
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, type CSSProperties } from 'react';
-import Image from 'next/image';
+
 import { Link } from '@/i18n/navigation';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -417,7 +417,6 @@ export function DashboardShell() {
                 >
                   <PanelLeft className="h-4 w-4" />
                 </Button>
-                <Image src="/logo.jpg" alt={tNav('canvasNotebook')} width={32} height={32} className="shrink-0 border border-border" />
                 <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{tNav('canvasNotebook')}</h1>
               </>
             ) : null}

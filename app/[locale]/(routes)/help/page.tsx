@@ -8,7 +8,7 @@ export default async function HelpPage() {
   const t = await getTranslations('help');
 
   return (
-    <SuitePageLayout title={t('title')} showLogo>
+    <SuitePageLayout title={t('title')}>
       <HelpPageClient />
     </SuitePageLayout>
   );

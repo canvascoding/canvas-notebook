@@ -1,6 +1,6 @@
 'use client';
 
-import Image from 'next/image';
+
 import { Link } from '@/i18n/navigation';
 import type { ReactNode } from 'react';
 import { ArrowLeft } from 'lucide-react';
@@ -19,7 +19,6 @@ type SuitePageLayoutProps = {
   title: string;
   children: ReactNode;
   mainClassName?: string;
-  showLogo?: boolean;
   titleClassName?: string;
   hintPage?: string;
 };
@@ -28,7 +27,6 @@ export function SuitePageLayout({
   title,
   children,
   mainClassName,
-  showLogo = false,
   titleClassName,
   hintPage,
 }: SuitePageLayoutProps) {
@@ -46,15 +44,7 @@ export function SuitePageLayout({
                   <span className="hidden sm:inline">{t('suite')}</span>
                 </Link>
               </Button>
-              {showLogo ? (
-                <Image
-                  src="/logo.jpg"
-                  alt="Canvas Notebook logo"
-                  width={32}
-                  height={32}
-                  className="shrink-0 border border-border"
-                />
-              ) : null}
+
               <div className="min-w-0">
                 <h1 className={cn('truncate text-sm font-semibold sm:text-base md:text-lg', titleClassName)}>{title}</h1>
               </div>

@@ -19,7 +19,7 @@ export default async function TerminalPage() {
   const t = await getTranslations('terminal');
 
   return (
-    <SuitePageLayout title={t('title')} mainClassName="flex-1 min-h-0 overflow-hidden" showLogo>
+    <SuitePageLayout title={t('title')} mainClassName="flex-1 min-h-0 overflow-hidden">
         <TerminalPanel standalone className="h-full" />
     </SuitePageLayout>
   );
