@@ -346,7 +346,25 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
 
       const { data } = await response.json();
-      set({ fileTree: data });
+
+      // Merge: preserve existing children from current tree so expanded
+      // folders don't appear empty after a root-level refresh (depth=0).
+      const currentTree = get().fileTree;
+      const oldNodesByPath = new Map<string, FileNode>();
+      for (const node of currentTree) {
+        oldNodesByPath.set(node.path, node);
+      }
+      const mergedTree = data.map((newNode: FileNode) => {
+        if (newNode.type === 'directory') {
+          const existing = oldNodesByPath.get(newNode.path);
+          if (existing?.children) {
+            return { ...newNode, children: existing.children };
+          }
+        }
+        return newNode;
+      });
+
+      set({ fileTree: mergedTree });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to refresh root tree';
@@ -429,16 +447,18 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         });
       };
 
-      const newTree = mergeSubtree(fileTree, dirPath, data);
-      const newExpanded = new Set(expandedDirs);
+      // Use fresh state references after the async gap to avoid
+      // overwriting concurrent tree updates (race condition).
+      const newTree = mergeSubtree(get().fileTree, dirPath, data);
+      const newExpanded = new Set(get().expandedDirs);
       newExpanded.add(dirPath);
 
-      const newLoading = new Set(loadingDirs);
+      const newLoading = new Set(get().loadingDirs);
       newLoading.delete(dirPath);
 
       set({ fileTree: newTree, expandedDirs: newExpanded, loadingDirs: newLoading });
     } catch (error) {
-      const newLoading = new Set(loadingDirs);
+      const newLoading = new Set(get().loadingDirs);
       newLoading.delete(dirPath);
       set({ loadingDirs: newLoading });
       console.error('Failed to load subdirectory:', error);
