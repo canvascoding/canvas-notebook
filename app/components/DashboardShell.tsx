@@ -51,7 +51,8 @@ import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants
 type MobileSurface = 'editor' | 'terminal';
 type DesktopChatMode = 'side' | 'fullscreen';
 
-const LEFT_SIDEBAR_MIN = 300;
+const LEFT_SIDEBAR_MIN = 375;
+const LEFT_SIDEBAR_MAX = 940;
 const MIN_EDITOR_WIDTH = 360;
 
 function getSidebarMaxWidth() {
@@ -59,11 +60,11 @@ function getSidebarMaxWidth() {
     return LEFT_SIDEBAR_MIN;
   }
 
-  return Math.max(LEFT_SIDEBAR_MIN, window.innerWidth - MIN_EDITOR_WIDTH);
+  return Math.min(LEFT_SIDEBAR_MAX, Math.max(LEFT_SIDEBAR_MIN, window.innerWidth - MIN_EDITOR_WIDTH));
 }
 
 function clampSidebarWidth(width: number) {
-  return Math.min(getSidebarMaxWidth(), Math.max(LEFT_SIDEBAR_MIN, width));
+  return Math.min(LEFT_SIDEBAR_MAX, getSidebarMaxWidth(), Math.max(LEFT_SIDEBAR_MIN, width));
 }
 
 function MobileNotebookEmptyState({
@@ -116,8 +117,8 @@ export function DashboardShell() {
   const searchParams = useSearchParams();
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(340);
-  const [chatVisible, setChatVisible] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(375);
+  const [chatVisible, setChatVisible] = useState(true);
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [chatWidth, setChatWidth] = useState(420);
