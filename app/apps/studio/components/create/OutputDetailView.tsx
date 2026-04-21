@@ -2,13 +2,23 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { OutputDetailChat } from './OutputDetailChat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface OutputDetailViewProps {
   generation: StudioGeneration | null;
@@ -20,6 +30,7 @@ interface OutputDetailViewProps {
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioGeneration) {
@@ -40,7 +51,10 @@ export function OutputDetailView({
   onToggleFavorite,
   onCreateVariation,
   onCreateVideo,
+  onDelete,
 }: OutputDetailViewProps) {
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
   useEffect(() => {
     if (!open) return;
 
@@ -62,6 +76,14 @@ export function OutputDetailView({
   const handleDownload = () => {
     if (!output.mediaUrl) return;
     window.open(output.mediaUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleDelete = () => {
+    setShowDeleteDialog(false);
+    if (generation && output) {
+      onDelete(generation, output);
+      onClose();
+    }
   };
 
   const presetName = generation.studioPreset?.name || (generation.studioPresetId ? null : 'No preset');
@@ -201,11 +223,35 @@ export function OutputDetailView({
                     <Film className="h-4 w-4" />
                     Video
                   </Button>
-                  <Button variant="outline" className="gap-2 rounded-full" disabled>
+                  <Button
+                    variant="outline"
+                    className="gap-2 rounded-full text-red-600 hover:bg-red-500/10 hover:text-red-700"
+                    onClick={() => setShowDeleteDialog(true)}
+                  >
                     <Trash2 className="h-4 w-4" />
-                    Loeschen
+                    Löschen
                   </Button>
                 </div>
+
+                <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+                  <AlertDialogContent className="max-w-sm">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Löschen bestätigen</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Möchtest du dieses Element wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleDelete}
+                        className="bg-red-600 hover:bg-red-700"
+                      >
+                        Löschen
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </div>
 
