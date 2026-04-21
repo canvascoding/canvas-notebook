@@ -11,7 +11,7 @@ export default async function StudioModelNewPage({
   await requirePageSession();
   const t = await getTranslations('studio');
   const params = await searchParams;
-  const entityType = params.type === 'persona' ? 'persona' : 'product';
+  const entityType = params.type === 'persona' ? 'persona' : params.type === 'style' ? 'style' : 'product';
 
   return (
     <SuitePageLayout title={t('title')} hintPage="studio">
