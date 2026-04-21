@@ -201,8 +201,17 @@ export async function getProductImageBuffer(imageId: string) {
   if (!image) {
     throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
   }
-  const buffer = await readAssetFile(image.filePath);
-  return { buffer, mimeType: image.mimeType, fileName: image.fileName };
+  try {
+    const buffer = await readAssetFile(image.filePath);
+    return { buffer, mimeType: image.mimeType, fileName: image.fileName };
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      await db.delete(studioProductImages).where(eq(studioProductImages.id, imageId));
+      console.warn(`Auto-cleaned orphaned product image ${imageId}: file missing at ${image.filePath}`);
+      throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
+    }
+    throw error;
+  }
 }
 
 export async function reorderProductImages(productId: string, imageOrder: string[]) {
