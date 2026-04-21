@@ -740,7 +740,10 @@ export async function listStudioGenerations(userId: string) {
 
     return {
       ...gen,
-      outputs,
+      outputs: outputs.map((o) => ({
+        ...o,
+        mediaUrl: o.filePath ? toMediaUrl(o.filePath) : o.mediaUrl,
+      })),
       product_ids: productRefs.map((r) => r.productId),
       persona_ids: personaRefs.map((r) => r.personaId),
     };
@@ -770,7 +773,10 @@ export async function getStudioGeneration(generationId: string, userId: string) 
 
   return {
     ...generation,
-    outputs,
+    outputs: outputs.map((o) => ({
+      ...o,
+      mediaUrl: o.filePath ? toMediaUrl(o.filePath) : o.mediaUrl,
+    })),
     product_ids: productRefs.map((r) => r.productId),
     persona_ids: personaRefs.map((r) => r.personaId),
   };
