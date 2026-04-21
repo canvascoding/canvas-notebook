@@ -4,7 +4,7 @@ import { getTranslations } from 'next-intl/server';
 import HelpPageClient from './HelpPageClient';
 
 export default async function HelpPage() {
-  const session = await requirePageSession();
+  await requirePageSession();
   const t = await getTranslations('help');
 
   return (

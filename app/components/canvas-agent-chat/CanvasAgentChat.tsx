@@ -67,10 +67,10 @@ import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/cu
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
-import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
+
 import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import type { ChatRequestContext } from '@/app/lib/chat/types';

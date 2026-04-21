@@ -46,7 +46,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
     setPendingImages((prev) => [...prev, ...newImages].slice(0, 10));
   }, []);
 
-  const { handleFiles, dialogState, setDialogState, handleConfirm, handleSkip, isProcessing } =
+  const { handleFiles, dialogState, setDialogState, handleConfirm, handleSkip } =
     useImagePreprocess({
       onUpload: handleUpload,
     });

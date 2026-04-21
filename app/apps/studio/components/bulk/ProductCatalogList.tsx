@@ -104,6 +104,7 @@ export function ProductCatalogList({
                 </div>
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
                   {product.thumbnailPath ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={`/api/studio/products/${product.id}/thumbnail`} alt="" className="h-8 w-8 rounded object-cover" />
                   ) : (
                     <ImageIcon className="h-4 w-4 text-muted-foreground" />

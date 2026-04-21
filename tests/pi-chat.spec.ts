@@ -187,7 +187,7 @@ test.describe('PI Chat E2E', () => {
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
-    await input.fill('Antworte kurz, damit ich den WebSocket-Versand pruefen kann.');
+    await input.fill('Antworte kurz, damit ich den WebSocket-Versand prüfen kann.');
     await input.press('Enter');
 
     await expect(page.getByTestId('chat-message-user')).toHaveCount(1, { timeout: 15000 });
@@ -1108,7 +1108,7 @@ test.describe('PI Chat E2E', () => {
     await page.goto('/chat');
 
     const input = page.getByTestId('chat-input');
-    const longPrompt = Array.from({ length: 20 }, (_, index) => `Zeile ${index + 1} fuer den Composer-Wachstumstest.`).join('\n');
+    const longPrompt = Array.from({ length: 20 }, (_, index) => `Zeile ${index + 1} für den Composer-Wachstumstest.`).join('\n');
 
     await expect
       .poll(async () => (await getChatInputMetrics(page)).styleHeight, { timeout: 15000 })

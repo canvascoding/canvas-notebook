@@ -28,6 +28,8 @@ const eslintConfig = defineConfig([
     // Compiled JavaScript files (TypeScript source exists)
     "server/*.js",
     "scripts/*.js",
+    // Third-party file explorer widget (pure JS)
+    "bsp-filebrowser/**",
   ]),
 ]);
 

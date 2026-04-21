@@ -40,20 +40,26 @@ export function BulkGenerateView() {
     void fetchPresets();
   }, [fetchProducts, fetchPersonas, fetchPresets]);
 
-  useEffect(() => {
-    const filtered = selectedProductIds.map((id) => {
-      const product = products.find((p) => p.id === id);
-      const existing = overrides.find((o) => o.productId === id);
-      return {
-        productId: id,
-        productName: product?.name ?? 'Unknown',
-        presetId: existing?.presetId,
-        personaId: existing?.personaId,
-        customPrompt: existing?.customPrompt,
-      };
-    });
-    setOverrides(filtered);
-  }, [selectedProductIds, products]);
+  // Compute overrides directly during render to avoid cascading setState/useMemo deps with overrides
+  const derivedOverrides = selectedProductIds.map((id) => {
+    const product = products.find((p) => p.id === id);
+    const existing = overrides.find((o) => o.productId === id);
+    return {
+      productId: id,
+      productName: product?.name ?? 'Unknown',
+      presetId: existing?.presetId,
+      personaId: existing?.personaId,
+      customPrompt: existing?.customPrompt,
+    };
+  });
+
+  const effectiveOverrides = derivedOverrides.map((derived) => {
+    const existing = overrides.find((o) => o.productId === derived.productId);
+    if (existing) {
+      return { ...existing, productName: derived.productName };
+    }
+    return derived;
+  });
 
   const canStart = useMemo(() => {
     return selectedProductIds.length > 0 && prompt.trim().length > 0 && !loading;
@@ -68,7 +74,7 @@ export function BulkGenerateView() {
       preset_id: presetId || undefined,
       aspect_ratio: aspectRatio,
       versions_per_product: versions,
-      line_item_overrides: overrides
+      line_item_overrides: effectiveOverrides
         .filter((o) => o.presetId || o.personaId || o.customPrompt)
         .map((o) => ({
           product_id: o.productId,
@@ -109,7 +115,10 @@ export function BulkGenerateView() {
         <ProductCatalogList
           products={products}
           selectedIds={hasActiveJob ? [] : selectedProductIds}
-          onSelectionChange={hasActiveJob ? () => {} : setSelectedProductIds}
+          onSelectionChange={hasActiveJob ? () => {} : (ids) => {
+            setSelectedProductIds(ids);
+            setOverrides((prev) => prev.filter((o) => ids.includes(o.productId)));
+          }}
           loading={productsHook.loading}
         />
       </div>
@@ -174,7 +183,7 @@ export function BulkGenerateView() {
           products={products}
           personas={personas}
           presets={presets}
-          overrides={overrides}
+          overrides={effectiveOverrides}
           onOverridesChange={setOverrides}
           batchPresetId={presetId || undefined}
         />

@@ -83,6 +83,7 @@ export function BulkProgressTracker({ job, onCancel }: BulkProgressTrackerProps)
                 {job.versionsPerProduct > 1 && ` v${versionIndex}`}
               </span>
               {item.status === 'completed' && item.outputs && item.outputs.length > 0 && item.outputs[0].mediaUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={item.outputs[0].mediaUrl}
                   alt=""

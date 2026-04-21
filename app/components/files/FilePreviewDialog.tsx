@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -44,35 +44,36 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
   useEffect(() => {
     if (!path) return;
     void loadFile(path, true);
-  }, [path, loadFile]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to path changes
+  }, [path]);
 
   const filePaths = useMemo(
     () => flattenDirectoryFiles(fileTree, currentDirectory),
     [currentDirectory, fileTree]
   );
+
   const activePath = currentFile?.path ?? path;
   const currentIndex = activePath ? filePaths.indexOf(activePath) : -1;
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < filePaths.length - 1;
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     clearCurrentFile();
     onClose();
-  };
+  }, [clearCurrentFile, onClose]);
 
-  const handlePrev = () => {
-    if (!hasPrev) return;
+  const handlePrev = useCallback(() => {
+    if (currentIndex <= 0) return;
     void loadFile(filePaths[currentIndex - 1], true);
-  };
+  }, [currentIndex, filePaths, loadFile]);
 
-  const handleNext = () => {
-    if (!hasNext) return;
+  const handleNext = useCallback(() => {
+    if (currentIndex < 0 || currentIndex >= filePaths.length - 1) return;
     void loadFile(filePaths[currentIndex + 1], true);
-  };
+  }, [currentIndex, filePaths, loadFile]);
 
   useEffect(() => {
     if (!path) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
@@ -87,7 +88,7 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [path, currentIndex, filePaths]);
+  }, [path, handlePrev, handleNext, handleClose]);
 
   if (!path) return null;
 

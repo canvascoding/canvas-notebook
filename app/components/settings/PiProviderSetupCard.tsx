@@ -117,7 +117,7 @@ function translateProviderHelpText(text: string, locale: string): string {
     'Google Gemini API': 'Google Gemini API',
     'Fast inference with OpenAI-compatible API': 'Schnelle Inferenz mit OpenAI-kompatibler API',
     'Mistral AI API': 'Mistral AI API',
-    'Unified API for multiple AI models': 'Einheitliche API fuer mehrere KI-Modelle',
+    'Unified API for multiple AI models': 'Einheitliche API für mehrere KI-Modelle',
     'zAI GLM models': 'zAI-GLM-Modelle',
     'Cerebras inference API': 'Cerebras Inference-API',
     'xAI Grok models': 'xAI-Grok-Modelle',
@@ -126,51 +126,51 @@ function translateProviderHelpText(text: string, locale: string): string {
     'MiniMax China models': 'MiniMax-China-Modelle',
     'OpenCode Zen models': 'OpenCode-Zen-Modelle',
     'Moonshot AI Kimi models': 'Moonshot-AI-Kimi-Modelle',
-    'OpenAI Codex via PI OAuth (requires ChatGPT Plus/Pro)': 'OpenAI Codex ueber PI OAuth (benoetigt ChatGPT Plus/Pro)',
+    'OpenAI Codex via PI OAuth (requires ChatGPT Plus/Pro)': 'OpenAI Codex über PI OAuth (benötigt ChatGPT Plus/Pro)',
     'Login with your OpenAI account (ChatGPT Plus/Pro required)': 'Melde dich mit deinem OpenAI-Konto an (ChatGPT Plus/Pro erforderlich)',
-    'GitHub Copilot via PI OAuth': 'GitHub Copilot ueber PI OAuth',
-    'Google Cloud Code Assist via PI OAuth': 'Google Cloud Code Assist ueber PI OAuth',
-    'Free tier Gemini/Claude via Google Cloud': 'Kostenlose Gemini/Claude-Stufe ueber Google Cloud',
+    'GitHub Copilot via PI OAuth': 'GitHub Copilot über PI OAuth',
+    'Google Cloud Code Assist via PI OAuth': 'Google Cloud Code Assist über PI OAuth',
+    'Free tier Gemini/Claude via Google Cloud': 'Kostenlose Gemini/Claude-Stufe über Google Cloud',
     'Google Vertex AI with Application Default Credentials': 'Google Vertex AI mit Application Default Credentials',
     'AWS Bedrock AI models': 'AWS-Bedrock-KI-Modelle',
     'Azure OpenAI Service': 'Azure OpenAI Service',
-    'Choose your preferred authentication method below': 'Waehle unten deine bevorzugte Authentifizierungsmethode',
+    'Choose your preferred authentication method below': 'Wähle unten deine bevorzugte Authentifizierungsmethode',
     'Add the key to Agent Environment settings': 'Trage den Key in den Agent-Environment-Einstellungen ein',
     'Add the key to Integrations or Agent Environment settings': 'Trage den Key in den Integrations- oder Agent-Environment-Einstellungen ein',
-    'Save and verify the provider status': 'Speichere und pruefe den Provider-Status',
-    'Verify the provider status': 'Pruefe den Provider-Status',
+    'Save and verify the provider status': 'Speichere und prüfe den Provider-Status',
+    'Verify the provider status': 'Prüfe den Provider-Status',
     'Click "Connect Account" in the OAuth section': 'Klicke im OAuth-Bereich auf "Konto verbinden"',
     'Open the authorization URL in your browser': 'Oeffne die Autorisierungs-URL in deinem Browser',
     'Copy the authorization code and paste it in the dialog': 'Kopiere den Autorisierungscode und fuege ihn in den Dialog ein',
     'Click "Complete Connection" to finish': 'Klicke auf "Verbindung abschliessen", um den Vorgang zu beenden',
     'Authorize the application on GitHub': 'Autorisiere die Anwendung bei GitHub',
-    'Allow Google Cloud Code Assist access': 'Erlaube den Zugriff fuer Google Cloud Code Assist',
-    'OAuth authentication is handled securely via PI': 'Die OAuth-Authentifizierung wird sicher ueber PI abgewickelt',
-    'Credentials are stored encrypted in /data/canvas-agent/': 'Zugangsdaten werden verschluesselt in /data/canvas-agent/ gespeichert',
+    'Allow Google Cloud Code Assist access': 'Erlaube den Zugriff für Google Cloud Code Assist',
+    'OAuth authentication is handled securely via PI': 'Die OAuth-Authentifizierung wird sicher über PI abgewickelt',
+    'Credentials are stored encrypted in /data/canvas-agent/': 'Zugangsdaten werden verschlüsselt in /data/canvas-agent/ gespeichert',
     'Token refresh is automatic': 'Die Token-Aktualisierung erfolgt automatisch',
-    'Requires active ChatGPT Plus or Pro subscription': 'Benoetigt ein aktives ChatGPT-Plus- oder Pro-Abo',
-    'Requires GitHub Copilot subscription': 'Benoetigt ein GitHub-Copilot-Abo',
-    'Requires Google Cloud project': 'Benoetigt ein Google-Cloud-Projekt',
-    'Free tier available through Google Cloud': 'Kostenlose Stufe ueber Google Cloud verfuegbar',
+    'Requires active ChatGPT Plus or Pro subscription': 'Benötigt ein aktives ChatGPT-Plus- oder Pro-Abo',
+    'Requires GitHub Copilot subscription': 'Benötigt ein GitHub-Copilot-Abo',
+    'Requires Google Cloud project': 'Benötigt ein Google-Cloud-Projekt',
+    'Free tier available through Google Cloud': 'Kostenlose Stufe über Google Cloud verfügbar',
     'OAuth authentication required': 'OAuth-Authentifizierung erforderlich',
-    'Supports both Gemini and Claude models': 'Unterstuetzt sowohl Gemini- als auch Claude-Modelle',
+    'Supports both Gemini and Claude models': 'Unterstützt sowohl Gemini- als auch Claude-Modelle',
     'Install and configure Google Cloud SDK': 'Installiere und konfiguriere das Google Cloud SDK',
     'Install Google Cloud SDK': 'Installiere das Google Cloud SDK',
     'Configure AWS credentials': 'Konfiguriere AWS-Zugangsdaten',
     'Set up AWS profile or access keys': 'Richte ein AWS-Profil oder Access Keys ein',
     'Ensure Bedrock access is enabled in your AWS account': 'Stelle sicher, dass Bedrock-Zugriff in deinem AWS-Konto aktiviert ist',
     'Multiple authentication methods supported': 'Mehrere Authentifizierungsmethoden werden unterstuetzt',
-    'Requires AWS account with Bedrock access': 'Benoetigt ein AWS-Konto mit Bedrock-Zugriff',
-    'Uses standard AWS credential chain': 'Verwendet die standardmaessige AWS-Credential-Chain',
+    'Requires AWS account with Bedrock access': 'Benötigt ein AWS-Konto mit Bedrock-Zugriff',
+    'Uses standard AWS credential chain': 'Verwendet die standardmäßige AWS-Credential-Chain',
     'Create Azure OpenAI resource in Azure Portal': 'Erstelle eine Azure-OpenAI-Ressource im Azure-Portal',
     'Get your API key and endpoint': 'Hole deinen API-Key und Endpoint',
     'Add credentials to Agent Environment': 'Trage die Zugangsdaten in der Agent-Umgebung ein',
-    'Requires Azure subscription': 'Benoetigt ein Azure-Abo',
+    'Requires Azure subscription': 'Benötigt ein Azure-Abo',
     'Base URL or Resource Name is required': 'Base-URL oder Resource-Name ist erforderlich',
-    'Deployment names must match your Azure configuration': 'Deployment-Namen muessen zu deiner Azure-Konfiguration passen',
+    'Deployment names must match your Azure configuration': 'Deployment-Namen müssen zu deiner Azure-Konfiguration passen',
     'Uses Application Default Credentials (ADC)': 'Verwendet Application Default Credentials (ADC)',
-    'Requires gcloud CLI to be installed': 'Benoetigt eine installierte gcloud-CLI',
-    'Project and location must be configured': 'Projekt und Region muessen konfiguriert sein',
+    'Requires gcloud CLI to be installed': 'Benötigt eine installierte gcloud-CLI',
+    'Project and location must be configured': 'Projekt und Region müssen konfiguriert sein',
     'Login to Google Cloud': 'Bei Google Cloud anmelden',
     'Set your GCP project': 'GCP-Projekt setzen',
     'Set up Application Default Credentials': 'Application Default Credentials einrichten',
@@ -188,13 +188,13 @@ function translateProviderHelpText(text: string, locale: string): string {
     .replace(/^Get your access token from (.+)$/u, 'Hole dein Access-Token von $1')
     .replace(/^Get your API key from your (.+) provider$/u, 'Hole deinen API-Key von deinem $1-Provider')
     .replace(/^Get your API key from (.+)$/u, 'Hole deinen API-Key von $1')
-    .replace(/^For API Key: Get your key from (.+)$/u, 'Fuer API-Key: Hole deinen Key von $1')
-    .replace(/^For OAuth: Click "Connect Account" and complete the OAuth flow$/u, 'Fuer OAuth: Klicke auf "Konto verbinden" und schliesse den OAuth-Flow ab')
-    .replace(/^Select (.+) from the dropdown$/u, '$1 im Dropdown auswaehlen')
+    .replace(/^For API Key: Get your key from (.+)$/u, 'Für API-Key: Hole deinen Key von $1')
+    .replace(/^For OAuth: Click "Connect Account" and complete the OAuth flow$/u, 'Für OAuth: Klicke auf "Konto verbinden" und schließe den OAuth-Flow ab')
+    .replace(/^Select (.+) from the dropdown$/u, '$1 im Dropdown auswählen')
     .replace(/^Login with your (.+) account$/u, 'Melde dich mit deinem $1-Konto an')
     .replace(/^Login with your (.+) account \((.+)\)$/u, 'Melde dich mit deinem $1-Konto an ($2)')
     .replace(/^Authenticate: (.+)$/u, 'Authentifizieren: $1')
-    .replace(/^Login via: (.+)$/u, 'Anmelden ueber: $1')
+    .replace(/^Login via: (.+)$/u, 'Anmelden über: $1')
     .replace(/^Set the Antigravity version if needed$/u, 'Setze bei Bedarf die Antigravity-Version')
     .replace(/^Set your project and location$/u, 'Setze dein Projekt und deine Region')
     .replace(/^Your (.+) API key$/u, 'Dein $1 API-Key')
@@ -205,13 +205,13 @@ function translateProviderHelpText(text: string, locale: string): string {
     .replace(/^AWS profile name$/u, 'AWS-Profilname')
     .replace(/^AWS access key$/u, 'AWS Access Key')
     .replace(/^AWS secret key$/u, 'AWS Secret Key')
-    .replace(/^AWS bearer token for Bedrock$/u, 'AWS Bearer-Token fuer Bedrock')
+    .replace(/^AWS bearer token for Bedrock$/u, 'AWS Bearer-Token für Bedrock')
     .replace(/^Web identity token file path$/u, 'Pfad zur Web-Identity-Token-Datei')
     .replace(/^Azure OpenAI endpoint URL$/u, 'Azure-OpenAI-Endpoint-URL')
     .replace(/^Resource name \(alternative to base URL\)$/u, 'Resource-Name (Alternative zur Base-URL)')
     .replace(/^API version \(optional\)$/u, 'API-Version (optional)')
     .replace(/^Deployment name mappings \(optional\)$/u, 'Deployment-Name-Zuordnungen (optional)')
-    .replace(/^Override User-Agent version$/u, 'User-Agent-Version ueberschreiben');
+    .replace(/^Override User-Agent version$/u, 'User-Agent-Version überschreiben');
 }
 
 function localizeProviderHelp(help: ProviderHelpInfo, locale: string): ProviderHelpInfo {

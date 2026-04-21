@@ -22,6 +22,7 @@ export function ProductCard({ product }: ProductCardProps) {
       <Card className="group flex h-full flex-col overflow-hidden border border-border bg-card transition-colors hover:border-primary/40 hover:bg-accent">
         <div className="relative aspect-square w-full overflow-hidden bg-muted">
           {thumbnailUrl && !imgError ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={thumbnailUrl}
               alt={product.name}

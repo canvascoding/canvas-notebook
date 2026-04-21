@@ -4,8 +4,9 @@ import crypto from 'node:crypto';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
-export const STUDIO_ASSETS_ROOT_DIR = 'studio-assets';
-export const STUDIO_OUTPUTS_ROOT_DIR = 'studio-outputs';
+export const STUDIO_ROOT_DIR = 'studio';
+export const STUDIO_ASSETS_ROOT_DIR = path.posix.join(STUDIO_ROOT_DIR, 'assets');
+export const STUDIO_OUTPUTS_ROOT_DIR = path.posix.join(STUDIO_ROOT_DIR, 'outputs');
 
 export const STUDIO_PRODUCTS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'products');
 export const STUDIO_PERSONAS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'personas');
@@ -16,7 +17,7 @@ export function getStudioAssetsRoot(): string {
 }
 
 export function getStudioOutputsRoot(): string {
-  return path.join(resolveCanvasDataRoot(), 'workspace', STUDIO_OUTPUTS_ROOT_DIR);
+  return path.join(resolveCanvasDataRoot(), STUDIO_OUTPUTS_ROOT_DIR);
 }
 
 export async function ensureStudioAssetsWorkspace(): Promise<void> {
@@ -28,7 +29,7 @@ export async function ensureStudioAssetsWorkspace(): Promise<void> {
 }
 
 export async function ensureStudioOutputsWorkspace(): Promise<void> {
-  await createDirectory(STUDIO_OUTPUTS_ROOT_DIR);
+  await fs.mkdir(getStudioOutputsRoot(), { recursive: true });
 }
 
 export function generateProductImagePath(productId: string, sortOrder: number, ext: string): string {

@@ -88,7 +88,7 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
-        <script src="/theme-init.js" />
+        <script src="/theme-init.js" async />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}

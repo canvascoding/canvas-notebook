@@ -149,6 +149,7 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
       <div className="flex w-full flex-1 items-center justify-center px-3 py-2">
         {showImagePreview && thumbnailSrc ? (
           <div className={cn('relative overflow-hidden rounded-md bg-muted/30', thumbClass)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={thumbnailSrc}
               alt={node.name}

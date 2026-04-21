@@ -9,7 +9,7 @@ import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import { NanoBananaLocalizerClient } from '@/app/apps/nano-banana-ad-localizer/components/NanoBananaLocalizerClient';
 
 export default async function NanoBananaLocalizerPage() {
-  const session = await requirePageSession();
+  await requirePageSession();
   const t = await getTranslations('nanoBanana');
   const tCommon = await getTranslations('common');
 

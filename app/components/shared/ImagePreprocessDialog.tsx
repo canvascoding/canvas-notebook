@@ -314,7 +314,7 @@ export function ImagePreprocessDialog({
             <div className="grid grid-cols-1 gap-3 text-xs border border-border rounded-lg p-3 sm:grid-cols-3 sm:p-4">
               <div>
                 <label className="text-muted-foreground block mb-1">
-                  {hasHeic && !allHeic ? 'Format (nur fuer Nicht-HEIC)' : t('imagePreprocessFormat')}
+                  {hasHeic && !allHeic ? 'Format (nur für Nicht-HEIC)' : t('imagePreprocessFormat')}
                 </label>
                 {allHeic ? (
                   <div className="rounded-md border border-input bg-muted/50 px-2 py-1 text-sm text-muted-foreground">

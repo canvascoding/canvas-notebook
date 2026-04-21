@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Trash2, Pencil, Plus, Loader2 } from 'lucide-react';
-import { ImageUploadArea } from '../shared/ImageUploadArea';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { StudioProduct, StudioProductImage, StudioPersona, StudioPersonaImage } from '../../types/models';
@@ -28,7 +27,6 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   const [descriptionValue, setDescriptionValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [addingImages, setAddingImages] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEntity = useCallback(async () => {
@@ -125,10 +123,9 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
       await fetch(endpoint, { method: 'POST', body: formData });
     }
     await fetchEntity();
-    setAddingImages(false);
   }, [entityId, entityType, imageCount, fetchEntity]);
 
-  const { handleFiles, dialogState, setDialogState, handleConfirm, handleSkip, isProcessing } =
+  const { handleFiles, dialogState, setDialogState, handleConfirm, handleSkip } =
     useImagePreprocess({ onUpload: handleAddImages });
 
   const getImageUrl = (imageId: string) => {

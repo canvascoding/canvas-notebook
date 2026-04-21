@@ -11,7 +11,6 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Power, Loader2, X, Save, AlertCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 
