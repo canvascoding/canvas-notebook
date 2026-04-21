@@ -201,8 +201,17 @@ export async function getPersonaImageBuffer(imageId: string) {
   if (!image) {
     throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
   }
-  const buffer = await readAssetFile(image.filePath);
-  return { buffer, mimeType: image.mimeType, fileName: image.fileName };
+  try {
+    const buffer = await readAssetFile(image.filePath);
+    return { buffer, mimeType: image.mimeType, fileName: image.fileName };
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      await db.delete(studioPersonaImages).where(eq(studioPersonaImages.id, imageId));
+      console.warn(`Auto-cleaned orphaned persona image ${imageId}: file missing at ${image.filePath}`);
+      throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
+    }
+    throw error;
+  }
 }
 
 export async function reorderPersonaImages(personaId: string, imageOrder: string[]) {

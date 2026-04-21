@@ -96,7 +96,22 @@ export async function GET(
     });
 
     return new NextResponse(webStream, { status: 200, headers });
-  } catch {
+  } catch (error) {
+    // Auto-cleanup orphaned preset previews
+    try {
+      if (encodedPath.startsWith('studio/assets/presets/')) {
+        const dbLib = await import('@/app/lib/db');
+        const schemaLib = await import('@/app/lib/db/schema');
+        const ormLib = await import('drizzle-orm');
+        const presetPath = encodedPath.slice('studio/assets/'.length);
+        await dbLib.db.update(schemaLib.studioPresets)
+          .set({ previewImagePath: null, updatedAt: new Date() })
+          .where(ormLib.eq(schemaLib.studioPresets.previewImagePath, presetPath));
+        console.warn(`Auto-cleaned orphaned preset preview: ${presetPath}`);
+      }
+    } catch (cleanupError) {
+      console.warn('Failed to clean up orphaned preset preview:', cleanupError);
+    }
     return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
   }
 }
