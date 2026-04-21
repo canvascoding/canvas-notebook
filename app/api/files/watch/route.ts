@@ -35,8 +35,6 @@ export async function GET(request: NextRequest) {
         timestamp: Date.now(),
       };
 
-      const clientIdPayload = JSON.stringify({ clientId });
-
       controller.enqueue(
         new TextEncoder().encode(
           `event: connected\ndata: ${JSON.stringify({ ...connectedEvent, clientId })}\n\n`

@@ -6,7 +6,6 @@ import {
   studioBulkJobs,
   studioBulkJobLineItems,
   studioProducts,
-  studioGenerations,
   studioGenerationOutputs,
 } from '@/app/lib/db/schema';
 import { eq, and, desc, inArray, count } from 'drizzle-orm';
@@ -431,7 +430,7 @@ export async function cancelBulkJob(jobId: string): Promise<void> {
   if (job.status !== 'pending' && job.status !== 'processing') {
     throw new StudioServiceError(
       `Cannot cancel job in status '${job.status}'`,
-      'Nur aktive oder ausstehende Jobs koennen abgebrochen werden.',
+      'Nur aktive oder ausstehende Jobs können abgebrochen werden.',
       'INVALID_STATUS',
     );
   }

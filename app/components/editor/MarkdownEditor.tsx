@@ -33,6 +33,7 @@ function extractTextFromChildren(children: React.ReactNode): string {
 }
 
 // Check if any prop key contains a color code data attribute
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractMermaidCode(props: Record<string, any>): string | null {
   // Try all possible naming conventions for the data attribute
   if (props['data-mermaid-code']) return String(props['data-mermaid-code']);
@@ -46,8 +47,10 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
   const colorMode = resolvedTheme === 'light' ? 'light' : 'dark';
 
   const previewOptions = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rehypePlugins: [rehypeMermaid] as any[],
     components: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       div: (props: any) => {
         const mermaidCode = extractMermaidCode(props);
         const { node, ...restProps } = props;
@@ -56,6 +59,7 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
         }
         return <div {...restProps} />;
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       code: (props: any) => {
         const { node, className, children, ...restProps } = props;
         const text = extractTextFromChildren(children);

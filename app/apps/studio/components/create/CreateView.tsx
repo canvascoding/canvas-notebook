@@ -139,6 +139,7 @@ export function CreateView() {
       quality: provider === 'openai' ? quality : undefined,
       output_format: provider === 'openai' ? outputFormat : undefined,
       background: provider === 'openai' ? background : undefined,
+      extra_reference_urls: extraReferenceUrls,
     });
 
     if (result) {

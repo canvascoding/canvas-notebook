@@ -34,6 +34,7 @@ export interface ProviderGenerateParams {
   quality?: 'low' | 'medium' | 'high' | 'auto';
   outputFormat?: 'png' | 'jpeg' | 'webp';
   background?: 'transparent' | 'opaque' | 'auto';
+  contextPrompt?: string;
 }
 
 export interface ProviderGenerateResult {
@@ -164,6 +165,11 @@ class GeminiImageProvider implements ImageGenerationProvider {
 
     const parts: Array<{ inlineData: { data: string; mimeType: string } } | { text: string }> = [];
 
+    // Inject context prompt as first text part if available
+    if (params.contextPrompt) {
+      parts.push({ text: params.contextPrompt });
+    }
+
     for (const image of params.referenceImages) {
       parts.push({
         inlineData: {
@@ -228,6 +234,10 @@ class OpenAIImageProvider implements ImageGenerationProvider {
     const size = OPENAI_SIZE_MAP[params.aspectRatio] || '1024x1024';
 
     const hasReferences = params.referenceImages.length > 0;
+    // Combine context prompt and user prompt for OpenAI
+    const fullPrompt = params.contextPrompt
+      ? `${params.contextPrompt}\n\n${params.prompt || 'Edit this image'}`
+      : (params.prompt || 'Edit this image');
 
     if (hasReferences) {
       const imageBuffers = params.referenceImages.map((img) => {
@@ -237,7 +247,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
 
       const result = await openai.images.edit({
         model: params.model,
-        prompt: params.prompt || 'Edit this image',
+        prompt: fullPrompt,
         image: imageBuffers.length === 1 ? imageBuffers[0] : imageBuffers,
         size,
         quality: params.quality || 'auto',
@@ -260,7 +270,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
 
     const result = await openai.images.generate({
       model: params.model,
-      prompt: params.prompt,
+      prompt: fullPrompt,
       n: 1,
       size,
       quality: params.quality || 'auto',

@@ -2,9 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useState, useCallback, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Upload, Link as LinkIcon, X, GripVertical } from 'lucide-react';
+import { Upload, X, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PendingImage {

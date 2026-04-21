@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { ProductCard } from './ProductCard';
@@ -25,11 +25,11 @@ export function ModelLibrary() {
 
   useEffect(() => {
     productsHook.fetchProducts(search);
-  }, [search]);
+  }, [search, productsHook]);
 
   useEffect(() => {
     personasHook.fetchPersonas(search);
-  }, [search]);
+  }, [search, personasHook]);
 
   const handleCreate = () => {
     const type = activeTab === 'personas' ? 'persona' : 'product';

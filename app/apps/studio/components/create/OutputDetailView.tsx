@@ -119,7 +119,7 @@ export function OutputDetailView({
           <div className="flex items-center justify-between border-b border-border/70 px-4 py-3 sm:px-6">
             <Button variant="ghost" size="sm" className="gap-2 rounded-full" onClick={onClose}>
               <ArrowLeft className="h-4 w-4" />
-              Zurueck zum Grid
+              Zurück zum Grid
             </Button>
             <Badge variant="outline" className="rounded-full px-3 py-1 uppercase tracking-[0.18em]">
               {output.type}

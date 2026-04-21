@@ -77,8 +77,6 @@ import { createBulkJob } from '../integrations/studio-bulk-service';
 import { db } from '@/app/lib/db';
 import {
   studioGenerationOutputs,
-  studioGenerationPersonas,
-  studioGenerationProducts,
   studioGenerations,
   studioPresets,
 } from '@/app/lib/db/schema';

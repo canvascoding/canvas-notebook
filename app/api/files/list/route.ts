@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getCachedFileReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
-import { searchFileReferenceEntries, type FileReferenceEntry } from '@/app/lib/filesystem/file-reference-search';
+import { searchFileReferenceEntries } from '@/app/lib/filesystem/file-reference-search';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export async function GET(request: NextRequest) {

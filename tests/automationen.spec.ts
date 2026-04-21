@@ -36,7 +36,7 @@ test.describe('Automationen UI', () => {
   });
 
   test('creates an automation, starts a run immediately, and links its chat session', async ({ page }) => {
-    const uniqueName = `PW Automation ${Date.now()} mit langem Titel fuer Overflow-Test`;
+    const uniqueName = `PW Automation ${Date.now()} mit langem Titel für Overflow-Test`;
     const targetDir = `automationen/playwright-target-${Date.now()}`;
 
     await page.goto('/automationen');

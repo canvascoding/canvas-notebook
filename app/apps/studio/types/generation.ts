@@ -57,6 +57,7 @@ export interface StudioGeneratePayload {
   background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
   pi_session_id?: string;
+  extra_reference_urls?: string[];
 }
 
 export interface StudioGenerateResponse {

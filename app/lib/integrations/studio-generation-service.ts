@@ -35,9 +35,10 @@ interface LoadedReferenceImage {
   width: number | null;
   height: number | null;
   fileName: string;
-  source: 'product' | 'persona' | 'source_output';
+  source: 'product' | 'persona' | 'source_output' | 'extra_url';
   sourceId: string;
   sourceName: string;
+  description?: string;
 }
 
 export interface StudioGenerateRequest {
@@ -55,6 +56,7 @@ export interface StudioGenerateRequest {
   background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
   pi_session_id?: string;
+  extra_reference_urls?: string[];
 }
 
 export interface StudioGenerationOutput {
@@ -101,7 +103,7 @@ async function loadProductImages(productIds: string[]): Promise<LoadedReferenceI
   const images: LoadedReferenceImage[] = [];
 
   for (const productId of productIds) {
-    const [product] = await db.select({ id: studioProducts.id, name: studioProducts.name })
+    const [product] = await db.select({ id: studioProducts.id, name: studioProducts.name, description: studioProducts.description })
       .from(studioProducts)
       .where(eq(studioProducts.id, productId));
 
@@ -138,6 +140,7 @@ async function loadProductImages(productIds: string[]): Promise<LoadedReferenceI
         source: 'product',
         sourceId: productId,
         sourceName: product.name,
+        description: product.description || undefined,
       });
     }
   }
@@ -151,7 +154,7 @@ async function loadPersonaImages(personaIds: string[]): Promise<LoadedReferenceI
   const images: LoadedReferenceImage[] = [];
 
   for (const personaId of personaIds) {
-    const [persona] = await db.select({ id: studioPersonas.id, name: studioPersonas.name })
+    const [persona] = await db.select({ id: studioPersonas.id, name: studioPersonas.name, description: studioPersonas.description })
       .from(studioPersonas)
       .where(eq(studioPersonas.id, personaId));
 
@@ -188,6 +191,7 @@ async function loadPersonaImages(personaIds: string[]): Promise<LoadedReferenceI
         source: 'persona',
         sourceId: personaId,
         sourceName: persona.name,
+        description: persona.description || undefined,
       });
     }
   }
@@ -286,6 +290,91 @@ async function loadSourceOutputReferences(sourceGenerationId: string): Promise<{
   };
 }
 
+async function loadExtraReferenceImages(urls: string[]): Promise<LoadedReferenceImage[]> {
+  if (urls.length === 0) return [];
+
+  const images: LoadedReferenceImage[] = [];
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image from ${url}: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const contentType = response.headers.get('content-type') || 'image/png';
+      
+      images.push({
+        imageBytes: buffer.toString('base64'),
+        mimeType: contentType.startsWith('image/') ? contentType : 'image/png',
+        width: null,
+        height: null,
+        fileName: url.split('/').pop() || 'extra-reference.png',
+        source: 'extra_url',
+        sourceId: url,
+        sourceName: 'Extra Reference',
+      });
+    } catch (error) {
+      console.warn(`[Studio Generation] Failed to load extra reference image from ${url}:`, error);
+    }
+  }
+
+  return images;
+}
+
+function buildReferenceContextPrompt(referenceImages: LoadedReferenceImage[]): { contextText: string; providerImages: ProviderReferenceImage[] } {
+  if (referenceImages.length === 0) {
+    return { contextText: '', providerImages: [] };
+  }
+
+  const providerImages = referenceImages.map((img) => ({
+    imageBytes: img.imageBytes,
+    mimeType: img.mimeType,
+  }));
+
+  const groups = new Map<string, LoadedReferenceImage[]>();
+  
+  for (const img of referenceImages) {
+    const key = `${img.source}:${img.sourceId}`;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key)!.push(img);
+  }
+
+  let contextText = 'Context: The following images are reference material.\n\n';
+
+  for (const images of groups.values()) {
+    const first = images[0];
+    const count = images.length;
+    
+    if (first.source === 'product') {
+      contextText += `Product '${first.sourceName}':\n`;
+      if (first.description) {
+        contextText += `Description: ${first.description}\n`;
+      }
+      contextText += `The following ${count} image${count > 1 ? 's' : ''} show${count > 1 ? '' : 's'} this product from multiple angles. Use them to maintain the exact shape, texture, material, and design. Do NOT create a collage. Generate a single coherent image of this product.\n\n`;
+    } else if (first.source === 'persona') {
+      contextText += `Persona '${first.sourceName}':\n`;
+      if (first.description) {
+        contextText += `Description: ${first.description}\n`;
+      }
+      contextText += `The following ${count} image${count > 1 ? 's' : ''} show${count > 1 ? '' : 's'} this person from various angles and expressions. Use them to maintain the exact facial features, body shape, clothing, and appearance. Do NOT create a collage. Generate a single coherent image of this person.\n\n`;
+    } else if (first.source === 'source_output') {
+      contextText += `Source Image:\n`;
+      contextText += `The following ${count} image${count > 1 ? 's' : ''} ${count > 1 ? 'are' : 'is'} the previously generated output that should be used as the base for editing or variation.\n\n`;
+    } else if (first.source === 'extra_url') {
+      contextText += `Additional Reference Images:\n`;
+      contextText += `The following ${count} image${count > 1 ? 's' : ''} provide additional visual context or style reference.\n\n`;
+    }
+  }
+
+  contextText += `User instruction: `;
+
+  return { contextText, providerImages };
+}
+
 export async function executeStudioGeneration(
   userId: string,
   request: StudioGenerateRequest,
@@ -297,7 +386,7 @@ export async function executeStudioGeneration(
   const productIds = (request.product_ids || []).slice(0, MAX_PRODUCTS);
   const personaIds = (request.persona_ids || []).slice(0, MAX_PERSONAS);
 
-  if (!rawPrompt && productIds.length === 0 && personaIds.length === 0 && !request.source_output_id) {
+  if (!rawPrompt && productIds.length === 0 && personaIds.length === 0 && !request.source_output_id && !(request.extra_reference_urls?.length)) {
     throw new StudioServiceError(
       'Prompt or reference required',
       'Ein Prompt oder mindestens ein Referenz-Bild (Produkt/Persona) ist erforderlich.',
@@ -348,11 +437,11 @@ export async function executeStudioGeneration(
   }
 
   try {
-    const referenceImages: ProviderReferenceImage[] = [];
+    const allReferenceImages: LoadedReferenceImage[] = [];
 
     if (request.source_output_id) {
       const sourceImg = await loadSourceOutputImage(request.source_output_id);
-      referenceImages.push({ imageBytes: sourceImg.imageBytes, mimeType: sourceImg.mimeType });
+      allReferenceImages.push(sourceImg);
 
       if (productIds.length === 0 && personaIds.length === 0) {
         const [sourceOutput] = await db.select()
@@ -364,8 +453,8 @@ export async function executeStudioGeneration(
             const productImgs = await loadProductImages(sourceRefs.product_ids);
             const personaImgs = await loadPersonaImages(sourceRefs.persona_ids);
             for (const img of [...productImgs, ...personaImgs]) {
-              if (!referenceImages.some((r) => r.imageBytes === img.imageBytes)) {
-                referenceImages.push({ imageBytes: img.imageBytes, mimeType: img.mimeType });
+              if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
+                allReferenceImages.push(img);
               }
             }
           }
@@ -376,10 +465,24 @@ export async function executeStudioGeneration(
     const productImgs = await loadProductImages(productIds);
     const personaImgs = await loadPersonaImages(personaIds);
     for (const img of [...productImgs, ...personaImgs]) {
-      if (!referenceImages.some((r) => r.imageBytes === img.imageBytes)) {
-        referenceImages.push({ imageBytes: img.imageBytes, mimeType: img.mimeType });
+      if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
+        allReferenceImages.push(img);
       }
     }
+
+    // Load extra reference images from URLs
+    const extraUrls = request.extra_reference_urls || [];
+    if (extraUrls.length > 0) {
+      const extraImgs = await loadExtraReferenceImages(extraUrls);
+      for (const img of extraImgs) {
+        if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
+          allReferenceImages.push(img);
+        }
+      }
+    }
+
+    // Build structured context prompt for all references
+    const { contextText, providerImages } = buildReferenceContextPrompt(allReferenceImages);
 
     let composedPrompt = rawPrompt;
     if (request.preset_id) {
@@ -389,6 +492,9 @@ export async function executeStudioGeneration(
       }
     }
 
+    // Note: contextText is passed separately to providers for structured injection
+    // OpenAI will prepend it to the prompt, Gemini will use it as a separate text part
+
     await db.update(studioGenerations)
       .set({ status: 'generating', updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
@@ -396,14 +502,14 @@ export async function executeStudioGeneration(
     let outputs: StudioGenerationOutput[];
 
     if (mode === 'video') {
-      outputs = await generateStudioVideo(generationId, composedPrompt, aspectRatio, referenceImages);
+      outputs = await generateStudioVideo(generationId, composedPrompt, aspectRatio, providerImages);
     } else {
       const count = Math.min(Math.max(request.count || 4, 1), MAX_IMAGE_COUNT);
-      outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, referenceImages, providerId, model, {
+      outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
         quality: request.quality,
         outputFormat: request.output_format,
         background: request.background,
-      });
+      }, contextText);
     }
 
     await db.update(studioGenerations)
@@ -429,6 +535,7 @@ async function generateStudioImages(
   providerId: string,
   model: string,
   options?: { quality?: 'low' | 'medium' | 'high' | 'auto'; outputFormat?: 'png' | 'jpeg' | 'webp'; background?: 'transparent' | 'opaque' | 'auto' },
+  contextText?: string,
 ): Promise<StudioGenerationOutput[]> {
   const provider = getImageGenerationProvider(providerId);
   if (!provider) {
@@ -464,6 +571,7 @@ async function generateStudioImages(
         quality: options?.quality,
         outputFormat: options?.outputFormat,
         background: options?.background,
+        contextPrompt: contextText,
       });
 
       const ext = extensionFromMime(result.mimeType);

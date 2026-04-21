@@ -1,14 +1,15 @@
+import type { Root, Element } from 'hast';
 import { visit } from 'unist-util-visit';
-import type { Element, Root, Text } from 'hast';
 
-function extractText(node: any): string {
+function extractText(node: Element | unknown): string {
   if (!node) return '';
-  if (node.value !== undefined) {
-    return String(node.value);
+  const n = node as { type?: string; value?: unknown; children?: unknown[] };
+  if (n.value !== undefined) {
+    return String(n.value);
   }
-  if (Array.isArray(node.children)) {
-    return node.children
-      .map((child: any) => extractText(child))
+  if (Array.isArray(n.children)) {
+    return n.children
+      .map((child) => extractText(child as Element))
       .join('');
   }
   return '';

@@ -9,7 +9,7 @@ import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import { VeoStudioClient } from '@/app/apps/veo-studio/components/VeoStudioClient';
 
 export default async function VeoPage() {
-  const session = await requirePageSession();
+  await requirePageSession();
   const t = await getTranslations('veo');
   const tCommon = await getTranslations('common');
 

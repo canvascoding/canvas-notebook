@@ -98,10 +98,12 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
   }, [code, isDark]);
 
   useEffect(() => {
+    // run exactly once
     return () => {
       if (svgId) cleanupMermaidDom(svgId);
       if (fullscreenId) cleanupMermaidDom(fullscreenId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const openDialog = useCallback(async () => {

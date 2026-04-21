@@ -1,7 +1,6 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect, type DragEvent } from 'react';
-import Image from 'next/image';
 import { ArrowLeft, Download, Move, Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
