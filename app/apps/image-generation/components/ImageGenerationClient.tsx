@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, RefreshCw, WandSparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,33 +14,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-
-const PROVIDERS = [
-  { id: 'gemini', labelKey: 'providerOptions.gemini.label' as const },
-  { id: 'openai', labelKey: 'providerOptions.openai.label' as const },
-] as const;
-
-const GEMINI_MODELS = [
-  { id: 'gemini-3.1-flash-image-preview', optionKey: 'bestQuality' as const },
-  { id: 'gemini-2.5-flash-image', optionKey: 'fastAffordable' as const },
-] as const;
-
-const OPENAI_MODELS = [
-  { id: 'gpt-image-1.5', optionKey: 'gptImage15' as const },
-  { id: 'gpt-image-1', optionKey: 'gptImage1' as const },
-  { id: 'gpt-image-1-mini', optionKey: 'gptImage1Mini' as const },
-] as const;
-
-const GEMINI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
-const OPENAI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', 'auto'] as const;
-
-const QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
-const OUTPUT_FORMAT_OPTIONS = ['png', 'jpeg', 'webp'] as const;
-const BACKGROUND_OPTIONS = ['auto', 'opaque', 'transparent'] as const;
-
-const GEMINI_MAX_IMAGE_COUNT = 4;
-const OPENAI_MAX_IMAGE_COUNT = 10;
-const OPENAI_MAX_REFERENCE_IMAGES = 16;
+import {
+  PROVIDERS,
+  GEMINI_MODELS,
+  QUALITY_OPTIONS,
+  OUTPUT_FORMAT_OPTIONS,
+  BACKGROUND_OPTIONS,
+  GEMINI_MAX_IMAGE_COUNT,
+  OPENAI_MAX_IMAGE_COUNT,
+  getMaxReferenceImages,
+  getModelsForProvider,
+  getAspectRatiosForProvider,
+} from '@/app/lib/integrations/image-generation-constants';
 
 interface GeneratedResult {
   index: number;
@@ -90,22 +75,12 @@ function getInitialProvider(availableProviders?: string[]): string {
   return 'gemini';
 }
 
-function getMaxReferenceImages(provider: string, model: string): number {
-  if (provider === 'openai') {
-    return OPENAI_MAX_REFERENCE_IMAGES;
-  }
-  if (model === 'gemini-2.5-flash-image') {
-    return 3;
-  }
-  return 14;
-}
-
 export function ImageGenerationClient({ availableProviders }: ImageGenerationClientProps) {
   const t = useTranslations('imageGeneration');
   const [provider, setProvider] = useState<string>(() => getInitialProvider(availableProviders));
 
   const modelOptions: ModelOption[] = useMemo(() => {
-    const models = provider === 'openai' ? OPENAI_MODELS : GEMINI_MODELS;
+    const models = getModelsForProvider(provider);
     return models.map((m) => ({
       value: m.id,
       label: t(`modelOptions.${m.optionKey}.label`),
@@ -114,7 +89,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
     }));
   }, [provider, t]);
 
-  const aspectRatios = provider === 'openai' ? OPENAI_ASPECT_RATIOS : GEMINI_ASPECT_RATIOS;
+  const aspectRatios = getAspectRatiosForProvider(provider);
   const maxImageCount = provider === 'openai' ? OPENAI_MAX_IMAGE_COUNT : GEMINI_MAX_IMAGE_COUNT;
 
   const samplePrompts = SAMPLE_PROMPT_META.map((item) => ({
@@ -148,7 +123,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
       return;
     }
 
-    const models = nextProvider === 'openai' ? OPENAI_MODELS : GEMINI_MODELS;
+    const models = getModelsForProvider(nextProvider);
     if (!models.some((entry) => entry.id === model)) {
       setModel(models[0].id);
       return;
@@ -162,7 +137,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
     if (referenceImagePaths.length > maxReferenceImages) {
       setReferenceImagePaths((prev) => prev.slice(0, maxReferenceImages));
     }
-  }, [aspectRatio, availableProviders, imageCount, maxImageCount, maxReferenceImages, model, provider, referenceImagePaths.length]);
+  }, [aspectRatio, aspectRatios, availableProviders, imageCount, maxImageCount, maxReferenceImages, model, provider, referenceImagePaths.length]);
 
   const [promptText, setPromptText] = useState('');
 
@@ -170,7 +145,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
     return !isGenerating && (promptText.trim().length > 0 || referenceImagePaths.length > 0);
   }, [isGenerating, promptText, referenceImagePaths.length]);
 
-  const loadOutputs = async () => {
+  const loadOutputs = useCallback(async () => {
     setIsLoadingOutputs(true);
     try {
       const response = await fetch(
@@ -195,11 +170,11 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
     } finally {
       setIsLoadingOutputs(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     void loadOutputs();
-  }, []);
+  }, [loadOutputs]);
 
   const handleGenerate = async () => {
     setError(null);

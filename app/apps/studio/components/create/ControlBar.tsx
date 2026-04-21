@@ -14,16 +14,12 @@ import { ModeToggle } from './ModeToggle';
 import { StudioPicker } from './StudioPicker';
 import {
   PROVIDERS,
-  GEMINI_MODELS,
   OPENAI_MODELS,
-  GEMINI_ASPECT_RATIOS,
-  OPENAI_ASPECT_RATIOS,
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   BACKGROUND_OPTIONS,
   getModelsForProvider,
   getAspectRatiosForProvider,
-  getDefaultModelForProvider,
 } from '@/app/lib/integrations/image-generation-constants';
 
 const IMAGE_COUNTS = [1, 2, 3, 4] as const;
