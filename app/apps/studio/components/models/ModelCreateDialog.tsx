@@ -9,10 +9,11 @@ import { Link as LinkIcon, Loader2 } from 'lucide-react';
 import { ImageUploadArea } from '../shared/ImageUploadArea';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
+import { useStudioStyles } from '../../hooks/useStudioStyles';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 
-type EntityType = 'product' | 'persona';
+type EntityType = 'product' | 'persona' | 'style';
 
 interface PendingImage {
   id: string;
@@ -36,6 +37,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
 
   const productsHook = useStudioProducts();
   const personasHook = useStudioPersonas();
+  const stylesHook = useStudioStyles();
 
   const handleUpload = useCallback(async (files: File[]) => {
     const newImages: PendingImage[] = files.map((file) => ({
@@ -80,9 +82,12 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
       if (entityType === 'product') {
         const product = await productsHook.createProduct({ name: name.trim(), description: description.trim() || undefined });
         entityId = product?.id ?? null;
-      } else {
+      } else if (entityType === 'persona') {
         const persona = await personasHook.createPersona({ name: name.trim(), description: description.trim() || undefined });
         entityId = persona?.id ?? null;
+      } else {
+        const style = await stylesHook.createStyle({ name: name.trim(), description: description.trim() || undefined });
+        entityId = style?.id ?? null;
       }
 
       if (!entityId) {
@@ -93,8 +98,10 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
       for (const img of pendingImages) {
         if (entityType === 'product') {
           await productsHook.addImage(entityId, img.file);
-        } else {
+        } else if (entityType === 'persona') {
           await personasHook.addImage(entityId, img.file);
+        } else {
+          await stylesHook.addImage(entityId, img.file);
         }
       }
 
@@ -104,7 +111,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
     } finally {
       setSaving(false);
     }
-  }, [name, description, entityType, pendingImages, productsHook, personasHook, router, t]);
+  }, [name, description, entityType, pendingImages, productsHook, personasHook, stylesHook, router, t]);
 
   const canSave = name.trim().length > 0 && !saving;
 
@@ -115,7 +122,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={entityType === 'product' ? t('modelCreate.productNamePlaceholder') : t('modelCreate.personaNamePlaceholder')}
+          placeholder={entityType === 'product' ? t('modelCreate.productNamePlaceholder') : entityType === 'persona' ? t('modelCreate.personaNamePlaceholder') : t('modelCreate.styleNamePlaceholder')}
         />
       </div>
 

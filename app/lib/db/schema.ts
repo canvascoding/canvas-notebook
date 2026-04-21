@@ -248,6 +248,37 @@ export const studioPersonaImages = sqliteTable("studio_persona_images", {
   personaIdx: index("idx_studio_persona_images_persona").on(table.personaId),
 }));
 
+export const studioStyles = sqliteTable("studio_styles", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  thumbnailPath: text("thumbnail_path"),
+  metadata: text("metadata"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userIdx: index("idx_studio_styles_user").on(table.userId),
+  createdIdx: index("idx_studio_styles_created").on(table.createdAt),
+}));
+
+export const studioStyleImages = sqliteTable("studio_style_images", {
+  id: text("id").primaryKey(),
+  styleId: text("style_id").notNull().references(() => studioStyles.id, { onDelete: 'cascade' }),
+  filePath: text("file_path").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size"),
+  sourceType: text("source_type").notNull(),
+  sourceUrl: text("source_url"),
+  sortOrder: integer("sort_order").notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  styleIdx: index("idx_studio_style_images_style").on(table.styleId),
+}));
+
 export const studioPresets = sqliteTable("studio_presets", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => user.id, { onDelete: 'cascade' }),
@@ -325,6 +356,15 @@ export const studioGenerationPersonas = sqliteTable("studio_generation_personas"
   personaIdx: index("idx_gen_personas_persona").on(table.personaId),
 }));
 
+export const studioGenerationStyles = sqliteTable("studio_generation_styles", {
+  generationId: text("generation_id").notNull().references(() => studioGenerations.id, { onDelete: 'cascade' }),
+  styleId: text("style_id").notNull().references(() => studioStyles.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  pk: primaryKey(table.generationId, table.styleId),
+  generationIdx: index("idx_gen_styles_generation").on(table.generationId),
+  styleIdx: index("idx_gen_styles_style").on(table.styleId),
+}));
+
 export const studioBulkJobs = sqliteTable("studio_bulk_jobs", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
@@ -350,6 +390,7 @@ export const studioBulkJobLineItems = sqliteTable("studio_bulk_job_line_items", 
   bulkJobId: text("bulk_job_id").notNull().references(() => studioBulkJobs.id, { onDelete: 'cascade' }),
   productId: text("product_id").references(() => studioProducts.id, { onDelete: 'set null' }),
   personaId: text("persona_id").references(() => studioPersonas.id, { onDelete: 'set null' }),
+  styleId: text("style_id").references(() => studioStyles.id, { onDelete: 'set null' }),
   studioPresetId: text("studio_preset_id").references(() => studioPresets.id, { onDelete: 'set null' }),
   customPrompt: text("custom_prompt"),
   generationId: text("generation_id").references(() => studioGenerations.id, { onDelete: 'set null' }),

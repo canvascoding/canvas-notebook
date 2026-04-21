@@ -7,8 +7,10 @@ import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
+import { useStudioStyles } from '../../hooks/useStudioStyles';
 import type { StudioGenerationMode, StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
+import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
 import { OutputGrid } from './OutputGrid';
@@ -78,10 +80,12 @@ export function CreateView() {
   const generationHook = useStudioGeneration();
   const productsHook = useStudioProducts();
   const personasHook = useStudioPersonas();
+  const stylesHook = useStudioStyles();
   const presetsHook = useStudioPresets();
   const { fetchGenerations, generations } = generationHook;
   const { fetchProducts, products } = productsHook;
   const { fetchPersonas, personas } = personasHook;
+  const { fetchStyles, styles } = stylesHook;
   const { fetchPresets, presets } = presetsHook;
   const [mode, setMode] = useState<StudioGenerationMode>('image');
   const [aspectRatio, setAspectRatio] = useState('1:1');
@@ -96,6 +100,7 @@ export function CreateView() {
   const [rawPrompt, setRawPrompt] = useState(initialPrompt);
   const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [personaRefs, setPersonaRefs] = useState<Array<{ id: string; name: string }>>([]);
+  const [styleRefs, setStyleRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [presetRef, setPresetRef] = useState<StudioPreset | null>(null);
   const [negativePrompt, setNegativePrompt] = useState('');
   const [extraReferenceUrls, setExtraReferenceUrls] = useState<string[]>([]);
@@ -135,8 +140,9 @@ export function CreateView() {
     void fetchGenerations();
     void fetchProducts();
     void fetchPersonas();
+    void fetchStyles();
     void fetchPresets();
-  }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets]);
+  }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets, fetchStyles]);
 
   const canGenerate = useMemo(() => {
     return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null;
@@ -279,12 +285,14 @@ export function CreateView() {
               rawPrompt,
               productRefs,
               personaRefs,
+              styleRefs,
               presetRef,
               negativePrompt,
               extraReferenceUrls,
             }}
             products={products}
             personas={personas}
+            styles={styles}
             presets={presets}
             onRawPromptChange={setRawPrompt}
             onProductAdd={(product) => {
@@ -301,6 +309,13 @@ export function CreateView() {
                   : [...current, { id: persona.id, name: persona.name }],
               );
             }}
+            onStyleAdd={(style) => {
+              setStyleRefs((current) =>
+                current.some((item) => item.id === style.id)
+                  ? current
+                  : [...current, { id: style.id, name: style.name }],
+              );
+            }}
             onPresetSelect={setPresetRef}
             onReferenceRemove={(type, id) => {
               if (type === 'product') {
@@ -309,6 +324,10 @@ export function CreateView() {
               }
               if (type === 'persona') {
                 setPersonaRefs((current) => current.filter((item) => item.id !== id));
+                return;
+              }
+              if (type === 'style') {
+                setStyleRefs((current) => current.filter((item) => item.id !== id));
                 return;
               }
               setPresetRef((current) => (current?.id === id ? null : current));

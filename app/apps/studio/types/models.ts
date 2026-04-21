@@ -53,3 +53,31 @@ export interface StudioPersonaImage {
   height?: number;
   createdAt: string;
 }
+
+export interface StudioStyle {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  thumbnailPath?: string;
+  metadata?: Record<string, unknown>;
+  images: StudioStyleImage[];
+  imageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudioStyleImage {
+  id: string;
+  styleId: string;
+  filePath: string;
+  fileName: string;
+  mimeType: string;
+  fileSize?: number;
+  sourceType: 'upload' | 'url_import';
+  sourceUrl?: string;
+  sortOrder: number;
+  width?: number;
+  height?: number;
+  createdAt: string;
+}
