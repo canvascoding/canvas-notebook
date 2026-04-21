@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
+import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona } from '../../types/models';
 import { OutputDetailChat } from './OutputDetailChat';
@@ -34,6 +34,7 @@ interface OutputDetailViewProps {
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioGeneration) {
@@ -57,6 +58,7 @@ export function OutputDetailView({
   onCreateVariation,
   onCreateVideo,
   onDelete,
+  onSaveToWorkspace,
 }: OutputDetailViewProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 

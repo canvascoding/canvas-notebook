@@ -15,11 +15,15 @@ interface OutputThumbnailProps {
   generationMode: string;
   generation: StudioGeneration;
   output: StudioGenerationOutput;
+  selected?: boolean;
+  selectionMode?: boolean;
+  onSelectToggle?: (outputId: string, selected: boolean) => void;
   onOpen: (outputId: string) => void;
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 export function OutputThumbnail({
@@ -31,14 +35,30 @@ export function OutputThumbnail({
   generationMode,
   generation,
   output,
+  selected,
+  selectionMode,
+  onSelectToggle,
   onOpen,
   onToggleFavorite,
   onCreateVariation,
   onCreateVideo,
   onDelete,
+  onSaveToWorkspace,
 }: OutputThumbnailProps) {
   return (
-    <div className="group relative aspect-square overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+    <div className={`group relative aspect-square overflow-hidden rounded-3xl border text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${selected ? 'border-primary ring-2 ring-primary' : 'border-border/70 bg-card'}`}>
+      {selectionMode && (
+        <div className="absolute top-2 left-2 z-10">
+          <button
+            type="button"
+            onClick={() => onSelectToggle?.(id, !selected)}
+            className={`flex h-6 w-6 items-center justify-center rounded-full border ${selected ? 'bg-primary border-primary text-white' : 'border-white/70 bg-black/40 text-white'}`}
+          >
+            {selected ? '✓' : ''}
+          </button>
+        </div>
+      )}
+
       <button type="button" className="absolute inset-0 z-0 cursor-pointer" onClick={() => onOpen(id)} aria-label={`Open ${title}`}>
         <span className="sr-only">{title}</span>
       </button>
@@ -72,6 +92,7 @@ export function OutputThumbnail({
           onCreateVariation={onCreateVariation}
           onCreateVideo={onCreateVideo}
           onDelete={onDelete}
+          onSaveToWorkspace={onSaveToWorkspace}
         />
       </div>
 

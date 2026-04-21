@@ -20,10 +20,9 @@ import {
   readAssetFile,
   ensureStudioOutputsWorkspace,
   generateOutputFilename,
-  getStudioOutputFullPath,
-  STUDIO_OUTPUTS_ROOT_DIR,
+  writeOutputFile,
+  readOutputFile,
 } from '@/app/lib/integrations/studio-workspace';
-import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateVideo, type GenerateVideoRequestBody } from '@/app/lib/integrations/veo-generation-service';
 
@@ -212,11 +211,9 @@ async function loadSourceOutputImage(sourceOutputId: string): Promise<LoadedRefe
     );
   }
 
-  const fullPath = getStudioOutputFullPath(output.filePath);
-  const fs = await import('node:fs/promises');
   let buffer: Buffer;
   try {
-    buffer = await fs.readFile(fullPath);
+    buffer = await readOutputFile(output.filePath);
   } catch {
     throw new StudioServiceError(
       `Source output file not found: ${output.filePath}`,
@@ -576,10 +573,10 @@ async function generateStudioImages(
 
       const ext = extensionFromMime(result.mimeType);
       const outputFilename = generateOutputFilename(slug, index, ext);
-      const outputPath = `${STUDIO_OUTPUTS_ROOT_DIR}/${outputFilename}`;
+      const outputPath = outputFilename;
       const outputBytes = Buffer.from(result.imageBytes, 'base64');
 
-      await writeFile(outputPath, outputBytes);
+      await writeOutputFile(outputPath, outputBytes);
 
       const outputId = randomUUID();
       const now = new Date();
@@ -679,9 +676,9 @@ async function generateStudioVideo(
     for (let i = 0; i < referenceImages.length; i++) {
       const ref = referenceImages[i];
       const ext = extensionFromMime(ref.mimeType);
-      const tempPath = `${STUDIO_OUTPUTS_ROOT_DIR}/temp-ref-${generationId}-${i}.${ext}`;
+      const tempPath = `temp-ref-${generationId}-${i}.${ext}`;
       const buffer = Buffer.from(ref.imageBytes, 'base64');
-      await writeFile(tempPath, buffer);
+      await writeOutputFile(tempPath, buffer);
       tempPaths.push(tempPath);
     }
     requestBody.referenceImagePaths = tempPaths;

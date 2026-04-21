@@ -3,9 +3,13 @@ export function toMediaUrl(filePath: string) {
     .split('/')
     .map((segment) => encodeURIComponent(segment))
     .join('/');
+  
+  if (filePath.startsWith('studio/')) {
+    return `/api/studio/media/${encodedPath}`;
+  }
+  
   // Use API route for media serving (works with Next.js standalone)
-  const suffix = `/api/media/${encodedPath}`;
-  return suffix;
+  return `/api/media/${encodedPath}`;
 }
 
 interface PreviewUrlOptions {

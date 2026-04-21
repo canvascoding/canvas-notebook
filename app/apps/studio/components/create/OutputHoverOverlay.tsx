@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, Film, RefreshCcw, Star, Trash2 } from 'lucide-react';
+import { Download, Film, RefreshCcw, Save, Star, Trash2 } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,6 +25,7 @@ interface OutputHoverOverlayProps {
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 export function OutputHoverOverlay({
@@ -37,6 +38,7 @@ export function OutputHoverOverlay({
   onCreateVariation,
   onCreateVideo,
   onDelete,
+  onSaveToWorkspace,
 }: OutputHoverOverlayProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
@@ -83,6 +85,18 @@ export function OutputHoverOverlay({
             <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onCreateVideo(generation, output)} disabled={type !== 'image'}>
               <Film className="h-4 w-4" />
             </Button>
+            {onSaveToWorkspace && (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70"
+                onClick={() => onSaveToWorkspace(generation, output)}
+                title="In Workspace speichern"
+              >
+                <Save className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
       </div>
