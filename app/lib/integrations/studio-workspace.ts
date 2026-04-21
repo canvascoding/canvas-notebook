@@ -9,6 +9,7 @@ export const STUDIO_OUTPUTS_ROOT_DIR = path.posix.join(STUDIO_ROOT_DIR, 'outputs
 
 export const STUDIO_PRODUCTS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'products');
 export const STUDIO_PERSONAS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'personas');
+export const STUDIO_STYLES_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'styles');
 export const STUDIO_PRESETS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'presets');
 
 export function getStudioAssetsRoot(): string {
@@ -24,6 +25,7 @@ export async function ensureStudioAssetsWorkspace(): Promise<void> {
   await fs.mkdir(root, { recursive: true });
   await fs.mkdir(path.join(root, 'products'), { recursive: true });
   await fs.mkdir(path.join(root, 'personas'), { recursive: true });
+  await fs.mkdir(path.join(root, 'styles'), { recursive: true });
   await fs.mkdir(path.join(root, 'presets'), { recursive: true });
 }
 
@@ -41,6 +43,12 @@ export function generatePersonaImagePath(personaId: string, sortOrder: number, e
   const safeExt = ext.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
   const uuid = crypto.randomUUID().slice(0, 8);
   return path.posix.join('personas', personaId, `img-${sortOrder}-${uuid}.${safeExt}`);
+}
+
+export function generateStyleImagePath(styleId: string, sortOrder: number, ext: string): string {
+  const safeExt = ext.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+  const uuid = crypto.randomUUID().slice(0, 8);
+  return path.posix.join('styles', styleId, `img-${sortOrder}-${uuid}.${safeExt}`);
 }
 
 export function generatePresetPreviewPath(presetId: string, ext: string): string {

@@ -4,15 +4,17 @@ import { useTranslations } from 'next-intl';
 import { useState, useEffect } from 'react';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
+import { useStudioStyles } from '../../hooks/useStudioStyles';
 import { ProductCard } from './ProductCard';
 import { PersonaCard } from './PersonaCard';
+import { StyleCard } from './StyleCard';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Plus, Search } from 'lucide-react';
 import { useRouter } from '@/i18n/navigation';
 
-type TabKey = 'products' | 'personas';
+type TabKey = 'products' | 'personas' | 'styles';
 
 export function ModelLibrary() {
   const t = useTranslations('studio');
@@ -22,6 +24,7 @@ export function ModelLibrary() {
 
   const productsHook = useStudioProducts();
   const personasHook = useStudioPersonas();
+  const stylesHook = useStudioStyles();
 
   useEffect(() => {
     productsHook.fetchProducts(search);
@@ -31,8 +34,12 @@ export function ModelLibrary() {
     personasHook.fetchPersonas(search);
   }, [search, personasHook]);
 
+  useEffect(() => {
+    stylesHook.fetchStyles(search);
+  }, [search, stylesHook]);
+
   const handleCreate = () => {
-    const type = activeTab === 'personas' ? 'persona' : 'product';
+    const type = activeTab === 'personas' ? 'persona' : activeTab === 'styles' ? 'style' : 'product';
     router.push(`/studio/models/new?type=${type}`);
   };
 
@@ -40,7 +47,7 @@ export function ModelLibrary() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
         <div className="flex gap-1 border-b border-border">
-          {(['products', 'personas'] as TabKey[]).map((tab) => (
+          {(['products', 'personas', 'styles'] as TabKey[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -58,7 +65,7 @@ export function ModelLibrary() {
         </div>
         <Button onClick={handleCreate} size="sm" className="gap-2">
           <Plus className="h-4 w-4" />
-          {activeTab === 'products' ? t('modelLibrary.newProduct') : t('modelLibrary.newPersona')}
+          {activeTab === 'products' ? t('modelLibrary.newProduct') : activeTab === 'personas' ? t('modelLibrary.newPersona') : t('modelLibrary.newStyle')}
         </Button>
       </div>
 
@@ -101,6 +108,23 @@ export function ModelLibrary() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {personasHook.personas.map((persona) => (
               <PersonaCard key={persona.id} persona={persona} />
+            ))}
+          </div>
+        )
+      )}
+
+      {activeTab === 'styles' && (
+        stylesHook.loading ? (
+          <p className="py-8 text-center text-muted-foreground">{t('common.loading')}</p>
+        ) : stylesHook.styles.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+            <p className="text-sm font-medium text-muted-foreground">{t('modelLibrary.emptyStyleTitle')}</p>
+            <p className="text-xs text-muted-foreground">{t('modelLibrary.emptyStyleDescription')}</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {stylesHook.styles.map((style) => (
+              <StyleCard key={style.id} style={style} />
             ))}
           </div>
         )

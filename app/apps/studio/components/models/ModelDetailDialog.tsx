@@ -9,17 +9,17 @@ import { Card } from '@/components/ui/card';
 import { Trash2, Pencil, Plus, Loader2 } from 'lucide-react';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
-import type { StudioProduct, StudioProductImage, StudioPersona, StudioPersonaImage } from '../../types/models';
+import type { StudioProduct, StudioProductImage, StudioPersona, StudioPersonaImage, StudioStyle, StudioStyleImage } from '../../types/models';
 
 interface ModelDetailDialogProps {
   entityId: string;
-  entityType: 'product' | 'persona';
+  entityType: 'product' | 'persona' | 'style';
 }
 
 export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogProps) {
   const t = useTranslations('studio');
   const router = useRouter();
-  const [entity, setEntity] = useState<StudioProduct | StudioPersona | null>(null);
+  const [entity, setEntity] = useState<StudioProduct | StudioPersona | StudioStyle | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingName, setEditingName] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
@@ -34,11 +34,13 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     try {
       const endpoint = entityType === 'product'
         ? `/api/studio/products/${entityId}`
-        : `/api/studio/personas/${entityId}`;
+        : entityType === 'persona'
+        ? `/api/studio/personas/${entityId}`
+        : `/api/studio/styles/${entityId}`;
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
-      const item = data.product ?? data.persona;
+      const item = data.product ?? data.persona ?? data.style;
       setEntity(item);
       setNameValue(item.name);
       setDescriptionValue(item.description ?? '');
@@ -60,7 +62,9 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     try {
       const endpoint = entityType === 'product'
         ? `/api/studio/products/${entityId}`
-        : `/api/studio/personas/${entityId}`;
+        : entityType === 'persona'
+        ? `/api/studio/personas/${entityId}`
+        : `/api/studio/styles/${entityId}`;
       await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -78,7 +82,9 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     try {
       const endpoint = entityType === 'product'
         ? `/api/studio/products/${entityId}`
-        : `/api/studio/personas/${entityId}`;
+        : entityType === 'persona'
+        ? `/api/studio/personas/${entityId}`
+        : `/api/studio/styles/${entityId}`;
       await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -94,7 +100,9 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   const handleDeleteImage = useCallback(async (imageId: string) => {
     const endpoint = entityType === 'product'
       ? `/api/studio/products/${entityId}/images/${imageId}`
-      : `/api/studio/personas/${entityId}/images/${imageId}`;
+      : entityType === 'persona'
+      ? `/api/studio/personas/${entityId}/images/${imageId}`
+      : `/api/studio/styles/${entityId}/images/${imageId}`;
     await fetch(endpoint, { method: 'DELETE' });
     await fetchEntity();
   }, [entityId, entityType, fetchEntity]);
@@ -104,7 +112,9 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     try {
       const endpoint = entityType === 'product'
         ? `/api/studio/products/${entityId}`
-        : `/api/studio/personas/${entityId}`;
+        : entityType === 'persona'
+        ? `/api/studio/personas/${entityId}`
+        : `/api/studio/styles/${entityId}`;
       await fetch(endpoint, { method: 'DELETE' });
       router.push('/studio/models');
     } finally {
@@ -119,7 +129,9 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
       formData.append('file', file);
       const endpoint = entityType === 'product'
         ? `/api/studio/products/${entityId}/images`
-        : `/api/studio/personas/${entityId}/images`;
+        : entityType === 'persona'
+        ? `/api/studio/personas/${entityId}/images`
+        : `/api/studio/styles/${entityId}/images`;
       await fetch(endpoint, { method: 'POST', body: formData });
     }
     await fetchEntity();
@@ -131,7 +143,9 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   const getImageUrl = (imageId: string) => {
     return entityType === 'product'
       ? `/api/studio/products/${entityId}/images/${imageId}`
-      : `/api/studio/personas/${entityId}/images/${imageId}`;
+      : entityType === 'persona'
+      ? `/api/studio/personas/${entityId}/images/${imageId}`
+      : `/api/studio/styles/${entityId}/images/${imageId}`;
   };
 
   if (loading) {
@@ -190,7 +204,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         </div>
         <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const files = Array.from(e.target.files ?? []); if (files.length > 0) handleFiles(files); e.target.value = ''; }} />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {images.map((img: StudioProductImage | StudioPersonaImage) => (
+          {images.map((img: StudioProductImage | StudioPersonaImage | StudioStyleImage) => (
             <div key={img.id} className="group relative aspect-square overflow-hidden rounded-md border border-border">
               <img src={getImageUrl(img.id)} alt={img.fileName} className="h-full w-full object-cover" />
               <div className="absolute inset-0 flex items-end justify-center gap-1 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 pb-2">
@@ -218,7 +232,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         ) : (
           <Button size="sm" variant="destructive" onClick={() => setShowDeleteConfirm(true)} className="gap-2">
             <Trash2 className="h-4 w-4" />
-            {entityType === 'product' ? t('modelDetail.deleteProduct') : t('modelDetail.deletePersona')}
+            {entityType === 'product' ? t('modelDetail.deleteProduct') : entityType === 'persona' ? t('modelDetail.deletePersona') : t('modelDetail.deleteStyle')}
           </Button>
         )}
       </div>

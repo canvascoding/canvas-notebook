@@ -213,13 +213,17 @@
           "modelLibrary": {
             "products": "Produkte",
             "personas": "Personas",
+            "styles": "Styles",
             "newProduct": "Neues Produkt",
             "newPersona": "Neue Persona",
+            "newStyle": "Neuer Style",
             "searchPlaceholder": "Modelle suchen...",
             "emptyProductTitle": "Noch keine Produkte",
             "emptyProductDescription": "Erstelle dein erstes Produkt, um Bilder für KI-Generierungen zu referenzieren.",
             "emptyPersonaTitle": "Noch keine Personas",
-            "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen."
+            "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen.",
+            "emptyStyleTitle": "Noch keine Styles",
+            "emptyStyleDescription": "Erstelle deinen ersten Style, um visuelle Stile für KI-Generierungen zu referenzieren."
           },
           "modelCreate": {
             "name": "Name",
@@ -232,6 +236,7 @@
             "addUrl": "Hinzufügen",
             "productNamePlaceholder": "z.B. Mein Produkt",
             "personaNamePlaceholder": "z.B. Meine Persona",
+            "styleNamePlaceholder": "z.B. Mein Style",
             "descriptionPlaceholder": "Optionale Beschreibung...",
             "nameRequired": "Name ist erforderlich",
             "createFailed": "Erstellung fehlgeschlagen",
@@ -246,6 +251,7 @@
             "noDescription": "Keine Beschreibung",
             "deleteProduct": "Produkt löschen",
             "deletePersona": "Persona löschen",
+            "deleteStyle": "Style löschen",
             "deleteConfirmMessage": "Dieses Modell wird möglicherweise in Generierungen referenziert. Die Referenz wird als [Gelöscht] markiert. Fortfahren?",
             "confirmDelete": "Löschen"
           }
