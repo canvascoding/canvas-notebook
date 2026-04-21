@@ -52,22 +52,26 @@ export async function listPersonas(userId: string, search?: string) {
     .where(and(...conditions))
     .orderBy(desc(studioPersonas.createdAt));
 
-  const personasWithCounts = await Promise.all(personas.map(async (p) => {
-    const [imgResult] = await db.select({ count: sql<number>`count(*)` })
-      .from(studioPersonaImages)
-      .where(eq(studioPersonaImages.personaId, p.id));
-    const imageCount = imgResult?.count ?? 0;
-    let thumbnailPath = p.thumbnailPath;
-    if (!thumbnailPath && imageCount > 0) {
-      const [firstImage] = await db.select().from(studioPersonaImages)
-        .where(eq(studioPersonaImages.personaId, p.id))
+  const allPersonaIds = personas.map((p) => p.id);
+  const allImages = allPersonaIds.length > 0
+    ? await db.select().from(studioPersonaImages)
+        .where(sql`${studioPersonaImages.personaId} IN (${sql.join(allPersonaIds.map((id) => sql`${id}`), sql`, `)})`)
         .orderBy(asc(studioPersonaImages.sortOrder))
-        .limit(1);
-      thumbnailPath = firstImage?.filePath ?? null;
-    }
-    return { ...p, imageCount, thumbnailPath };
-  }));
-  return personasWithCounts;
+    : [];
+
+  const imagesByPersona = new Map<string, typeof allImages>();
+  for (const img of allImages) {
+    const arr = imagesByPersona.get(img.personaId) ?? [];
+    arr.push(img);
+    imagesByPersona.set(img.personaId, arr);
+  }
+
+  return personas.map((p) => {
+    const images = imagesByPersona.get(p.id) ?? [];
+    const imageCount = images.length;
+    const thumbnailPath = p.thumbnailPath ?? images[0]?.filePath ?? null;
+    return { ...p, images, imageCount, thumbnailPath };
+  });
 }
 
 export async function updatePersona(

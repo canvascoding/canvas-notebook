@@ -52,22 +52,26 @@ export async function listProducts(userId: string, search?: string) {
     .where(and(...conditions))
     .orderBy(desc(studioProducts.createdAt));
 
-  const productsWithCounts = await Promise.all(products.map(async (p) => {
-    const [imgResult] = await db.select({ count: sql<number>`count(*)` })
-      .from(studioProductImages)
-      .where(eq(studioProductImages.productId, p.id));
-    const imageCount = imgResult?.count ?? 0;
-    let thumbnailPath = p.thumbnailPath;
-    if (!thumbnailPath && imageCount > 0) {
-      const [firstImage] = await db.select().from(studioProductImages)
-        .where(eq(studioProductImages.productId, p.id))
+  const allProductIds = products.map((p) => p.id);
+  const allImages = allProductIds.length > 0
+    ? await db.select().from(studioProductImages)
+        .where(sql`${studioProductImages.productId} IN (${sql.join(allProductIds.map((id) => sql`${id}`), sql`, `)})`)
         .orderBy(asc(studioProductImages.sortOrder))
-        .limit(1);
-      thumbnailPath = firstImage?.filePath ?? null;
-    }
-    return { ...p, imageCount, thumbnailPath };
-  }));
-  return productsWithCounts;
+    : [];
+
+  const imagesByProduct = new Map<string, typeof allImages>();
+  for (const img of allImages) {
+    const arr = imagesByProduct.get(img.productId) ?? [];
+    arr.push(img);
+    imagesByProduct.set(img.productId, arr);
+  }
+
+  return products.map((p) => {
+    const images = imagesByProduct.get(p.id) ?? [];
+    const imageCount = images.length;
+    const thumbnailPath = p.thumbnailPath ?? images[0]?.filePath ?? null;
+    return { ...p, images, imageCount, thumbnailPath };
+  });
 }
 
 export async function updateProduct(
