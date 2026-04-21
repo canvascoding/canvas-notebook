@@ -14,11 +14,11 @@ export function ProductCard({ product }: ProductCardProps) {
   const [imgError, setImgError] = useState(false);
 
   const thumbnailUrl = product.images?.[0]
-    ? `/api/studio/products/${product.id}/images/${product.images[0].id}`
+    ? `/api/studio/products/${product.id}/images/${product.images[0].id}?size=thumb`
     : null;
 
   return (
-    <Link href={`/studio/models/${product.id}`} className="block">
+    <Link href={`/studio/models/${product.id}?type=product`} className="block">
       <Card className="group flex h-full flex-col overflow-hidden border border-border bg-card transition-colors hover:border-primary/40 hover:bg-accent">
         <div className="relative aspect-square w-full overflow-hidden bg-muted">
           {thumbnailUrl && !imgError ? (

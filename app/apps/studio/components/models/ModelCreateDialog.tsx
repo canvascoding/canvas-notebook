@@ -98,7 +98,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
         }
       }
 
-      router.push(`/studio/models/${entityId}`);
+      router.push(`/studio/models/${entityId}?type=${entityType}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
