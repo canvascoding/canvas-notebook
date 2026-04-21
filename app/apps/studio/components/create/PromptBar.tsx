@@ -16,7 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { StudioPreset } from '../../types/presets';
-import type { StudioPersona, StudioProduct } from '../../types/models';
+import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/models';
 
 interface ReferenceTag {
   id: string;
@@ -27,6 +27,7 @@ interface PromptBarValue {
   rawPrompt: string;
   productRefs: ReferenceTag[];
   personaRefs: ReferenceTag[];
+  styleRefs: ReferenceTag[];
   presetRef: StudioPreset | null;
   negativePrompt: string;
   extraReferenceUrls: string[];
@@ -36,12 +37,14 @@ interface PromptBarProps {
   value: PromptBarValue;
   products: StudioProduct[];
   personas: StudioPersona[];
+  styles: StudioStyle[];
   presets: StudioPreset[];
   onRawPromptChange: (value: string) => void;
   onProductAdd: (product: StudioProduct) => void;
   onPersonaAdd: (persona: StudioPersona) => void;
+  onStyleAdd: (style: StudioStyle) => void;
   onPresetSelect: (preset: StudioPreset) => void;
-  onReferenceRemove: (type: 'product' | 'persona' | 'preset', id: string) => void;
+  onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset', id: string) => void;
   onNegativePromptChange: (value: string) => void;
   onExtraReferenceUrlAdd: (value: string) => void;
   onExtraReferenceUrlRemove: (value: string) => void;
@@ -70,10 +73,12 @@ export function PromptBar({
   value,
   products,
   personas,
+  styles,
   presets,
   onRawPromptChange,
   onProductAdd,
   onPersonaAdd,
+  onStyleAdd,
   onPresetSelect,
   onReferenceRemove,
   onNegativePromptChange,
@@ -84,12 +89,16 @@ export function PromptBar({
   const [extraReferenceUrlInput, setExtraReferenceUrlInput] = useState('');
 
   const availableProducts = useMemo(
-    () => products.filter((product) => !value.productRefs.some((selected) => selected.id === product.id)),
+    () => (products ?? []).filter((product) => !(value.productRefs ?? []).some((selected) => selected.id === product.id)),
     [products, value.productRefs],
   );
   const availablePersonas = useMemo(
-    () => personas.filter((persona) => !value.personaRefs.some((selected) => selected.id === persona.id)),
+    () => (personas ?? []).filter((persona) => !(value.personaRefs ?? []).some((selected) => selected.id === persona.id)),
     [personas, value.personaRefs],
+  );
+  const availableStyles = useMemo(
+    () => (styles ?? []).filter((style) => !(value.styleRefs ?? []).some((selected) => selected.id === style.id)),
+    [styles, value.styleRefs],
   );
 
   return (
@@ -162,6 +171,28 @@ export function PromptBar({
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <LayoutTemplate className="h-4 w-4" />
+                  Style
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-72">
+                  {availableStyles.length === 0 ? (
+                    <DropdownMenuItem disabled>No styles available</DropdownMenuItem>
+                  ) : (
+                    availableStyles.map((style) => (
+                      <DropdownMenuItem key={style.id} onSelect={() => onStyleAdd(style)}>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{style.name}</div>
+                          {style.description ? (
+                            <div className="truncate text-xs text-muted-foreground">{style.description}</div>
+                          ) : null}
+                        </div>
+                      </DropdownMenuItem>
+                    ))
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <LayoutTemplate className="h-4 w-4" />
                   Studio
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
@@ -197,7 +228,7 @@ export function PromptBar({
         </div>
       </div>
 
-      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.presetRef) ? (
+      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef) ? (
         <div className="mb-3 flex flex-wrap gap-2">
           {value.productRefs.map((product) => (
             <ReferenceChip
@@ -213,6 +244,14 @@ export function PromptBar({
               label={`@persona ${persona.name}`}
               colorClassName="bg-sky-100 text-sky-900 dark:bg-sky-500/15 dark:text-sky-200"
               onRemove={() => onReferenceRemove('persona', persona.id)}
+            />
+          ))}
+          {value.styleRefs.map((style) => (
+            <ReferenceChip
+              key={style.id}
+              label={`@style ${style.name}`}
+              colorClassName="bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-200"
+              onRemove={() => onReferenceRemove('style', style.id)}
             />
           ))}
           {value.presetRef ? (
