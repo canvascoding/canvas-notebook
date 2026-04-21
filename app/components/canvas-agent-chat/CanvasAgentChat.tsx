@@ -2951,15 +2951,6 @@ export default function CanvasAgentChat({
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                     <span className="min-w-0 truncate max-w-[120px]">{sessionDisplayLabel}</span>
                   </div>
-                  {/* Model Badge *} */}
-                  <div
-                    data-testid="chat-model-badge"
-                    title={t('currentModelLabel', { model: activeModel })}
-                    className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/50 px-2.5 py-0.5 text-[11px] text-foreground"
-                  >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('modelLabel')}</span>
-                    <span className="max-w-[140px] truncate font-mono text-[9px]">{activeModel}</span>
-                  </div>
                 </div>
               )}
             </div>
