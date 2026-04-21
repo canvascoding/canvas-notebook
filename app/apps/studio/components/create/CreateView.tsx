@@ -7,8 +7,9 @@ import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
-import type { StudioGenerationMode } from '../../types/generation';
+import type { StudioGenerationMode, StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
+import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { OutputDetailView } from './OutputDetailView';
 import { OutputGrid } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
@@ -102,6 +103,8 @@ export function CreateView() {
   const [endFrame, setEndFrame] = useState<File | null>(null);
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
+  const [selectedOutputIds, setSelectedOutputIds] = useState<string[]>([]);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   const resolvedSelectedGeneration = selectedGenerationId
     ? generations.find((g) => g.id === selectedGenerationId) ?? null
@@ -109,6 +112,24 @@ export function CreateView() {
   const resolvedSelectedOutput = resolvedSelectedGeneration && selectedOutputId
     ? resolvedSelectedGeneration.outputs.find((o) => o.id === selectedOutputId) ?? null
     : null;
+
+  const handleToggleOutputSelect = (outputId: string, selected: boolean) => {
+    if (selected) {
+      setSelectedOutputIds((prev) => [...prev, outputId]);
+    } else {
+      setSelectedOutputIds((prev) => prev.filter((id) => id !== outputId));
+    }
+  };
+
+  const handleSaveToWorkspace = () => {
+    if (selectedOutputIds.length === 0) return;
+    setShowSaveDialog(true);
+  };
+
+  const handleSaveSingleToWorkspace = (_g: StudioGeneration, output: StudioGenerationOutput) => {
+    setSelectedOutputIds([output.id]);
+    setShowSaveDialog(true);
+  };
 
   useEffect(() => {
     void fetchGenerations();
@@ -156,9 +177,34 @@ export function CreateView() {
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.12),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.12),_transparent_32%)]">
+            {selectedOutputIds.length > 0 && (
+              <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border/70 bg-background/90 px-4 py-2 backdrop-blur">
+                <div className="text-sm font-medium">
+                  {selectedOutputIds.length} ausgewählt
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="rounded-full border border-border bg-card px-3 py-1.5 text-sm hover:bg-accent"
+                    onClick={() => setSelectedOutputIds([])}
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
+                    onClick={handleSaveToWorkspace}
+                  >
+                    In Workspace speichern
+                  </button>
+                </div>
+              </div>
+            )}
             <OutputGrid
               generations={generations}
               emptyState={<EmptyState />}
+              selectedOutputIds={selectedOutputIds}
+              onToggleSelectOutput={handleToggleOutputSelect}
               onOutputOpen={({ generation, output }) => {
                 setSelectedGenerationId(generation.id);
                 setSelectedOutputId(output.id);
@@ -211,6 +257,7 @@ export function CreateView() {
               onDelete={(generation) => {
                 void generationHook.deleteGeneration(generation.id);
               }}
+              onSaveToWorkspace={handleSaveSingleToWorkspace}
             />
           </div>
         </div>
@@ -386,13 +433,21 @@ export function CreateView() {
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
         }}
-        onDelete={(generation) => {
+        onDelete={(generation, output) => {
           void generationHook.deleteGeneration(generation.id);
+        }}
+        onSaveToWorkspace={(generation, output) => {
+          handleSaveSingleToWorkspace(generation, output);
         }}
         onClose={() => {
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
         }}
+      />
+      <SaveToWorkspaceDialog
+        open={showSaveDialog}
+        onOpenChange={setShowSaveDialog}
+        outputIds={selectedOutputIds}
       />
     </div>
   );

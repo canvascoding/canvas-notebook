@@ -9,21 +9,27 @@ import { OutputThumbnail } from './OutputThumbnail';
 interface OutputGridProps {
   generations: StudioGeneration[];
   emptyState: ReactNode;
+  selectedOutputIds?: string[];
+  onToggleSelectOutput?: (outputId: string, selected: boolean) => void;
   onOutputOpen: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 export function OutputGrid({
   generations,
   emptyState,
+  selectedOutputIds = [],
+  onToggleSelectOutput,
   onOutputOpen,
   onToggleFavorite,
   onCreateVariation,
   onCreateVideo,
   onDelete,
+  onSaveToWorkspace,
 }: OutputGridProps) {
   const getExpectedOutputCount = (generation: StudioGeneration) => {
     if (generation.mode === 'video') {
@@ -102,12 +108,16 @@ export function OutputGrid({
           generationMode={output.generationMode}
           generation={output.generation}
           output={output}
+          selected={selectedOutputIds?.includes(output.id)}
+          selectionMode={selectedOutputIds !== undefined && selectedOutputIds.length > 0}
+          onSelectToggle={onToggleSelectOutput}
           title={output.type === 'video' ? 'Video output' : 'Image output'}
           onOpen={() => onOutputOpen({ generation: output.generation, output })}
           onToggleFavorite={onToggleFavorite}
           onCreateVariation={onCreateVariation}
           onCreateVideo={onCreateVideo}
           onDelete={onDelete}
+          onSaveToWorkspace={onSaveToWorkspace}
         />
       ))}
     </div>

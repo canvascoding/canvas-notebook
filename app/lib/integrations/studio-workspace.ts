@@ -1,7 +1,6 @@
 import path from 'path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
-import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
 export const STUDIO_ROOT_DIR = 'studio';
@@ -73,6 +72,12 @@ export async function writeAssetFile(relativePath: string, buffer: Buffer): Prom
   await fs.writeFile(fullPath, buffer);
 }
 
+export async function writeOutputFile(filePath: string, buffer: Buffer): Promise<void> {
+  const fullPath = path.join(getStudioOutputsRoot(), filePath);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, buffer);
+}
+
 export async function readAssetFile(relativePath: string): Promise<Buffer> {
   const fullPath = path.join(getStudioAssetsRoot(), relativePath);
   return fs.readFile(fullPath);
@@ -88,10 +93,13 @@ export async function deleteAssetDir(relativePath: string): Promise<void> {
   await fs.rm(fullPath, { recursive: true, force: true });
 }
 
-export function getStudioOutputFullPath(filePath: string): string {
-  const normalized = filePath.replace(/^\/+/, '');
-  const relativePath = normalized.startsWith(`${STUDIO_OUTPUTS_ROOT_DIR}/`)
-    ? normalized.slice(STUDIO_OUTPUTS_ROOT_DIR.length + 1)
-    : normalized;
-  return path.join(getStudioOutputsRoot(), relativePath);
+export async function readOutputFile(filePath: string): Promise<Buffer> {
+  const fullPath = path.join(getStudioOutputsRoot(), filePath);
+  return fs.readFile(fullPath);
+}
+
+export async function getStudioOutputStats(filePath: string) {
+  const fullPath = path.join(getStudioOutputsRoot(), filePath);
+  const stat = await fs.stat(fullPath);
+  return { size: stat.size, mtime: stat.mtime };
 }
