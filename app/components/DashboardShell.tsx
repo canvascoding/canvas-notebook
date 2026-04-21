@@ -10,7 +10,6 @@ import {
   Files,
   Maximize2,
   MessageSquare,
-  PanelLeft,
   PanelRight,
   Terminal as TerminalIcon,
   X,
@@ -400,6 +399,7 @@ export function DashboardShell() {
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
       <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
         <div className="relative mx-auto flex h-full items-center justify-between px-4">
+          {/* Left side: always back link + title (desktop) */}
           <div className="flex items-center gap-2">
             <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
               <Link href="/" target="_blank" rel="noopener noreferrer">
@@ -407,135 +407,121 @@ export function DashboardShell() {
                 <span className="hidden sm:inline">{tCommon('suite')}</span>
               </Link>
             </Button>
-            {!showMobileChrome ? (
-              <>
-                <Button
-                  variant={sidebarVisible ? "default" : "ghost"}
-                  size="icon-sm"
-                  onClick={() => setSidebarVisible((prev) => !prev)}
-                  aria-label={sidebarVisible ? tNav('hideSidebar') : tNav('showSidebar')}
-                >
-                  <PanelLeft className="h-4 w-4" />
-                </Button>
-                <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{tNav('canvasNotebook')}</h1>
-              </>
-            ) : null}
+            {!showMobileChrome && (
+              <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">
+                {tNav('canvasNotebook')}
+              </h1>
+            )}
           </div>
-          {showMobileChrome ? (
-            <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center">
-              <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border/80 bg-background/95 p-1 shadow-sm">
-                <Button
-                  variant={mobileExplorerOpen ? 'default' : 'ghost'}
-                  size="icon-sm"
-                  onClick={() => {
+
+          {/* Center toggle group: both mobile and desktop */}
+          <div className="absolute left-1/2 top-1/2 z-50 flex -translate-x-1/2 -translate-y-1/2 items-center">
+            <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border/80 bg-background/95 p-1 shadow-sm">
+              {/* Explorer toggle */}
+              <Button
+                variant={isMobileViewport ? (mobileExplorerOpen ? 'default' : 'ghost') : (sidebarVisible ? 'default' : 'ghost')}
+                size="sm"
+                className="gap-2 rounded-full"
+                onClick={() => {
+                  if (isMobileViewport) {
                     setMobileExplorerOpen(true);
                     setMobileChatOpen(false);
-                  }}
-                  aria-label={tNav('openFileExplorer')}
-                >
-                  <Files className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={mobileSurface === 'terminal' ? 'default' : 'ghost'}
-                  size="icon-sm"
-                  onClick={() => {
+                  } else {
+                    setSidebarVisible((prev) => !prev);
+                  }
+                }}
+                aria-label={isMobileViewport ? tNav('openFileExplorer') : (sidebarVisible ? tNav('hideSidebar') : tNav('showSidebar'))}
+              >
+                <Files className="h-4 w-4" />
+                <span className="hidden sm:inline">{tCommon('explorer')}</span>
+              </Button>
+
+              {/* Terminal toggle */}
+              <Button
+                variant={isMobileViewport ? (mobileSurface === 'terminal' ? 'default' : 'ghost') : (terminalVisible ? 'default' : 'ghost')}
+                size="sm"
+                className="gap-2 rounded-full"
+                onClick={() => {
+                  if (isMobileViewport) {
                     setMobileExplorerOpen(false);
                     setMobileChatOpen(false);
                     setMobileSurface((current) => (current === 'terminal' ? 'editor' : 'terminal'));
-                  }}
-                  aria-label={tNav('showTerminal')}
-                >
-                  <TerminalIcon className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={mobileChatOpen ? 'default' : 'ghost'}
-                  size="icon-sm"
-                  onClick={() => {
-                    setMobileExplorerOpen(false);
-                    setMobileChatOpen((prev) => !prev);
-                  }}
-                  aria-label={tNav('showChat')}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ) : null}
-            <div className="flex items-center gap-1.5 md:gap-4">
-              <HelpDropdown page="notebook" />
-              <ThemeToggle />
-            {isDesktopViewport ? (
-              <>
-                <TooltipProvider delayDuration={300}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={terminalVisible ? "default" : "ghost"}
-                        size="sm"
-                        onClick={() => setTerminalVisible(!terminalVisible)}
-                        className="gap-2 px-2 sm:px-3"
-                      >
-                        <TerminalIcon className="h-4 w-4" />
-                        <span className="hidden sm:inline">{tCommon('terminal')}</span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      {tCommon('terminal')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}J)
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                  } else {
+                    setTerminalVisible((prev) => !prev);
+                  }
+                }}
+                aria-label={tNav('showTerminal')}
+              >
+                <TerminalIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">{tCommon('terminal')}</span>
+              </Button>
+
+              {/* Chat toggle */}
+              <DropdownMenu modal={false}>
                 <TooltipProvider delayDuration={300}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="flex items-center">
                         <Button
-                          variant={chatVisible ? "default" : "ghost"}
+                          variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
                           size="sm"
-                          onClick={handleDesktopChatPrimaryAction}
-                          className="gap-2 rounded-r-none px-2 sm:px-3"
+                          className="gap-2 rounded-l-full rounded-r-none"
+                          onClick={() => {
+                            if (isMobileViewport) {
+                              setMobileExplorerOpen(false);
+                              setMobileChatOpen((prev) => !prev);
+                            } else {
+                              handleDesktopChatPrimaryAction();
+                            }
+                          }}
                         >
                           <MessageSquare className="h-4 w-4" />
                           <span className="hidden sm:inline">{tCommon('aiChat')}</span>
                         </Button>
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant={chatVisible ? "default" : "ghost"}
-                              size="sm"
-                              className={`rounded-l-none border-l px-2 ${
-                                chatVisible ? 'border-primary-foreground/15' : 'border-border/60'
-                              }`}
-                              aria-label={tNav('openChatModeMenu')}
-                            >
-                              <ChevronDown className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuRadioGroup
-                        value={desktopChatMode}
-                        onValueChange={(value) => openDesktopChat(value as DesktopChatMode)}
-                      >
-                        <DropdownMenuRadioItem value="side">
-                          <PanelRight className="h-4 w-4" />
-                          {tCommon('openInSidePanel')}
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="fullscreen">
-                          <Maximize2 className="h-4 w-4" />
-                          {tCommon('openFullscreen')}
-                        </DropdownMenuRadioItem>
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                   </DropdownMenu>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        {tCommon('aiChat')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}K)
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
+                            size="sm"
+                            className={`rounded-l-none rounded-r-full border-l ${
+                              ((!isMobileViewport && chatVisible) || (isMobileViewport && mobileChatOpen))
+                                ? 'border-primary-foreground/15'
+                                : 'border-border/60'
+                            }`}
+                            aria-label={tNav('openChatModeMenu')}
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {tCommon('aiChat')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}K)
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuRadioGroup
+                    value={desktopChatMode}
+                    onValueChange={(value) => openDesktopChat(value as DesktopChatMode)}
+                  >
+                    <DropdownMenuRadioItem value="side">
+                      <PanelRight className="h-4 w-4" />
+                      {tCommon('openInSidePanel')}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="fullscreen">
+                      <Maximize2 className="h-4 w-4" />
+                      {tCommon('openFullscreen')}
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
 
-              </>
-            ) : null}
+          {/* Right side: help, theme, logout */}
+          <div className="flex items-center gap-1.5 md:gap-4">
+            <HelpDropdown page="notebook" />
+            <ThemeToggle />
             <LogoutButton />
           </div>
         </div>

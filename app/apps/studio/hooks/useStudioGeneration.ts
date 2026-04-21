@@ -178,7 +178,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     setError(null);
 
     const temporaryId = `temp-${crypto.randomUUID()}`;
-    const expectedCount = payload.mode === 'video' ? 1 : Math.min(Math.max(payload.count ?? 4, 1), 4);
+    const expectedCount = payload.mode === 'video' ? 1 : Math.min(Math.max(payload.count ?? 1, 1), 4);
     const temporaryGeneration: StudioGeneration = {
       id: temporaryId,
       userId: '',

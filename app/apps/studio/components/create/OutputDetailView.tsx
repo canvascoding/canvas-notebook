@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
+import type { StudioProduct, StudioPersona } from '../../types/models';
 import { OutputDetailChat } from './OutputDetailChat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,8 @@ interface OutputDetailViewProps {
   generation: StudioGeneration | null;
   output: StudioGenerationOutput | null;
   generations: StudioGeneration[];
+  products: StudioProduct[];
+  personas: StudioPersona[];
   open: boolean;
   onClose: () => void;
   onSelectOutput: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
@@ -45,6 +48,8 @@ export function OutputDetailView({
   generation,
   output,
   generations,
+  products,
+  personas,
   open,
   onClose,
   onSelectOutput,
@@ -86,17 +91,21 @@ export function OutputDetailView({
     }
   };
 
+  const resolvedProducts = (generation.product_ids ?? []).map((id) => {
+    const found = products.find((p) => p.id === id);
+    return found ? { type: 'product' as const, id, name: found.name } : { type: 'orphaned-product' as const, id, name: '[Gelöscht]' };
+  });
+
+  const resolvedPersonas = (generation.persona_ids ?? []).map((id) => {
+    const found = personas.find((p) => p.id === id);
+    return found ? { type: 'persona' as const, id, name: found.name } : { type: 'orphaned-persona' as const, id, name: '[Gelöscht]' };
+  });
+
+  const hasAnyReferences = resolvedProducts.length > 0 || resolvedPersonas.length > 0;
+
   const presetName = generation.studioPreset?.name || (generation.studioPresetId ? null : 'No preset');
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
-
-  const productNames = generation.products ?? [];
-  const personaNames = generation.personas ?? [];
-  const productIds = generation.product_ids ?? [];
-  const personaIds = generation.persona_ids ?? [];
-
-  const orphanedProductCount = productIds.length - productNames.length;
-  const orphanedPersonaCount = personaIds.length - personaNames.length;
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
@@ -168,40 +177,42 @@ export function OutputDetailView({
                   <p className="max-w-4xl text-sm leading-6 text-foreground">{prompt}</p>
                 </div>
 
-                {(productNames.length > 0 || personaNames.length > 0 || orphanedProductCount > 0 || orphanedPersonaCount > 0) && (
+                {hasAnyReferences && (
                   <div className="space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Referenzen</p>
                     <div className="flex flex-wrap gap-2">
-                      {productNames.map((name, i) => (
-                        <Badge key={`product-${i}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
-                          <Box className="h-3 w-3" />
-                          {name}
-                        </Badge>
-                      ))}
-                      {Array.from({ length: orphanedProductCount }).map((_, i) => (
-                        <span
-                          key={`orphaned-product-${i}`}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground"
-                        >
-                          <Box className="h-3 w-3" />
-                          [Gelöscht]
-                        </span>
-                      ))}
-                      {personaNames.map((name, i) => (
-                        <Badge key={`persona-${i}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
-                          <User className="h-3 w-3" />
-                          {name}
-                        </Badge>
-                      ))}
-                      {Array.from({ length: orphanedPersonaCount }).map((_, i) => (
-                        <span
-                          key={`orphaned-persona-${i}`}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground"
-                        >
-                          <User className="h-3 w-3" />
-                          [Gelöscht]
-                        </span>
-                      ))}
+                      {resolvedProducts.map((item) =>
+                        item.type === 'product' ? (
+                          <Badge key={`product-${item.id}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
+                            <Box className="h-3 w-3" />
+                            {item.name}
+                          </Badge>
+                        ) : (
+                          <span
+                            key={`orphaned-product-${item.id}`}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground"
+                          >
+                            <Box className="h-3 w-3" />
+                            {item.name}
+                          </span>
+                        )
+                      )}
+                      {resolvedPersonas.map((item) =>
+                        item.type === 'persona' ? (
+                          <Badge key={`persona-${item.id}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
+                            <User className="h-3 w-3" />
+                            {item.name}
+                          </Badge>
+                        ) : (
+                          <span
+                            key={`orphaned-persona-${item.id}`}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground"
+                          >
+                            <User className="h-3 w-3" />
+                            {item.name}
+                          </span>
+                        )
+                      )}
                     </div>
                   </div>
                 )}
