@@ -171,6 +171,9 @@ export function CreateView() {
               onCreateVideo={(generation, output) => {
                 void generationHook.createVideoFromOutput(generation, output);
               }}
+              onDelete={(generation, output) => {
+                void generationHook.deleteGeneration(generation.id);
+              }}
             />
           </div>
         </div>
@@ -307,6 +310,9 @@ export function CreateView() {
         }}
         onCreateVideo={(generation, output) => {
           void generationHook.createVideoFromOutput(generation, output);
+        }}
+        onDelete={(generation, output) => {
+          void generationHook.deleteGeneration(generation.id);
         }}
         onClose={() => {
           setSelectedGenerationId(null);

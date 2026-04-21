@@ -19,6 +19,7 @@ interface OutputThumbnailProps {
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 export function OutputThumbnail({
@@ -34,6 +35,7 @@ export function OutputThumbnail({
   onToggleFavorite,
   onCreateVariation,
   onCreateVideo,
+  onDelete,
 }: OutputThumbnailProps) {
   return (
     <div className="group relative aspect-square overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -69,6 +71,7 @@ export function OutputThumbnail({
           onToggleFavorite={onToggleFavorite}
           onCreateVariation={onCreateVariation}
           onCreateVideo={onCreateVideo}
+          onDelete={onDelete}
         />
       </div>
 
