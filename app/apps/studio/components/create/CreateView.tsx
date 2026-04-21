@@ -84,7 +84,7 @@ export function CreateView() {
   const { fetchPresets, presets } = presetsHook;
   const [mode, setMode] = useState<StudioGenerationMode>('image');
   const [aspectRatio, setAspectRatio] = useState('1:1');
-  const [count, setCount] = useState(4);
+  const [count, setCount] = useState(1);
   const [provider, setProvider] = useState('gemini');
   const [model, setModel] = useState('gemini-3.1-flash-image-preview');
   const [quality, setQuality] = useState<'low' | 'medium' | 'high' | 'auto'>('auto');
@@ -166,10 +166,46 @@ export function CreateView() {
                 void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
               }}
               onCreateVariation={(generation, output) => {
-                void generationHook.createVariation(generation, output);
+                setMode('image');
+                setRawPrompt(generation.rawPrompt || generation.prompt || '');
+                setProductRefs((generation.product_ids ?? []).map((id) => {
+                  const p = products.find((product) => product.id === id);
+                  return { id, name: p?.name || id };
+                }));
+                setPersonaRefs((generation.persona_ids ?? []).map((id) => {
+                  const p = personas.find((persona) => persona.id === id);
+                  return { id, name: p?.name || id };
+                }));
+                setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
+                setAspectRatio(generation.aspectRatio || '1:1');
+                setProvider(generation.provider || 'gemini');
+                setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+                if (output.mediaUrl) {
+                  setExtraReferenceUrls((prev) => (prev.includes(output.mediaUrl!) ? prev : [...prev, output.mediaUrl!]));
+                }
+                setSelectedGenerationId(null);
+                setSelectedOutputId(null);
               }}
               onCreateVideo={(generation, output) => {
-                void generationHook.createVideoFromOutput(generation, output);
+                setMode('video');
+                setRawPrompt(generation.rawPrompt || generation.prompt || '');
+                setProductRefs((generation.product_ids ?? []).map((id) => {
+                  const p = products.find((product) => product.id === id);
+                  return { id, name: p?.name || id };
+                }));
+                setPersonaRefs((generation.persona_ids ?? []).map((id) => {
+                  const p = personas.find((persona) => persona.id === id);
+                  return { id, name: p?.name || id };
+                }));
+                setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
+                setAspectRatio(generation.aspectRatio || '1:1');
+                setProvider(generation.provider || 'gemini');
+                setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+                if (output.mediaUrl) {
+                  setExtraReferenceUrls((prev) => (prev.includes(output.mediaUrl!) ? prev : [...prev, output.mediaUrl!]));
+                }
+                setSelectedGenerationId(null);
+                setSelectedOutputId(null);
               }}
               onDelete={(generation) => {
                 void generationHook.deleteGeneration(generation.id);
@@ -242,7 +278,7 @@ export function CreateView() {
             mode={mode}
             onModeChange={(nextMode) => {
               setMode(nextMode);
-              setCount(nextMode === 'video' ? 1 : 4);
+              setCount(1);
             }}
             presets={presets}
             selectedPreset={presetRef}
@@ -297,6 +333,8 @@ export function CreateView() {
         generation={resolvedSelectedGeneration}
         output={resolvedSelectedOutput}
         generations={generations}
+        products={products}
+        personas={personas}
         open={resolvedSelectedGeneration !== null && resolvedSelectedOutput !== null}
         onSelectOutput={({ generation, output }) => {
           setSelectedGenerationId(generation.id);
@@ -306,10 +344,46 @@ export function CreateView() {
           void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
         }}
         onCreateVariation={(generation, output) => {
-          void generationHook.createVariation(generation, output);
+          setMode('image');
+          setRawPrompt(generation.rawPrompt || generation.prompt || '');
+          setProductRefs((generation.product_ids ?? []).map((id) => {
+            const p = products.find((product) => product.id === id);
+            return { id, name: p?.name || id };
+          }));
+          setPersonaRefs((generation.persona_ids ?? []).map((id) => {
+            const p = personas.find((persona) => persona.id === id);
+            return { id, name: p?.name || id };
+          }));
+          setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
+          setAspectRatio(generation.aspectRatio || '1:1');
+          setProvider(generation.provider || 'gemini');
+          setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+          if (output.mediaUrl) {
+            setExtraReferenceUrls((prev) => (prev.includes(output.mediaUrl!) ? prev : [...prev, output.mediaUrl!]));
+          }
+          setSelectedGenerationId(null);
+          setSelectedOutputId(null);
         }}
         onCreateVideo={(generation, output) => {
-          void generationHook.createVideoFromOutput(generation, output);
+          setMode('video');
+          setRawPrompt(generation.rawPrompt || generation.prompt || '');
+          setProductRefs((generation.product_ids ?? []).map((id) => {
+            const p = products.find((product) => product.id === id);
+            return { id, name: p?.name || id };
+          }));
+          setPersonaRefs((generation.persona_ids ?? []).map((id) => {
+            const p = personas.find((persona) => persona.id === id);
+            return { id, name: p?.name || id };
+          }));
+          setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
+          setAspectRatio(generation.aspectRatio || '1:1');
+          setProvider(generation.provider || 'gemini');
+          setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+          if (output.mediaUrl) {
+            setExtraReferenceUrls((prev) => (prev.includes(output.mediaUrl!) ? prev : [...prev, output.mediaUrl!]));
+          }
+          setSelectedGenerationId(null);
+          setSelectedOutputId(null);
         }}
         onDelete={(generation) => {
           void generationHook.deleteGeneration(generation.id);
