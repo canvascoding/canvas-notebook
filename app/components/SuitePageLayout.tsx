@@ -32,8 +32,33 @@ export function SuitePageLayout({
 }: SuitePageLayoutProps) {
   const t = useTranslations('common');
   const pathname = usePathname();
-  const isStudioSubroute = pathname.startsWith('/studio/');
-  const backHref = isStudioSubroute ? '/studio' : '/';
+  
+  // Determine back navigation based on current route
+  const getBackHref = () => {
+    // Handle specific studio subroutes that should go back to their list
+    if (pathname?.match(/^\/studio\/models\/[^/]+$/)) {
+      return '/studio/models';
+    }
+    if (pathname?.match(/^\/studio\/presets\/[^/]+$/)) {
+      return '/studio/presets';
+    }
+    if (pathname?.match(/^\/studio\/products\/[^/]+$/)) {
+      return '/studio/products';
+    }
+    if (pathname?.match(/^\/studio\/personas\/[^/]+$/)) {
+      return '/studio/personas';
+    }
+    
+    // Default studio back navigation
+    if (pathname?.startsWith('/studio/')) {
+      return '/studio';
+    }
+    
+    return '/';
+  };
+  
+  const backHref = getBackHref();
+  const isStudioSubroute = pathname?.startsWith('/studio/');
   const backLabel = isStudioSubroute ? t('studio') : t('suite');
 
   const content = (
