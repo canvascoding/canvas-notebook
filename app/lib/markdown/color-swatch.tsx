@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 // Regex patterns for color detection
 const HEX_REGEX = /^#([0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
@@ -53,14 +54,19 @@ export function ColorSwatch({ color }: ColorSwatchProps) {
   };
 
   return (
-    <span className="inline-flex items-center gap-1">
-      <code className="text-xs">{color}</code>
-      <span
-        style={swatchStyle}
-        onClick={handleClick}
-        title={copied ? 'Kopiert!' : 'Kopieren'}
-      />
-    </span>
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center gap-1 cursor-pointer" onClick={handleClick}>
+            <code className="text-xs">{color}</code>
+            <span style={swatchStyle} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>{copied ? 'Kopiert!' : 'Kopieren'}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

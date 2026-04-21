@@ -51,6 +51,10 @@ export interface StudioGeneratePayload {
   aspect_ratio?: string;
   count?: number;
   provider?: string;
+  model?: string;
+  quality?: 'low' | 'medium' | 'high' | 'auto';
+  output_format?: 'png' | 'jpeg' | 'webp';
+  background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
   pi_session_id?: string;
 }

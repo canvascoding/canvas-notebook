@@ -49,6 +49,10 @@ export interface StudioGenerateRequest {
   aspect_ratio?: string;
   count?: number;
   provider?: string;
+  model?: string;
+  quality?: 'low' | 'medium' | 'high' | 'auto';
+  output_format?: 'png' | 'jpeg' | 'webp';
+  background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
   pi_session_id?: string;
 }
@@ -305,7 +309,9 @@ export async function executeStudioGeneration(
   let sourceGenerationId: string | null = null;
 
   const defaultModel = providerId === 'openai' ? 'gpt-image-1.5' : 'gemini-3.1-flash-image-preview';
-  const model = request.mode === 'video' ? 'veo-3.1-fast-generate-preview' : defaultModel;
+  const model = request.mode === 'video'
+    ? 'veo-3.1-fast-generate-preview'
+    : (request.model || defaultModel);
 
   if (request.source_output_id) {
     const [sourceOutput] = await db.select({ generationId: studioGenerationOutputs.generationId })
@@ -393,7 +399,11 @@ export async function executeStudioGeneration(
       outputs = await generateStudioVideo(generationId, composedPrompt, aspectRatio, referenceImages);
     } else {
       const count = Math.min(Math.max(request.count || 4, 1), MAX_IMAGE_COUNT);
-      outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, referenceImages, providerId, model);
+      outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, referenceImages, providerId, model, {
+        quality: request.quality,
+        outputFormat: request.output_format,
+        background: request.background,
+      });
     }
 
     await db.update(studioGenerations)
@@ -418,6 +428,7 @@ async function generateStudioImages(
   referenceImages: ProviderReferenceImage[],
   providerId: string,
   model: string,
+  options?: { quality?: 'low' | 'medium' | 'high' | 'auto'; outputFormat?: 'png' | 'jpeg' | 'webp'; background?: 'transparent' | 'opaque' | 'auto' },
 ): Promise<StudioGenerationOutput[]> {
   const provider = getImageGenerationProvider(providerId);
   if (!provider) {
@@ -450,6 +461,9 @@ async function generateStudioImages(
         model: validatedModel,
         aspectRatio,
         referenceImages: limitedReferences,
+        quality: options?.quality,
+        outputFormat: options?.outputFormat,
+        background: options?.background,
       });
 
       const ext = extensionFromMime(result.mimeType);

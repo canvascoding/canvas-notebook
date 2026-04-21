@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
 import { FrameUpload } from './FrameUpload';
+import { getDefaultModelForProvider, getAspectRatiosForProvider } from '@/app/lib/integrations/image-generation-constants';
 
 const STARTING_POINTS = [
   {
@@ -84,6 +85,12 @@ export function CreateView() {
   const [mode, setMode] = useState<StudioGenerationMode>('image');
   const [aspectRatio, setAspectRatio] = useState('1:1');
   const [count, setCount] = useState(4);
+  const [provider, setProvider] = useState('gemini');
+  const [model, setModel] = useState('gemini-3.1-flash-image-preview');
+  const [quality, setQuality] = useState<'low' | 'medium' | 'high' | 'auto'>('auto');
+  const [outputFormat, setOutputFormat] = useState<'png' | 'jpeg' | 'webp'>('png');
+  const [background, setBackground] = useState<'transparent' | 'opaque' | 'auto'>('auto');
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [rawPrompt, setRawPrompt] = useState('');
   const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [personaRefs, setPersonaRefs] = useState<Array<{ id: string; name: string }>>([]);
@@ -101,6 +108,15 @@ export function CreateView() {
       setRawPrompt(promptParam);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    const nextDefaultModel = getDefaultModelForProvider(provider);
+    setModel(nextDefaultModel);
+    const validRatios = getAspectRatiosForProvider(provider);
+    if (!validRatios.includes(aspectRatio as never)) {
+      setAspectRatio('1:1');
+    }
+  }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     void fetchGenerations();
@@ -149,7 +165,11 @@ export function CreateView() {
       preset_id: presetRef?.id,
       aspect_ratio: aspectRatio,
       count: mode === 'video' ? 1 : count,
-      provider: 'gemini',
+      provider,
+      model,
+      quality: provider === 'openai' ? quality : undefined,
+      output_format: provider === 'openai' ? outputFormat : undefined,
+      background: provider === 'openai' ? background : undefined,
     });
 
     if (result) {
@@ -259,15 +279,28 @@ export function CreateView() {
             onAspectRatioChange={setAspectRatio}
             count={count}
             onCountChange={setCount}
+            provider={provider}
+            onProviderChange={setProvider}
+            model={model}
+            onModelChange={setModel}
+            quality={quality}
+            onQualityChange={setQuality}
+            outputFormat={outputFormat}
+            onOutputFormatChange={setOutputFormat}
+            background={background}
+            onBackgroundChange={setBackground}
             onGenerate={handleGenerate}
             isGenerating={generationHook.loading}
             canGenerate={canGenerate}
+            showMoreOptions={showMoreOptions}
+            onShowMoreOptionsChange={setShowMoreOptions}
           />
 
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="rounded-full px-3 py-1">
               {mode === 'video' ? 'Video mode' : 'Image mode'}
             </Badge>
+            <Badge variant="outline" className="rounded-full px-3 py-1">{provider === 'openai' ? 'OpenAI' : 'Gemini'} — {model}</Badge>
             <Badge variant="outline" className="rounded-full px-3 py-1">Presets: {presets.length}</Badge>
             <Badge variant="outline" className="rounded-full px-3 py-1">Products: {products.length}</Badge>
             <Badge variant="outline" className="rounded-full px-3 py-1">Personas: {personas.length}</Badge>

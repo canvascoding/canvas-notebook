@@ -123,20 +123,18 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
 
   useEffect(() => {
     const el = wheelRef.current;
-    if (!el) return;
+    if (!el || !dialogOpen) return;
     const handler = (e: WheelEvent) => {
       e.preventDefault();
       const isZoom = e.ctrlKey || e.metaKey;
       if (isZoom) {
-        // Zoom with Ctrl/Cmd + wheel
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
         setZoom((z) => Math.min(5, Math.max(0.25, z * delta)));
       }
-      // Without modifier, do nothing (prevent default scroll)
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, []);
+  }, [dialogOpen]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
