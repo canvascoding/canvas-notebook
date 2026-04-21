@@ -77,7 +77,7 @@ function findChromiumExecutable(): string {
   );
 }
 
-async function getBrowser(): Promise<Browser> {
+export async function getBrowser(): Promise<Browser> {
   if (browser) return browser;
 
   const executablePath = findChromiumExecutable();

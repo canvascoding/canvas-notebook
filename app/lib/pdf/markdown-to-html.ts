@@ -1,13 +1,10 @@
 import { readFile } from '@/app/lib/filesystem/workspace-files';
 import { marked } from 'marked';
 import path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import crypto from 'crypto';
-import os from 'os';
 import fs from 'fs/promises';
+import { createRequire } from 'module';
 
-const execFileAsync = promisify(execFile);
+const require = createRequire(import.meta.url);
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -27,40 +24,60 @@ function getMimeType(ext: string): string {
   return MIME_TYPES[ext.toLowerCase()] || 'image/png';
 }
 
+function escapeForJsTemplate(code: string): string {
+  return code
+    .replace(/\\/g, '\\\\')
+    .replace(/`/g, '\\`')
+    .replace(/\$/g, '\\$');
+}
+
 async function renderMermaidToSvg(code: string): Promise<string | null> {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mermaid-'));
-  const inputPath = path.join(tmpDir, 'diagram.mmd');
-  const outputPath = path.join(tmpDir, 'diagram.svg');
+  const { getBrowser } = await import('./browser');
+  const browser = await getBrowser();
+  const page = await browser.newPage();
 
   try {
-    await fs.writeFile(inputPath, code, 'utf-8');
+    const mermaidPath = require.resolve('mermaid');
+    const mermaidJs = await fs.readFile(mermaidPath, 'utf-8');
 
-    const mmdcPath = path.join(
-      process.cwd(),
-      'node_modules',
-      '.bin',
-      'mmdc'
-    );
+    const escapedCode = escapeForJsTemplate(code);
 
-    await execFileAsync(mmdcPath, [
-      '-i', inputPath,
-      '-o', outputPath,
-      '-t', 'default',
-      '-b', 'white',
-      '--quiet',
-    ], {
-      timeout: 15000,
-    });
+    await page.setContent(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+        </head>
+        <body>
+          <div id="diagram"></div>
+          <script>
+            ${mermaidJs}
+            mermaid.initialize({ 
+              startOnLoad: false, 
+              theme: 'default',
+              securityLevel: 'loose'
+            });
+            mermaid.render('mermaid-svg', \`${escapedCode}\`)
+              .then(({ svg }) => {
+                document.getElementById('diagram').innerHTML = svg;
+              })
+              .catch((err) => {
+                console.error('Mermaid render error:', err);
+                document.getElementById('diagram').innerHTML = '<div class="mermaid-error">Error rendering diagram</div>';
+              });
+          </script>
+        </body>
+      </html>
+    `);
 
-    const svgContent = await fs.readFile(outputPath, 'utf-8');
-    return svgContent;
+    await page.waitForSelector('#diagram svg', { timeout: 10000 });
+    const svg = await page.$eval('#diagram svg', el => el.outerHTML);
+    return svg;
   } catch (err) {
-    console.warn('[Markdown Export] Failed to render mermaid diagram:', err instanceof Error ? err.message : String(err));
+    console.error('[Mermaid Render] Failed to render diagram:', err instanceof Error ? err.message : String(err));
     return null;
   } finally {
-    try {
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    } catch {}
+    await page.close();
   }
 }
 
