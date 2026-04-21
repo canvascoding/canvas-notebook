@@ -79,8 +79,7 @@ export async function GET(
       });
       return new NextResponse(webStream, { status: 200, headers });
     }
-  } catch (error) {
-    console.error(`[API Media] Error serving ${filePath}:`, error);
+  } catch {
     return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
   }
 }

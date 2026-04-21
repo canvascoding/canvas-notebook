@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
-import type { StudioGeneration, StudioGenerationMode, StudioGenerationOutput } from '../../types/generation';
+import type { StudioGenerationMode } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
 import { OutputDetailView } from './OutputDetailView';
 import { OutputGrid } from './OutputGrid';
@@ -91,7 +91,8 @@ export function CreateView() {
   const [outputFormat, setOutputFormat] = useState<'png' | 'jpeg' | 'webp'>('png');
   const [background, setBackground] = useState<'transparent' | 'opaque' | 'auto'>('auto');
   const [showMoreOptions, setShowMoreOptions] = useState(false);
-  const [rawPrompt, setRawPrompt] = useState('');
+  const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
+  const [rawPrompt, setRawPrompt] = useState(initialPrompt);
   const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [personaRefs, setPersonaRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [presetRef, setPresetRef] = useState<StudioPreset | null>(null);
@@ -102,15 +103,23 @@ export function CreateView() {
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
 
-  const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
-  const [rawPrompt, setRawPrompt] = useState(initialPrompt);
-
   const resolvedSelectedGeneration = selectedGenerationId
     ? generations.find((g) => g.id === selectedGenerationId) ?? null
     : null;
   const resolvedSelectedOutput = resolvedSelectedGeneration && selectedOutputId
     ? resolvedSelectedGeneration.outputs.find((o) => o.id === selectedOutputId) ?? null
     : null;
+
+  useEffect(() => {
+    void fetchGenerations();
+    void fetchProducts();
+    void fetchPersonas();
+    void fetchPresets();
+  }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets]);
+
+  const canGenerate = useMemo(() => {
+    return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null;
+  }, [personaRefs.length, presetRef, productRefs.length, rawPrompt]);
 
   const handleGenerate = async () => {
     const prompt = negativePrompt.trim()
@@ -150,8 +159,8 @@ export function CreateView() {
               generations={generations}
               emptyState={<EmptyState />}
               onOutputOpen={({ generation, output }) => {
-                setSelectedGeneration(generation);
-                setSelectedOutput(output);
+                setSelectedGenerationId(generation.id);
+                setSelectedOutputId(output.id);
               }}
               onToggleFavorite={(generation, output) => {
                 void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
@@ -282,13 +291,13 @@ export function CreateView() {
       </div>
 
       <OutputDetailView
-        generation={selectedGeneration}
-        output={selectedOutput}
+        generation={resolvedSelectedGeneration}
+        output={resolvedSelectedOutput}
         generations={generations}
-        open={selectedGeneration !== null && selectedOutput !== null}
+        open={resolvedSelectedGeneration !== null && resolvedSelectedOutput !== null}
         onSelectOutput={({ generation, output }) => {
-          setSelectedGeneration(generation);
-          setSelectedOutput(output);
+          setSelectedGenerationId(generation.id);
+          setSelectedOutputId(output.id);
         }}
         onToggleFavorite={(generation, output) => {
           void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
@@ -300,8 +309,8 @@ export function CreateView() {
           void generationHook.createVideoFromOutput(generation, output);
         }}
         onClose={() => {
-          setSelectedGeneration(null);
-          setSelectedOutput(null);
+          setSelectedGenerationId(null);
+          setSelectedOutputId(null);
         }}
       />
     </div>
