@@ -305,7 +305,6 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       count: 4,
       provider: generation.provider,
       source_output_id: output.id,
-      pi_session_id: output.piSessionId ?? undefined,
     });
   }, [generate]);
 
@@ -320,7 +319,6 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       count: 1,
       provider: generation.provider,
       source_output_id: output.id,
-      pi_session_id: output.piSessionId ?? undefined,
     });
   }, [generate]);
 

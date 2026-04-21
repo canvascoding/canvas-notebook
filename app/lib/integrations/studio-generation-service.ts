@@ -418,7 +418,6 @@ export async function executeStudioGeneration(
     provider: providerId,
     model,
     bulkJobId: null,
-    piSessionId: request.pi_session_id ?? null,
     sourceGenerationId,
     metadata: null,
     status: 'pending',
@@ -592,7 +591,6 @@ async function generateStudioImages(
         width: null,
         height: null,
         isFavorite: false,
-        piSessionId: null,
         metadata: null,
         createdAt: now,
       });
@@ -621,7 +619,6 @@ async function generateStudioImages(
         width: null,
         height: null,
         isFavorite: false,
-        piSessionId: null,
         metadata: JSON.stringify({ error: errorMsg }),
         createdAt: now,
       });
@@ -708,7 +705,6 @@ async function generateStudioVideo(
     width: null,
     height: null,
     isFavorite: false,
-    piSessionId: null,
     metadata: null,
     createdAt: now,
   });

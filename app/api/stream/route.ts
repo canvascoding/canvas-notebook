@@ -1,3 +1,6 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 import { NextRequest, NextResponse } from 'next/server';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
@@ -6,6 +9,7 @@ import { auth } from '@/app/lib/auth';
 import { getOrCreatePiRuntime, type PiRuntimeStreamEvent } from '@/app/lib/pi/live-runtime';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
+import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 
 export const runtime = 'nodejs';
 

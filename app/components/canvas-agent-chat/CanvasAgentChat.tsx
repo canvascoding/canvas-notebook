@@ -83,6 +83,8 @@ interface Attachment {
   mimeType?: string;
   // document category
   category?: string;
+  // Optional: absolute file path for direct server-side reading (studio outputs, etc.)
+  filePath?: string;
 }
 
 interface ChatMessage {

@@ -102,6 +102,7 @@ export type PiRuntimePromptContext = {
     generationPersonaIds?: string[];
     outputFilePath?: string | null;
     outputMediaUrl?: string | null;
+    activeImagePath?: string | null;
   };
 };
 
@@ -471,8 +472,11 @@ class LivePiRuntime {
     if (this.studioContext.outputMediaUrl) {
       lines.push(`Output media URL: ${this.studioContext.outputMediaUrl}`);
     }
+    if (this.studioContext.activeImagePath) {
+      lines.push(`Active image file path: ${this.studioContext.activeImagePath}`);
+    }
 
-    lines.push('When editing this asset, prefer `studio_edit_image` and use the current output ID as the source unless the user selects a different output.');
+    lines.push('When editing this asset, use studio_generate with reference images. The current output file path is provided in the context.');
     return lines.join('\n');
   }
 
