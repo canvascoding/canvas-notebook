@@ -1,7 +1,6 @@
 'use client';
 
-import type { ComponentPropsWithoutRef, ReactNode } from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Dialog,
@@ -11,11 +10,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Power, Loader2, X } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import remarkGfm from 'remark-gfm';
-import remarkFrontmatter from 'remark-frontmatter';
+import { Power, Loader2, X, Save, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 
 interface SkillDetailDialogProps {
@@ -24,16 +21,16 @@ interface SkillDetailDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type MarkdownCodeProps = ComponentPropsWithoutRef<'code'> & {
-  children?: ReactNode;
-  inline?: boolean;
-};
-
 export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDialogProps) {
   const t = useTranslations('skills');
   const [skillContent, setSkillContent] = useState<string>('');
+  const [draft, setDraft] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const saveTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (open && skill) {
@@ -42,14 +39,61 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSkillContent takes skill.name as argument; skill is in deps
   }, [open, skill]);
 
+  useEffect(() => {
+    if (!draft || !skill) return;
+
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      if (draft === skillContent) {
+        return;
+      }
+
+      setIsSaving(true);
+      setSaveError(null);
+
+      try {
+        const response = await fetch(`/api/skills/${skill.name}/readme`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: draft }),
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          setSkillContent(draft);
+          setLastSavedAt(Date.now());
+        } else {
+          setSaveError(data.error || t('detail.errors.saveFailed'));
+        }
+      } catch {
+        setSaveError(t('detail.errors.saveFailed'));
+      } finally {
+        setIsSaving(false);
+      }
+    }, 800);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [draft, skill, skillContent, t]);
+
   async function loadSkillContent(skillName: string) {
     setLoading(true);
     setError(null);
+    setSaveError(null);
+    setDraft('');
     try {
       const response = await fetch(`/api/skills/${skillName}/readme`);
       const data = await response.json();
       if (data.success) {
         setSkillContent(data.content);
+        setDraft(data.content);
       } else {
         setError(data.error || t('detail.errors.loadContent'));
       }
@@ -59,6 +103,11 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
       setLoading(false);
     }
   }
+
+  const isDirty = draft !== skillContent;
+  const savedTime = lastSavedAt
+    ? new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
 
   if (!skill) return null;
 
@@ -121,7 +170,35 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
 
             {/* SKILL.md Content */}
             <div>
-              <h2 className="text-lg font-semibold mb-4">{t('detail.documentation')}</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">{t('detail.documentation')}</h2>
+                <div className="flex items-center gap-2">
+                  {saveError && (
+                    <span className="flex items-center gap-1 text-xs text-destructive" title={saveError}>
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">{saveError}</span>
+                    </span>
+                  )}
+                  {isSaving && (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span className="hidden sm:inline">{t('saving')}</span>
+                    </span>
+                  )}
+                  {!isSaving && !saveError && isDirty && (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Save className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">{t('unsavedChanges')}</span>
+                    </span>
+                  )}
+                  {!isSaving && !saveError && !isDirty && savedTime && (
+                    <span className="flex items-center gap-1 text-xs text-primary" title={t('savedAt', { time: savedTime })}>
+                      <Power className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">{t('savedAt', { time: savedTime })}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
               {loading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -129,37 +206,8 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
               ) : error ? (
                 <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">{error}</div>
               ) : (
-                <div className="prose prose-lg max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-3xl prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-4 prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-3 prose-p:leading-relaxed prose-p:mb-4 prose-li:mb-2 prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:p-4 prose-pre:my-4 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-sm">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkFrontmatter]}
-                    components={{
-                      code({ className, children, inline, ...props }: MarkdownCodeProps) {
-                        const match = /language-(\w+)/.exec(className || '');
-
-                        return !inline && match ? (
-                          <SyntaxHighlighter
-                            language={match[1]}
-                            PreTag="div"
-                            customStyle={{
-                              maxWidth: '100%',
-                              overflowX: 'auto',
-                              background: 'transparent',
-                              padding: 0,
-                              margin: 0
-                            }}
-                          >
-                            {String(children).replace(/\n$/, '')}
-                          </SyntaxHighlighter>
-                        ) : (
-                          <code className={`break-words ${className || ''}`.trim()} {...props}>
-                            {children}
-                          </code>
-                        );
-                      },
-                    }}
-                  >
-                    {skillContent}
-                  </ReactMarkdown>
+                <div className="min-h-[400px] border rounded-lg overflow-hidden">
+                  <MarkdownEditor value={draft} onChange={setDraft} />
                 </div>
               )}
             </div>
