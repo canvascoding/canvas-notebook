@@ -23,13 +23,17 @@ export async function GET(
     headers.set('Cache-Control', 'private, max-age=86400');
 
     if (size === 'thumb') {
-      const thumbBuffer = await sharp(buffer)
-        .resize(THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-      headers.set('Content-Type', 'image/jpeg');
-      headers.set('Content-Disposition', `inline; filename="thumb_${fileName}"`);
-      return new NextResponse(new Uint8Array(thumbBuffer), { status: 200, headers });
+      try {
+        const thumbBuffer = await sharp(buffer)
+          .resize(THUMB_MAX_WIDTH, THUMB_MAX_HEIGHT, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+        headers.set('Content-Type', 'image/jpeg');
+        headers.set('Content-Disposition', `inline; filename="thumb_${fileName}"`);
+        return new NextResponse(new Uint8Array(thumbBuffer), { status: 200, headers });
+      } catch (sharpError) {
+        console.warn(`[Studio Thumbnail] sharp failed for persona image ${imgId}, returning original:`, sharpError);
+      }
     }
 
     headers.set('Content-Type', mimeType);
