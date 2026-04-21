@@ -32,7 +32,8 @@ export function ModelLibrary() {
   }, [search]);
 
   const handleCreate = () => {
-    router.push('/studio/models/new');
+    const type = activeTab === 'personas' ? 'persona' : 'product';
+    router.push(`/studio/models/new?type=${type}`);
   };
 
   return (

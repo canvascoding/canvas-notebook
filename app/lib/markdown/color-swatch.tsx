@@ -58,7 +58,7 @@ export function ColorSwatch({ color }: ColorSwatchProps) {
       <span
         style={swatchStyle}
         onClick={handleClick}
-        title={copied ? 'Copied!' : 'Click to copy'}
+        title={copied ? 'Kopiert!' : 'Kopieren'}
       />
     </span>
   );

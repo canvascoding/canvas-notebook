@@ -131,10 +131,8 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
         // Zoom with Ctrl/Cmd + wheel
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
         setZoom((z) => Math.min(5, Math.max(0.25, z * delta)));
-      } else {
-        // Pan with wheel
-        setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
       }
+      // Without modifier, do nothing (prevent default scroll)
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
