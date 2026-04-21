@@ -10,7 +10,7 @@ import { useStudioProducts } from '../../hooks/useStudioProducts';
 import type { StudioGenerationMode, StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
-import { OutputDetailView } from './OutputDetailView';
+import { StudioPreview } from './StudioPreview';
 import { OutputGrid } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
 import { PromptBar } from './PromptBar';
@@ -377,7 +377,7 @@ export function CreateView() {
         </div>
       </div>
 
-      <OutputDetailView
+      <StudioPreview
         generation={resolvedSelectedGeneration}
         output={resolvedSelectedOutput}
         generations={generations}
@@ -394,11 +394,11 @@ export function CreateView() {
         onCreateVariation={(generation, output) => {
           setMode('image');
           setRawPrompt(generation.rawPrompt || generation.prompt || '');
-          setProductRefs((generation.product_ids ?? []).map((id) => {
+          setProductRefs((generation.product_ids ?? []).map((id: string) => {
             const p = products.find((product) => product.id === id);
             return { id, name: p?.name || id };
           }));
-          setPersonaRefs((generation.persona_ids ?? []).map((id) => {
+          setPersonaRefs((generation.persona_ids ?? []).map((id: string) => {
             const p = personas.find((persona) => persona.id === id);
             return { id, name: p?.name || id };
           }));
@@ -415,11 +415,11 @@ export function CreateView() {
         onCreateVideo={(generation, output) => {
           setMode('video');
           setRawPrompt(generation.rawPrompt || generation.prompt || '');
-          setProductRefs((generation.product_ids ?? []).map((id) => {
+          setProductRefs((generation.product_ids ?? []).map((id: string) => {
             const p = products.find((product) => product.id === id);
             return { id, name: p?.name || id };
           }));
-          setPersonaRefs((generation.persona_ids ?? []).map((id) => {
+          setPersonaRefs((generation.persona_ids ?? []).map((id: string) => {
             const p = personas.find((persona) => persona.id === id);
             return { id, name: p?.name || id };
           }));
@@ -435,9 +435,6 @@ export function CreateView() {
         }}
         onDelete={(generation, output) => {
           void generationHook.deleteGeneration(generation.id);
-        }}
-        onSaveToWorkspace={(generation, output) => {
-          handleSaveSingleToWorkspace(generation, output);
         }}
         onClose={() => {
           setSelectedGenerationId(null);

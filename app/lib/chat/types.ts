@@ -19,5 +19,6 @@ export interface ChatRequestContext {
     generationPersonaIds?: string[];
     outputFilePath?: string | null;
     outputMediaUrl?: string | null;
+    activeImagePath?: string | null;
   };
 }

@@ -15,7 +15,6 @@ export interface StudioGenerationOutput {
   width: number | null;
   height: number | null;
   isFavorite: boolean;
-  piSessionId?: string | null;
   createdAt: string;
   metadata?: string | null;
 }
@@ -56,7 +55,6 @@ export interface StudioGeneratePayload {
   output_format?: 'png' | 'jpeg' | 'webp';
   background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
-  pi_session_id?: string;
   extra_reference_urls?: string[];
 }
 

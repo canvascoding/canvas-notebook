@@ -658,141 +658,21 @@ export function createStudioGenerateTool(
 }
 
 export function createStudioEditImageTool(
-  deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
+  _deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
 ): AgentTool {
-  const executeFn = deps.executeStudioGenerationFn ?? executeStudioGeneration;
-  const userId = deps.userId;
-
   return {
     name: 'studio_edit_image',
-    label: 'Editing studio image',
-    description:
-      'Edits an existing studio-generated image based on text instructions. Uses the ' +
-      'previous output as a reference image and applies the requested changes. Supports ' +
-      'swapping products/personas, changing style, adding/removing elements. The original ' +
-      'image is preserved; a new output is created.',
+    label: 'Edit studio image (deprecated)',
+    description: 'This tool is deprecated. Use studio_generate with reference images instead.',
     parameters: Type.Object({
-      source_output_id: Type.String({
-        description: 'ID of the studio generation output to edit (from studioGenerationOutputs).',
-      }),
-      instruction: Type.String({
-        description: 'What to change: "add white flowers", "swap persona to Ada", "make background darker".',
-      }),
-      product_ids: Type.Optional(Type.Array(Type.String(), {
-        description: 'New product IDs to use. Omit to keep the current products from the source generation.',
-        maxItems: 5,
-      })),
-      persona_ids: Type.Optional(Type.Array(Type.String(), {
-        description: 'New persona IDs to use. Omit to keep the current personas from the source generation.',
-        maxItems: 3,
-      })),
-      preset_id: Type.Optional(Type.String({
-        description: 'New preset ID to apply. Omit to keep the source generation preset.',
-      })),
+      source_output_id: Type.String({ description: 'Deprecated' }),
+      instruction: Type.String({ description: 'Deprecated' }),
     }),
-    execute: async (_toolCallId, params) => {
-      const { source_output_id, instruction, product_ids, persona_ids, preset_id } = params as {
-        source_output_id: string;
-        instruction: string;
-        product_ids?: string[];
-        persona_ids?: string[];
-        preset_id?: string;
+    execute: async () => {
+      return {
+        content: [{ type: 'text', text: 'studio_edit_image is deprecated. Use studio_generate with reference images instead.' }],
+        details: {},
       };
-
-      try {
-        if (!userId) {
-          throw new Error('User ID is required for studio image editing.');
-        }
-
-        const [sourceOutput] = await db
-          .select({
-            id: studioGenerationOutputs.id,
-            filePath: studioGenerationOutputs.filePath,
-            generationId: studioGenerationOutputs.generationId,
-            mediaUrl: studioGenerationOutputs.mediaUrl,
-          })
-          .from(studioGenerationOutputs)
-          .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-          .where(and(
-            eq(studioGenerationOutputs.id, source_output_id),
-            eq(studioGenerations.userId, userId),
-          ))
-          .limit(1);
-
-        if (!sourceOutput) {
-          throw new StudioServiceError(
-            `Output '${source_output_id}' not found or has been deleted.`,
-            `Output '${source_output_id}' wurde nicht gefunden oder wurde gelöscht.`,
-            'NOT_FOUND',
-          );
-        }
-
-        if (!sourceOutput.filePath) {
-          throw new StudioServiceError(
-            `Reference image file for output not found on disk.`,
-            'Reference image file for output not found on disk. The file may have been deleted.',
-            'FILE_NOT_FOUND',
-          );
-        }
-
-        const [sourceGeneration] = await db
-          .select({
-            id: studioGenerations.id,
-            prompt: studioGenerations.prompt,
-            rawPrompt: studioGenerations.rawPrompt,
-            studioPresetId: studioGenerations.studioPresetId,
-          })
-          .from(studioGenerations)
-          .where(and(eq(studioGenerations.id, sourceOutput.generationId), eq(studioGenerations.userId, userId)))
-          .limit(1);
-
-        if (!sourceGeneration) {
-          throw new StudioServiceError(
-            `Source generation for output '${source_output_id}' not found.`,
-            `Die ursprüngliche Generierung für Output '${source_output_id}' wurde nicht gefunden.`,
-            'NOT_FOUND',
-          );
-        }
-
-        const originalPrompt = sourceGeneration.prompt || sourceGeneration.rawPrompt || '';
-        const composedPrompt = originalPrompt
-          ? `${originalPrompt}\n\nEdit instruction: ${instruction.trim()}`
-          : instruction.trim();
-
-        const result = await executeFn(userId, {
-          prompt: composedPrompt,
-          mode: 'image',
-          source_output_id,
-          product_ids,
-          persona_ids,
-          preset_id: preset_id ?? sourceGeneration.studioPresetId ?? undefined,
-        });
-
-        const outputText = result.outputs
-          .map((o) => `![studio-edit-${o.variationIndex}](${o.mediaUrl})`)
-          .join('\n');
-        const summary = `Studio edit completed from output ${source_output_id} (${result.outputs.length} output(s))\n\n${outputText}`;
-
-        return {
-          content: [{ type: 'text', text: summary }],
-          details: {
-            ...result,
-            sourceOutputId: source_output_id,
-            sourceGenerationId: sourceGeneration.id,
-            sourceMediaUrl: sourceOutput.mediaUrl,
-          },
-        };
-      } catch (error: unknown) {
-        const message = error instanceof StudioServiceError
-          ? error.userMessage
-          : error instanceof Error
-            ? error.message
-            : 'An unexpected error occurred during studio image editing.';
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
     },
   };
 }

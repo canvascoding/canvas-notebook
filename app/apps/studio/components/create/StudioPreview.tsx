@@ -2,11 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState } from 'react';
-import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
+import { useEffect, useState, useMemo } from 'react';
+import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona } from '../../types/models';
-import { OutputDetailChat } from './OutputDetailChat';
+import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -21,7 +21,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-interface OutputDetailViewProps {
+interface StudioPreviewProps {
   generation: StudioGeneration | null;
   output: StudioGenerationOutput | null;
   generations: StudioGeneration[];
@@ -34,7 +34,6 @@ interface OutputDetailViewProps {
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
-  onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
 function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioGeneration) {
@@ -45,7 +44,7 @@ function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioG
   return generation.aspectRatio;
 }
 
-export function OutputDetailView({
+export function StudioPreview({
   generation,
   output,
   generations,
@@ -58,8 +57,7 @@ export function OutputDetailView({
   onCreateVariation,
   onCreateVideo,
   onDelete,
-  onSaveToWorkspace,
-}: OutputDetailViewProps) {
+}: StudioPreviewProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   useEffect(() => {
@@ -109,12 +107,53 @@ export function OutputDetailView({
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
 
+  const requestContext = useMemo(() => ({
+    currentPage: '/studio/create',
+    studioContext: {
+      generationId: generation.id,
+      currentOutputId: output.id,
+      generationPrompt: generation.prompt || generation.rawPrompt || null,
+      generationPresetId: generation.studioPresetId,
+      generationProductIds: generation.product_ids ?? [],
+      generationPersonaIds: generation.persona_ids ?? [],
+      outputFilePath: output.filePath,
+      outputMediaUrl: output.mediaUrl,
+    },
+  }), [generation.id, generation.persona_ids, generation.product_ids, generation.prompt, generation.rawPrompt, generation.studioPresetId, output.filePath, output.id, output.mediaUrl]);
+
+  const handleMediaClick = (mediaUrl: string) => {
+    const targetUrl = (() => {
+      if (typeof window === 'undefined') return mediaUrl;
+      try {
+        return new URL(mediaUrl, window.location.origin).toString();
+      } catch {
+        return mediaUrl;
+      }
+    })();
+
+    for (const candidateGeneration of generations) {
+      const candidateOutput = candidateGeneration.outputs.find((item) => {
+        if (!item.mediaUrl) return false;
+        try {
+          return new URL(item.mediaUrl, window.location.origin).toString() === targetUrl;
+        } catch {
+          return false;
+        }
+      });
+
+      if (candidateOutput) {
+        onSelectOutput({ generation: candidateGeneration, output: candidateOutput });
+        return;
+      }
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
       <DialogContent layout="viewport" showCloseButton={false} className="overflow-hidden bg-background p-0">
-        <DialogTitle className="sr-only">Studio output detail</DialogTitle>
+        <DialogTitle className="sr-only">Studio output preview</DialogTitle>
         <DialogDescription className="sr-only">
-          Review the selected studio output, metadata, and chat workspace.
+          Preview the selected studio output and chat with the agent.
         </DialogDescription>
 
         <div className="flex h-full min-h-0 flex-col">
@@ -269,12 +308,14 @@ export function OutputDetailView({
             </div>
 
             <aside className="flex min-h-0 flex-col bg-card/55">
-              <OutputDetailChat
-                generation={generation}
-                output={output}
-                generations={generations}
-                onSelectOutput={onSelectOutput}
-              />
+              <div className="h-full min-h-0">
+                <CanvasAgentChat
+                  hideNavHeader
+                  requestContext={requestContext}
+                  onMediaClick={handleMediaClick}
+                  isSurfaceVisible
+                />
+              </div>
             </aside>
           </div>
         </div>
