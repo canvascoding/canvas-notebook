@@ -79,6 +79,7 @@ export function useStudioPresets(): UseStudioPresetsReturn {
       const catalog = {
         blockTypes: data.blockTypes ?? [],
         categories: data.categories ?? [],
+        blockOrder: data.blockOrder ?? [],
       } satisfies StudioPresetBlockCatalog;
       setBlockCatalog(catalog);
       return catalog;

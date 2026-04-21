@@ -1,11 +1,21 @@
 export interface StudioBlock {
-  type: string;
   id: string;
+  type: string;
   label: string;
   promptFragment: string;
   category: string;
   description?: string;
   thumbnailPath?: string | null;
+}
+
+export interface StudioPresetBlockDefinition {
+  id: string;
+  type: string;
+  label: string;
+  promptFragment: string;
+  category: string;
+  description: string;
+  icon: string;
 }
 
 export interface StudioPreset {
@@ -26,10 +36,11 @@ export interface StudioPreset {
 export interface StudioPresetBlockGroup {
   type: string;
   label: string;
-  blocks: StudioBlock[];
+  blocks: StudioPresetBlockDefinition[];
 }
 
 export interface StudioPresetBlockCatalog {
   blockTypes: StudioPresetBlockGroup[];
   categories: readonly string[];
+  blockOrder: string[];
 }

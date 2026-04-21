@@ -57,7 +57,15 @@ export function StudioClient() {
         {activeTab === 'bulk' && <BulkGenerateView />}
         {activeTab === 'models' && <ModelLibrary />}
         {activeTab === 'presets' && (
-          <p className="text-muted-foreground">{t('comingSoon')}</p>
+          <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+            <p className="text-muted-foreground">Studio Presets are now available on a dedicated page.</p>
+            <button
+              onClick={() => router.push('/studio/presets')}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Go to Studio Presets
+            </button>
+          </div>
         )}
       </div>
     </div>
