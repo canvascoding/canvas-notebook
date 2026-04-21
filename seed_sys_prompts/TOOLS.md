@@ -103,22 +103,6 @@ Rules:
 - Only if absolutely necessary, use: pip3 install --break-system-packages <package>.
 - Before assuming anything, quickly verify with: whoami, sudo -n true, python3 --version, pip3 --version.
 
-### image_generation
-Generates images with Gemini. Prefer this direct PI tool when the user says: "create an image", "generate a photo", "make a picture of...", or wants to use workspace reference images.
-Parameters: prompt (optional when reference_image_paths is provided), count, aspect_ratio, model, reference_image_paths.
-reference_image_paths must contain workspace-relative image paths.
-If the result includes a media URL, show the image in the normal chat reply as Markdown: `![generated image](URL)`. Still include the URL or path in text.
-
-### video_generation
-Generates videos with VEO. Prefer this direct PI tool when the user says: "create a video", "generate a video", "make a video of...", or wants start/end frames, reference images, or an input video.
-Parameters: prompt, mode, aspect_ratio, resolution, model, start_frame_path, end_frame_path, reference_image_paths, input_video_path, is_looping.
-All media paths must be workspace-relative.
-Mode rules:
-- text_to_video: prompt required
-- frames_to_video: start_frame_path required, end_frame_path optional, is_looping=true reuses the start frame
-- references_to_video: prompt plus at least one reference_image_paths entry required
-- extend_video: input_video_path required
-
 ### ad_localization
 Localizes advertisements. Use when the user says: "localize this ad", "translate for market...", "adapt for country..."
 
