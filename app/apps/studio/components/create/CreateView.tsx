@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
@@ -99,58 +99,18 @@ export function CreateView() {
   const [extraReferenceUrls, setExtraReferenceUrls] = useState<string[]>([]);
   const [startFrame, setStartFrame] = useState<File | null>(null);
   const [endFrame, setEndFrame] = useState<File | null>(null);
-  const [selectedGeneration, setSelectedGeneration] = useState<StudioGeneration | null>(null);
-  const [selectedOutput, setSelectedOutput] = useState<StudioGenerationOutput | null>(null);
+  const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
+  const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const promptParam = searchParams.get('prompt');
-    if (promptParam) {
-      setRawPrompt(promptParam);
-    }
-  }, [searchParams]);
+  const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
+  const [rawPrompt, setRawPrompt] = useState(initialPrompt);
 
-  useEffect(() => {
-    const nextDefaultModel = getDefaultModelForProvider(provider);
-    setModel(nextDefaultModel);
-    const validRatios = getAspectRatiosForProvider(provider);
-    if (!validRatios.includes(aspectRatio as never)) {
-      setAspectRatio('1:1');
-    }
-  }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    void fetchGenerations();
-    void fetchProducts();
-    void fetchPersonas();
-    void fetchPresets();
-  }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets]);
-
-  const canGenerate = useMemo(() => {
-    return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null;
-  }, [personaRefs.length, presetRef, productRefs.length, rawPrompt]);
-
-  useEffect(() => {
-    if (!selectedGeneration || !selectedOutput) {
-      return;
-    }
-
-    const nextGeneration = generations.find((generation) => generation.id === selectedGeneration.id);
-    const nextOutput = nextGeneration?.outputs.find((output) => output.id === selectedOutput.id) ?? null;
-
-    if (!nextGeneration || !nextOutput) {
-      setSelectedGeneration(null);
-      setSelectedOutput(null);
-      return;
-    }
-
-    if (nextGeneration !== selectedGeneration) {
-      setSelectedGeneration(nextGeneration);
-    }
-
-    if (nextOutput !== selectedOutput) {
-      setSelectedOutput(nextOutput);
-    }
-  }, [generations, selectedGeneration, selectedOutput]);
+  const resolvedSelectedGeneration = selectedGenerationId
+    ? generations.find((g) => g.id === selectedGenerationId) ?? null
+    : null;
+  const resolvedSelectedOutput = resolvedSelectedGeneration && selectedOutputId
+    ? resolvedSelectedGeneration.outputs.find((o) => o.id === selectedOutputId) ?? null
+    : null;
 
   const handleGenerate = async () => {
     const prompt = negativePrompt.trim()
@@ -280,7 +240,14 @@ export function CreateView() {
             count={count}
             onCountChange={setCount}
             provider={provider}
-            onProviderChange={setProvider}
+            onProviderChange={(nextProvider) => {
+              setProvider(nextProvider);
+              setModel(getDefaultModelForProvider(nextProvider));
+              const validRatios = getAspectRatiosForProvider(nextProvider);
+              if (!validRatios.includes(aspectRatio as never)) {
+                setAspectRatio('1:1');
+              }
+            }}
             model={model}
             onModelChange={setModel}
             quality={quality}
