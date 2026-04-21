@@ -94,10 +94,56 @@ export async function POST(request: NextRequest) {
     const currentPage = typeof ctx.currentPage === 'string' ? ctx.currentPage : undefined;
 
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
-    const promptMessage = resolvePromptMessage(payload);
+    let promptMessage = resolvePromptMessage(payload);
 
     if (!promptMessage && !runtimeInstance.getStatus().canAbort) {
       return NextResponse.json({ success: false, error: 'Prompt message required when no run is active.' }, { status: 400 });
+    }
+
+    // Inject active studio image into the prompt message if available
+    if (promptMessage && ctx.studioContext?.outputFilePath) {
+      try {
+        const imagePath = path.join(getStudioOutputsRoot(), ctx.studioContext.outputFilePath);
+        const imageBuffer = await fs.readFile(imagePath);
+        const base64Image = imageBuffer.toString('base64');
+
+        // Determine mime type from file extension
+        const ext = path.extname(ctx.studioContext.outputFilePath).toLowerCase();
+        const mimeType = ext === '.png' ? 'image/png' :
+                        ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+                        ext === '.webp' ? 'image/webp' :
+                        ext === '.gif' ? 'image/gif' : 'image/png';
+
+        // Create image content part
+        const imageContent = {
+          type: 'image' as const,
+          data: base64Image,
+          mimeType,
+        };
+
+        // Modify prompt message to include image
+        if (typeof promptMessage.content === 'string') {
+          promptMessage = {
+            ...promptMessage,
+            content: [
+              { type: 'text' as const, text: promptMessage.content },
+              imageContent,
+            ],
+          };
+        } else if (Array.isArray(promptMessage.content)) {
+          // Insert image at the end of existing content
+          promptMessage = {
+            ...promptMessage,
+            content: [
+              ...promptMessage.content,
+              imageContent,
+            ],
+          };
+        }
+      } catch (imageError) {
+        console.warn('[PI Stream] Failed to load studio image:', imageError);
+        // Continue without image if loading fails
+      }
     }
 
     // Set timezone context for this prompt

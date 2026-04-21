@@ -74,6 +74,20 @@ export function StudioPreview({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, open]);
 
+  const requestContext = useMemo(() => ({
+    currentPage: '/studio/create',
+    studioContext: generation && output ? {
+      generationId: generation.id,
+      currentOutputId: output.id,
+      generationPrompt: generation.prompt || generation.rawPrompt || null,
+      generationPresetId: generation.studioPresetId,
+      generationProductIds: generation.product_ids ?? [],
+      generationPersonaIds: generation.persona_ids ?? [],
+      outputFilePath: output.filePath,
+      outputMediaUrl: output.mediaUrl,
+    } : undefined,
+  }), [generation, output]);
+
   if (!generation || !output) {
     return null;
   }
@@ -106,20 +120,6 @@ export function StudioPreview({
   const presetName = generation.studioPreset?.name || (generation.studioPresetId ? null : 'No preset');
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
-
-  const requestContext = useMemo(() => ({
-    currentPage: '/studio/create',
-    studioContext: {
-      generationId: generation.id,
-      currentOutputId: output.id,
-      generationPrompt: generation.prompt || generation.rawPrompt || null,
-      generationPresetId: generation.studioPresetId,
-      generationProductIds: generation.product_ids ?? [],
-      generationPersonaIds: generation.persona_ids ?? [],
-      outputFilePath: output.filePath,
-      outputMediaUrl: output.mediaUrl,
-    },
-  }), [generation.id, generation.persona_ids, generation.product_ids, generation.prompt, generation.rawPrompt, generation.studioPresetId, output.filePath, output.id, output.mediaUrl]);
 
   const handleMediaClick = (mediaUrl: string) => {
     const targetUrl = (() => {
