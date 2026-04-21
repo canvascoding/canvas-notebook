@@ -531,6 +531,21 @@ class LivePiRuntime {
 
   startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
     const sanitized = sanitizeUserMessage(message);
+    
+    // Log message structure for debugging
+    console.log('[LiveRuntime] startPrompt called:', {
+      role: sanitized.role,
+      contentType: Array.isArray(sanitized.content) ? 'array' : typeof sanitized.content,
+      contentLength: Array.isArray(sanitized.content) ? sanitized.content.length : sanitized.content.length,
+      contentTypes: Array.isArray(sanitized.content) 
+        ? sanitized.content.map((c: { type: string }) => c.type) 
+        : 'string',
+      hasImage: Array.isArray(sanitized.content) 
+        ? sanitized.content.some((c: { type: string }) => c.type === 'image')
+        : false,
+      timestamp: sanitized.timestamp,
+    });
+    
     this.touch();
     this.abortRequested = false;
     this.isRunning = true;
