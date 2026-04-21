@@ -26,19 +26,16 @@ const PRESET_CATEGORIES = [
   'automotive',
 ] as const;
 
-const PRESET_BLOCK_TYPES = ['lighting', 'camera', 'props', 'background', 'subject'] as const;
-const PRESET_BLOCK_ORDER = ['lighting', 'camera', 'background', 'props', 'subject'] as const;
-
-type PresetCategory = typeof PRESET_CATEGORIES[number];
-type PresetBlockType = typeof PRESET_BLOCK_TYPES[number];
+export type PresetCategory = typeof PRESET_CATEGORIES[number];
 
 export interface StudioPresetBlockDefinition {
   id: string;
-  type: PresetBlockType;
+  type: string;
   label: string;
   promptFragment: string;
   category: string;
   description: string;
+  icon: string;
 }
 
 export interface StudioPresetBlockInput {
@@ -86,9 +83,10 @@ interface GeneratePresetPreviewInput {
   provider?: string;
   model?: string;
   aspectRatio?: string;
+  enabled?: boolean;
 }
 
-const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
+export const BLOCK_CATALOG: Record<string, StudioPresetBlockDefinition[]> = {
   lighting: [
     {
       id: 'lighting-softbox-clean',
@@ -97,6 +95,7 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'softbox key light with clean commercial highlights',
       category: 'commercial',
       description: 'Even studio light with soft reflections for polished product shots.',
+      icon: 'Lamp',
     },
     {
       id: 'lighting-golden-hour',
@@ -105,6 +104,7 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'warm golden-hour light with long soft shadows',
       category: 'editorial',
       description: 'Warm directional light for lifestyle and fashion scenes.',
+      icon: 'Lamp',
     },
     {
       id: 'lighting-neon-contrast',
@@ -113,6 +113,16 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'high-contrast neon rim light with cinematic glow',
       category: 'cinematic',
       description: 'Moody colored light for tech and nightlife aesthetics.',
+      icon: 'Lamp',
+    },
+    {
+      id: 'lighting-spot-focused',
+      type: 'lighting',
+      label: 'Focused Spot',
+      promptFragment: 'focused warm spotlight with dramatic falloff',
+      category: 'cinematic',
+      description: 'Dramatic spotlight for moody scenes.',
+      icon: 'Lamp',
     },
   ],
   camera: [
@@ -123,6 +133,7 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'macro lens close-up with crisp texture detail',
       category: 'detail',
       description: 'Tight framing that emphasizes texture and material quality.',
+      icon: 'Crosshair',
     },
     {
       id: 'camera-editorial-three-quarter',
@@ -131,6 +142,7 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'editorial three-quarter camera angle with natural perspective',
       category: 'editorial',
       description: 'Balanced hero angle for products, portraits, and interiors.',
+      icon: 'Crosshair',
     },
     {
       id: 'camera-top-down',
@@ -139,6 +151,74 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'top-down flat-lay composition with symmetrical framing',
       category: 'layout',
       description: 'Flat-lay perspective for food, beauty, and tabletop scenes.',
+      icon: 'Crosshair',
+    },
+    {
+      id: 'camera-low-angle',
+      type: 'camera',
+      label: 'Low Angle',
+      promptFragment: 'dramatic low angle looking upward with bold perspective',
+      category: 'dramatic',
+      description: 'Majestic low angle for heroic compositions.',
+      icon: 'Crosshair',
+    },
+  ],
+  surfaces: [
+    {
+      id: 'surface-marble',
+      type: 'surfaces',
+      label: 'Marble',
+      promptFragment: 'polished marble surface with soft reflections',
+      category: 'premium',
+      description: 'Elegant marble for luxury product setups.',
+      icon: 'Square',
+    },
+    {
+      id: 'surface-concrete',
+      type: 'surfaces',
+      label: 'Concrete',
+      promptFragment: 'rough concrete texture with subtle patina',
+      category: 'industrial',
+      description: 'Raw concrete surface with industrial character.',
+      icon: 'Square',
+    },
+    {
+      id: 'surface-linen',
+      type: 'surfaces',
+      label: 'Linen',
+      promptFragment: 'natural linen fabric texture with soft folds',
+      category: 'organic',
+      description: 'Warm linen textile for lifestyle and organic scenes.',
+      icon: 'Square',
+    },
+  ],
+  filmTypes: [
+    {
+      id: 'film-35mm',
+      type: 'filmTypes',
+      label: '35mm Film',
+      promptFragment: '35mm Kodak film emulation with subtle grain',
+      category: 'analog',
+      description: 'Classic film grain for nostalgic warmth.',
+      icon: 'Clapperboard',
+    },
+    {
+      id: 'film-instant',
+      type: 'filmTypes',
+      label: 'Instant Film',
+      promptFragment: 'polaroid instant film look with rich contrast',
+      category: 'analog',
+      description: 'Instant film aesthetic with bold colors.',
+      icon: 'Clapperboard',
+    },
+    {
+      id: 'film-cinematic',
+      type: 'filmTypes',
+      label: 'Cinematic',
+      promptFragment: 'cinematic color grading with teal-orange contrast',
+      category: 'digital',
+      description: 'Modern cinematic grade with dramatic color separation.',
+      icon: 'Clapperboard',
     },
   ],
   props: [
@@ -149,6 +229,7 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'minimal styling props with subtle premium accents',
       category: 'minimal',
       description: 'A restrained prop setup that supports the subject without clutter.',
+      icon: 'Flower2',
     },
     {
       id: 'props-organic-texture',
@@ -157,6 +238,7 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'organic textural props like linen, stone, and ceramic',
       category: 'organic',
       description: 'Natural supporting materials for lifestyle and interior moods.',
+      icon: 'Flower2',
     },
     {
       id: 'props-tech-precision',
@@ -165,61 +247,486 @@ const BLOCK_CATALOG: Record<PresetBlockType, StudioPresetBlockDefinition[]> = {
       promptFragment: 'precision-engineered props with metallic and glass accents',
       category: 'tech',
       description: 'Structured prop styling for devices and futuristic products.',
+      icon: 'Flower2',
     },
   ],
-  background: [
+  cameraAngles: [
+    {
+      id: 'angle-front',
+      type: 'cameraAngles',
+      label: 'Front View',
+      promptFragment: 'straight-on front view with centered symmetry',
+      category: 'product',
+      description: 'Clean frontal perspective for catalog imagery.',
+      icon: 'Crosshair',
+    },
+    {
+      id: 'angle-profile',
+      type: 'cameraAngles',
+      label: 'Profile',
+      promptFragment: 'clean side profile with silhouette clarity',
+      category: 'editorial',
+      description: 'Side angle for elegant product and model shots.',
+      icon: 'Crosshair',
+    },
+    {
+      id: 'angle-overhead',
+      type: 'cameraAngles',
+      label: 'Overhead',
+      promptFragment: 'elevated overhead angle with depth perspective',
+      category: 'layout',
+      description: 'Elevated view for food and lifestyle flatlays.',
+      icon: 'Crosshair',
+    },
+  ],
+  weather: [
+    {
+      id: 'weather-misty',
+      type: 'weather',
+      label: 'Misty Atmosphere',
+      promptFragment: 'misty overcast atmosphere with soft diffused light',
+      category: 'mood',
+      description: 'Ethereal mist for dreamy landscapes and interiors.',
+      icon: 'Cloud',
+    },
+    {
+      id: 'weather-golden-sun',
+      type: 'weather',
+      label: 'Golden Sun',
+      promptFragment: 'golden coastal sun with gentle lens glow',
+      category: 'lifestyle',
+      description: 'Warm golden sunlight for aspirational scenes.',
+      icon: 'Cloud',
+    },
+    {
+      id: 'weather-stormy',
+      type: 'weather',
+      label: 'Stormy',
+      promptFragment: 'dramatic stormy clouds with moody lighting',
+      category: 'cinematic',
+      description: 'Dark storm atmosphere for dramatic compositions.',
+      icon: 'Cloud',
+    },
+  ],
+  characters: [
+    {
+      id: 'char-professional',
+      type: 'characters',
+      label: 'Professional',
+      promptFragment: 'young professional in modern business casual',
+      category: 'corporate',
+      description: 'Modern business look for corporate imagery.',
+      icon: 'Users',
+    },
+    {
+      id: 'char-casual',
+      type: 'characters',
+      label: 'Casual',
+      promptFragment: 'relaxed casual styling with authentic expression',
+      category: 'lifestyle',
+      description: 'Natural casual style for authentic lifestyle shots.',
+      icon: 'Users',
+    },
+    {
+      id: 'char-luxury',
+      type: 'characters',
+      label: 'Luxury',
+      promptFragment: 'high-fashion editorial model with confident posture',
+      category: 'fashion',
+      description: 'Fashion-forward styling for luxury campaigns.',
+      icon: 'Users',
+    },
+  ],
+  backgrounds: [
     {
       id: 'background-seamless-white',
-      type: 'background',
+      type: 'backgrounds',
       label: 'Seamless White',
       promptFragment: 'seamless white studio backdrop',
       category: 'studio',
       description: 'Clean isolated backdrop for catalog and ecommerce imagery.',
+      icon: 'Image',
     },
     {
       id: 'background-muted-gradient',
-      type: 'background',
+      type: 'backgrounds',
       label: 'Muted Gradient',
       promptFragment: 'muted tonal gradient background with depth',
       category: 'studio',
       description: 'Subtle color transitions that feel elevated without distraction.',
+      icon: 'Image',
     },
     {
       id: 'background-architectural',
-      type: 'background',
+      type: 'backgrounds',
       label: 'Architectural Space',
       promptFragment: 'architectural interior background with modern lines',
       category: 'environment',
       description: 'Structured background for interior, automotive, and lifestyle setups.',
+      icon: 'Image',
+    },
+    {
+      id: 'background-gradient-shift',
+      type: 'backgrounds',
+      label: 'Color Shift',
+      promptFragment: 'seamless gradient backdrop with subtle color shift',
+      category: 'studio',
+      description: 'Smooth color transition for modern product visuals.',
+      icon: 'Image',
     },
   ],
-  subject: [
+  lenses: [
     {
-      id: 'subject-hero-product',
-      type: 'subject',
-      label: 'Hero Product',
-      promptFragment: 'hero product centered as the clear visual focus',
-      category: 'product',
-      description: 'Puts the product in primary focus for commercial hero renders.',
+      id: 'lens-shallow-dof',
+      type: 'lenses',
+      label: 'Shallow DOF',
+      promptFragment: 'shallow depth of field with creamy bokeh',
+      category: 'portrait',
+      description: 'Dreamy blur for isolating subjects.',
+      icon: 'Aperture',
     },
     {
-      id: 'subject-editorial-model',
-      type: 'subject',
-      label: 'Editorial Model',
-      promptFragment: 'editorial model pose with confident natural posture',
-      category: 'fashion',
-      description: 'Human-centered composition for fashion and beauty imagery.',
+      id: 'lens-wide',
+      type: 'lenses',
+      label: 'Wide Angle',
+      promptFragment: 'wide angle lens with environmental context',
+      category: 'environment',
+      description: 'Expansive wide view for landscapes and interiors.',
+      icon: 'Aperture',
     },
     {
-      id: 'subject-styled-scene',
-      type: 'subject',
-      label: 'Styled Scene',
-      promptFragment: 'styled scene composition with a cohesive narrative focal point',
+      id: 'lens-telephoto',
+      type: 'lenses',
+      label: 'Telephoto',
+      promptFragment: 'telephoto compression with sharp subject isolation',
+      category: 'detail',
+      description: 'Compressed perspective for focused detail shots.',
+      icon: 'Aperture',
+    },
+  ],
+  actions: [
+    {
+      id: 'action-dynamic',
+      type: 'actions',
+      label: 'Dynamic Motion',
+      promptFragment: 'dynamic action pose with natural motion blur',
+      category: 'energy',
+      description: 'Sense of movement and energy.',
+      icon: 'Sparkles',
+    },
+    {
+      id: 'action-static',
+      type: 'actions',
+      label: 'Static Calm',
+      promptFragment: 'still composition with meditative calmness',
+      category: 'calm',
+      description: 'Peaceful stillness for product and interior shots.',
+      icon: 'Sparkles',
+    },
+    {
+      id: 'action-interaction',
+      type: 'actions',
+      label: 'Hand Interaction',
+      promptFragment: 'human hands interacting with the subject naturally',
       category: 'lifestyle',
-      description: 'Narrative scene framing for interior and lifestyle presets.',
+      description: 'Authentic hand placement for lifestyle context.',
+      icon: 'Sparkles',
+    },
+  ],
+  colorPalettes: [
+    {
+      id: 'color-earth',
+      type: 'colorPalettes',
+      label: 'Earth Tones',
+      promptFragment: 'muted earth-tone color palette with warm contrast',
+      category: 'warm',
+      description: 'Natural browns, tans, and ochres.',
+      icon: 'Palette',
+    },
+    {
+      id: 'color-pastel',
+      type: 'colorPalettes',
+      label: 'Pastel Soft',
+      promptFragment: 'soft pastel color palette with gentle tonal harmony',
+      category: 'soft',
+      description: 'Delicate pastel hues for airy aesthetics.',
+      icon: 'Palette',
+    },
+    {
+      id: 'color-monochrome',
+      type: 'colorPalettes',
+      label: 'Monochrome',
+      promptFragment: 'monochrome grayscale palette with tonal depth',
+      category: 'minimal',
+      description: 'Black and white with rich tonal gradation.',
+      icon: 'Palette',
+    },
+    {
+      id: 'color-vibrant',
+      type: 'colorPalettes',
+      label: 'Vibrant Pop',
+      promptFragment: 'vibrant saturated colors with high contrast',
+      category: 'bold',
+      description: 'Bold saturated colors for eye-catching visuals.',
+      icon: 'Palette',
+    },
+  ],
+  composition: [
+    {
+      id: 'composition-rule-thirds',
+      type: 'composition',
+      label: 'Rule of Thirds',
+      promptFragment: 'rule of thirds composition with balanced subject placement',
+      category: 'classic',
+      description: 'Classic balanced framing.',
+      icon: 'Layout',
+    },
+    {
+      id: 'composition-center',
+      type: 'composition',
+      label: 'Centered Hero',
+      promptFragment: 'centered subject with breathing space around',
+      category: 'bold',
+      description: 'Bold center-focused composition.',
+      icon: 'Layout',
+    },
+    {
+      id: 'composition-leading',
+      type: 'composition',
+      label: 'Leading Lines',
+      promptFragment: 'composition with strong leading lines directing to subject',
+      category: 'dynamic',
+      description: 'Lines guide the eye to the focal point.',
+      icon: 'Layout',
+    },
+  ],
+  feeling: [
+    {
+      id: 'feeling-serene',
+      type: 'feeling',
+      label: 'Serene',
+      promptFragment: 'serene and contemplative atmosphere',
+      category: 'calm',
+      description: 'Peaceful, quiet mood.',
+      icon: 'Heart',
+    },
+    {
+      id: 'feeling-bold',
+      type: 'feeling',
+      label: 'Bold',
+      promptFragment: 'bold and confident energy with striking presence',
+      category: 'power',
+      description: 'Strong, commanding presence.',
+      icon: 'Heart',
+    },
+    {
+      id: 'feeling-playful',
+      type: 'feeling',
+      label: 'Playful',
+      promptFragment: 'light playful mood with approachable warmth',
+      category: 'fun',
+      description: 'Fun, approachable energy.',
+      icon: 'Heart',
+    },
+  ],
+  historicalPeriods: [
+    {
+      id: 'hist-midcentury',
+      type: 'historicalPeriods',
+      label: 'Mid-Century',
+      promptFragment: 'mid-century modern 1950s aesthetic with clean lines',
+      category: 'retro',
+      description: 'Classic 1950s modernist style.',
+      icon: 'Clock',
+    },
+    {
+      id: 'hist-80s',
+      type: 'historicalPeriods',
+      label: '80s Retro',
+      promptFragment: '1980s retro aesthetic with bold neon and chrome',
+      category: 'retro',
+      description: 'Bold 80s style with neon accents.',
+      icon: 'Clock',
+    },
+    {
+      id: 'hist-victorian',
+      type: 'historicalPeriods',
+      label: 'Victorian',
+      promptFragment: 'Victorian era aesthetic with ornate details and rich textures',
+      category: 'classic',
+      description: 'Ornate Victorian styling.',
+      icon: 'Clock',
+    },
+  ],
+  location: [
+    {
+      id: 'location-beach',
+      type: 'location',
+      label: 'Beach',
+      promptFragment: 'tropical beach setting with golden sunlight',
+      category: 'outdoor',
+      description: 'Sunny coastal vibes.',
+      icon: 'MapPin',
+    },
+    {
+      id: 'location-urban',
+      type: 'location',
+      label: 'Urban',
+      promptFragment: 'modern urban environment with architectural lines',
+      category: 'city',
+      description: 'Clean city aesthetic.',
+      icon: 'MapPin',
+    },
+    {
+      id: 'location-nature',
+      type: 'location',
+      label: 'Nature',
+      promptFragment: 'lush natural environment with organic textures',
+      category: 'outdoor',
+      description: 'Organic natural setting.',
+      icon: 'MapPin',
+    },
+  ],
+  styles: [
+    {
+      id: 'style-minimal',
+      type: 'styles',
+      label: 'Minimalist',
+      promptFragment: 'minimalist Scandinavian design style with clean lines',
+      category: 'modern',
+      description: 'Clean, minimal aesthetic.',
+      icon: 'Wand2',
+    },
+    {
+      id: 'style-cyberpunk',
+      type: 'styles',
+      label: 'Cyberpunk',
+      promptFragment: 'cyberpunk futuristic style with neon and high contrast',
+      category: 'futuristic',
+      description: 'Futuristic cyber aesthetic.',
+      icon: 'Wand2',
+    },
+    {
+      id: 'style-organic',
+      type: 'styles',
+      label: 'Organic Modern',
+      promptFragment: 'organic modern style with natural materials and soft forms',
+      category: 'warm',
+      description: 'Warm natural modernism.',
+      icon: 'Wand2',
+    },
+  ],
+  textures: [
+    {
+      id: 'texture-rough',
+      type: 'textures',
+      label: 'Rough',
+      promptFragment: 'rough tactile texture with visible grain',
+      category: 'organic',
+      description: 'Raw, unpolished surface quality.',
+      icon: 'Waves',
+    },
+    {
+      id: 'texture-smooth',
+      type: 'textures',
+      label: 'Smooth',
+      promptFragment: 'smooth polished surface with mirror-like reflections',
+      category: 'premium',
+      description: 'Glossy, refined finish.',
+      icon: 'Waves',
+    },
+    {
+      id: 'texture-patterned',
+      type: 'textures',
+      label: 'Patterned',
+      promptFragment: 'intricate patterned texture with repeating motifs',
+      category: 'decorative',
+      description: 'Detailed pattern for visual interest.',
+      icon: 'Waves',
+    },
+  ],
+  positions: [
+    {
+      id: 'position-center',
+      type: 'positions',
+      label: 'Center',
+      promptFragment: 'subject centered with balanced negative space',
+      category: 'classic',
+      description: 'Classic centered placement.',
+      icon: 'Move',
+    },
+    {
+      id: 'position-offset',
+      type: 'positions',
+      label: 'Offset',
+      promptFragment: 'subject placed off-center with asymmetric balance',
+      category: 'dynamic',
+      description: 'Asymmetric off-center composition.',
+      icon: 'Move',
+    },
+    {
+      id: 'position-layered',
+      type: 'positions',
+      label: 'Layered Depth',
+      promptFragment: 'layered depth with foreground, midground, and background elements',
+      category: 'complex',
+      description: 'Multi-layered scene depth.',
+      icon: 'Move',
+    },
+  ],
+  visualEffects: [
+    {
+      id: 'effect-god-rays',
+      type: 'visualEffects',
+      label: 'God Rays',
+      promptFragment: 'soft volumetric god rays from above',
+      category: 'atmospheric',
+      description: 'Dramatic light beams cutting through atmosphere.',
+      icon: 'Sparkle',
+    },
+    {
+      id: 'effect-bokeh',
+      type: 'visualEffects',
+      label: 'Bokeh Overlay',
+      promptFragment: 'soft bokeh light overlay in out-of-focus areas',
+      category: 'atmospheric',
+      description: 'Dreamy blurred light spots.',
+      icon: 'Sparkle',
+    },
+    {
+      id: 'effect-lens-flare',
+      type: 'visualEffects',
+      label: 'Lens Flare',
+      promptFragment: 'subtle lens flare with warm color fringing',
+      category: 'cinematic',
+      description: 'Cinematic lens light artifacts.',
+      icon: 'Sparkle',
     },
   ],
 };
+
+export const PRESET_BLOCK_ORDER = [
+  'lighting',
+  'camera',
+  'lenses',
+  'cameraAngles',
+  'surfaces',
+  'props',
+  'backgrounds',
+  'characters',
+  'actions',
+  'positions',
+  'composition',
+  'colorPalettes',
+  'textures',
+  'styles',
+  'feeling',
+  'visualEffects',
+  'filmTypes',
+  'weather',
+  'location',
+  'historicalPeriods',
+];
 
 function normalizeOptionalText(value: string | null | undefined): string | null | undefined {
   if (value === undefined) return undefined;
@@ -281,15 +788,7 @@ function normalizeBlocks(blocks: StudioPresetBlockInput[]): StudioPresetBlockInp
     const label = typeof block.label === 'string' ? block.label.trim() : '';
     const promptFragment = typeof block.promptFragment === 'string' ? block.promptFragment.trim() : '';
 
-    if (!PRESET_BLOCK_TYPES.includes(type as PresetBlockType)) {
-      throw new StudioServiceError(
-        `Unsupported preset block type: ${block.type}`,
-        `Ungültiger Block-Typ. Erlaubt sind: ${PRESET_BLOCK_TYPES.join(', ')}`,
-        'INVALID_BLOCKS',
-      );
-    }
-
-    if (!label || !promptFragment) {
+    if (!type || !label || !promptFragment) {
       throw new StudioServiceError(
         'Preset block is missing required fields',
         `Block ${index + 1} braucht Label und Prompt-Fragment.`,
@@ -370,8 +869,8 @@ function ensurePresetOwnership(preset: StudioPresetRecord, userId: string): void
 
 function composePresetPrompt(blocks: StudioPresetBlockInput[]): string {
   const ordered = [...blocks].sort((a, b) => {
-    const indexA = PRESET_BLOCK_ORDER.indexOf(a.type as typeof PRESET_BLOCK_ORDER[number]);
-    const indexB = PRESET_BLOCK_ORDER.indexOf(b.type as typeof PRESET_BLOCK_ORDER[number]);
+    const indexA = PRESET_BLOCK_ORDER.indexOf(a.type);
+    const indexB = PRESET_BLOCK_ORDER.indexOf(b.type);
     return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
   });
 
@@ -392,13 +891,24 @@ export function getStudioPresetCategories(): readonly string[] {
 }
 
 export function getStudioPresetBlockCatalog() {
-  return {
-    blockTypes: PRESET_BLOCK_TYPES.map((type) => ({
-      type,
-      label: type.charAt(0).toUpperCase() + type.slice(1),
-      blocks: BLOCK_CATALOG[type],
+  const blockTypes = Object.entries(BLOCK_CATALOG).map(([type, blocks]) => ({
+    type,
+    label: type.charAt(0).toUpperCase() + type.slice(1),
+    blocks: blocks.map((b) => ({
+      id: b.id,
+      type: b.type,
+      label: b.label,
+      promptFragment: b.promptFragment,
+      category: b.category,
+      description: b.description,
+      icon: b.icon,
     })),
+  }));
+
+  return {
+    blockTypes,
     categories: PRESET_CATEGORIES,
+    blockOrder: PRESET_BLOCK_ORDER,
   };
 }
 
@@ -536,10 +1046,10 @@ export async function generatePresetPreview(
     );
   }
 
-  const model = input.model?.trim() || provider.models[0]?.id;
-  if (!model || !provider.models.some((entry) => entry.id === model)) {
+  const model = input.model?.trim() || 'gemini-2.5-flash-image';
+  if (!provider.models.some((entry) => entry.id === model)) {
     throw new StudioServiceError(
-      `Unsupported preview model: ${input.model}`,
+      `Unsupported preview model: ${model}`,
       `Ungültiges Modell für ${provider.name}.`,
       'INVALID_MODEL',
     );

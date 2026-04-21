@@ -17,11 +17,9 @@ type StudioPresetCategory =
   | 'interior'
   | 'automotive';
 
-type StudioPresetBlockType = 'lighting' | 'camera' | 'props' | 'background' | 'subject';
-
 interface StudioPresetSeedBlock {
   id: string;
-  type: StudioPresetBlockType;
+  type: string;
   label: string;
   promptFragment: string;
   category: string;
@@ -57,7 +55,7 @@ const REMOVED_DEFAULT_STUDIO_PRESET_IDS = [
 
 function block(
   id: string,
-  type: StudioPresetBlockType,
+  type: string,
   label: string,
   promptFragment: string,
   category: string,
@@ -70,15 +68,16 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
   {
     id: 'studio-fashion-editorial-softbox',
     name: 'Editorial Softbox Portrait',
-    description: 'Polished fashion portrait lighting with a clean editorial studio finish.',
+    description: 'Polished fashion portrait with softbox lighting and confident energy.',
     category: 'fashion',
     tags: ['fashion', 'portrait', 'editorial', 'soft light'],
     blocks: [
       block('fashion-softbox-light', 'lighting', 'Softbox Bloom', 'softbox portrait light with luminous skin highlights', 'editorial'),
-      block('fashion-three-quarter-cam', 'camera', 'Editorial 3/4', 'editorial three-quarter portrait framing with refined posture', 'editorial'),
-      block('fashion-minimal-props', 'props', 'Minimal Styling', 'minimal styling props and subtle fabric texture', 'minimal'),
-      block('fashion-seamless-bg', 'background', 'Seamless Blush', 'seamless blush studio backdrop with premium tonal falloff', 'studio'),
-      block('fashion-model-subject', 'subject', 'Confident Model', 'confident fashion model as the central subject', 'fashion'),
+      block('fashion-editorial-angle', 'cameraAngles', 'Editorial 3/4', 'editorial three-quarter portrait framing with refined posture', 'editorial'),
+      block('fashion-shallow-dof', 'lenses', 'Shallow DOF', 'shallow depth of field with creamy bokeh', 'portrait'),
+      block('fashion-minimal-style', 'styles', 'Minimalist', 'minimalist Scandinavian design style with clean lines', 'modern'),
+      block('fashion-pastel-palette', 'colorPalettes', 'Pastel Soft', 'soft pastel color palette with gentle tonal harmony', 'soft'),
+      block('fashion-serene-mood', 'feeling', 'Serene', 'serene and contemplative atmosphere', 'calm'),
     ],
     preview: {
       backgroundFrom: '#F7D9DD',
@@ -91,15 +90,16 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
   {
     id: 'studio-fashion-runway-neon',
     name: 'Runway Neon Motion',
-    description: 'Bold runway-inspired fashion preset with colored edge lighting and motion energy.',
+    description: 'Bold runway fashion with neon rim light and cinematic energy.',
     category: 'fashion',
     tags: ['fashion', 'runway', 'neon', 'bold'],
     blocks: [
-      block('fashion-neon-light', 'lighting', 'Neon Rim', 'electric neon rim light with cyan and magenta contrast', 'cinematic'),
-      block('fashion-wide-cam', 'camera', 'Dynamic Angle', 'dynamic low camera angle with editorial motion feel', 'editorial'),
-      block('fashion-reflective-props', 'props', 'Reflective Accent', 'reflective acrylic props and glossy surfaces', 'tech'),
-      block('fashion-dark-bg', 'background', 'Smoked Gradient', 'smoked gradient background with nightlife atmosphere', 'studio'),
-      block('fashion-runway-subject', 'subject', 'Runway Hero', 'runway hero pose with deliberate movement', 'fashion'),
+      block('fashion-neon-rim', 'lighting', 'Neon Rim', 'high-contrast neon rim light with cinematic glow', 'cinematic'),
+      block('fashion-low-angle', 'cameraAngles', 'Low Angle', 'dramatic low angle looking upward with bold perspective', 'dramatic'),
+      block('fashion-cyber-style', 'styles', 'Cyberpunk', 'cyberpunk futuristic style with neon and high contrast', 'futuristic'),
+      block('fashion-vibrant-palette', 'colorPalettes', 'Vibrant Pop', 'vibrant saturated colors with high contrast', 'bold'),
+      block('fashion-bold-mood', 'feeling', 'Bold', 'bold and confident energy with striking presence', 'power'),
+      block('fashion-god-rays', 'visualEffects', 'God Rays', 'soft volumetric god rays from above', 'atmospheric'),
     ],
     preview: {
       backgroundFrom: '#201833',
@@ -116,11 +116,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'product',
     tags: ['product', 'ecommerce', 'clean', 'catalog'],
     blocks: [
-      block('product-clean-light', 'lighting', 'Commercial Softbox', 'clean commercial softbox lighting with crisp edge separation', 'commercial'),
-      block('product-close-cam', 'camera', 'Hero Close-Up', 'hero close-up angle with crisp product detail', 'detail'),
-      block('product-minimal-props', 'props', 'Minimal Props', 'minimal premium styling props with no clutter', 'minimal'),
-      block('product-white-bg', 'background', 'White Cyclorama', 'seamless white cyclorama background', 'studio'),
-      block('product-hero-subject', 'subject', 'Hero Product', 'hero product centered with a premium retail finish', 'product'),
+      block('product-clean-light', 'lighting', 'Commercial Softbox', 'softbox key light with clean commercial highlights', 'commercial'),
+      block('product-front-view', 'cameraAngles', 'Front View', 'straight-on front view with centered symmetry', 'product'),
+      block('product-marble-surface', 'surfaces', 'Marble', 'polished marble surface with soft reflections', 'premium'),
+      block('product-seamless-bg', 'backgrounds', 'Seamless White', 'seamless white studio backdrop', 'studio'),
+      block('product-minimal-style', 'styles', 'Minimalist', 'minimalist Scandinavian design style with clean lines', 'modern'),
+      block('product-static-calm', 'actions', 'Static Calm', 'still composition with meditative calmness', 'calm'),
     ],
     preview: {
       backgroundFrom: '#F5F5F2',
@@ -137,11 +138,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'product',
     tags: ['product', 'organic', 'tabletop', 'crafted'],
     blocks: [
-      block('product-warm-light', 'lighting', 'Warm Window Light', 'warm window light with natural soft shadows', 'lifestyle'),
-      block('product-tabletop-cam', 'camera', 'Tabletop Perspective', 'tabletop three-quarter angle with artisanal detail', 'detail'),
-      block('product-stone-props', 'props', 'Stone + Linen', 'stone, linen, and ceramic props for tactile depth', 'organic'),
-      block('product-earth-bg', 'background', 'Earth Gradient', 'earth-toned gradient background with soft texture', 'environment'),
-      block('product-crafted-subject', 'subject', 'Crafted Hero', 'crafted product centerpiece with lifestyle appeal', 'product'),
+      block('product-warm-light', 'lighting', 'Warm Window Light', 'warm golden-hour light with long soft shadows', 'editorial'),
+      block('product-tabletop-angle', 'cameraAngles', 'Overhead', 'elevated overhead angle with depth perspective', 'layout'),
+      block('product-linen-surface', 'surfaces', 'Linen', 'natural linen fabric texture with soft folds', 'organic'),
+      block('product-earth-gradient', 'backgrounds', 'Muted Gradient', 'muted tonal gradient background with depth', 'studio'),
+      block('product-organic-style', 'styles', 'Organic Modern', 'organic modern style with natural materials and soft forms', 'warm'),
+      block('product-earth-palette', 'colorPalettes', 'Earth Tones', 'muted earth-tone color palette with warm contrast', 'warm'),
     ],
     preview: {
       backgroundFrom: '#D9C3AA',
@@ -158,11 +160,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'food',
     tags: ['food', 'flatlay', 'bright', 'editorial'],
     blocks: [
-      block('food-daylight-light', 'lighting', 'Fresh Daylight', 'bright diffused daylight with appetizing highlights', 'food'),
-      block('food-topdown-cam', 'camera', 'Flatlay', 'top-down flatlay composition with clean spacing', 'layout'),
-      block('food-cutlery-props', 'props', 'Menu Styling', 'cutlery, napkin, and garnish props arranged neatly', 'food'),
-      block('food-light-bg', 'background', 'Paper Surface', 'matte paper backdrop with subtle texture', 'food'),
-      block('food-plated-subject', 'subject', 'Plated Dish', 'beautifully plated dish as the central focal point', 'food'),
+      block('food-daylight', 'lighting', 'Golden Sun', 'golden coastal sun with gentle lens glow', 'lifestyle'),
+      block('food-topdown', 'cameraAngles', 'Top Down', 'top-down flat-lay composition with symmetrical framing', 'layout'),
+      block('food-linen-surface', 'surfaces', 'Linen', 'natural linen fabric texture with soft folds', 'organic'),
+      block('food-pastel-bg', 'backgrounds', 'Color Shift', 'seamless gradient backdrop with subtle color shift', 'studio'),
+      block('food-pastel-palette', 'colorPalettes', 'Pastel Soft', 'soft pastel color palette with gentle tonal harmony', 'soft'),
+      block('food-playful-mood', 'feeling', 'Playful', 'light playful mood with approachable warmth', 'fun'),
     ],
     preview: {
       backgroundFrom: '#FFF0B8',
@@ -180,10 +183,11 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     tags: ['food', 'moody', 'bistro', 'chef'],
     blocks: [
       block('food-spot-light', 'lighting', 'Focused Spot', 'focused warm spotlight with dramatic falloff', 'cinematic'),
-      block('food-close-cam', 'camera', 'Close Plate Detail', 'close plate detail angle with shallow depth of field', 'detail'),
-      block('food-rustic-props', 'props', 'Rustic Table', 'rustic cutlery and textured tabletop props', 'food'),
-      block('food-dark-bg', 'background', 'Dark Bistro', 'dark bistro background with low-key ambience', 'environment'),
-      block('food-chef-subject', 'subject', 'Chef Plate', 'chef plated dish with elevated garnish and texture', 'food'),
+      block('food-close-macro', 'cameraAngles', 'Close Macro', 'macro lens close-up with crisp texture detail', 'detail'),
+      block('food-concrete-surface', 'surfaces', 'Concrete', 'rough concrete texture with subtle patina', 'industrial'),
+      block('food-dark-bistro-bg', 'backgrounds', 'Architectural Space', 'architectural interior background with modern lines', 'environment'),
+      block('food-monochrome-palette', 'colorPalettes', 'Monochrome', 'monochrome grayscale palette with tonal depth', 'minimal'),
+      block('food-serene-mood', 'feeling', 'Serene', 'serene and contemplative atmosphere', 'calm'),
     ],
     preview: {
       backgroundFrom: '#34261F',
@@ -200,11 +204,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'lifestyle',
     tags: ['lifestyle', 'home', 'sunlit', 'natural'],
     blocks: [
-      block('life-window-light', 'lighting', 'Morning Window', 'soft morning window light with airy highlights', 'lifestyle'),
-      block('life-natural-cam', 'camera', 'Natural Perspective', 'natural eye-level framing with lived-in authenticity', 'lifestyle'),
-      block('life-home-props', 'props', 'Everyday Props', 'everyday home props styled with restraint', 'lifestyle'),
-      block('life-home-bg', 'background', 'Warm Interior', 'warm interior background with calm architectural lines', 'environment'),
-      block('life-story-subject', 'subject', 'Story Moment', 'lifestyle story moment with a relaxed human touch', 'lifestyle'),
+      block('life-daylight', 'lighting', 'Golden Sun', 'golden coastal sun with gentle lens glow', 'lifestyle'),
+      block('life-natural-angle', 'cameraAngles', 'Front View', 'straight-on front view with centered symmetry', 'product'),
+      block('life-linen-surface', 'surfaces', 'Linen', 'natural linen fabric texture with soft folds', 'organic'),
+      block('life-warm-interior', 'backgrounds', 'Architectural Space', 'architectural interior background with modern lines', 'environment'),
+      block('life-earth-palette', 'colorPalettes', 'Earth Tones', 'muted earth-tone color palette with warm contrast', 'warm'),
+      block('life-casual-char', 'characters', 'Casual', 'relaxed casual styling with authentic expression', 'lifestyle'),
     ],
     preview: {
       backgroundFrom: '#E7D9C5',
@@ -221,11 +226,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'lifestyle',
     tags: ['lifestyle', 'travel', 'editorial', 'aspirational'],
     blocks: [
-      block('travel-sun-light', 'lighting', 'Coastal Sun', 'golden coastal sun with gentle lens glow', 'editorial'),
-      block('travel-wide-cam', 'camera', 'Wide Editorial', 'wide editorial composition with movement and breathing room', 'editorial'),
-      block('travel-props', 'props', 'Travel Props', 'travel props like tote, sunglasses, and textile accents', 'travel'),
-      block('travel-bg', 'background', 'Destination Layers', 'destination-inspired background with open airy depth', 'environment'),
-      block('travel-subject', 'subject', 'Aspirational Scene', 'aspirational scene with confident story focus', 'lifestyle'),
+      block('travel-golden-sun', 'lighting', 'Golden Sun', 'golden coastal sun with gentle lens glow', 'editorial'),
+      block('travel-wide-angle', 'lenses', 'Wide Angle', 'wide angle lens with environmental context', 'environment'),
+      block('travel-beach-loc', 'location', 'Beach', 'tropical beach setting with golden sunlight', 'outdoor'),
+      block('travel-airy-bg', 'backgrounds', 'Muted Gradient', 'muted tonal gradient background with depth', 'studio'),
+      block('travel-vibrant-palette', 'colorPalettes', 'Vibrant Pop', 'vibrant saturated colors with high contrast', 'bold'),
+      block('travel-playful-mood', 'feeling', 'Playful', 'light playful mood with approachable warmth', 'fun'),
     ],
     preview: {
       backgroundFrom: '#C8E4EC',
@@ -242,11 +248,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'beauty',
     tags: ['beauty', 'skincare', 'dewy', 'clean'],
     blocks: [
-      block('beauty-glow-light', 'lighting', 'Beauty Glow', 'beauty dish light with luminous skincare sheen', 'beauty'),
-      block('beauty-close-cam', 'camera', 'Close Beauty Crop', 'close beauty crop focused on skin texture and product finish', 'beauty'),
-      block('beauty-glass-props', 'props', 'Glass + Water', 'glass, water, and chrome props with clean reflections', 'beauty'),
-      block('beauty-pastel-bg', 'background', 'Mint Glow', 'pastel mint gradient background with soft diffusion', 'studio'),
-      block('beauty-subject', 'subject', 'Skincare Hero', 'skincare hero subject with radiant polished finish', 'beauty'),
+      block('beauty-dish-light', 'lighting', 'Softbox Clean', 'softbox key light with clean commercial highlights', 'commercial'),
+      block('beauty-close-macro', 'cameraAngles', 'Close Macro', 'macro lens close-up with crisp texture detail', 'detail'),
+      block('beauty-marble-surface', 'surfaces', 'Marble', 'polished marble surface with soft reflections', 'premium'),
+      block('beauty-pastel-bg', 'backgrounds', 'Color Shift', 'seamless gradient backdrop with subtle color shift', 'studio'),
+      block('beauty-pastel-palette', 'colorPalettes', 'Pastel Soft', 'soft pastel color palette with gentle tonal harmony', 'soft'),
+      block('beauty-luxury-char', 'characters', 'Luxury', 'high-fashion editorial model with confident posture', 'fashion'),
     ],
     preview: {
       backgroundFrom: '#CFEFE7',
@@ -263,11 +270,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'beauty',
     tags: ['beauty', 'luxury', 'cosmetics', 'dramatic'],
     blocks: [
-      block('beauty-dramatic-light', 'lighting', 'Gloss Drama', 'dramatic beauty light with glossy specular highlights', 'beauty'),
-      block('beauty-detail-cam', 'camera', 'Macro Detail', 'macro detail framing for luxury cosmetic texture', 'detail'),
-      block('beauty-metal-props', 'props', 'Metallic Styling', 'metallic beauty props and mirrored surfaces', 'beauty'),
-      block('beauty-burgundy-bg', 'background', 'Burgundy Fade', 'rich burgundy gradient background with luxurious depth', 'studio'),
-      block('beauty-luxury-subject', 'subject', 'Luxury Cosmetic Hero', 'luxury cosmetic hero arrangement with high polish', 'beauty'),
+      block('beauty-spot-light', 'lighting', 'Focused Spot', 'focused warm spotlight with dramatic falloff', 'cinematic'),
+      block('beauty-shallow-dof', 'lenses', 'Shallow DOF', 'shallow depth of field with creamy bokeh', 'portrait'),
+      block('beauty-smooth-surface', 'surfaces', 'Smooth', 'smooth polished surface with mirror-like reflections', 'premium'),
+      block('beauty-dark-bg', 'backgrounds', 'Architectural Space', 'architectural interior background with modern lines', 'environment'),
+      block('beauty-monochrome-palette', 'colorPalettes', 'Monochrome', 'monochrome grayscale palette with tonal depth', 'minimal'),
+      block('beauty-bold-mood', 'feeling', 'Bold', 'bold and confident energy with striking presence', 'power'),
     ],
     preview: {
       backgroundFrom: '#5E253A',
@@ -284,11 +292,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'tech',
     tags: ['tech', 'device', 'minimal', 'launch'],
     blocks: [
-      block('tech-clean-light', 'lighting', 'Precision Glow', 'precision product light with crisp chrome reflections', 'tech'),
-      block('tech-hero-cam', 'camera', 'Device Hero', 'hero device perspective with exact industrial lines', 'tech'),
-      block('tech-metal-props', 'props', 'Precision Props', 'precision-engineered metallic props and glass accents', 'tech'),
-      block('tech-charcoal-bg', 'background', 'Charcoal Gradient', 'charcoal gradient background with subtle depth', 'studio'),
-      block('tech-device-subject', 'subject', 'Launch Hero', 'sleek technology device as the unmistakable focal point', 'tech'),
+      block('tech-softbox-light', 'lighting', 'Softbox Clean', 'softbox key light with clean commercial highlights', 'commercial'),
+      block('tech-front-view', 'cameraAngles', 'Front View', 'straight-on front view with centered symmetry', 'product'),
+      block('tech-smooth-surface', 'surfaces', 'Smooth', 'smooth polished surface with mirror-like reflections', 'premium'),
+      block('tech-charcoal-bg', 'backgrounds', 'Muted Gradient', 'muted tonal gradient background with depth', 'studio'),
+      block('tech-minimal-style', 'styles', 'Minimalist', 'minimalist Scandinavian design style with clean lines', 'modern'),
+      block('tech-monochrome-palette', 'colorPalettes', 'Monochrome', 'monochrome grayscale palette with tonal depth', 'minimal'),
     ],
     preview: {
       backgroundFrom: '#D9E2EA',
@@ -305,11 +314,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'tech',
     tags: ['tech', 'futuristic', 'neon', 'performance'],
     blocks: [
-      block('tech-neon-light', 'lighting', 'Cyber Rim', 'cyan and violet cyber rim light with performance contrast', 'cinematic'),
-      block('tech-low-cam', 'camera', 'Low Hero', 'low hero camera angle with futuristic scale', 'tech'),
-      block('tech-grid-props', 'props', 'Grid Props', 'grid props, light bars, and technical surfaces', 'tech'),
-      block('tech-neon-bg', 'background', 'Circuit Haze', 'dark circuit-like background with neon haze', 'environment'),
-      block('tech-future-subject', 'subject', 'Future Machine', 'futuristic device hero with cinematic energy', 'tech'),
+      block('tech-neon-light', 'lighting', 'Neon Contrast', 'high-contrast neon rim light with cinematic glow', 'cinematic'),
+      block('tech-low-angle', 'cameraAngles', 'Low Angle', 'dramatic low angle looking upward with bold perspective', 'dramatic'),
+      block('tech-concrete-surface', 'surfaces', 'Concrete', 'rough concrete texture with subtle patina', 'industrial'),
+      block('tech-dark-circuit-bg', 'backgrounds', 'Architectural Space', 'architectural interior background with modern lines', 'environment'),
+      block('tech-cyber-style', 'styles', 'Cyberpunk', 'cyberpunk futuristic style with neon and high contrast', 'futuristic'),
+      block('tech-vibrant-palette', 'colorPalettes', 'Vibrant Pop', 'vibrant saturated colors with high contrast', 'bold'),
     ],
     preview: {
       backgroundFrom: '#0D1431',
@@ -326,11 +336,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'interior',
     tags: ['interior', 'scandinavian', 'calm', 'daylight'],
     blocks: [
-      block('interior-soft-light', 'lighting', 'Diffuse Daylight', 'diffuse daylight filling the room with calm softness', 'interior'),
-      block('interior-room-cam', 'camera', 'Wide Room', 'wide room composition with balanced symmetry', 'interior'),
-      block('interior-natural-props', 'props', 'Oak + Textile', 'oak, boucle, and ceramic styling props', 'interior'),
-      block('interior-light-bg', 'background', 'Architectural Shell', 'light architectural shell with gentle tonal layering', 'environment'),
-      block('interior-space-subject', 'subject', 'Inviting Space', 'inviting interior space as the featured subject', 'interior'),
+      block('interior-daylight', 'lighting', 'Golden Sun', 'golden coastal sun with gentle lens glow', 'interior'),
+      block('interior-wide-lens', 'lenses', 'Wide Angle', 'wide angle lens with environmental context', 'environment'),
+      block('interior-linen-surface', 'surfaces', 'Linen', 'natural linen fabric texture with soft folds', 'organic'),
+      block('interior-light-shell', 'backgrounds', 'Architectural Space', 'architectural interior background with modern lines', 'environment'),
+      block('interior-organic-style', 'styles', 'Organic Modern', 'organic modern style with natural materials and soft forms', 'warm'),
+      block('interior-earth-palette', 'colorPalettes', 'Earth Tones', 'muted earth-tone color palette with warm contrast', 'warm'),
     ],
     preview: {
       backgroundFrom: '#E9E1D7',
@@ -347,11 +358,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'interior',
     tags: ['interior', 'hospitality', 'night', 'warm'],
     blocks: [
-      block('interior-ambient-light', 'lighting', 'Ambient Glow', 'warm ambient sconces and practical light glow', 'interior'),
-      block('interior-cinematic-cam', 'camera', 'Lounge Perspective', 'cinematic room perspective with layered depth', 'interior'),
-      block('interior-lounge-props', 'props', 'Lounge Styling', 'lounge styling props with glass, velvet, and brass', 'interior'),
-      block('interior-night-bg', 'background', 'Night Lounge', 'night lounge environment with rich shadows', 'environment'),
-      block('interior-hospitality-subject', 'subject', 'Hospitality Scene', 'premium hospitality scene with atmospheric focus', 'interior'),
+      block('interior-spot-light', 'lighting', 'Focused Spot', 'focused warm spotlight with dramatic falloff', 'cinematic'),
+      block('interior-cinematic-angle', 'cameraAngles', 'Low Angle', 'dramatic low angle looking upward with bold perspective', 'dramatic'),
+      block('interior-marble-surface', 'surfaces', 'Marble', 'polished marble surface with soft reflections', 'premium'),
+      block('interior-night-bg', 'backgrounds', 'Architectural Space', 'architectural interior background with modern lines', 'environment'),
+      block('interior-monochrome-palette', 'colorPalettes', 'Monochrome', 'monochrome grayscale palette with tonal depth', 'minimal'),
+      block('interior-bold-mood', 'feeling', 'Bold', 'bold and confident energy with striking presence', 'power'),
     ],
     preview: {
       backgroundFrom: '#4C3325',
@@ -368,11 +380,12 @@ export const DEFAULT_STUDIO_PRESET_SEEDS: DefaultStudioPresetSeed[] = [
     category: 'automotive',
     tags: ['automotive', 'car', 'studio', 'performance'],
     blocks: [
-      block('auto-rim-light', 'lighting', 'Bodyline Rim', 'bodyline rim lighting tracing the car silhouette', 'automotive'),
-      block('auto-low-cam', 'camera', 'Low Stance', 'low wide automotive hero angle with dramatic stance', 'automotive'),
-      block('auto-reflective-props', 'props', 'Reflective Floor', 'reflective floor and minimal technical props', 'automotive'),
-      block('auto-dark-bg', 'background', 'Dark Studio Bay', 'dark studio bay with controlled reflections', 'studio'),
-      block('auto-car-subject', 'subject', 'Performance Vehicle', 'performance vehicle hero as the dominant focal point', 'automotive'),
+      block('auto-spot-light', 'lighting', 'Focused Spot', 'focused warm spotlight with dramatic falloff', 'cinematic'),
+      block('auto-low-angle', 'cameraAngles', 'Low Angle', 'dramatic low angle looking upward with bold perspective', 'dramatic'),
+      block('auto-smooth-surface', 'surfaces', 'Smooth', 'smooth polished surface with mirror-like reflections', 'premium'),
+      block('auto-dark-studio-bg', 'backgrounds', 'Seamless White', 'seamless white studio backdrop', 'studio'),
+      block('auto-monochrome-palette', 'colorPalettes', 'Monochrome', 'monochrome grayscale palette with tonal depth', 'minimal'),
+      block('auto-bold-mood', 'feeling', 'Bold', 'bold and confident energy with striking presence', 'power'),
     ],
     preview: {
       backgroundFrom: '#62656F',
