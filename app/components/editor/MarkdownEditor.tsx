@@ -53,7 +53,7 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       div: (props: any) => {
         const mermaidCode = extractMermaidCode(props);
-        const { node, ...restProps } = props;
+        const { ...restProps } = props;
         if (mermaidCode) {
           return <MermaidDiagram code={mermaidCode} />;
         }
@@ -61,7 +61,7 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       code: (props: any) => {
-        const { node, className, children, ...restProps } = props;
+        const { className, children, ...restProps } = props;
         const text = extractTextFromChildren(children);
         
         // Check if this inline code contains a color

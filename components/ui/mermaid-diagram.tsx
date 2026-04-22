@@ -95,7 +95,7 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
     return () => {
       cancelled = true;
     };
-  }, [code, isDark]);
+  }, [code, isDark, svgId]);
 
   useEffect(() => {
     // run exactly once

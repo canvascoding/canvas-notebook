@@ -206,6 +206,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {images.map((img: StudioProductImage | StudioPersonaImage | StudioStyleImage) => (
             <div key={img.id} className="group relative aspect-square overflow-hidden rounded-md border border-border">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={getImageUrl(img.id)} alt={img.fileName} className="h-full w-full object-cover" />
               <div className="absolute inset-0 flex items-end justify-center gap-1 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 pb-2">
                 <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => handleDeleteImage(img.id)}>

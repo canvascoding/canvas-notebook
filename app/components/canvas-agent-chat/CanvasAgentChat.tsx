@@ -50,7 +50,6 @@ import { Link } from '@/i18n/navigation';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
 import { useLocale } from 'next-intl';
-import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
 

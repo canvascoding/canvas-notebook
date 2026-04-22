@@ -31,7 +31,6 @@ interface PromptBarValue {
   personaRefs: ReferenceTag[];
   styleRefs: ReferenceTag[];
   presetRef: StudioPreset | null;
-  negativePrompt: string;
   extraReferenceUrls: StudioReferenceUrl[];
   fileRefs: ReferenceTag[];
 }
@@ -48,7 +47,6 @@ interface PromptBarProps {
   onStyleAdd: (style: StudioStyle) => void;
   onPresetSelect: (preset: StudioPreset) => void;
   onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file', id: string) => void;
-  onNegativePromptChange: (value: string) => void;
   onExtraReferenceUrlAdd: (value: string) => void;
   onExtraReferenceUrlRemove: (value: string) => void;
   onFileAdd: (paths: string[]) => void;
@@ -137,7 +135,6 @@ export function PromptBar({
   onStyleAdd,
   onPresetSelect,
   onReferenceRemove,
-  onNegativePromptChange,
   onExtraReferenceUrlAdd,
   onExtraReferenceUrlRemove,
   onFileAdd,
