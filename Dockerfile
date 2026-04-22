@@ -21,7 +21,8 @@ RUN npm install -g npm@${NPM_VERSION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+  ENV NODE_OPTIONS=--max-old-space-size=6144
+  RUN npm run build
 
 # Remove devDependencies after build to reduce size
 # BUT keep tsx for running TypeScript server files at runtime
