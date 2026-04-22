@@ -20,13 +20,103 @@ export const OPENAI_MODELS = [
 ] as const;
 
 export const VIDEO_MODELS = [
-  { id: 'veo-3.1-fast-generate-preview', optionKey: 'fast' as const },
   { id: 'veo-3.1-generate-preview', optionKey: 'highQuality' as const },
+  { id: 'veo-3.1-fast-generate-preview', optionKey: 'fast' as const },
+  { id: 'veo-3.1-lite-generate-preview', optionKey: 'lite' as const },
+  { id: 'veo-3.0-generate-001', optionKey: 'veo3' as const },
+  { id: 'veo-3.0-fast-generate-001', optionKey: 'veo3Fast' as const },
+  { id: 'veo-2.0-generate-001', optionKey: 'veo2' as const },
 ] as const;
+
+export type VideoModelId = (typeof VIDEO_MODELS)[number]['id'];
+
+export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16'] as const;
+export const VIDEO_RESOLUTIONS = ['720p', '1080p', '4k'] as const;
+export const VIDEO_DURATIONS = [4, 5, 6, 8] as const;
+export type VideoDuration = (typeof VIDEO_DURATIONS)[number];
+export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
+
+export interface VideoModelCapabilities {
+  extension: boolean;
+  references: boolean;
+  firstLastFrame: boolean;
+  resolutions: readonly VideoResolution[];
+  durations: readonly VideoDuration[];
+  audio: boolean;
+  personGeneration: readonly ('allow_all' | 'allow_adult' | 'dont_allow')[];
+}
+
+export const VEO_MODEL_CAPABILITIES: Record<VideoModelId, VideoModelCapabilities> = {
+  'veo-3.1-generate-preview': {
+    extension: true,
+    references: true,
+    firstLastFrame: true,
+    resolutions: ['720p', '1080p', '4k'],
+    durations: [4, 6, 8],
+    audio: true,
+    personGeneration: ['allow_all', 'allow_adult'],
+  },
+  'veo-3.1-fast-generate-preview': {
+    extension: true,
+    references: true,
+    firstLastFrame: true,
+    resolutions: ['720p', '1080p', '4k'],
+    durations: [4, 6, 8],
+    audio: true,
+    personGeneration: ['allow_all', 'allow_adult'],
+  },
+  'veo-3.1-lite-generate-preview': {
+    extension: false,
+    references: false,
+    firstLastFrame: true,
+    resolutions: ['720p', '1080p'],
+    durations: [4, 6, 8],
+    audio: true,
+    personGeneration: ['allow_all', 'allow_adult'],
+  },
+  'veo-3.0-generate-001': {
+    extension: true,
+    references: false,
+    firstLastFrame: true,
+    resolutions: ['720p', '1080p'],
+    durations: [8],
+    audio: true,
+    personGeneration: ['allow_all', 'allow_adult'],
+  },
+  'veo-3.0-fast-generate-001': {
+    extension: true,
+    references: false,
+    firstLastFrame: true,
+    resolutions: ['720p', '1080p'],
+    durations: [8],
+    audio: true,
+    personGeneration: ['allow_all', 'allow_adult'],
+  },
+  'veo-2.0-generate-001': {
+    extension: false,
+    references: false,
+    firstLastFrame: true,
+    resolutions: ['720p'],
+    durations: [5, 6, 8],
+    audio: false,
+    personGeneration: ['allow_all', 'allow_adult', 'dont_allow'],
+  },
+};
+
+export function getVideoModelCapabilities(modelId: string): VideoModelCapabilities {
+  return VEO_MODEL_CAPABILITIES[modelId as VideoModelId] ?? VEO_MODEL_CAPABILITIES['veo-3.1-fast-generate-preview'];
+}
+
+export function getVideoResolutionsForModel(modelId: string): readonly VideoResolution[] {
+  return getVideoModelCapabilities(modelId).resolutions;
+}
+
+export function getVideoDurationsForModel(modelId: string): readonly VideoDuration[] {
+  return getVideoModelCapabilities(modelId).durations;
+}
 
 export const GEMINI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
 export const OPENAI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', 'auto'] as const;
-export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16'] as const;
 
 export const QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
 export const OUTPUT_FORMAT_OPTIONS = ['png', 'jpeg', 'webp'] as const;

@@ -18,7 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
 import { FrameUpload } from './FrameUpload';
-import { getDefaultModelForProvider, getAspectRatiosForProvider } from '@/app/lib/integrations/image-generation-constants';
+import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type VideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 
 const STARTING_POINTS = [
@@ -102,6 +102,8 @@ export function CreateView() {
   const [outputFormat, setOutputFormat] = useState<'png' | 'jpeg' | 'webp'>('png');
   const [background, setBackground] = useState<'transparent' | 'opaque' | 'auto'>('auto');
   const [showMoreOptions, setShowMoreOptions] = useState(false);
+  const [videoResolution, setVideoResolution] = useState<VideoResolution>('720p');
+  const [videoDuration, setVideoDuration] = useState<VideoDuration>(6);
   const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
   const [rawPrompt, setRawPrompt] = useState(initialPrompt);
   const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
@@ -215,6 +217,8 @@ export function CreateView() {
       output_format: provider === 'openai' ? outputFormat : undefined,
       background: provider === 'openai' ? background : undefined,
       extra_reference_urls: allReferenceUrls,
+      video_resolution: mode === 'video' ? videoResolution : undefined,
+      video_duration: mode === 'video' ? videoDuration : undefined,
     });
 
     if (result) {
@@ -422,6 +426,8 @@ export function CreateView() {
                 setProvider('veo');
                 setModel(getDefaultModelForProvider('video', 'veo'));
                 setAspectRatio('16:9');
+                setVideoResolution('720p');
+                setVideoDuration(6);
               } else {
                 setProvider('gemini');
                 setModel(getDefaultModelForProvider('image', 'gemini'));
@@ -448,13 +454,34 @@ export function CreateView() {
               }
             }}
             model={model}
-            onModelChange={setModel}
+            onModelChange={(nextModel) => {
+              setModel(nextModel);
+              if (mode === 'video') {
+                const validRes = getVideoResolutionsForModel(nextModel);
+                if (!validRes.includes(videoResolution)) {
+                  setVideoResolution(validRes[0] as VideoResolution);
+                }
+                const validDur = getVideoDurationsForModel(nextModel);
+                if (!validDur.includes(videoDuration)) {
+                  setVideoDuration(validDur.includes(6) ? 6 : validDur[0] as VideoDuration);
+                }
+              }
+            }}
             quality={quality}
             onQualityChange={setQuality}
             outputFormat={outputFormat}
             onOutputFormatChange={setOutputFormat}
             background={background}
             onBackgroundChange={setBackground}
+            videoResolution={videoResolution}
+            onVideoResolutionChange={(res) => {
+              setVideoResolution(res);
+              if (res === '1080p' || res === '4k') {
+                setVideoDuration(8);
+              }
+            }}
+            videoDuration={videoDuration}
+            onVideoDurationChange={setVideoDuration}
             onGenerate={handleGenerate}
             isGenerating={generationHook.loading}
             canGenerate={canGenerate}

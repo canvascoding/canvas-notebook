@@ -1545,6 +1545,8 @@
       "model": "Modell",
       "aspectRatio": "Seitenverhältnis",
       "resolution": "Auflösung",
+      "duration": "Dauer",
+      "personGeneration": "Personengenerierung",
       "prompt": "Prompt"
     },
     "promptPlaceholder": "Beschreibe das gewünschte Video...",
@@ -1590,8 +1592,21 @@
       "extendVideo": "Video verlängern"
     },
     "models": {
-      "fast": "Veo 3.1 Fast",
-      "highQuality": "Veo 3.1 Hohe Qualität"
+      "highQuality": "Veo 3.1 — Beste Qualität",
+      "fast": "Veo 3.1 Fast — Schnell & Günstig",
+      "lite": "Veo 3.1 Lite — Budget",
+      "veo3": "Veo 3 — Stabil",
+      "veo3Fast": "Veo 3 Fast — Stabil",
+      "veo2": "Veo 2 — Legacy (Kein Audio)"
+    },
+    "personGeneration": {
+      "allow_all": "Alle erlauben",
+      "allow_adult": "Nur Erwachsene",
+      "dont_allow": "Nicht erlauben"
+    },
+    "hints": {
+      "durationLocked": "1080p / 4k erfordert 8s Dauer",
+      "noAudio": "Dieses Modell generiert kein Audio"
     },
     "errors": {
       "loadOutputs": "Gespeicherte Videos konnten nicht geladen werden.",
@@ -1804,7 +1819,8 @@
       "tabs": {
         "studio": "Studio",
         "workspace": "Workspace",
-        "upload": "Hochladen"
+        "upload": "Hochladen",
+        "urls": "URLs"
       },
       "searchPlaceholder": "Assets suchen...",
       "searchWorkspacePlaceholder": "Workspace-Dateien suchen...",
@@ -1823,7 +1839,11 @@
       "upload": {
         "hint": "Lade Bilder hoch, die als Referenz für Studio-Generierungen verwendet werden.",
         "selectFiles": "Dateien wählen"
-      }
+      },
+      "urlTabTitle": "Bilder von URLs laden",
+      "urlTabDescription": "Gib eine Bild-URL ein. Das Bild wird heruntergeladen und als Referenz verwendet.",
+      "urlPlaceholder": "https://example.com/bild.jpg",
+      "addUrl": "Hinzufügen"
     },
     "promptBar": {
       "title": "Prompt Bar",

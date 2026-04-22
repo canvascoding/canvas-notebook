@@ -1543,6 +1543,8 @@
       "model": "Model",
       "aspectRatio": "Aspect Ratio",
       "resolution": "Resolution",
+      "duration": "Duration",
+      "personGeneration": "Person Generation",
       "prompt": "Prompt"
     },
     "promptPlaceholder": "Describe the video you want to generate...",
@@ -1588,8 +1590,21 @@
       "extendVideo": "Extend Video"
     },
     "models": {
-      "fast": "Veo 3.1 Fast",
-      "highQuality": "Veo 3.1 High Quality"
+      "highQuality": "Veo 3.1 — Best Quality",
+      "fast": "Veo 3.1 Fast — Fast & Affordable",
+      "lite": "Veo 3.1 Lite — Budget",
+      "veo3": "Veo 3 — Stable",
+      "veo3Fast": "Veo 3 Fast — Stable",
+      "veo2": "Veo 2 — Legacy (No Audio)"
+    },
+    "personGeneration": {
+      "allow_all": "Allow All",
+      "allow_adult": "Allow Adult Only",
+      "dont_allow": "Don't Allow"
+    },
+    "hints": {
+      "durationLocked": "1080p / 4k requires 8s duration",
+      "noAudio": "This model does not generate audio"
     },
     "errors": {
       "loadOutputs": "Failed to load saved videos.",
@@ -1804,7 +1819,8 @@
       "tabs": {
         "studio": "Studio",
         "workspace": "Workspace",
-        "upload": "Upload"
+        "upload": "Upload",
+        "urls": "URLs"
       },
       "searchPlaceholder": "Search assets...",
       "searchWorkspacePlaceholder": "Search workspace files...",
@@ -1823,7 +1839,11 @@
       "upload": {
         "hint": "Upload images to use as references for studio generations.",
         "selectFiles": "Select files"
-      }
+      },
+      "urlTabTitle": "Load image from URL",
+      "urlTabDescription": "Enter an image URL. The image will be downloaded and used as a reference.",
+      "urlPlaceholder": "https://example.com/image.jpg",
+      "addUrl": "Add"
     },
     "promptBar": {
       "title": "Prompt Bar",

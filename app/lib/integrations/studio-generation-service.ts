@@ -58,6 +58,8 @@ export interface StudioGenerateRequest {
   source_output_id?: string;
   pi_session_id?: string;
   extra_reference_urls?: string[];
+  video_resolution?: '720p' | '1080p' | '4k';
+  video_duration?: number;
 }
 
 export interface StudioGenerationOutput {
@@ -533,7 +535,7 @@ export async function executeStudioGeneration(
     let outputs: StudioGenerationOutput[];
 
     if (mode === 'video') {
-      outputs = await generateStudioVideo(generationId, composedPrompt, aspectRatio, providerImages);
+      outputs = await generateStudioVideo(generationId, composedPrompt, aspectRatio, providerImages, model, request.video_resolution, request.video_duration);
     } else {
       const count = Math.min(Math.max(request.count || 4, 1), MAX_IMAGE_COUNT);
       outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
@@ -685,6 +687,9 @@ async function generateStudioVideo(
   prompt: string,
   aspectRatio: string,
   referenceImages: ProviderReferenceImage[],
+  videoModel?: string,
+  videoResolution?: '720p' | '1080p' | '4k',
+  videoDuration?: number,
 ): Promise<StudioGenerationOutput[]> {
   if (!prompt) {
     throw new StudioServiceError(
@@ -697,9 +702,11 @@ async function generateStudioVideo(
 
   const requestBody: GenerateVideoRequestBody = {
     prompt,
+    model: videoModel || 'veo-3.1-fast-generate-preview',
     mode: referenceImages.length > 0 ? 'references_to_video' : 'text_to_video',
     aspectRatio: videoAspect,
-    resolution: '720p',
+    resolution: videoResolution || '720p',
+    durationSeconds: (videoDuration || 6) as GenerateVideoRequestBody['durationSeconds'],
     referenceImagePaths: [],
   };
 

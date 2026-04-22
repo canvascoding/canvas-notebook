@@ -56,6 +56,8 @@ export interface StudioGeneratePayload {
   background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
   extra_reference_urls?: string[];
+  video_resolution?: '720p' | '1080p' | '4k';
+  video_duration?: number;
 }
 
 export interface StudioReferenceUrl {

@@ -21,11 +21,18 @@ import {
   BACKGROUND_OPTIONS,
   VIDEO_PROVIDERS,
   VIDEO_MODELS,
+  VIDEO_DURATIONS,
   getModelsForProvider,
   getAspectRatiosForProvider,
+  getVideoResolutionsForModel,
+  getVideoDurationsForModel,
+  type VideoResolution,
+  type VideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 
 const IMAGE_COUNTS = [1, 2, 3, 4] as const;
+
+const VIDEO_DURATION_OPTIONS = VIDEO_DURATIONS;
 
 interface ControlBarProps {
   mode: StudioGenerationMode;
@@ -47,11 +54,27 @@ interface ControlBarProps {
   onOutputFormatChange: (value: 'png' | 'jpeg' | 'webp') => void;
   background: 'transparent' | 'opaque' | 'auto';
   onBackgroundChange: (value: 'transparent' | 'opaque' | 'auto') => void;
+  videoResolution: VideoResolution;
+  onVideoResolutionChange: (value: VideoResolution) => void;
+  videoDuration: VideoDuration;
+  onVideoDurationChange: (value: VideoDuration) => void;
   onGenerate: () => void;
   isGenerating: boolean;
   canGenerate: boolean;
   showMoreOptions: boolean;
   onShowMoreOptionsChange: (value: boolean) => void;
+}
+
+const MODEL_LABELS: Record<string, string> = {};
+for (const m of VIDEO_MODELS) {
+  switch (m.optionKey) {
+    case 'highQuality': MODEL_LABELS[m.id] = 'Veo 3.1 — Best Quality'; break;
+    case 'fast': MODEL_LABELS[m.id] = 'Veo 3.1 Fast — Fast & Affordable'; break;
+    case 'lite': MODEL_LABELS[m.id] = 'Veo 3.1 Lite — Budget'; break;
+    case 'veo3': MODEL_LABELS[m.id] = 'Veo 3 — Stable'; break;
+    case 'veo3Fast': MODEL_LABELS[m.id] = 'Veo 3 Fast — Stable'; break;
+    case 'veo2': MODEL_LABELS[m.id] = 'Veo 2 — Legacy (No Audio)'; break;
+  }
 }
 
 export function ControlBar({
@@ -74,6 +97,10 @@ export function ControlBar({
   onOutputFormatChange,
   background,
   onBackgroundChange,
+  videoResolution,
+  onVideoResolutionChange,
+  videoDuration,
+  onVideoDurationChange,
   onGenerate,
   isGenerating,
   canGenerate,
@@ -84,6 +111,11 @@ export function ControlBar({
   const models = getModelsForProvider(mode, provider);
   const aspectRatios = getAspectRatiosForProvider(mode, provider);
   const isOpenAI = provider === 'openai';
+  const isVideo = mode === 'video';
+
+  const videoResolutions = isVideo ? getVideoResolutionsForModel(model) : [];
+  const videoDurations = isVideo ? getVideoDurationsForModel(model) : [];
+  const durationLocked = videoResolution === '1080p' || videoResolution === '4k';
 
   return (
     <div className="flex flex-col gap-2">
@@ -113,6 +145,42 @@ export function ControlBar({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {isVideo && (
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="rounded-full">
+                  {videoResolution}
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40">
+                {videoResolutions.map((r) => (
+                  <DropdownMenuItem key={r} onSelect={() => onVideoResolutionChange(r)}>
+                    {r}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="rounded-full" disabled={durationLocked}>
+                  {videoDuration}s
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40">
+                {(durationLocked ? [8 as VideoDuration] : VIDEO_DURATION_OPTIONS.filter((d) => videoDurations.includes(d))).map((d) => (
+                  <DropdownMenuItem key={d} onSelect={() => onVideoDurationChange(d as VideoDuration)}>
+                    {d}s
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
 
         <div className="ml-auto flex gap-2">
           <Button
@@ -165,10 +233,8 @@ export function ControlBar({
               >
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {mode === 'video'
-                      ? VIDEO_MODELS.find((vm) => vm.id === m.id)?.id === 'veo-3.1-fast-generate-preview'
-                        ? 'Veo 3.1 Fast — Fast & Affordable'
-                        : 'Veo 3.1 High Quality — Best Quality'
+                    {isVideo
+                      ? (MODEL_LABELS[m.id] || m.id)
                       : provider === 'openai'
                         ? OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage2'
                           ? 'GPT Image 2 — Best Quality'
