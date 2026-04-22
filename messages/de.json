@@ -1840,8 +1840,8 @@
         "hint": "Lade Bilder hoch, die als Referenz für Studio-Generierungen verwendet werden.",
         "selectFiles": "Dateien wählen"
       },
-      "urlTabTitle": "Bilder von URLs laden",
-      "urlTabDescription": "Gib eine Bild-URL ein. Das Bild wird heruntergeladen und als Referenz verwendet.",
+      "urlTabTitle": "Bild von URL laden",
+      "urlTabDescription": "Gib eine Bild-URL ein. Das Bild wird heruntergeladen und als Referenz gespeichert.",
       "urlPlaceholder": "https://example.com/bild.jpg",
       "addUrl": "Hinzufügen"
     },

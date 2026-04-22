@@ -1841,7 +1841,7 @@
         "selectFiles": "Select files"
       },
       "urlTabTitle": "Load image from URL",
-      "urlTabDescription": "Enter an image URL. The image will be downloaded and used as a reference.",
+      "urlTabDescription": "Enter an image URL. The image will be downloaded and saved as a reference.",
       "urlPlaceholder": "https://example.com/image.jpg",
       "addUrl": "Add"
     },

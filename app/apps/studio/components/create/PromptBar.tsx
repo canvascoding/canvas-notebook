@@ -2,7 +2,25 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AtSign, LayoutTemplate, Package2, UserRound, X, Image as ImageIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { toPreviewUrl } from '@/app/lib/utils/media-url';
+import {
+  AtSign,
+  LayoutTemplate,
+  Package2,
+  UserRound,
+  X,
+  Image as ImageIcon,
+  Camera,
+  Package,
+  UtensilsCrossed,
+  Sun,
+  Sparkles,
+  Cpu,
+  Home,
+  Car,
+  Layers,
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +41,7 @@ import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/mode
 interface ReferenceTag {
   id: string;
   name: string;
+  thumbnailPath?: string;
 }
 
 interface PromptBarValue {
@@ -52,44 +71,97 @@ interface PromptBarProps {
   onFileAdd: (paths: string[]) => void;
 }
 
-function ReferenceChip({ label, colorClassName, onRemove, thumbnailUrl }: { label: string; colorClassName: string; onRemove: () => void; thumbnailUrl?: string }) {
+const PRESET_CATEGORY_ICONS: Record<string, typeof Camera> = {
+  fashion: Camera,
+  product: Package,
+  food: UtensilsCrossed,
+  lifestyle: Sun,
+  beauty: Sparkles,
+  tech: Cpu,
+  interior: Home,
+  automotive: Car,
+};
+
+interface ReferenceChipProps {
+  label: string;
+  borderColor: string;
+  bgColor: string;
+  onRemove: () => void;
+  thumbnailUrl?: string;
+  icon: React.ReactNode;
+}
+
+function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, icon }: ReferenceChipProps) {
   return (
-    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${colorClassName}`}>
-      {thumbnailUrl ? <img src={thumbnailUrl} alt="" className="h-8 w-8 rounded-md object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} /> : null}
-      <span>{label}</span>
-      <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"><X className="h-3 w-3" /></button>
-    </span>
+    <div className="relative inline-flex" title={label}>
+      <div className={cn('h-9 w-9 rounded-md border-2 flex items-center justify-center overflow-hidden', borderColor, bgColor)}>
+        {thumbnailUrl ? (
+          <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        ) : (
+          icon
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
+      >
+        <X className="h-2.5 w-2.5" />
+      </button>
+    </div>
   );
 }
 
 function ReferenceUrlChip({ reference, onRemove }: { reference: StudioReferenceUrl; onRemove: () => void }) {
   if (reference.status === 'loading') {
     return (
-      <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-muted text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        <span className="max-w-[150px] truncate">{reference.originalUrl}</span>
-        <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"><X className="h-3 w-3" /></button>
+      <div className="relative inline-flex" title={reference.originalUrl}>
+        <div className="h-9 w-9 rounded-md border-2 border-sky-400 bg-sky-50 flex items-center justify-center">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
       </div>
     );
   }
   if (reference.status === 'error') {
     return (
-      <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300">
-        <div className="h-8 w-8 rounded-md bg-red-200 dark:bg-red-800 flex items-center justify-center text-[10px]">!</div>
-        <span className="max-w-[150px] truncate" title={reference.errorMessage}>{reference.errorMessage || 'Failed'}</span>
-        <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"><X className="h-3 w-3" /></button>
+      <div className="relative inline-flex" title={reference.errorMessage || 'Failed'}>
+        <div className="h-9 w-9 rounded-md border-2 border-red-400 bg-red-50 flex items-center justify-center text-[10px] text-red-700">
+          !
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
       </div>
     );
   }
   return (
-    <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-muted text-foreground">
-      <img src={reference.localUrl} alt="" className="h-8 w-8 rounded-md object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-      <span className="max-w-[150px] truncate">{reference.originalUrl}</span>
-      <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"><X className="h-3 w-3" /></button>
+    <div className="relative inline-flex" title={reference.originalUrl}>
+      <div className="h-9 w-9 rounded-md border-2 border-sky-400 bg-sky-50 flex items-center justify-center overflow-hidden">
+        <img src={reference.localUrl} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
+      >
+        <X className="h-2.5 w-2.5" />
+      </button>
     </div>
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onExtraReferenceUrlAdd, onExtraReferenceUrlRemove, onFileAdd }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -158,18 +230,73 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
       {/* Unified references above textarea */}
       {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0 || value.extraReferenceUrls.length > 0) ? (
         <div className="mb-3 flex flex-wrap gap-2">
-          {value.productRefs.map((product) => (<ReferenceChip key={product.id} label={`@product ${product.name}`} colorClassName="bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200" thumbnailUrl={productMap.get(product.id)?.thumbnailPath} onRemove={() => onReferenceRemove('product', product.id)} />))}
-          {value.personaRefs.map((persona) => (<ReferenceChip key={persona.id} label={`@persona ${persona.name}`} colorClassName="bg-sky-100 text-sky-900 dark:bg-sky-500/15 dark:text-sky-200" thumbnailUrl={personaMap.get(persona.id)?.thumbnailPath} onRemove={() => onReferenceRemove('persona', persona.id)} />))}
-          {value.styleRefs.map((style) => (<ReferenceChip key={style.id} label={`@style ${style.name}`} colorClassName="bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-200" thumbnailUrl={styleMap.get(style.id)?.thumbnailPath} onRemove={() => onReferenceRemove('style', style.id)} />))}
-          {value.presetRef ? (<ReferenceChip label={`@studio ${value.presetRef.name}`} colorClassName="bg-violet-100 text-violet-900 dark:bg-violet-500/15 dark:text-violet-200" onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')} />) : null}
-          {value.fileRefs.map((file) => (<ReferenceChip key={file.id} label={`@file ${file.name}`} colorClassName="bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-200" onRemove={() => onReferenceRemove('file', file.id)} />))}
-          {value.extraReferenceUrls.map((ref) => (<ReferenceUrlChip key={ref.originalUrl} reference={ref} onRemove={() => onExtraReferenceUrlRemove(ref.originalUrl)} />))}
+          {value.productRefs.map((product) => (
+            <ReferenceChip
+              key={product.id}
+              label={`@product ${product.name}`}
+              borderColor="border-amber-400"
+              bgColor="bg-amber-50"
+              thumbnailUrl={productMap.get(product.id)?.thumbnailPath ? toPreviewUrl(productMap.get(product.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
+              icon={<Package2 className="h-4 w-4 text-amber-600" />}
+              onRemove={() => onReferenceRemove('product', product.id)}
+            />
+          ))}
+          {value.personaRefs.map((persona) => (
+            <ReferenceChip
+              key={persona.id}
+              label={`@persona ${persona.name}`}
+              borderColor="border-sky-400"
+              bgColor="bg-sky-50"
+              thumbnailUrl={personaMap.get(persona.id)?.thumbnailPath ? toPreviewUrl(personaMap.get(persona.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
+              icon={<UserRound className="h-4 w-4 text-sky-600" />}
+              onRemove={() => onReferenceRemove('persona', persona.id)}
+            />
+          ))}
+          {value.styleRefs.map((style) => (
+            <ReferenceChip
+              key={style.id}
+              label={`@style ${style.name}`}
+              borderColor="border-emerald-400"
+              bgColor="bg-emerald-50"
+              thumbnailUrl={styleMap.get(style.id)?.thumbnailPath ? toPreviewUrl(styleMap.get(style.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
+              icon={<LayoutTemplate className="h-4 w-4 text-emerald-600" />}
+              onRemove={() => onReferenceRemove('style', style.id)}
+            />
+          ))}
+          {value.presetRef ? (
+            <ReferenceChip
+              key={value.presetRef.id}
+              label={`@studio ${value.presetRef.name}`}
+              borderColor="border-violet-400"
+              bgColor="bg-violet-50"
+              thumbnailUrl={value.presetRef.previewImagePath ? toPreviewUrl(value.presetRef.previewImagePath, 64, { preset: 'mini' }) : undefined}
+              icon={(() => {
+                const CategoryIcon = PRESET_CATEGORY_ICONS[value.presetRef.category ?? ''] ?? Layers;
+                return <CategoryIcon className="h-4 w-4 text-violet-600" />;
+              })()}
+              onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')}
+            />
+          ) : null}
+          {value.fileRefs.map((file) => (
+            <ReferenceChip
+              key={file.id}
+              label={`@file ${file.name}`}
+              borderColor="border-rose-400"
+              bgColor="bg-rose-50"
+              thumbnailUrl={file.thumbnailPath ? toPreviewUrl(file.thumbnailPath, 64, { preset: 'mini' }) : undefined}
+              icon={<ImageIcon className="h-4 w-4 text-rose-600" />}
+              onRemove={() => onReferenceRemove('file', file.id)}
+            />
+          ))}
+          {value.extraReferenceUrls.map((ref) => (
+            <ReferenceUrlChip key={ref.originalUrl} reference={ref} onRemove={() => onExtraReferenceUrlRemove(ref.originalUrl)} />
+          ))}
         </div>
       ) : null}
 
       <textarea value={value.rawPrompt} onChange={(event) => onRawPromptChange(event.target.value)} placeholder={t('placeholder')} className="min-h-28 w-full resize-y rounded-3xl border border-border/70 bg-background/70 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15" />
 
-      <ReferencePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onConfirm={(paths) => { onFileAdd(paths); setPickerOpen(false); }} onUrlAdd={(url) => { onExtraReferenceUrlAdd(url); setPickerOpen(false); }} />
+      <ReferencePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onConfirm={(paths) => { onFileAdd(paths); setPickerOpen(false); }} />
     </div>
   );
 }
