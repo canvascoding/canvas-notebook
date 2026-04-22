@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AtSign, Folder, LayoutTemplate, Package2, Plus, UserRound, X } from 'lucide-react';
+import { AtSign, Folder, LayoutTemplate, Package2, Plus, UserRound, X, Image } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ReferencePickerDialog } from './ReferencePickerDialog';
+import type { StudioReferenceUrl } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
 import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/models';
 
@@ -30,7 +32,8 @@ interface PromptBarValue {
   styleRefs: ReferenceTag[];
   presetRef: StudioPreset | null;
   negativePrompt: string;
-  extraReferenceUrls: string[];
+  extraReferenceUrls: StudioReferenceUrl[];
+  fileRefs: ReferenceTag[];
 }
 
 interface PromptBarProps {
@@ -44,10 +47,11 @@ interface PromptBarProps {
   onPersonaAdd: (persona: StudioPersona) => void;
   onStyleAdd: (style: StudioStyle) => void;
   onPresetSelect: (preset: StudioPreset) => void;
-  onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset', id: string) => void;
+  onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file', id: string) => void;
   onNegativePromptChange: (value: string) => void;
   onExtraReferenceUrlAdd: (value: string) => void;
   onExtraReferenceUrlRemove: (value: string) => void;
+  onFileAdd: (paths: string[]) => void;
 }
 
 function ReferenceChip({
@@ -69,6 +73,58 @@ function ReferenceChip({
   );
 }
 
+function ReferenceUrlChip({
+  reference,
+  onRemove,
+}: {
+  reference: StudioReferenceUrl;
+  onRemove: () => void;
+}) {
+  if (reference.status === 'loading') {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-muted text-muted-foreground">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        <span className="max-w-[150px] truncate">{reference.originalUrl}</span>
+        <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  if (reference.status === 'error') {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300">
+        <div className="h-8 w-8 rounded bg-red-200 dark:bg-red-800 flex items-center justify-center text-[10px]">!</div>
+        <span className="max-w-[150px] truncate" title={reference.errorMessage}>
+          {reference.errorMessage || 'Failed'}
+        </span>
+        <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-muted text-foreground">
+      <img
+        src={reference.localUrl}
+        alt="Reference"
+        className="h-8 w-8 rounded object-cover"
+        loading="lazy"
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.display = 'none';
+        }}
+      />
+      <span className="max-w-[150px] truncate">{reference.originalUrl}</span>
+      <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10">
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
 export function PromptBar({
   value,
   products,
@@ -84,9 +140,11 @@ export function PromptBar({
   onNegativePromptChange,
   onExtraReferenceUrlAdd,
   onExtraReferenceUrlRemove,
+  onFileAdd,
 }: PromptBarProps) {
   const [showOptions, setShowOptions] = useState(false);
   const [extraReferenceUrlInput, setExtraReferenceUrlInput] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const availableProducts = useMemo(
     () => (products ?? []).filter((product) => !(value.productRefs ?? []).some((selected) => selected.id === product.id)),
@@ -119,10 +177,9 @@ export function PromptBar({
             <DropdownMenuContent align="start" className="w-72">
               <DropdownMenuLabel>Reference categories</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>
-                <Folder className="h-4 w-4" />
-                File
-                <span className="ml-auto text-xs text-muted-foreground">Soon</span>
+              <DropdownMenuItem onSelect={() => setPickerOpen(true)}>
+                <Image className="h-4 w-4 mr-2" />
+                Bildreferenz
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
@@ -228,7 +285,7 @@ export function PromptBar({
         </div>
       </div>
 
-      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef) ? (
+      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0) ? (
         <div className="mb-3 flex flex-wrap gap-2">
           {value.productRefs.map((product) => (
             <ReferenceChip
@@ -261,6 +318,14 @@ export function PromptBar({
               onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')}
             />
           ) : null}
+          {value.fileRefs.map((file) => (
+            <ReferenceChip
+              key={file.id}
+              label={`@file ${file.name}`}
+              colorClassName="bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-200"
+              onRemove={() => onReferenceRemove('file', file.id)}
+            />
+          ))}
         </div>
       ) : null}
 
@@ -273,18 +338,7 @@ export function PromptBar({
 
       {showOptions ? (
         <div className="mt-3 grid gap-3 rounded-3xl border border-border/70 bg-background/60 p-3 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Negative prompt
-            </label>
-            <textarea
-              value={value.negativePrompt}
-              onChange={(event) => onNegativePromptChange(event.target.value)}
-              placeholder="What should the model avoid?"
-              className="min-h-24 w-full resize-none rounded-2xl border border-border/70 bg-background/80 px-3 py-3 text-sm outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15"
-            />
-          </div>
-          <div className="space-y-2">
+          <div className="space-y-2 md:col-span-2">
             <label className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
               Additional reference URLs
             </label>
@@ -309,12 +363,11 @@ export function PromptBar({
             </div>
             {value.extraReferenceUrls.length > 0 ? (
               <div className="flex flex-wrap gap-2">
-                {value.extraReferenceUrls.map((url) => (
-                  <ReferenceChip
-                    key={url}
-                    label={url}
-                    colorClassName="bg-muted text-foreground"
-                    onRemove={() => onExtraReferenceUrlRemove(url)}
+                {value.extraReferenceUrls.map((ref) => (
+                  <ReferenceUrlChip
+                    key={ref.originalUrl}
+                    reference={ref}
+                    onRemove={() => onExtraReferenceUrlRemove(ref.originalUrl)}
                   />
                 ))}
               </div>
@@ -322,6 +375,15 @@ export function PromptBar({
           </div>
         </div>
       ) : null}
+
+      <ReferencePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onConfirm={(paths) => {
+          onFileAdd(paths);
+          setPickerOpen(false);
+        }}
+      />
     </div>
   );
 }

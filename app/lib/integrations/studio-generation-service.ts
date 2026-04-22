@@ -24,6 +24,7 @@ import {
   readOutputFile,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { readFile } from '@/app/lib/filesystem/upload-handler';
 import { generateVideo, type GenerateVideoRequestBody } from '@/app/lib/integrations/veo-generation-service';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
@@ -294,13 +295,32 @@ async function loadExtraReferenceImages(urls: string[]): Promise<LoadedReference
 
   for (const url of urls) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image from ${url}: ${response.status}`);
+      let buffer: Buffer;
+      let contentType: string;
+
+      // Check if it's a local reference
+      if (url.startsWith('/api/studio/references/')) {
+        const fileId = url.split('/').pop();
+        if (!fileId) {
+          throw new Error('Invalid local reference URL');
+        }
+
+        const fileBuffer = await readFile(fileId);
+        if (!fileBuffer) {
+          throw new Error(`Local reference image not found: ${fileId}`);
+        }
+        buffer = fileBuffer;
+        contentType = 'image/png';
+      } else {
+        // External URL: fetch directly
+        const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image from ${url}: ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        buffer = Buffer.from(arrayBuffer);
+        contentType = response.headers.get('content-type') || 'image/png';
       }
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      const contentType = response.headers.get('content-type') || 'image/png';
       
       images.push({
         imageBytes: buffer.toString('base64'),
