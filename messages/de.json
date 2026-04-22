@@ -1829,15 +1829,7 @@
       "additionalUrls": "Zus\u00e4tzliche Referenz-URLs",
       "add": "Hinzuf\u00fcgen",
       "urlPlaceholder": "https://example.com/reference.jpg"
-    },
-     "emptyState": {
-        "title": "Erstelle dein erstes Bild",
-        "subtitle": "Gib deine Idee unten ein und lass die AI ihre Magie wirken. Deine Ergebnisse erscheinen hier – in Echtzeit."
-      },
-      "startingPointsTitle": "Inspiration",
-      "recreate": "Nachbilden",
-      "recentGenerationsTitle": "Letzte Generierungen",
-      "viewAll": "Alle ansehen"
+    }
   },
   "usage": {
     "title": "Nutzung",
