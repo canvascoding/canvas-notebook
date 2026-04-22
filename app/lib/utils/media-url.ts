@@ -11,6 +11,10 @@ export function toMediaUrl(filePath: string) {
   if (filePath.startsWith('studio-gen-')) {
     return `/api/studio/media/studio/outputs/${encodedPath}`;
   }
+
+  if (filePath.startsWith('user-uploads/studio-references/')) {
+    return `/api/studio/media/${encodedPath}`;
+  }
   
   // Use API route for media serving (works with Next.js standalone)
   return `/api/media/${encodedPath}`;

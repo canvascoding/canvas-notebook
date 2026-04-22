@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import path from 'path';
+import path from 'node:path';
 import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import { spawn } from 'child_process';
 import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
+import { resolveValidatedStudioAssetPath, resolveValidatedStudioOutputPath } from '@/app/lib/integrations/studio-paths';
+import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 const CACHE_ROOT = '/tmp/canvas-media-cache';
@@ -207,7 +209,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    const fullPath = validatePath(filePath);
+    // Resolve the full filesystem path based on the virtual path prefix
+    let fullPath: string;
+    if (filePath.startsWith('studio/outputs/')) {
+      const resolved = resolveValidatedStudioOutputPath(filePath.slice('studio/outputs/'.length));
+      if (!resolved) {
+        return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+      }
+      fullPath = resolved;
+    } else if (filePath.startsWith('studio/assets/')) {
+      const resolved = resolveValidatedStudioAssetPath(filePath.slice('studio/assets/'.length));
+      if (!resolved) {
+        return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+      }
+      fullPath = resolved;
+    } else if (filePath.startsWith('user-uploads/studio-references/')) {
+      const root = getUserUploadsStudioRefRoot();
+      const relativePath = filePath.slice('user-uploads/studio-references/'.length);
+      const resolved = path.resolve(root, relativePath);
+      if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+        return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+      }
+      fullPath = resolved;
+    } else {
+      fullPath = validatePath(filePath);
+    }
+
     const stats = await fs.stat(fullPath);
     if (!stats.isFile()) {
       return NextResponse.json(

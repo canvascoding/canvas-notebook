@@ -414,13 +414,19 @@ export async function buildGenericFileTree(
     return [];
   }
 
-  const fullPath = path.join(absoluteBasePath, dirPath);
-  const entries = await fs.readdir(fullPath, { withFileTypes: true });
+  const fullPath = dirPath === '.' ? absoluteBasePath : path.join(absoluteBasePath, dirPath);
+
+  let entries: import('fs').Dirent[];
+  try {
+    entries = await fs.readdir(fullPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
 
   const nodes: FileNode[] = [];
 
   for (const entry of entries) {
-    const entryPath = path.join(dirPath, entry.name);
+    const entryPath = dirPath === '.' ? entry.name : path.posix.join(dirPath, entry.name);
     const entryFullPath = path.join(fullPath, entry.name);
     const stats = await safeStat(entryFullPath);
 

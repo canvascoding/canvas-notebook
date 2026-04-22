@@ -1,12 +1,14 @@
 /**
  * Studio reference assets listing API
- * Lists available files in /studio/assets/ and registered media library images
+ * Lists available image files from studio outputs, studio asset references, and user uploads
  */
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'node:fs/promises';
 import { auth } from '@/app/lib/auth';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
-import { buildFileTree, buildGenericFileTree } from '@/app/lib/filesystem/workspace-files';
+import { buildGenericFileTree } from '@/app/lib/filesystem/workspace-files';
 import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -43,6 +45,20 @@ interface AssetItem {
   previewUrl: string;
 }
 
+async function safeBuildGenericFileTree(absoluteBasePath: string, depth: number): Promise<FileNode[]> {
+  try {
+    await fs.access(absoluteBasePath);
+  } catch {
+    await fs.mkdir(absoluteBasePath, { recursive: true });
+    return [];
+  }
+  try {
+    return await buildGenericFileTree(absoluteBasePath, '.', depth);
+  } catch {
+    return [];
+  }
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -66,13 +82,20 @@ export async function GET(request: NextRequest) {
     const depthRaw = Number(searchParams.get('depth') || '8');
     const depth = Number.isFinite(depthRaw) ? Math.max(1, Math.min(depthRaw, 12)) : 8;
 
-    // Scan studio outputs using the correct data root path
-    const outputsTree = await buildGenericFileTree(getStudioOutputsRoot(), '.', depth);
-    const uploadsTree = await buildFileTree('user-uploads/studio-references', depth);
+    // Scan studio outputs (data/studio/outputs)
+    const outputsTree = await safeBuildGenericFileTree(getStudioOutputsRoot(), depth);
+    // Scan user-uploaded studio references (data/user-uploads/studio-references)
+    const uploadsTree = await safeBuildGenericFileTree(getUserUploadsStudioRefRoot(), depth);
 
     const allFiles = [
-      ...walkFiles(outputsTree).map(n => ({ ...n, path: n.path.startsWith('studio/') ? n.path : `studio/${n.path}` })),
-      ...walkFiles(uploadsTree),
+      ...walkFiles(outputsTree).map((n) => ({
+        ...n,
+        path: n.path.startsWith('studio/') ? n.path : `studio/outputs/${n.path}`,
+      })),
+      ...walkFiles(uploadsTree).map((n) => ({
+        ...n,
+        path: n.path.startsWith('user-uploads/') ? n.path : `user-uploads/studio-references/${n.path}`,
+      })),
     ];
 
     const filtered: AssetItem[] = [];
@@ -114,4 +137,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

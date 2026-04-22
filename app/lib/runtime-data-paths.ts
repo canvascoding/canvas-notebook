@@ -47,3 +47,11 @@ export function resolveDefaultIntegrationsEnvPath(cwd = process.cwd()): string {
 export function resolveDefaultAgentsEnvPath(cwd = process.cwd()): string {
   return path.join(resolveSecretsDir(cwd), 'Canvas-Agents.env');
 }
+
+export function getUserUploadsRoot(cwd = process.cwd()): string {
+  return path.join(resolveCanvasDataRoot(cwd), 'user-uploads');
+}
+
+export function getUserUploadsStudioRefRoot(cwd = process.cwd()): string {
+  return path.join(resolveCanvasDataRoot(cwd), 'user-uploads', 'studio-references');
+}
