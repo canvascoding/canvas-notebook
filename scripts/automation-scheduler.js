@@ -8,10 +8,7 @@
  * Usage: node scripts/automation-scheduler.js
  */
 
-const crypto = require('crypto');
-
 const POLL_INTERVAL_MS = 15_000;
-const DEFAULT_AUTH_SECRET = 'canvas-notebook-local-dev-secret-change-me';
 const STARTUP_HEALTH_TIMEOUT_MS = 60_000;
 
 let started = false;
@@ -25,13 +22,7 @@ function getBaseUrl() {
 }
 
 async function getInternalToken() {
-  const baseSecret =
-    (process.env.BETTER_AUTH_SECRET && process.env.BETTER_AUTH_SECRET.trim()) ||
-    (process.env.AUTH_SECRET && process.env.AUTH_SECRET.trim()) ||
-    (process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim()) ||
-    DEFAULT_AUTH_SECRET;
-
-  return crypto.createHash('sha256').update(`canvas-internal:${baseSecret}`).digest('hex');
+  return (process.env.CANVAS_INTERNAL_API_KEY && process.env.CANVAS_INTERNAL_API_KEY.trim()) || '';
 }
 
 function sleep(ms) {
@@ -61,6 +52,10 @@ async function waitForBaseUrlReady() {
 async function queueDueScheduledJobs() {
   const baseUrl = getBaseUrl();
   const token = await getInternalToken();
+  if (!token) {
+    console.warn('[Scheduler] CANVAS_INTERNAL_API_KEY is missing. Skipping queue-due tick.');
+    return;
+  }
 
   try {
     const response = await fetch(`${baseUrl}/api/automations/scheduler/queue-due`, {
@@ -88,6 +83,10 @@ async function queueDueScheduledJobs() {
 async function executeReadyRuns() {
   const baseUrl = getBaseUrl();
   const token = await getInternalToken();
+  if (!token) {
+    console.warn('[Scheduler] CANVAS_INTERNAL_API_KEY is missing. Skipping execute-ready tick.');
+    return;
+  }
 
   try {
     const response = await fetch(`${baseUrl}/api/automations/scheduler/execute-ready`, {
