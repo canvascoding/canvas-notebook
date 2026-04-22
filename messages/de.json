@@ -1760,7 +1760,7 @@
       "errorPrefix": "Fehler:"
     },
     "dashboard": {
-      "tabLabel": "\u00dcbersicht",
+      "tabLabel": "Übersicht",
       "startingPointsBadge": "Startpunkte",
       "headline": "Starte mit einer visuellen Richtung, dann baue aus Produkten, Personas und Presets.",
       "subheadline": "Deine Outputs erscheinen hier in umgekehrter chronologischer Reihenfolge. Nutze die Prompt-Leiste, um Bilder oder Videos zu erstellen.",
@@ -1771,13 +1771,13 @@
         "generateImages": "Bilder generieren",
         "generateImagesDesc": "Erstelle KI-generierte Bilder und Videos.",
         "startBulk": "Bulk-Generierung",
-        "startBulkDesc": "Starte eine Batch-Generierung f\u00fcr mehrere Produkte.",
+        "startBulkDesc": "Starte eine Batch-Generierung für mehrere Produkte.",
         "viewPresets": "Presets ansehen",
         "viewPresetsDesc": "Durchsuche und verwalte deine Studio-Presets."
       },
       "emptyState": {
         "title": "Erstelle dein erstes Bild",
-        "subtitle": "Gib deine Idee unten ein und lass die AI ihre Magie wirken. Deine Ergebnisse erscheinen hier \u2013 in Echtzeit."
+        "subtitle": "Gib deine Idee unten ein und lass die AI ihre Magie wirken. Deine Ergebnisse erscheinen hier – in Echtzeit."
       },
       "startingPointsTitle": "Inspiration",
       "recreate": "Nachbilden",
@@ -1785,12 +1785,13 @@
       "viewAll": "Alle ansehen"
     },
     "referencePicker": {
-      "title": "Bildreferenz ausw\u00e4hlen",
-      "description": "W\u00e4hle bereits generierte Studio-Bilder, Dateien aus deinem Workspace, oder lade neue Referenzen hoch.",
+      "title": "Bildreferenz auswählen",
+      "description": "Wähle bereits generierte Studio-Bilder, Dateien aus deinem Workspace, oder lade neue Referenzen hoch.",
       "tabs": {
-        "studio": "Studio Outputs",
+        "studio": "Studio",
         "workspace": "Workspace",
-        "upload": "Hochladen"
+        "upload": "Hochladen",
+        "urls": "URLs"
       },
       "searchPlaceholder": "Assets suchen...",
       "searchWorkspacePlaceholder": "Workspace-Dateien suchen...",
@@ -1800,34 +1801,38 @@
       "empty": "Keine Bilder gefunden.",
       "emptyWorkspace": "Workspace ist leer.",
       "cancel": "Abbrechen",
-      "addReferences": "Referenzen hinzuf\u00fcgen",
+      "addReferences": "Referenzen hinzufügen",
       "selection": {
-        "none": "Nichts ausgew\u00e4hlt",
-        "count": "{count} Datei(en) ausgew\u00e4hlt"
+        "none": "Nichts ausgewählt",
+        "count": "{count} Datei(en) ausgewählt"
       },
       "upload": {
         "target": "Ziel:",
-        "hint": "Maximale Dateigr\u00f6\u00dfe und automatische Bildverkleinerung verf\u00fcgbar.",
-        "selectFiles": "Dateien w\u00e4hlen"
-      }
+        "hint": "Maximale Dateigröße und automatische Bildverkleinerung verfügbar.",
+        "selectFiles": "Dateien wählen"
+      },
+      "urlTabTitle": "Bilder von URLs laden",
+      "urlTabDescription": "Gib eine oder mehrere Bild-URLs ein. Die Bilder werden heruntergeladen und als Referenzen verwendet.",
+      "urlPlaceholder": "https://example.com/bild.jpg",
+      "addUrl": "URL hinzufügen"
     },
     "promptBar": {
       "title": "Prompt Bar",
-      "addReference": "Referenz hinzuf\u00fcgen",
+      "addReference": "Referenz hinzufügen",
       "referenceCategories": "Referenzkategorien",
       "imageReference": "Bildreferenz",
       "product": "Produkt",
       "persona": "Persona",
       "style": "Stil",
       "studio": "Studio",
-      "noProducts": "Keine Produkte verf\u00fcgbar",
-      "noPersonas": "Keine Personas verf\u00fcgbar",
-      "noStyles": "Keine Styles verf\u00fcgbar",
-      "noPresets": "Keine Presets verf\u00fcgbar",
+      "noProducts": "Keine Produkte verfügbar",
+      "noPersonas": "Keine Personas verfügbar",
+      "noStyles": "Keine Styles verfügbar",
+      "noPresets": "Keine Presets verfügbar",
       "moreOptions": "Weitere Optionen",
-      "placeholder": "Beschreibe die Szene, das Subjekt und den gew\u00fcnschten Output...",
-      "additionalUrls": "Zus\u00e4tzliche Referenz-URLs",
-      "add": "Hinzuf\u00fcgen",
+      "placeholder": "Beschreibe die Szene, das Subjekt und den gewünschten Output...",
+      "additionalUrls": "Zusätzliche Referenz-URLs",
+      "add": "Hinzufügen",
       "urlPlaceholder": "https://example.com/reference.jpg"
     }
   },

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AtSign, LayoutTemplate, Package2, Plus, UserRound, X, Image as ImageIcon } from 'lucide-react';
+import { AtSign, LayoutTemplate, Package2, UserRound, X, Image as ImageIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +15,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import type { StudioReferenceUrl } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
@@ -53,111 +52,55 @@ interface PromptBarProps {
   onFileAdd: (paths: string[]) => void;
 }
 
-function ReferenceChip({
-  label,
-  colorClassName,
-  onRemove,
-}: {
-  label: string;
-  colorClassName: string;
-  onRemove: () => void;
-}) {
+function ReferenceChip({ label, colorClassName, onRemove, thumbnailUrl }: { label: string; colorClassName: string; onRemove: () => void; thumbnailUrl?: string }) {
   return (
     <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${colorClassName}`}>
-      {label}
-      <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10">
-        <X className="h-3 w-3" />
-      </button>
+      {thumbnailUrl ? <img src={thumbnailUrl} alt="" className="h-8 w-8 rounded-md object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} /> : null}
+      <span>{label}</span>
+      <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"><X className="h-3 w-3" /></button>
     </span>
   );
 }
 
-function ReferenceUrlChip({
-  reference,
-  onRemove,
-}: {
-  reference: StudioReferenceUrl;
-  onRemove: () => void;
-}) {
+function ReferenceUrlChip({ reference, onRemove }: { reference: StudioReferenceUrl; onRemove: () => void }) {
   if (reference.status === 'loading') {
     return (
       <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-muted text-muted-foreground">
         <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
         <span className="max-w-[150px] truncate">{reference.originalUrl}</span>
-        <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10">
-          <X className="h-3 w-3" />
-        </button>
+        <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"><X className="h-3 w-3" /></button>
       </div>
     );
   }
-
   if (reference.status === 'error') {
     return (
       <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300">
-        <div className="h-8 w-8 rounded bg-red-200 dark:bg-red-800 flex items-center justify-center text-[10px]">!</div>
-        <span className="max-w-[150px] truncate" title={reference.errorMessage}>
-          {reference.errorMessage || 'Failed'}
-        </span>
-        <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10">
-          <X className="h-3 w-3" />
-        </button>
+        <div className="h-8 w-8 rounded-md bg-red-200 dark:bg-red-800 flex items-center justify-center text-[10px]">!</div>
+        <span className="max-w-[150px] truncate" title={reference.errorMessage}>{reference.errorMessage || 'Failed'}</span>
+        <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"><X className="h-3 w-3" /></button>
       </div>
     );
   }
-
   return (
     <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-muted text-foreground">
-       {/* eslint-disable-next-line @next/next/no-img-element */}
-       <img
-        src={reference.localUrl}
-        alt=""
-        className="h-8 w-8 rounded object-cover"
-        loading="lazy"
-        onError={(e) => {
-          (e.target as HTMLImageElement).style.display = 'none';
-        }}
-      />
+      <img src={reference.localUrl} alt="" className="h-8 w-8 rounded-md object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
       <span className="max-w-[150px] truncate">{reference.originalUrl}</span>
-      <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10">
-        <X className="h-3 w-3" />
-      </button>
+      <button type="button" onClick={onRemove} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"><X className="h-3 w-3" /></button>
     </div>
   );
 }
 
-export function PromptBar({
-  value,
-  products,
-  personas,
-  styles,
-  presets,
-  onRawPromptChange,
-  onProductAdd,
-  onPersonaAdd,
-  onStyleAdd,
-  onPresetSelect,
-  onReferenceRemove,
-  onExtraReferenceUrlAdd,
-  onExtraReferenceUrlRemove,
-  onFileAdd,
-}: PromptBarProps) {
+export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onExtraReferenceUrlAdd, onExtraReferenceUrlRemove, onFileAdd }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
-  const [showOptions, setShowOptions] = useState(false);
-  const [extraReferenceUrlInput, setExtraReferenceUrlInput] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const availableProducts = useMemo(
-    () => (products ?? []).filter((product) => !(value.productRefs ?? []).some((selected) => selected.id === product.id)),
-    [products, value.productRefs],
-  );
-  const availablePersonas = useMemo(
-    () => (personas ?? []).filter((persona) => !(value.personaRefs ?? []).some((selected) => selected.id === persona.id)),
-    [personas, value.personaRefs],
-  );
-  const availableStyles = useMemo(
-    () => (styles ?? []).filter((style) => !(value.styleRefs ?? []).some((selected) => selected.id === style.id)),
-    [styles, value.styleRefs],
-  );
+  const productMap = useMemo(() => new Map((products ?? []).map((p) => [p.id, p])), [products]);
+  const personaMap = useMemo(() => new Map((personas ?? []).map((p) => [p.id, p])), [personas]);
+  const styleMap = useMemo(() => new Map((styles ?? []).map((s) => [s.id, s])), [styles]);
+
+  const availableProducts = useMemo(() => (products ?? []).filter((product) => !(value.productRefs ?? []).some((selected) => selected.id === product.id)), [products, value.productRefs]);
+  const availablePersonas = useMemo(() => (personas ?? []).filter((persona) => !(value.personaRefs ?? []).some((selected) => selected.id === persona.id)), [personas, value.personaRefs]);
+  const availableStyles = useMemo(() => (styles ?? []).filter((style) => !(value.styleRefs ?? []).some((selected) => selected.id === style.id)), [styles, value.styleRefs]);
 
   return (
     <div className="rounded-[28px] border border-border/70 bg-card/90 p-4 shadow-sm">
@@ -169,221 +112,64 @@ export function PromptBar({
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="rounded-full">
-                <AtSign className="h-4 w-4" />
-                {t('addReference')}
-              </Button>
+              <Button type="button" variant="outline" size="sm" className="rounded-full"><AtSign className="h-4 w-4" />{t('addReference')}</Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-72">
               <DropdownMenuLabel>{t('referenceCategories')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setPickerOpen(true)}>
-                <ImageIcon className="h-4 w-4 mr-2" />
-                {t('imageReference')}
-              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setPickerOpen(true)}><ImageIcon className="h-4 w-4 mr-2" />{t('imageReference')}</DropdownMenuItem>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Package2 className="h-4 w-4" />
-                  {t('product')}
-                </DropdownMenuSubTrigger>
+                <DropdownMenuSubTrigger><Package2 className="h-4 w-4" />{t('product')}</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
-                  {availableProducts.length === 0 ? (
-                    <DropdownMenuItem disabled>{t('noProducts')}</DropdownMenuItem>
-                  ) : (
-                    availableProducts.map((product) => (
-                      <DropdownMenuItem key={product.id} onSelect={() => onProductAdd(product)}>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{product.name}</div>
-                          {product.description ? (
-                            <div className="truncate text-xs text-muted-foreground">{product.description}</div>
-                          ) : null}
-                        </div>
-                      </DropdownMenuItem>
-                    ))
-                  )}
+                  {availableProducts.length === 0 ? <DropdownMenuItem disabled>{t('noProducts')}</DropdownMenuItem> : availableProducts.map((product) => (
+                    <DropdownMenuItem key={product.id} onSelect={() => onProductAdd(product)}><div className="min-w-0"><div className="truncate font-medium">{product.name}</div>{product.description ? <div className="truncate text-xs text-muted-foreground">{product.description}</div> : null}</div></DropdownMenuItem>
+                  ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <UserRound className="h-4 w-4" />
-                  {t('persona')}
-                </DropdownMenuSubTrigger>
+                <DropdownMenuSubTrigger><UserRound className="h-4 w-4" />{t('persona')}</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
-                  {availablePersonas.length === 0 ? (
-                    <DropdownMenuItem disabled>{t('noPersonas')}</DropdownMenuItem>
-                  ) : (
-                    availablePersonas.map((persona) => (
-                      <DropdownMenuItem key={persona.id} onSelect={() => onPersonaAdd(persona)}>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{persona.name}</div>
-                          {persona.description ? (
-                            <div className="truncate text-xs text-muted-foreground">{persona.description}</div>
-                          ) : null}
-                        </div>
-                      </DropdownMenuItem>
-                    ))
-                  )}
+                  {availablePersonas.length === 0 ? <DropdownMenuItem disabled>{t('noPersonas')}</DropdownMenuItem> : availablePersonas.map((persona) => (
+                    <DropdownMenuItem key={persona.id} onSelect={() => onPersonaAdd(persona)}><div className="min-w-0"><div className="truncate font-medium">{persona.name}</div>{persona.description ? <div className="truncate text-xs text-muted-foreground">{persona.description}</div> : null}</div></DropdownMenuItem>
+                  ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <LayoutTemplate className="h-4 w-4" />
-                  {t('style')}
-                </DropdownMenuSubTrigger>
+                <DropdownMenuSubTrigger><LayoutTemplate className="h-4 w-4" />{t('style')}</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
-                  {availableStyles.length === 0 ? (
-                    <DropdownMenuItem disabled>{t('noStyles')}</DropdownMenuItem>
-                  ) : (
-                    availableStyles.map((style) => (
-                      <DropdownMenuItem key={style.id} onSelect={() => onStyleAdd(style)}>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{style.name}</div>
-                          {style.description ? (
-                            <div className="truncate text-xs text-muted-foreground">{style.description}</div>
-                          ) : null}
-                        </div>
-                      </DropdownMenuItem>
-                    ))
-                  )}
+                  {availableStyles.length === 0 ? <DropdownMenuItem disabled>{t('noStyles')}</DropdownMenuItem> : availableStyles.map((style) => (
+                    <DropdownMenuItem key={style.id} onSelect={() => onStyleAdd(style)}><div className="min-w-0"><div className="truncate font-medium">{style.name}</div>{style.description ? <div className="truncate text-xs text-muted-foreground">{style.description}</div> : null}</div></DropdownMenuItem>
+                  ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <LayoutTemplate className="h-4 w-4" />
-                  {t('studio')}
-                </DropdownMenuSubTrigger>
+                <DropdownMenuSubTrigger><LayoutTemplate className="h-4 w-4" />{t('studio')}</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
-                  {presets.length === 0 ? (
-                    <DropdownMenuItem disabled>{t('noPresets')}</DropdownMenuItem>
-                  ) : (
-                    presets.map((preset) => (
-                      <DropdownMenuItem key={preset.id} onSelect={() => onPresetSelect(preset)}>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{preset.name}</div>
-                          <div className="truncate text-xs text-muted-foreground capitalize">
-                            {preset.category || 'uncategorized'}
-                          </div>
-                        </div>
-                      </DropdownMenuItem>
-                    ))
-                  )}
+                  {presets.length === 0 ? <DropdownMenuItem disabled>{t('noPresets')}</DropdownMenuItem> : presets.map((preset) => (
+                    <DropdownMenuItem key={preset.id} onSelect={() => onPresetSelect(preset)}><div className="min-w-0"><div className="truncate font-medium">{preset.name}</div><div className="truncate text-xs text-muted-foreground capitalize">{preset.category || 'uncategorized'}</div></div></DropdownMenuItem>
+                  ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="rounded-full"
-            onClick={() => setShowOptions((current) => !current)}
-          >
-            <Plus className="h-4 w-4" />
-            {t('moreOptions')}
-          </Button>
         </div>
       </div>
 
-      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0) ? (
+      {/* Unified references above textarea */}
+      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0 || value.extraReferenceUrls.length > 0) ? (
         <div className="mb-3 flex flex-wrap gap-2">
-          {value.productRefs.map((product) => (
-            <ReferenceChip
-              key={product.id}
-              label={`@product ${product.name}`}
-              colorClassName="bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
-              onRemove={() => onReferenceRemove('product', product.id)}
-            />
-          ))}
-          {value.personaRefs.map((persona) => (
-            <ReferenceChip
-              key={persona.id}
-              label={`@persona ${persona.name}`}
-              colorClassName="bg-sky-100 text-sky-900 dark:bg-sky-500/15 dark:text-sky-200"
-              onRemove={() => onReferenceRemove('persona', persona.id)}
-            />
-          ))}
-          {value.styleRefs.map((style) => (
-            <ReferenceChip
-              key={style.id}
-              label={`@style ${style.name}`}
-              colorClassName="bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-200"
-              onRemove={() => onReferenceRemove('style', style.id)}
-            />
-          ))}
-          {value.presetRef ? (
-            <ReferenceChip
-              label={`@studio ${value.presetRef.name}`}
-              colorClassName="bg-violet-100 text-violet-900 dark:bg-violet-500/15 dark:text-violet-200"
-              onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')}
-            />
-          ) : null}
-          {value.fileRefs.map((file) => (
-            <ReferenceChip
-              key={file.id}
-              label={`@file ${file.name}`}
-              colorClassName="bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-200"
-              onRemove={() => onReferenceRemove('file', file.id)}
-            />
-          ))}
+          {value.productRefs.map((product) => (<ReferenceChip key={product.id} label={`@product ${product.name}`} colorClassName="bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200" thumbnailUrl={productMap.get(product.id)?.thumbnailPath} onRemove={() => onReferenceRemove('product', product.id)} />))}
+          {value.personaRefs.map((persona) => (<ReferenceChip key={persona.id} label={`@persona ${persona.name}`} colorClassName="bg-sky-100 text-sky-900 dark:bg-sky-500/15 dark:text-sky-200" thumbnailUrl={personaMap.get(persona.id)?.thumbnailPath} onRemove={() => onReferenceRemove('persona', persona.id)} />))}
+          {value.styleRefs.map((style) => (<ReferenceChip key={style.id} label={`@style ${style.name}`} colorClassName="bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-200" thumbnailUrl={styleMap.get(style.id)?.thumbnailPath} onRemove={() => onReferenceRemove('style', style.id)} />))}
+          {value.presetRef ? (<ReferenceChip label={`@studio ${value.presetRef.name}`} colorClassName="bg-violet-100 text-violet-900 dark:bg-violet-500/15 dark:text-violet-200" onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')} />) : null}
+          {value.fileRefs.map((file) => (<ReferenceChip key={file.id} label={`@file ${file.name}`} colorClassName="bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-200" onRemove={() => onReferenceRemove('file', file.id)} />))}
+          {value.extraReferenceUrls.map((ref) => (<ReferenceUrlChip key={ref.originalUrl} reference={ref} onRemove={() => onExtraReferenceUrlRemove(ref.originalUrl)} />))}
         </div>
       ) : null}
 
-      <textarea
-        value={value.rawPrompt}
-        onChange={(event) => onRawPromptChange(event.target.value)}
-        placeholder={t('placeholder')}
-        className="min-h-28 w-full resize-y rounded-3xl border border-border/70 bg-background/70 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15"
-      />
+      <textarea value={value.rawPrompt} onChange={(event) => onRawPromptChange(event.target.value)} placeholder={t('placeholder')} className="min-h-28 w-full resize-y rounded-3xl border border-border/70 bg-background/70 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15" />
 
-      {showOptions ? (
-        <div className="mt-3 grid gap-3 rounded-3xl border border-border/70 bg-background/60 p-3 md:grid-cols-2">
-          <div className="space-y-2 md:col-span-2">
-            <label className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              {t('additionalUrls')}
-            </label>
-            <div className="flex gap-2">
-              <Input
-                value={extraReferenceUrlInput}
-                onChange={(event) => setExtraReferenceUrlInput(event.target.value)}
-                placeholder={t('urlPlaceholder')}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  const trimmed = extraReferenceUrlInput.trim();
-                  if (!trimmed) return;
-                  onExtraReferenceUrlAdd(trimmed);
-                  setExtraReferenceUrlInput('');
-                }}
-              >
-                {t('add')}
-              </Button>
-            </div>
-            {value.extraReferenceUrls.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {value.extraReferenceUrls.map((ref) => (
-                  <ReferenceUrlChip
-                    key={ref.originalUrl}
-                    reference={ref}
-                    onRemove={() => onExtraReferenceUrlRemove(ref.originalUrl)}
-                  />
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      <ReferencePickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        onConfirm={(paths) => {
-          onFileAdd(paths);
-          setPickerOpen(false);
-        }}
-      />
+      <ReferencePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onConfirm={(paths) => { onFileAdd(paths); setPickerOpen(false); }} onUrlAdd={(url) => { onExtraReferenceUrlAdd(url); setPickerOpen(false); }} />
     </div>
   );
 }
