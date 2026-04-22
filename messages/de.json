@@ -1741,6 +1741,10 @@
         "viewPresets": "Presets ansehen",
         "viewPresetsDesc": "Durchsuche und verwalte deine Presets."
       },
+      "emptyState": {
+        "title": "Erstelle dein erstes Bild",
+        "subtitle": "Gib unten deine Idee ein und lasse die KI zaubern. Deine Ergebnisse erscheinen hier – in Echtzeit."
+      },
       "startingPointsTitle": "Inspiration",
       "recreate": "Nachbilden",
       "recentGenerationsTitle": "Letzte Generierungen",

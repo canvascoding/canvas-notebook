@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { Sparkles } from 'lucide-react';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -40,35 +41,40 @@ const STARTING_POINTS = [
 ] as const;
 
 function EmptyState() {
+  const t = useTranslations('studio');
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-10">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-        <div className="max-w-2xl space-y-3">
-          <Badge variant="secondary" className="w-fit rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
-            Starting Points
-          </Badge>
+      <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-10">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-primary/10 text-primary">
+            <Sparkles className="h-10 w-10" />
+          </div>
           <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-            Start with a visual direction, then build from products, personas, and presets.
+            {t('dashboard.emptyState.title')}
           </h2>
-          <p className="max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Your outputs will appear here in reverse chronological order. Use the prompt bar below to create images
-            or videos, then refine the result with studio presets and references.
+          <p className="max-w-md text-sm leading-6 text-muted-foreground sm:text-base">
+            {t('dashboard.emptyState.subtitle')}
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {STARTING_POINTS.map((item) => (
-            <div
-              key={item.title}
-              className="group rounded-3xl border border-border/70 bg-card/80 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
-            >
-              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Sparkles className="h-5 w-5" />
+        <div className="w-full space-y-3">
+          <Badge variant="secondary" className="w-fit rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
+            {t('dashboard.startingPointsTitle')}
+          </Badge>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {STARTING_POINTS.map((item) => (
+              <div
+                key={item.title}
+                className="group rounded-3xl border border-border/70 bg-card/80 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
+              >
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <h3 className="mb-2 text-base font-semibold text-foreground">{item.title}</h3>
+                <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
               </div>
-              <h3 className="mb-2 text-base font-semibold text-foreground">{item.title}</h3>
-              <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </div>
