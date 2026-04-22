@@ -16,6 +16,12 @@ import {
   ensureVeoWorkspace,
 } from '@/app/lib/integrations/veo-workspace';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
+import {
+  getVideoModelCapabilities,
+  type VideoModelId,
+  type VideoResolution,
+  type VideoDuration,
+} from '@/app/lib/integrations/image-generation-constants';
 
 const IMAGE_MIME: Record<string, string> = {
   png: 'image/png',
@@ -37,13 +43,19 @@ export interface GenerateVideoRequestBody {
   prompt?: string;
   model?: string;
   aspectRatio?: '16:9' | '9:16';
-  resolution?: '720p' | '1080p' | '4k';
+  resolution?: VideoResolution;
+  durationSeconds?: VideoDuration;
   mode?: GenerationMode;
   startFramePath?: string | null;
   endFramePath?: string | null;
   isLooping?: boolean;
   referenceImagePaths?: string[];
   inputVideoPath?: string | null;
+  personGeneration?: 'allow_all' | 'allow_adult' | 'dont_allow';
+  negativePrompt?: string;
+  enhancePrompt?: boolean;
+  generateAudio?: boolean;
+  seed?: number;
 }
 
 export interface VideoGenerationResultData {
@@ -177,19 +189,72 @@ export async function generateVideo(
   const model = body.model || 'veo-3.1-fast-generate-preview';
   const aspectRatio = body.aspectRatio || '16:9';
   const resolution = body.resolution || '720p';
+  const durationSeconds = body.durationSeconds || 6;
+  const personGeneration = body.personGeneration || 'allow_all';
 
   if (!prompt && mode !== 'frames_to_video' && mode !== 'extend_video') {
     throw new IntegrationServiceError('Prompt is required.', 400);
   }
 
+  const caps = getVideoModelCapabilities(model);
+
+  if (mode === 'extend_video' && !caps.extension) {
+    throw new IntegrationServiceError(`Video extension is not supported by model ${model}.`, 400);
+  }
+  if (mode === 'references_to_video' && !caps.references) {
+    throw new IntegrationServiceError(`Reference images are not supported by model ${model}.`, 400);
+  }
+  if (mode === 'extend_video' && resolution !== '720p') {
+    throw new IntegrationServiceError('Video extension requires 720p resolution.', 400);
+  }
+  if (!caps.resolutions.includes(resolution)) {
+    throw new IntegrationServiceError(
+      `Resolution ${resolution} is not supported by model ${model}. Supported: ${caps.resolutions.join(', ')}`,
+      400,
+    );
+  }
+  const effectiveDuration = (resolution === '1080p' || resolution === '4k') ? 8 : durationSeconds;
+  if (!caps.durations.includes(effectiveDuration as VideoDuration)) {
+    throw new IntegrationServiceError(
+      `Duration ${effectiveDuration}s is not supported by model ${model}. Supported: ${caps.durations.join(', ')}s`,
+      400,
+    );
+  }
+  if (mode === 'references_to_video' && effectiveDuration !== 8) {
+    throw new IntegrationServiceError('Reference images mode requires 8-second duration.', 400);
+  }
+  if (personGeneration && !caps.personGeneration.includes(personGeneration)) {
+    throw new IntegrationServiceError(
+      `personGeneration "${personGeneration}" is not supported by model ${model}. Supported: ${caps.personGeneration.join(', ')}`,
+      400,
+    );
+  }
+
   const ai = new GoogleGenAI({ apiKey });
+  const config: Record<string, unknown> = {
+    numberOfVideos: 1,
+    resolution,
+    aspectRatio,
+    durationSeconds: effectiveDuration,
+    personGeneration,
+  };
+
+  if (body.negativePrompt) {
+    config.negativePrompt = body.negativePrompt;
+  }
+  if (body.enhancePrompt !== undefined) {
+    config.enhancePrompt = body.enhancePrompt;
+  }
+  if (body.generateAudio !== undefined) {
+    config.generateAudio = body.generateAudio;
+  }
+  if (body.seed !== undefined) {
+    config.seed = body.seed;
+  }
+
   const payload: Record<string, unknown> = {
     model,
-    config: {
-      numberOfVideos: 1,
-      resolution,
-      aspectRatio,
-    },
+    config,
   };
 
   if (prompt) {
@@ -207,9 +272,7 @@ export async function generateVideo(
     const endFramePath = body.isLooping ? body.startFramePath : body.endFramePath;
     if (endFramePath) {
       const endFrame = await loadImageBytes(endFramePath);
-      const config = (payload.config || {}) as Record<string, unknown>;
       config.lastFrame = endFrame;
-      payload.config = config;
     }
   }
 
@@ -228,9 +291,7 @@ export async function generateVideo(
       });
     }
 
-    const config = (payload.config || {}) as Record<string, unknown>;
     config.referenceImages = referenceImages;
-    payload.config = config;
   }
 
   if (mode === 'extend_video') {
@@ -273,6 +334,14 @@ export async function generateVideo(
         mode,
         model,
         prompt,
+        resolution,
+        aspectRatio,
+        durationSeconds: effectiveDuration,
+        personGeneration,
+        negativePrompt: body.negativePrompt || null,
+        enhancePrompt: body.enhancePrompt ?? null,
+        generateAudio: body.generateAudio ?? null,
+        seed: body.seed ?? null,
         input: {
           startFramePath: body.startFramePath || null,
           endFramePath: body.endFramePath || null,

@@ -36,8 +36,49 @@ import {
   Move,
   Cloud,
   Sun,
+  Camera,
+  Package,
+  UtensilsCrossed,
+  Cpu,
+  Home,
+  Car,
+  Layers,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { StudioBlock, StudioPresetBlockCatalog, StudioPreset } from '../../types/presets';
+
+const PREVIEW_CATEGORY_ICONS: Record<string, LucideIcon> = {
+  fashion: Camera,
+  product: Package,
+  food: UtensilsCrossed,
+  lifestyle: Sun,
+  beauty: Sparkles,
+  tech: Cpu,
+  interior: Home,
+  automotive: Car,
+};
+
+const PREVIEW_CATEGORY_GRADIENTS: Record<string, string> = {
+  fashion: 'from-rose-100 to-pink-50',
+  product: 'from-slate-100 to-gray-50',
+  food: 'from-amber-100 to-yellow-50',
+  lifestyle: 'from-orange-100 to-amber-50',
+  beauty: 'from-fuchsia-100 to-pink-50',
+  tech: 'from-blue-100 to-cyan-50',
+  interior: 'from-stone-100 to-neutral-50',
+  automotive: 'from-zinc-200 to-zinc-100',
+};
+
+const PREVIEW_CATEGORY_ICON_COLORS: Record<string, string> = {
+  fashion: 'text-rose-400/60',
+  product: 'text-slate-400/60',
+  food: 'text-amber-400/60',
+  lifestyle: 'text-orange-400/60',
+  beauty: 'text-fuchsia-400/60',
+  tech: 'text-blue-400/60',
+  interior: 'text-stone-400/60',
+  automotive: 'text-zinc-500/60',
+};
 
 interface PresetBuilderProps {
   presetId?: string;
@@ -106,7 +147,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [tags, setTags] = useState('');
-  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewEnabled, setPreviewEnabled] = useState(false);
   const [previewGenerating, setPreviewGenerating] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -392,20 +433,27 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
 
             <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center relative">
                {previewImageUrl && previewEnabled ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={previewImageUrl}
-                    alt="Preview"
-                    className="h-full w-full object-cover"
-                  />
-                </>
-              ) : (
-                <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                  <ImageIcon className="h-8 w-8" />
-                  <p className="text-xs">{previewEnabled ? 'Preview will generate after saving' : 'Preview disabled'}</p>
-                </div>
-              )}
+                 <>
+                   {/* eslint-disable-next-line @next/next/no-img-element */}
+                   <img
+                     src={previewImageUrl}
+                     alt="Preview"
+                     className="h-full w-full object-cover"
+                   />
+                 </>
+               ) : (
+                 <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', PREVIEW_CATEGORY_GRADIENTS[category ?? ''] ?? 'from-muted to-muted/50')}>
+                   {(() => {
+                     const FallbackIcon = PREVIEW_CATEGORY_ICONS[category ?? ''] ?? Layers;
+                     const iconColor = PREVIEW_CATEGORY_ICON_COLORS[category ?? ''] ?? 'text-muted-foreground/40';
+                     return <FallbackIcon className={cn('h-10 w-10', iconColor)} />;
+                   })()}
+                   <span className="max-w-[80%] text-center text-xs font-medium leading-tight text-muted-foreground/50 line-clamp-2">
+                     {name || 'Preset Preview'}
+                   </span>
+                   <p className="text-[10px] text-muted-foreground/40">{previewEnabled ? 'Preview will generate after saving' : 'Preview disabled'}</p>
+                 </div>
+               )}
               {previewGenerating && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                   <Loader2 className="h-8 w-8 animate-spin text-white" />

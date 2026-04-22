@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 import { eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { studioPresets } from '@/app/lib/db/schema';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
-import { ensureStudioAssetsWorkspace, writeAssetFile } from '@/app/lib/integrations/studio-workspace';
+import { ensureStudioAssetsWorkspace, writeAssetFile, getStudioAssetsRoot } from '@/app/lib/integrations/studio-workspace';
 
 type StudioPresetCategory =
   | 'fashion'
@@ -415,10 +416,16 @@ function serializeTags(tags: string[]): string {
 }
 
 export function resolveStudioPresetSeedDir(cwd = process.cwd()): string {
-  return path.join(resolveCanvasDataRoot(cwd), 'seeds', 'studio-presets');
+  const staticSeedDir = path.join(cwd, 'seed_sys_prompts', 'studio-preset-previews');
+  try {
+    fsSync.accessSync(staticSeedDir);
+    return staticSeedDir;
+  } catch {
+    return path.join(resolveCanvasDataRoot(cwd), 'seeds', 'studio-presets');
+  }
 }
 
-function renderPresetPreviewSvg(seed: DefaultStudioPresetSeed): string {
+export function renderPresetPreviewSvg(seed: DefaultStudioPresetSeed): string {
   const blockLines = seed.blocks.slice(0, 4).map((item, index) => `
     <g transform="translate(0 ${index * 62})">
       <rect x="0" y="0" width="360" height="46" rx="18" fill="rgba(255,255,255,0.20)" />
@@ -487,11 +494,13 @@ async function ensureSeedPreviewAsset(seed: DefaultStudioPresetSeed, seedDir: st
       await fs.access(filePath);
       return filePath;
     } catch {
-      // Fall through and generate the asset.
+      // Static file missing, generate from SVG as fallback
     }
   }
 
   const svg = renderPresetPreviewSvg(seed);
+  const parentDir = path.dirname(filePath);
+  await fs.mkdir(parentDir, { recursive: true });
   await sharp(Buffer.from(svg)).png().toFile(filePath);
   return filePath;
 }
@@ -517,9 +526,31 @@ export async function ensureDefaultStudioPresetsSeeded(
   let updated = 0;
 
   for (const seed of DEFAULT_STUDIO_PRESET_SEEDS) {
-    const previewBuffer = await fs.readFile(path.join(seedDir, `${seed.id}.png`));
+    const seedFilePath = path.join(seedDir, `${seed.id}.png`);
     const previewImagePath = `presets/${seed.id}/preview-seed.png`;
-    await writeAssetFile(previewImagePath, previewBuffer);
+    const assetFilePath = path.join(getStudioAssetsRoot(), previewImagePath);
+
+    let previewBuffer: Buffer;
+    try {
+      previewBuffer = await fs.readFile(seedFilePath);
+    } catch {
+      console.warn(`[studio-preset-seed] Seed image missing: ${seedFilePath}, skipping asset copy for ${seed.id}`);
+      continue;
+    }
+
+    let needsAssetCopy = true;
+    try {
+      const existingStat = await fs.stat(assetFilePath);
+      if (existingStat.size === previewBuffer.length) {
+        needsAssetCopy = false;
+      }
+    } catch {
+      // Asset doesn't exist, needs copy
+    }
+
+    if (needsAssetCopy) {
+      await writeAssetFile(previewImagePath, previewBuffer);
+    }
 
     const [existing] = await db.select()
       .from(studioPresets)
@@ -539,10 +570,14 @@ export async function ensureDefaultStudioPresetsSeeded(
     };
 
     if (existing) {
-      await db.update(studioPresets)
-        .set(values)
-        .where(eq(studioPresets.id, seed.id));
-      updated += 1;
+      if (existing.previewImagePath !== previewImagePath) {
+        await db.update(studioPresets)
+          .set(values)
+          .where(eq(studioPresets.id, seed.id));
+        updated += 1;
+      } else {
+        updated += 1;
+      }
       continue;
     }
 

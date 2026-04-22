@@ -95,6 +95,8 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
 
 type VideoAspectRatio = NonNullable<GenerateVideoRequestBody['aspectRatio']>;
 type VideoResolution = NonNullable<GenerateVideoRequestBody['resolution']>;
+type VideoDuration = NonNullable<GenerateVideoRequestBody['durationSeconds']>;
+type PersonGeneration = NonNullable<GenerateVideoRequestBody['personGeneration']>;
 type GenerateImagesFn = typeof generateImages;
 type GenerateVideoFn = typeof generateVideo;
 
@@ -115,12 +117,18 @@ type VideoGenerationToolParams = {
   mode?: GenerationMode;
   aspect_ratio?: VideoAspectRatio;
   resolution?: VideoResolution;
+  duration_seconds?: VideoDuration;
   model?: string;
   start_frame_path?: string;
   end_frame_path?: string;
   reference_image_paths?: string[];
   input_video_path?: string;
   is_looping?: boolean;
+  person_generation?: PersonGeneration;
+  negative_prompt?: string;
+  enhance_prompt?: boolean;
+  generate_audio?: boolean;
+  seed?: number;
 };
 
 const VIDEO_GENERATION_MODES: readonly GenerationMode[] = [
@@ -132,6 +140,8 @@ const VIDEO_GENERATION_MODES: readonly GenerationMode[] = [
 
 const VIDEO_ASPECT_RATIOS: readonly VideoAspectRatio[] = ['16:9', '9:16'];
 const VIDEO_RESOLUTIONS: readonly VideoResolution[] = ['720p', '1080p', '4k'];
+const VIDEO_DURATIONS: readonly VideoDuration[] = [4, 5, 6, 8];
+const PERSON_GENERATION_VALUES: readonly PersonGeneration[] = ['allow_all', 'allow_adult', 'dont_allow'];
 
 function isGenerationMode(value: string): value is GenerationMode {
   return VIDEO_GENERATION_MODES.includes(value as GenerationMode);
@@ -143,6 +153,14 @@ function isVideoAspectRatio(value: string): value is VideoAspectRatio {
 
 function isVideoResolution(value: string): value is VideoResolution {
   return VIDEO_RESOLUTIONS.includes(value as VideoResolution);
+}
+
+function isVideoDuration(value: number): value is VideoDuration {
+  return VIDEO_DURATIONS.includes(value as VideoDuration);
+}
+
+function isPersonGeneration(value: string): value is PersonGeneration {
+  return PERSON_GENERATION_VALUES.includes(value as PersonGeneration);
 }
 
 function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent | null {
@@ -441,7 +459,7 @@ export function createVideoGenerationTool(
     name: 'video_generation',
     label: 'Generating videos',
     description:
-      'Generates videos using the local Canvas video-generation service. Use this direct PI tool for text-to-video, frames-to-video with workspace-relative start/end frames, references-to-video with workspace-relative image references, and extend-video with a workspace-relative input video. Output: workspace/veo-studio/video-generation/. Note: Takes 3-10 minutes.',
+      'Generates videos using the local Canvas video-generation service. Use this direct PI tool for text-to-video, frames-to-video with workspace-relative start/end frames, references-to-video with workspace-relative image references, and extend-video with a workspace-relative input video. Output: workspace/veo-studio/video-generation/. Note: Takes 3-10 minutes. Models: veo-3.1-generate-preview, veo-3.1-fast-generate-preview (default), veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001.',
     parameters: Type.Object({
       prompt: Type.Optional(Type.String({ description: 'Text description of the video to generate. Required for text_to_video and references_to_video.' })),
       mode: Type.Optional(
@@ -463,11 +481,19 @@ export function createVideoGenerationTool(
           Type.Literal('720p'),
           Type.Literal('1080p'),
           Type.Literal('4k'),
-        ], { description: 'Resolution: 720p (default), 1080p, 4k' }),
+        ], { description: 'Resolution: 720p (default), 1080p, 4k. Extension only supports 720p. 1080p/4k require 8s duration.' }),
+      ),
+      duration_seconds: Type.Optional(
+        Type.Union([
+          Type.Literal(4),
+          Type.Literal(5),
+          Type.Literal(6),
+          Type.Literal(8),
+        ], { description: 'Duration in seconds: 4, 5, 6, or 8. Default: 6. 1080p/4k and references require 8s.' }),
       ),
       model: Type.Optional(
         Type.String({
-          description: 'Model: veo-3.1-fast-generate-preview (default) or veo-3.1-generate-preview.',
+          description: 'Model ID: veo-3.1-fast-generate-preview (default), veo-3.1-generate-preview, veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001.',
         }),
       ),
       start_frame_path: Type.Optional(
@@ -487,6 +513,25 @@ export function createVideoGenerationTool(
       is_looping: Type.Optional(
         Type.Boolean({ description: 'When true in frames_to_video mode, reuse start_frame_path as the last frame.' }),
       ),
+      person_generation: Type.Optional(
+        Type.Union([
+          Type.Literal('allow_all'),
+          Type.Literal('allow_adult'),
+          Type.Literal('dont_allow'),
+        ], { description: 'Person generation policy: allow_all (default), allow_adult, dont_allow.' }),
+      ),
+      negative_prompt: Type.Optional(
+        Type.String({ description: 'What should not be included in the generated video.' }),
+      ),
+      enhance_prompt: Type.Optional(
+        Type.Boolean({ description: 'Whether to use prompt rewriting logic. Default: true.' }),
+      ),
+      generate_audio: Type.Optional(
+        Type.Boolean({ description: 'Whether to generate audio. Default: true for Veo 3+.' }),
+      ),
+      seed: Type.Optional(
+        Type.Number({ description: 'RNG seed for slightly improved determinism. Not guaranteed deterministic.' }),
+      ),
     }),
     execute: async (toolCallId, params) => {
       const {
@@ -494,12 +539,18 @@ export function createVideoGenerationTool(
         mode,
         aspect_ratio,
         resolution,
+        duration_seconds,
         model,
         start_frame_path,
         end_frame_path,
         reference_image_paths,
         input_video_path,
         is_looping,
+        person_generation,
+        negative_prompt,
+        enhance_prompt,
+        generate_audio,
+        seed,
       } = params as VideoGenerationToolParams;
       try {
         if (mode && !isGenerationMode(mode)) {
@@ -510,6 +561,12 @@ export function createVideoGenerationTool(
         }
         if (resolution && !isVideoResolution(resolution)) {
           throw new Error(`Invalid resolution "${resolution}". Allowed values: ${VIDEO_RESOLUTIONS.join(', ')}`);
+        }
+        if (duration_seconds && !isVideoDuration(duration_seconds)) {
+          throw new Error(`Invalid duration "${duration_seconds}". Allowed values: ${VIDEO_DURATIONS.join(', ')}s`);
+        }
+        if (person_generation && !isPersonGeneration(person_generation)) {
+          throw new Error(`Invalid person_generation "${person_generation}". Allowed values: ${PERSON_GENERATION_VALUES.join(', ')}`);
         }
 
         const normalizedPrompt = normalizeOptionalString(prompt);
@@ -541,12 +598,18 @@ export function createVideoGenerationTool(
             mode: selectedMode,
             aspectRatio: aspect_ratio ?? '16:9',
             resolution: resolution ?? '720p',
+            durationSeconds: duration_seconds ?? 6,
             model: model ?? 'veo-3.1-fast-generate-preview',
             startFramePath,
             endFramePath,
             referenceImagePaths,
             inputVideoPath,
             isLooping: is_looping ?? false,
+            personGeneration: person_generation ?? 'allow_all',
+            negativePrompt: negative_prompt,
+            enhancePrompt: enhance_prompt,
+            generateAudio: generate_audio,
+            seed,
           },
           'pi-agent',
         );

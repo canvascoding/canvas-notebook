@@ -13,7 +13,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckSquare2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
@@ -21,7 +20,7 @@ import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 
-type Source = 'workspace' | 'studio' | 'upload';
+type Source = 'workspace' | 'studio' | 'upload' | 'urls';
 
 interface ImageAsset {
   path: string;
@@ -119,11 +118,12 @@ function TreeNode({
   );
 }
 
-export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: ReferencePickerDialogProps) {
+export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd }: ReferencePickerDialogProps) {
   const t = useTranslations('studio.referencePicker');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<Source>('studio');
   const [search, setSearch] = useState('');
+  const [urlInput, setUrlInput] = useState('');
 
   const [assets, setAssets] = useState<ImageAsset[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -201,6 +201,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
     if (!open) return;
     setSelectedPaths(new Set());
     setSearch('');
+    setUrlInput('');
     void loadStudioAssets();
     void loadWorkspaceTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -365,10 +366,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
           </DialogHeader>
 
           <Tabs value={tab} onValueChange={(val) => setTab(val as Source)} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <TabsList className="grid w-full grid-cols-3 shrink-0">
+            <TabsList className="grid w-full grid-cols-4 shrink-0">
               <TabsTrigger value="studio">{t('tabs.studio')}</TabsTrigger>
               <TabsTrigger value="workspace">{t('tabs.workspace')}</TabsTrigger>
               <TabsTrigger value="upload">{t('tabs.upload')}</TabsTrigger>
+              <TabsTrigger value="urls">{t('tabs.urls')}</TabsTrigger>
             </TabsList>
 
             {/* Studio tab */}
@@ -381,7 +383,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                 </Button>
               </div>
               {error && <p className="text-sm text-destructive mb-2 shrink-0">{error}</p>}
-              <ScrollArea className="flex-1 min-h-0 border rounded-md bg-background p-3">
+              <div className="flex-1 min-h-0 overflow-y-auto border rounded-md bg-background p-3">
                 {isLoading ? (
                   <div className="flex h-40 items-center justify-center text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -397,6 +399,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                         <button key={asset.path} type="button" onClick={() => toggleSelect(asset.path)}
                           className={cn('relative overflow-hidden border rounded-lg text-left transition', selected ? 'border-primary ring-2 ring-primary/20 bg-primary/5' : 'border-border bg-card hover:border-primary/50')}>
                           <div className="aspect-video w-full bg-muted">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={asset.previewUrl} alt={asset.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
                           </div>
                           <div className="p-2">
@@ -410,7 +413,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                     })}
                   </div>
                 )}
-              </ScrollArea>
+              </div>
             </TabsContent>
 
             {/* Workspace tab */}
@@ -426,7 +429,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                 </Button>
               </div>
               {treeError && <p className="text-sm text-destructive mb-2 shrink-0">{treeError}</p>}
-              <ScrollArea className="flex-1 min-h-0 border rounded-md bg-background p-3">
+              <div className="flex-1 min-h-0 overflow-y-auto border rounded-md bg-background p-3">
                 {isTreeLoading ? (
                   <div className="flex h-40 items-center justify-center text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -435,13 +438,13 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                 ) : tree.length === 0 ? (
                   <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">{t('emptyWorkspace')}</div>
                 ) : (
-                  <div className="space-y-0.5 min-h-0">
+                  <div className="space-y-0.5">
                     {tree.map((node) => (
                       <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} />
                     ))}
                   </div>
                 )}
-              </ScrollArea>
+              </div>
             </TabsContent>
 
             {/* Upload tab */}
@@ -461,6 +464,32 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                 {error && <p className="text-sm text-destructive mt-2">{error}</p>}
               </div>
             </TabsContent>
+
+            {/* URLs tab */}
+            <TabsContent value="urls" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex overflow-hidden">
+              <div className="flex flex-col gap-4 py-3">
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-foreground">{t('urlTabTitle')}</label>
+                  <p className="text-xs text-muted-foreground">{t('urlTabDescription')}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder={t('urlPlaceholder')} />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const trimmed = urlInput.trim();
+                      if (!trimmed || !onUrlAdd) return;
+                      onUrlAdd(trimmed);
+                      setUrlInput('');
+                    }}
+                    disabled={!urlInput.trim()}
+                  >
+                    {t('addUrl')}
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
           </Tabs>
 
           {/* Selection preview - bounded height, scrollable */}
@@ -473,6 +502,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                 {currentSelectionDisplay.map((asset) => (
                   <button key={asset.path} type="button" onClick={() => toggleSelect(asset.path)}
                     className="relative group overflow-hidden border rounded-md transition hover:border-destructive" title={asset.name}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={asset.previewUrl} alt={asset.name} className="h-10 w-10 object-cover" />
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-50 bg-black/30">
                       <X className="h-4 w-4 text-white" />

@@ -276,6 +276,21 @@ try {
   console.warn('[Startup] Orphaned-assets cleanup could not be loaded:', err.message);
 }
 
+try {
+  console.log('[Startup] Seeding studio preset assets...');
+  const { ensureDefaultStudioPresetsSeeded } = require('./app/lib/integrations/studio-preset-defaults');
+  const { ensureStudioAssetsWorkspace } = require('./app/lib/integrations/studio-workspace');
+  ensureStudioAssetsWorkspace().then(() => {
+    return ensureDefaultStudioPresetsSeeded();
+  }).then((result) => {
+    console.log(`[Startup] Studio preset seeding: ${result.total} presets (${result.inserted} inserted, ${result.updated} updated)`);
+  }).catch((err) => {
+    console.warn('[Startup] Studio preset seeding failed:', err.message);
+  });
+} catch (err) {
+  console.warn('[Startup] Studio preset seeding could not be loaded:', err.message);
+}
+
 // Spawn the standalone HTTP-based scheduler as a child process.
 // This avoids the ESM-only dependency chain (pi-agent-core → pi-ai) that
 // cannot be loaded via tsx's CJS transform in server.js.

@@ -1,6 +1,50 @@
 import { cn } from '@/lib/utils';
 import type { StudioPreset } from '../../types/presets';
-import { Layers, Sparkles } from 'lucide-react';
+import {
+  Camera,
+  Package,
+  UtensilsCrossed,
+  Sun,
+  Sparkles,
+  Cpu,
+  Home,
+  Car,
+  Layers,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  fashion: Camera,
+  product: Package,
+  food: UtensilsCrossed,
+  lifestyle: Sun,
+  beauty: Sparkles,
+  tech: Cpu,
+  interior: Home,
+  automotive: Car,
+};
+
+const CATEGORY_GRADIENTS: Record<string, string> = {
+  fashion: 'from-rose-100 to-pink-50',
+  product: 'from-slate-100 to-gray-50',
+  food: 'from-amber-100 to-yellow-50',
+  lifestyle: 'from-orange-100 to-amber-50',
+  beauty: 'from-fuchsia-100 to-pink-50',
+  tech: 'from-blue-100 to-cyan-50',
+  interior: 'from-stone-100 to-neutral-50',
+  automotive: 'from-zinc-200 to-zinc-100',
+};
+
+const CATEGORY_ICON_COLORS: Record<string, string> = {
+  fashion: 'text-rose-400/60',
+  product: 'text-slate-400/60',
+  food: 'text-amber-400/60',
+  lifestyle: 'text-orange-400/60',
+  beauty: 'text-fuchsia-400/60',
+  tech: 'text-blue-400/60',
+  interior: 'text-stone-400/60',
+  automotive: 'text-zinc-500/60',
+};
 
 interface PresetCardProps {
   preset: StudioPreset;
@@ -8,6 +52,10 @@ interface PresetCardProps {
 }
 
 export function PresetCard({ preset, onClick }: PresetCardProps) {
+  const CategoryIcon = CATEGORY_ICONS[preset.category ?? ''] ?? Layers;
+  const gradient = CATEGORY_GRADIENTS[preset.category ?? ''] ?? 'from-muted to-muted/50';
+  const iconColor = CATEGORY_ICON_COLORS[preset.category ?? ''] ?? 'text-muted-foreground/40';
+
   return (
     <div
       onClick={onClick}
@@ -27,8 +75,11 @@ export function PresetCard({ preset, onClick }: PresetCardProps) {
             />
           </>
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <Sparkles className="h-8 w-8 text-muted-foreground/50" />
+          <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', gradient)}>
+            <CategoryIcon className={cn('h-10 w-10', iconColor)} />
+            <span className="max-w-[80%] text-center text-xs font-medium leading-tight text-muted-foreground/50 line-clamp-2">
+              {preset.name}
+            </span>
           </div>
         )}
         {preset.isDefault && (

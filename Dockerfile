@@ -78,6 +78,9 @@ COPY --from=builder /app/server ./server
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
 
+# Copy seed assets (preset preview images, sys prompts, etc.)
+COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts
+
 # Copy production node_modules for external packages (better-auth, etc.)
 COPY --from=builder /app/node_modules ./node_modules
 

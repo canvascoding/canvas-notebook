@@ -14,6 +14,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  VIDEO_MODELS,
+  VIDEO_ASPECT_RATIOS,
+  getVideoModelCapabilities,
+  getVideoResolutionsForModel,
+  getVideoDurationsForModel,
+  type VideoModelId,
+  type VideoResolution,
+  type VideoDuration,
+} from '@/app/lib/integrations/image-generation-constants';
 
 type GenerationMode = 'text_to_video' | 'frames_to_video' | 'references_to_video' | 'extend_video';
 
@@ -29,10 +39,10 @@ interface GenerateResponseData {
   mediaUrl: string;
 }
 
-const MODEL_OPTIONS = [
-  { value: 'veo-3.1-fast-generate-preview', key: 'fast' },
-  { value: 'veo-3.1-generate-preview', key: 'highQuality' },
-] as const;
+const MODEL_OPTIONS = VIDEO_MODELS.map((m) => ({
+  value: m.id,
+  key: m.optionKey,
+})) as { value: string; key: string }[];
 
 function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) {
   const name = path.split('/').pop() || path;
@@ -70,9 +80,11 @@ export function VeoStudioClient() {
   };
   const [mode, setMode] = useState<GenerationMode>('text_to_video');
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState('veo-3.1-fast-generate-preview');
+  const [model, setModel] = useState<string>('veo-3.1-fast-generate-preview');
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
-  const [resolution, setResolution] = useState<'720p' | '1080p' | '4k'>('720p');
+  const [resolution, setResolution] = useState<VideoResolution>('720p');
+  const [durationSeconds, setDurationSeconds] = useState<VideoDuration>(6);
+  const [personGeneration, setPersonGeneration] = useState<'allow_all' | 'allow_adult' | 'dont_allow'>('allow_all');
   const [isLooping, setIsLooping] = useState(false);
 
   const [startFramePath, setStartFramePath] = useState<string | null>(null);
@@ -86,6 +98,37 @@ export function VeoStudioClient() {
   const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
   const [isLoadingOutputs, setIsLoadingOutputs] = useState(false);
   const [previewItem, setPreviewItem] = useState<OutputItem | null>(null);
+
+  const caps = useMemo(() => getVideoModelCapabilities(model), [model]);
+  const validResolutions = useMemo(() => getVideoResolutionsForModel(model), [model]);
+  const validDurations = useMemo(() => getVideoDurationsForModel(model), [model]);
+
+  const validModes = useMemo(() => {
+    const modes: GenerationMode[] = ['text_to_video', 'frames_to_video'];
+    if (caps.references) modes.push('references_to_video');
+    if (caps.extension) modes.push('extend_video');
+    return modes;
+  }, [caps]);
+
+  useEffect(() => {
+    if (!validResolutions.includes(resolution)) {
+      setResolution(validResolutions[0] as VideoResolution);
+    }
+  }, [model, validResolutions, resolution]);
+
+  useEffect(() => {
+    if (resolution === '1080p' || resolution === '4k') {
+      setDurationSeconds(8);
+    } else if (!validDurations.includes(durationSeconds)) {
+      setDurationSeconds(validDurations.includes(6) ? 6 : validDurations[0] as VideoDuration);
+    }
+  }, [resolution, validDurations, durationSeconds]);
+
+  useEffect(() => {
+    if (!validModes.includes(mode)) {
+      setMode('text_to_video');
+    }
+  }, [validModes, mode]);
 
   const [picker, setPicker] = useState<{
     open: boolean;
@@ -172,6 +215,7 @@ export function VeoStudioClient() {
     setIsGenerating(true);
 
     try {
+      const effectiveDuration = (resolution === '1080p' || resolution === '4k' || mode === 'references_to_video') ? 8 : durationSeconds;
       const response = await fetch('/api/veo/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,6 +226,8 @@ export function VeoStudioClient() {
           model,
           aspectRatio,
           resolution,
+          durationSeconds: effectiveDuration,
+          personGeneration,
           isLooping,
           startFramePath,
           endFramePath,
@@ -203,6 +249,12 @@ export function VeoStudioClient() {
     }
   };
 
+  const durationOptions = useMemo(() => {
+    if (resolution === '1080p' || resolution === '4k') return [8] as VideoDuration[];
+    if (mode === 'references_to_video') return [8] as VideoDuration[];
+    return validDurations;
+  }, [resolution, mode, validDurations]);
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 md:px-6">
       <Card id="onboarding-veo-mode">
@@ -222,9 +274,9 @@ export function VeoStudioClient() {
                 value={mode}
                 onChange={(event) => setMode(event.target.value as GenerationMode)}
               >
-                {Object.entries(modeLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+                {validModes.map((m) => (
+                  <option key={m} value={m}>
+                    {modeLabels[m]}
                   </option>
                 ))}
               </select>
@@ -250,8 +302,9 @@ export function VeoStudioClient() {
                 value={aspectRatio}
                 onChange={(event) => setAspectRatio(event.target.value as '16:9' | '9:16')}
               >
-                <option value="16:9">16:9</option>
-                <option value="9:16">9:16</option>
+                {VIDEO_ASPECT_RATIOS.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -259,13 +312,49 @@ export function VeoStudioClient() {
               <select
                 className="h-9 border border-input bg-background px-2 text-sm"
                 value={resolution}
-                onChange={(event) => setResolution(event.target.value as '720p' | '1080p' | '4k')}
+                onChange={(event) => setResolution(event.target.value as VideoResolution)}
               >
-                <option value="720p">720p</option>
-                <option value="1080p">1080p</option>
-                <option value="4k">4k</option>
+                {validResolutions.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
               </select>
             </label>
+          </div>
+
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-xs text-muted-foreground">{t('fields.duration')}</span>
+              <select
+                className="h-9 border border-input bg-background px-2 text-sm"
+                value={durationSeconds}
+                onChange={(event) => setDurationSeconds(Number(event.target.value) as VideoDuration)}
+                disabled={durationOptions.length <= 1}
+              >
+                {durationOptions.map((d) => (
+                  <option key={d} value={d}>{d}s</option>
+                ))}
+              </select>
+              {(resolution === '1080p' || resolution === '4k') && (
+                <span className="text-xs text-muted-foreground">{t('hints.durationLocked')}</span>
+              )}
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-xs text-muted-foreground">{t('fields.personGeneration')}</span>
+              <select
+                className="h-9 border border-input bg-background px-2 text-sm"
+                value={personGeneration}
+                onChange={(event) => setPersonGeneration(event.target.value as 'allow_all' | 'allow_adult' | 'dont_allow')}
+              >
+                {caps.personGeneration.map((pg) => (
+                  <option key={pg} value={pg}>{t(`personGeneration.${pg}`)}</option>
+                ))}
+              </select>
+            </label>
+            {!caps.audio && (
+              <div className="flex items-end text-xs text-muted-foreground">
+                {t('hints.noAudio')}
+              </div>
+            )}
           </div>
 
           {mode !== 'extend_video' && (
