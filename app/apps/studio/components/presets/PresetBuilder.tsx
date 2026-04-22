@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,23 @@ import {
   Image as ImageIcon,
   Trash2,
   Check,
+  Lamp,
+  Crosshair,
+  Square,
+  Clapperboard,
+  Flower2,
+  Users,
+  Aperture,
+  Palette,
+  Layout,
+  Heart,
+  Clock,
+  MapPin,
+  Wand2,
+  Waves,
+  Move,
+  Cloud,
+  Sun,
 } from 'lucide-react';
 import type { StudioBlock, StudioPresetBlockCatalog, StudioPreset } from '../../types/presets';
 
@@ -26,38 +43,61 @@ interface PresetBuilderProps {
   presetId?: string;
 }
 
-function getIconComponent(iconName: string) {
-  // Dynamically map icon names to Lucide icons
-  // We return a simple colored circle since we can't dynamically import Lucide
-  const colors: Record<string, string> = {
-    Lamp: 'bg-amber-500',
-    Crosshair: 'bg-blue-500',
-    Square: 'bg-stone-500',
-    Clapperboard: 'bg-rose-500',
-    Flower2: 'bg-green-500',
-    Users: 'bg-purple-500',
-    Image: 'bg-sky-500',
-    Aperture: 'bg-orange-500',
-    Sparkles: 'bg-yellow-500',
-    Palette: 'bg-pink-500',
-    Layout: 'bg-indigo-500',
-    Heart: 'bg-red-500',
-    Clock: 'bg-amber-600',
-    MapPin: 'bg-teal-500',
-    Wand2: 'bg-violet-500',
-    Waves: 'bg-cyan-500',
-    Move: 'bg-emerald-500',
-    Sparkle: 'bg-fuchsia-500',
-    Cloud: 'bg-slate-400',
-  };
-  const colorClass = colors[iconName] || 'bg-gray-500';
-  return <div className={cn('h-6 w-6 rounded-full', colorClass)} />;
+const iconMap: Record<string, React.ReactNode> = {
+  Lamp: <Lamp className="h-5 w-5" />,
+  Crosshair: <Crosshair className="h-5 w-5" />,
+  Square: <Square className="h-5 w-5" />,
+  Clapperboard: <Clapperboard className="h-5 w-5" />,
+  Flower2: <Flower2 className="h-5 w-5" />,
+  Users: <Users className="h-5 w-5" />,
+  Image: <ImageIcon className="h-5 w-5" />,
+  Aperture: <Aperture className="h-5 w-5" />,
+  Sparkles: <Sparkles className="h-5 w-5" />,
+  Palette: <Palette className="h-5 w-5" />,
+  Layout: <Layout className="h-5 w-5" />,
+  Heart: <Heart className="h-5 w-5" />,
+  Clock: <Clock className="h-5 w-5" />,
+  MapPin: <MapPin className="h-5 w-5" />,
+  Wand2: <Wand2 className="h-5 w-5" />,
+  Waves: <Waves className="h-5 w-5" />,
+  Move: <Move className="h-5 w-5" />,
+  Cloud: <Cloud className="h-5 w-5" />,
+  Sun: <Sun className="h-5 w-5" />,
+};
+
+const iconColors: Record<string, string> = {
+  lighting: 'text-amber-500',
+  camera: 'text-blue-500',
+  surfaces: 'text-stone-500',
+  filmTypes: 'text-rose-500',
+  props: 'text-green-500',
+  characters: 'text-purple-500',
+  backgrounds: 'text-sky-500',
+  cameraAngles: 'text-orange-500',
+  lenses: 'text-cyan-500',
+  actions: 'text-yellow-500',
+  colorPalettes: 'text-pink-500',
+  composition: 'text-indigo-500',
+  feeling: 'text-red-500',
+  weather: 'text-slate-400',
+  historicalPeriods: 'text-amber-600',
+  location: 'text-teal-500',
+  styles: 'text-violet-500',
+  textures: 'text-fuchsia-500',
+  positions: 'text-emerald-500',
+  visualEffects: 'text-cyan-500',
+};
+
+function getIconComponent(iconName: string, type?: string) {
+  const icon = iconMap[iconName] || <Sparkles className="h-5 w-5" />;
+  const colorClass = type ? iconColors[type] || 'text-gray-500' : 'text-gray-500';
+  return <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted', colorClass)}>{icon}</div>;
 }
 
 export function PresetBuilder({ presetId }: PresetBuilderProps) {
   useTranslations('studio');
   const router = useRouter();
-  const { presets, fetchPresets, fetchBlockCatalog, createPreset, updatePreset, deletePreset, generatePreview } = useStudioPresets();
+  const { fetchPresets, fetchBlockCatalog, createPreset, updatePreset, deletePreset, generatePreview } = useStudioPresets();
 
   const [catalog, setCatalog] = useState<StudioPresetBlockCatalog | null>(null);
   const [activeBlockType, setActiveBlockType] = useState<string | null>(null);
@@ -70,7 +110,6 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
   const [previewGenerating, setPreviewGenerating] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load catalog and preset data
   useEffect(() => {
@@ -84,8 +123,8 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
 
   useEffect(() => {
     if (presetId) {
-      fetchPresets().then(() => {
-        const preset = presets.find((p: StudioPreset) => p.id === presetId);
+      fetchPresets().then((fetchedPresets) => {
+        const preset = fetchedPresets.find((p: StudioPreset) => p.id === presetId);
         if (preset) {
           setName(preset.name);
           setDescription(preset.description || '');
@@ -104,26 +143,20 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
         }
       });
     }
-  }, [presetId, fetchPresets]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [presetId, fetchPresets]);
 
   // Debounced preview generation
   useEffect(() => {
     if (!previewEnabled || !presetId || selectedBlocks.length === 0) return;
 
-    if (previewTimeoutRef.current) {
-      clearTimeout(previewTimeoutRef.current);
-    }
-
-    previewTimeoutRef.current = setTimeout(() => {
+    const timeout = setTimeout(() => {
       handleGeneratePreview();
     }, 2000);
 
-    return () => {
-      if (previewTimeoutRef.current) clearTimeout(previewTimeoutRef.current);
-    };
+    return () => clearTimeout(timeout);
   }, [selectedBlocks, previewEnabled, presetId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleAddBlock = useCallback((blockDef: { id: string; type: string; label: string; promptFragment: string; category: string; description?: string }) => {
+  const handleAddBlock = useCallback((blockDef: { id: string; type: string; label: string; promptFragment: string; category: string; description?: string; icon?: string }) => {
     setSelectedBlocks((prev) => {
       const exists = prev.find((b) => b.id === blockDef.id);
       if (exists) return prev;
@@ -201,9 +234,9 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
   const currentBlockGroup = catalog?.blockTypes.find((g) => g.type === activeBlockType);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-[calc(100vh-8rem)] flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4 pb-4">
+      <div className="flex items-center justify-between gap-4 pb-4 shrink-0">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={handleCancel}>
             <ArrowLeft className="h-4 w-4" />
@@ -229,9 +262,9 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
         </div>
       </div>
 
-      <div className="flex flex-1 gap-4 overflow-hidden">
+      <div className="flex flex-1 gap-4 overflow-hidden min-h-0">
         {/* Left Sidebar - Block Navigator */}
-        <div className="flex w-64 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-card p-3">
+        <div className="flex w-64 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-card p-3 shrink-0">
           <h2 className="text-lg font-semibold px-2">Blocks</h2>
           <div className="flex flex-col gap-1">
             {catalog?.blockTypes.map((group) => (
@@ -245,7 +278,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
                     : 'hover:bg-muted text-muted-foreground',
                 )}
               >
-                {getIconComponent(group.blocks[0]?.icon || 'Sparkles')}
+                {getIconComponent(group.blocks[0]?.icon || 'Sparkles', group.type)}
                 <span className="capitalize">{group.type}</span>
                 <span className="ml-auto text-xs text-muted-foreground">
                   {group.blocks.length}
@@ -255,8 +288,8 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
           </div>
         </div>
 
-        {/* Center - Block Options + Form + Preview */}
-        <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
+        {/* Center - Block Options + Form */}
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto min-h-0">
           {/* Block Options */}
           {currentBlockGroup && (
             <div className="rounded-xl border border-border bg-card p-4">
@@ -283,10 +316,8 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
                           : 'border-border hover:border-primary/50 hover:bg-muted/50',
                       )}
                     >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
-                        {getIconComponent(block.icon)}
-                      </div>
-                      <div className="flex-1">
+                      {getIconComponent(block.icon, block.type)}
+                      <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium">{block.label}</p>
                         <p className="text-xs text-muted-foreground">{block.description}</p>
                       </div>
@@ -343,8 +374,8 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
         </div>
 
         {/* Right - Preview */}
-        <div className="flex w-80 flex-col gap-4">
-          <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex w-80 flex-col gap-4 shrink-0">
+          <div className="rounded-xl border border-border bg-card p-4 overflow-y-auto">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold">Preview</h3>
               <div className="flex items-center gap-2">
@@ -359,15 +390,15 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
               </div>
             </div>
 
-            <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center">
+            <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center relative">
                {previewImageUrl && previewEnabled ? (
                 <>
-                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                 <img
-                   src={previewImageUrl}
-                   alt="Preview"
-                   className="h-full w-full object-cover"
-                 />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewImageUrl}
+                    alt="Preview"
+                    className="h-full w-full object-cover"
+                  />
                 </>
               ) : (
                 <div className="flex flex-col items-center gap-2 text-muted-foreground">
@@ -403,7 +434,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
       </div>
 
       {/* Bottom - Selected Blocks Bar */}
-      <div className="mt-4 rounded-xl border border-border bg-card p-3">
+      <div className="mt-4 rounded-xl border border-border bg-card p-3 shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">Selected:</span>
           <div className="flex flex-1 flex-wrap gap-2">
@@ -416,7 +447,8 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
                 className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
               >
                 {getIconComponent(
-                  catalog?.blockTypes.find((g) => g.type === block.type)?.blocks.find((b) => b.id === block.id)?.icon || 'Sparkles'
+                  catalog?.blockTypes.find((g) => g.type === block.type)?.blocks.find((b) => b.id === block.id)?.icon || 'Sparkles',
+                  block.type
                 )}
                 <span>{block.label}</span>
                 <button
