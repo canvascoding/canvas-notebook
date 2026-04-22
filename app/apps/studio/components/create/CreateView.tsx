@@ -450,17 +450,13 @@ export function CreateView() {
             onShowMoreOptionsChange={setShowMoreOptions}
           />
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary" className="rounded-full px-3 py-1">
-              {mode === 'video' ? 'Video mode' : 'Image mode'}
-            </Badge>
-            <Badge variant="outline" className="rounded-full px-3 py-1">{provider === 'openai' ? 'OpenAI' : 'Gemini'} -- {model}</Badge>
-            {generationHook.error ? (
+          {generationHook.error ? (
+            <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="rounded-full border-red-500/40 text-red-700 dark:text-red-300">
                 {generationHook.error}
               </Badge>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
