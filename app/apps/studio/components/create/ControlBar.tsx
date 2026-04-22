@@ -12,12 +12,15 @@ import type { StudioGenerationMode } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
 import { ModeToggle } from './ModeToggle';
 import { StudioPicker } from './StudioPicker';
+import { AspectRatioPicker } from './AspectRatioPicker';
 import {
   PROVIDERS,
   OPENAI_MODELS,
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   BACKGROUND_OPTIONS,
+  VIDEO_PROVIDERS,
+  VIDEO_MODELS,
   getModelsForProvider,
   getAspectRatiosForProvider,
 } from '@/app/lib/integrations/image-generation-constants';
@@ -78,8 +81,8 @@ export function ControlBar({
   onShowMoreOptionsChange,
 }: ControlBarProps) {
   const countLabel = mode === 'video' ? '1 output' : `${count} output${count === 1 ? '' : 's'}`;
-  const models = getModelsForProvider(provider);
-  const aspectRatios = getAspectRatiosForProvider(provider);
+  const models = getModelsForProvider(mode, provider);
+  const aspectRatios = getAspectRatiosForProvider(mode, provider);
   const isOpenAI = provider === 'openai';
 
   return (
@@ -88,21 +91,12 @@ export function ControlBar({
         <ModeToggle value={mode} onChange={onModeChange} />
         <StudioPicker presets={presets} value={selectedPreset} onChange={onPresetChange} />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="rounded-full">
-              AR {aspectRatio}
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-40">
-            {aspectRatios.map((ratio) => (
-              <DropdownMenuItem key={ratio} onSelect={() => onAspectRatioChange(ratio)}>
-                {ratio === '4:3' && isOpenAI ? '4:3 (nearest: 1536×1024)' : ratio === '3:4' && isOpenAI ? '3:4 (nearest: 1024×1536)' : ratio}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AspectRatioPicker
+          aspectRatio={aspectRatio}
+          onAspectRatioChange={onAspectRatioChange}
+          aspectRatios={aspectRatios}
+          isOpenAI={isOpenAI}
+        />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -154,9 +148,9 @@ export function ControlBar({
                 value={provider}
                 onChange={(event) => onProviderChange(event.target.value)}
               >
-                {PROVIDERS.map((p) => (
+                {(mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS).map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.id === 'gemini' ? 'Google Gemini' : 'OpenAI'}
+                    {p.id === 'gemini' ? 'Google Gemini' : p.id === 'openai' ? 'OpenAI' : 'Google Veo'}
                   </option>
                 ))}
               </select>
@@ -171,21 +165,25 @@ export function ControlBar({
               >
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {provider === 'openai'
-                      ? OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage15'
-                        ? 'GPT Image 1.5 — Best Quality'
-                        : OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage1'
-                          ? 'GPT Image 1 — High Quality'
-                          : 'GPT Image 1 Mini — Fast & Affordable'
-                      : m.id === 'gemini-3.1-flash-image-preview'
-                        ? 'Gemini 3.1 Flash — Best Quality & Features'
-                        : 'Gemini 2.5 Flash — Fast & Affordable'}
+                    {mode === 'video'
+                      ? VIDEO_MODELS.find((vm) => vm.id === m.id)?.id === 'veo-3.1-fast-generate-preview'
+                        ? 'Veo 3.1 Fast — Fast & Affordable'
+                        : 'Veo 3.1 High Quality — Best Quality'
+                      : provider === 'openai'
+                        ? OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage15'
+                          ? 'GPT Image 1.5 — Best Quality'
+                          : OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage1'
+                            ? 'GPT Image 1 — High Quality'
+                            : 'GPT Image 1 Mini — Fast & Affordable'
+                        : m.id === 'gemini-3.1-flash-image-preview'
+                          ? 'Gemini 3.1 Flash — Best Quality & Features'
+                          : 'Gemini 2.5 Flash — Fast & Affordable'}
                   </option>
                 ))}
               </select>
             </label>
 
-            {isOpenAI ? (
+            {isOpenAI && mode === 'image' ? (
               <>
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="text-xs text-muted-foreground">Quality</span>
@@ -219,7 +217,7 @@ export function ControlBar({
               </>
             ) : null}
 
-            {isOpenAI ? (
+            {isOpenAI && mode === 'image' ? (
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">Background</span>
                 <select
