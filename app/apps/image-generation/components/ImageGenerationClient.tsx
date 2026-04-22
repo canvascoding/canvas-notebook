@@ -80,7 +80,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
   const [provider, setProvider] = useState<string>(() => getInitialProvider(availableProviders));
 
   const modelOptions: ModelOption[] = useMemo(() => {
-    const models = getModelsForProvider(provider);
+    const models = getModelsForProvider('image', provider);
     return models.map((m) => ({
       value: m.id,
       label: t(`modelOptions.${m.optionKey}.label`),
@@ -89,7 +89,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
     }));
   }, [provider, t]);
 
-  const aspectRatios = getAspectRatiosForProvider(provider);
+  const aspectRatios = getAspectRatiosForProvider('image', provider);
   const maxImageCount = provider === 'openai' ? OPENAI_MAX_IMAGE_COUNT : GEMINI_MAX_IMAGE_COUNT;
 
   const samplePrompts = SAMPLE_PROMPT_META.map((item) => ({
@@ -114,7 +114,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
   const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [previewItem, setPreviewItem] = useState<OutputItem | null>(null);
-  const maxReferenceImages = getMaxReferenceImages(provider, model);
+  const maxReferenceImages = getMaxReferenceImages('image', provider, model);
 
   useEffect(() => {
     const nextProvider = availableProviders?.includes(provider) ? provider : getInitialProvider(availableProviders);
@@ -123,7 +123,7 @@ export function ImageGenerationClient({ availableProviders }: ImageGenerationCli
       return;
     }
 
-    const models = getModelsForProvider(nextProvider);
+    const models = getModelsForProvider('image', nextProvider);
     if (!models.some((entry) => entry.id === model)) {
       setModel(models[0].id);
       return;

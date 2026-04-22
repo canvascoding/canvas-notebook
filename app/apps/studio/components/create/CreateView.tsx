@@ -418,6 +418,18 @@ export function CreateView() {
             onModeChange={(nextMode) => {
               setMode(nextMode);
               setCount(1);
+              if (nextMode === 'video') {
+                setProvider('veo');
+                setModel(getDefaultModelForProvider('video', 'veo'));
+                setAspectRatio('16:9');
+              } else {
+                setProvider('gemini');
+                setModel(getDefaultModelForProvider('image', 'gemini'));
+                const validRatios = getAspectRatiosForProvider('image', 'gemini');
+                if (!validRatios.includes(aspectRatio as never)) {
+                  setAspectRatio('1:1');
+                }
+              }
             }}
             presets={presets}
             selectedPreset={presetRef}
@@ -429,8 +441,8 @@ export function CreateView() {
             provider={provider}
             onProviderChange={(nextProvider) => {
               setProvider(nextProvider);
-              setModel(getDefaultModelForProvider(nextProvider));
-              const validRatios = getAspectRatiosForProvider(nextProvider);
+              setModel(getDefaultModelForProvider(mode, nextProvider));
+              const validRatios = getAspectRatiosForProvider(mode, nextProvider);
               if (!validRatios.includes(aspectRatio as never)) {
                 setAspectRatio('1:1');
               }
