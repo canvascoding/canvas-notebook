@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useStudioBulk } from '../../hooks/useStudioBulk';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -17,6 +18,7 @@ const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
 const VERSIONS = [1, 2, 3, 4] as const;
 
 export function BulkGenerateView() {
+  const t = useTranslations('studio.bulk');
   const bulkHook = useStudioBulk();
   const productsHook = useStudioProducts();
   const personasHook = useStudioPersonas();
@@ -40,7 +42,6 @@ export function BulkGenerateView() {
     void fetchPresets();
   }, [fetchProducts, fetchPersonas, fetchPresets]);
 
-  // Compute overrides directly during render to avoid cascading setState/useMemo deps with overrides
   const derivedOverrides = selectedProductIds.map((id) => {
     const product = products.find((p) => p.id === id);
     const existing = overrides.find((o) => o.productId === id);
@@ -93,16 +94,18 @@ export function BulkGenerateView() {
   const hasActiveJob = activeJob && (activeJob.status === 'pending' || activeJob.status === 'processing');
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-y-auto pb-8">
-      <div>
-        <h2 className="mb-1 text-lg font-semibold">Bulk Generate</h2>
-        <p className="text-sm text-muted-foreground">
-          Apply a studio preset to multiple products at once with per-item overrides.
+    <div className="flex h-full flex-col gap-8">
+      <div className="max-w-2xl space-y-3">
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          {t('title')}
+        </h2>
+        <p className="max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
+          {t('description')}
         </p>
       </div>
 
       {hasActiveJob && (
-        <div className="rounded-lg border border-border p-4">
+        <div className="rounded-2xl border border-border/70 bg-card/80 p-5 shadow-sm">
           <BulkProgressTracker
             job={activeJob}
             onCancel={() => cancelJob(activeJob.id)}
@@ -110,8 +113,10 @@ export function BulkGenerateView() {
         </div>
       )}
 
-      <div className="rounded-lg border border-border p-4">
-        <h3 className="mb-3 text-sm font-semibold">Product Selection</h3>
+      <section className="rounded-2xl border border-border/70 bg-card/80 p-5 shadow-sm">
+        <h3 className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          {t('productSelection')}
+        </h3>
         <ProductCatalogList
           products={products}
           selectedIds={hasActiveJob ? [] : selectedProductIds}
@@ -121,39 +126,41 @@ export function BulkGenerateView() {
           }}
           loading={productsHook.loading}
         />
-      </div>
+      </section>
 
-      <div className="rounded-lg border border-border p-4">
-        <h3 className="mb-3 text-sm font-semibold">Batch Settings</h3>
+      <section className="rounded-2xl border border-border/70 bg-card/80 p-5 shadow-sm">
+        <h3 className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          {t('batchSettings')}
+        </h3>
         <div className="space-y-3">
           <Input
-            placeholder="Prompt applied to all products..."
+            placeholder={t('batchSettingsPrompt')}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             disabled={!!hasActiveJob}
           />
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">Studio</label>
+              <label className="text-xs font-medium text-muted-foreground">{t('presetLabel')}</label>
               <select
                 value={presetId}
                 onChange={(e) => setPresetId(e.target.value)}
                 disabled={!!hasActiveJob}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                className="h-9 rounded-md border border-input bg-background px-3 text-xs"
               >
-                <option value="">None</option>
+                <option value="">{t('presetNone')}</option>
                 {presets.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">AR</label>
+              <label className="text-xs font-medium text-muted-foreground">{t('aspectRatioLabel')}</label>
               <select
                 value={aspectRatio}
                 onChange={(e) => setAspectRatio(e.target.value)}
                 disabled={!!hasActiveJob}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                className="h-9 rounded-md border border-input bg-background px-3 text-xs"
               >
                 {ASPECT_RATIOS.map((ar) => (
                   <option key={ar} value={ar}>{ar}</option>
@@ -161,12 +168,12 @@ export function BulkGenerateView() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">Versions</label>
+              <label className="text-xs font-medium text-muted-foreground">{t('versionsLabel')}</label>
               <select
                 value={versions}
                 onChange={(e) => setVersions(Number(e.target.value))}
                 disabled={!!hasActiveJob}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                className="h-9 rounded-md border border-input bg-background px-3 text-xs"
               >
                 {VERSIONS.map((v) => (
                   <option key={v} value={v}>{v}</option>
@@ -175,10 +182,12 @@ export function BulkGenerateView() {
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="rounded-lg border border-border p-4">
-        <h3 className="mb-3 text-sm font-semibold">Line Items (Per-Item Overrides)</h3>
+      <section className="rounded-2xl border border-border/70 bg-card/80 p-5 shadow-sm">
+        <h3 className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          {t('lineItemsTitle')}
+        </h3>
         <BulkLineItemTable
           products={products}
           personas={personas}
@@ -187,25 +196,25 @@ export function BulkGenerateView() {
           onOverridesChange={setOverrides}
           batchPresetId={presetId || undefined}
         />
-      </div>
+      </section>
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="rounded-full">
-            {selectedProductIds.length} products x {versions} versions = {totalGenerations} generations
+          <Badge variant="secondary" className="w-fit rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
+            {t('summaryBadge', { products: selectedProductIds.length, versions, total: totalGenerations })}
           </Badge>
         </div>
         <Button
           onClick={handleStart}
           disabled={!canStart || !!hasActiveJob}
         >
-          Start Bulk Generation
+          {t('startButton')}
         </Button>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-          {error}
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {t('errorPrefix')} {error}
         </div>
       )}
     </div>
