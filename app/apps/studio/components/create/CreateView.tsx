@@ -8,9 +8,8 @@ import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
-import type { StudioGenerationMode, StudioGeneration, StudioGenerationOutput } from '../../types/generation';
+import type { StudioGenerationMode, StudioGeneration, StudioGenerationOutput, StudioReferenceUrl } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
-import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
 import { OutputGrid } from './OutputGrid';
@@ -19,6 +18,7 @@ import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
 import { FrameUpload } from './FrameUpload';
 import { getDefaultModelForProvider, getAspectRatiosForProvider } from '@/app/lib/integrations/image-generation-constants';
+import { toMediaUrl } from '@/app/lib/utils/media-url';
 
 const STARTING_POINTS = [
   {
@@ -103,7 +103,8 @@ export function CreateView() {
   const [styleRefs, setStyleRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [presetRef, setPresetRef] = useState<StudioPreset | null>(null);
   const [negativePrompt, setNegativePrompt] = useState('');
-  const [extraReferenceUrls, setExtraReferenceUrls] = useState<string[]>([]);
+  const [extraReferenceUrls, setExtraReferenceUrls] = useState<StudioReferenceUrl[]>([]);
+  const [fileRefs, setFileRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [startFrame, setStartFrame] = useState<File | null>(null);
   const [endFrame, setEndFrame] = useState<File | null>(null);
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
@@ -145,13 +146,59 @@ export function CreateView() {
   }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets, fetchStyles]);
 
   const canGenerate = useMemo(() => {
-    return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null;
-  }, [personaRefs.length, presetRef, productRefs.length, rawPrompt]);
+    return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null || extraReferenceUrls.length > 0 || fileRefs.length > 0;
+  }, [personaRefs.length, presetRef, productRefs.length, rawPrompt, extraReferenceUrls.length, fileRefs.length]);
+
+  const handleAddReferenceUrl = async (url: string) => {
+    const tempItem: StudioReferenceUrl = {
+      localUrl: url,
+      originalUrl: url,
+      status: 'loading',
+    };
+    setExtraReferenceUrls((current) => [...current, tempItem]);
+
+    try {
+      const response = await fetch('/api/studio/references', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to download image');
+      }
+
+      setExtraReferenceUrls((current) =>
+        current.map((item) =>
+          item.originalUrl === url
+            ? { ...item, localUrl: data.localUrl, status: 'success' }
+            : item,
+        ),
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to download image';
+      setExtraReferenceUrls((current) =>
+        current.map((item) =>
+          item.originalUrl === url ? { ...item, status: 'error', errorMessage } : item,
+        ),
+      );
+    }
+  };
+
+  const handleRemoveReferenceUrl = (originalUrl: string) => {
+    setExtraReferenceUrls((current) => current.filter((item) => item.originalUrl !== originalUrl));
+  };
 
   const handleGenerate = async () => {
     const prompt = negativePrompt.trim()
       ? `${rawPrompt.trim()}\n\nAvoid: ${negativePrompt.trim()}`
       : rawPrompt.trim();
+
+    const fileUrls = fileRefs.map((ref) => toMediaUrl(ref.id));
+    const allReferenceUrls = extraReferenceUrls
+      .filter((ref) => ref.status === 'success')
+      .map((ref) => ref.localUrl).concat(fileUrls);
 
     const result = await generationHook.generate({
       prompt,
@@ -166,13 +213,14 @@ export function CreateView() {
       quality: provider === 'openai' ? quality : undefined,
       output_format: provider === 'openai' ? outputFormat : undefined,
       background: provider === 'openai' ? background : undefined,
-      extra_reference_urls: extraReferenceUrls,
+      extra_reference_urls: allReferenceUrls,
     });
 
     if (result) {
       setRawPrompt('');
       setNegativePrompt('');
       setExtraReferenceUrls([]);
+      setFileRefs([]);
       setStartFrame(null);
       setEndFrame(null);
     }
@@ -186,7 +234,7 @@ export function CreateView() {
             {selectedOutputIds.length > 0 && (
               <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border/70 bg-background/90 px-4 py-2 backdrop-blur">
                 <div className="text-sm font-medium">
-                  {selectedOutputIds.length} ausgewählt
+                  {selectedOutputIds.length} ausgewahlt
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -234,7 +282,14 @@ export function CreateView() {
                 setProvider(generation.provider || 'gemini');
                 setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
                 if (output.mediaUrl) {
-                  setExtraReferenceUrls((prev) => (prev.includes(output.mediaUrl!) ? prev : [...prev, output.mediaUrl!]));
+                  const newRef: StudioReferenceUrl = {
+                    localUrl: output.mediaUrl,
+                    originalUrl: output.mediaUrl,
+                    status: 'success',
+                  };
+                  setExtraReferenceUrls((prev) =>
+                    prev.some((ref) => ref.originalUrl === output.mediaUrl) ? prev : [...prev, newRef],
+                  );
                 }
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
@@ -255,7 +310,14 @@ export function CreateView() {
                 setProvider(generation.provider || 'gemini');
                 setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
                 if (output.mediaUrl) {
-                  setExtraReferenceUrls((prev) => (prev.includes(output.mediaUrl!) ? prev : [...prev, output.mediaUrl!]));
+                  const newRef: StudioReferenceUrl = {
+                    localUrl: output.mediaUrl,
+                    originalUrl: output.mediaUrl,
+                    status: 'success',
+                  };
+                  setExtraReferenceUrls((prev) =>
+                    prev.some((ref) => ref.originalUrl === output.mediaUrl) ? prev : [...prev, newRef],
+                  );
                 }
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
@@ -289,6 +351,7 @@ export function CreateView() {
               presetRef,
               negativePrompt,
               extraReferenceUrls,
+              fileRefs,
             }}
             products={products}
             personas={personas}
@@ -330,14 +393,25 @@ export function CreateView() {
                 setStyleRefs((current) => current.filter((item) => item.id !== id));
                 return;
               }
+              if (type === 'file') {
+                setFileRefs((current) => current.filter((item) => item.id !== id));
+                return;
+              }
               setPresetRef((current) => (current?.id === id ? null : current));
             }}
             onNegativePromptChange={setNegativePrompt}
-            onExtraReferenceUrlAdd={(url) => {
-              setExtraReferenceUrls((current) => (current.includes(url) ? current : [...current, url]));
-            }}
-            onExtraReferenceUrlRemove={(url) => {
-              setExtraReferenceUrls((current) => current.filter((item) => item !== url));
+            onExtraReferenceUrlAdd={handleAddReferenceUrl}
+            onExtraReferenceUrlRemove={handleRemoveReferenceUrl}
+            onFileAdd={(paths) => {
+              setFileRefs((current) => {
+                const next = [...current];
+                for (const path of paths) {
+                  if (!next.some((item) => item.id === path)) {
+                    next.push({ id: path, name: path.split('/').pop() || path });
+                  }
+                }
+                return next;
+              });
             }}
           />
 
@@ -382,7 +456,7 @@ export function CreateView() {
             <Badge variant="secondary" className="rounded-full px-3 py-1">
               {mode === 'video' ? 'Video mode' : 'Image mode'}
             </Badge>
-            <Badge variant="outline" className="rounded-full px-3 py-1">{provider === 'openai' ? 'OpenAI' : 'Gemini'} — {model}</Badge>
+            <Badge variant="outline" className="rounded-full px-3 py-1">{provider === 'openai' ? 'OpenAI' : 'Gemini'} -- {model}</Badge>
             <Badge variant="outline" className="rounded-full px-3 py-1">Presets: {presets.length}</Badge>
             <Badge variant="outline" className="rounded-full px-3 py-1">Products: {products.length}</Badge>
             <Badge variant="outline" className="rounded-full px-3 py-1">Personas: {personas.length}</Badge>
@@ -426,7 +500,14 @@ export function CreateView() {
           setProvider(generation.provider || 'gemini');
           setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
           if (output.mediaUrl) {
-            setExtraReferenceUrls((prev) => (prev.includes(output.mediaUrl!) ? prev : [...prev, output.mediaUrl!]));
+            const newRef: StudioReferenceUrl = {
+              localUrl: output.mediaUrl,
+              originalUrl: output.mediaUrl,
+              status: 'success',
+            };
+            setExtraReferenceUrls((prev) =>
+              prev.some((ref) => ref.originalUrl === output.mediaUrl) ? prev : [...prev, newRef],
+            );
           }
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
@@ -447,7 +528,14 @@ export function CreateView() {
           setProvider(generation.provider || 'gemini');
           setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
           if (output.mediaUrl) {
-            setExtraReferenceUrls((prev) => (prev.includes(output.mediaUrl!) ? prev : [...prev, output.mediaUrl!]));
+            const newRef: StudioReferenceUrl = {
+              localUrl: output.mediaUrl,
+              originalUrl: output.mediaUrl,
+              status: 'success',
+            };
+            setExtraReferenceUrls((prev) =>
+              prev.some((ref) => ref.originalUrl === output.mediaUrl) ? prev : [...prev, newRef],
+            );
           }
           setSelectedGenerationId(null);
           setSelectedOutputId(null);

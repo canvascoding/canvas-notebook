@@ -58,6 +58,13 @@ export interface StudioGeneratePayload {
   extra_reference_urls?: string[];
 }
 
+export interface StudioReferenceUrl {
+  localUrl: string;
+  originalUrl: string;
+  status: 'loading' | 'error' | 'success';
+  errorMessage?: string;
+}
+
 export interface StudioGenerateResponse {
   success: boolean;
   generationId: string;
