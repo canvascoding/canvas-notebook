@@ -7,7 +7,7 @@ import {
   type VideoGenerationReferenceImage,
 } from '@google/genai';
 
-import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
+import { getFileStats, readFile, writeFile, readDataFile, getDataFileStats } from '@/app/lib/filesystem/workspace-files';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
@@ -101,11 +101,18 @@ function resolveVideoMime(filePath: string): string {
 
 async function loadImageBytes(filePath: string): Promise<{ imageBytes: string; mimeType: string }> {
   const mimeType = resolveImageMime(filePath);
-  const stats = await getFileStats(filePath);
+  let stats;
+  let content;
+  try {
+    stats = await getFileStats(filePath);
+    content = await readFile(filePath);
+  } catch {
+    stats = await getDataFileStats(filePath);
+    content = await readDataFile(filePath);
+  }
   if (!stats.isFile) {
     throw new IntegrationServiceError(`Not a file: ${filePath}`, 400);
   }
-  const content = await readFile(filePath);
   return {
     imageBytes: content.toString('base64'),
     mimeType,
@@ -114,11 +121,18 @@ async function loadImageBytes(filePath: string): Promise<{ imageBytes: string; m
 
 async function loadVideoBytes(filePath: string): Promise<{ videoBytes: string; mimeType: string }> {
   const mimeType = resolveVideoMime(filePath);
-  const stats = await getFileStats(filePath);
+  let stats;
+  let content;
+  try {
+    stats = await getFileStats(filePath);
+    content = await readFile(filePath);
+  } catch {
+    stats = await getDataFileStats(filePath);
+    content = await readDataFile(filePath);
+  }
   if (!stats.isFile) {
     throw new IntegrationServiceError(`Not a file: ${filePath}`, 400);
   }
-  const content = await readFile(filePath);
   return {
     videoBytes: content.toString('base64'),
     mimeType,
