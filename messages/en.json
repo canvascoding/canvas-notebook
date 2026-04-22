@@ -1831,15 +1831,7 @@
       "additionalUrls": "Additional reference URLs",
       "add": "Add",
       "urlPlaceholder": "https://example.com/reference.jpg"
-    },
-      "emptyState": {
-        "title": "Create your first image",
-        "subtitle": "Type your idea below and let the AI work its magic. Your results will appear here – in real time."
-      },
-      "startingPointsTitle": "Inspiration",
-      "recreate": "Recreate",
-      "recentGenerationsTitle": "Recent Generations",
-      "viewAll": "View All"
+    }
   },
   "usage": {
     "title": "Usage",
