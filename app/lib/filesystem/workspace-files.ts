@@ -84,23 +84,27 @@ export async function readFile(filePath: string): Promise<Buffer> {
   return fs.readFile(fullPath);
 }
 
-export function validateCanvasAgentPath(userPath: string): string {
-  const normalizedBase = path.normalize(CANVAS_AGENT_DIR);
-  // Accept both absolute paths (/data/canvas-agent/...) and bare relative names (agents.md)
-  const resolved = path.isAbsolute(userPath)
-    ? path.normalize(userPath)
-    : path.normalize(path.join(normalizedBase, userPath));
-
-  if (resolved !== normalizedBase && !resolved.startsWith(`${normalizedBase}${path.sep}`)) {
-    throw new Error('Invalid path: not within canvas-agent directory');
-  }
-
-  return resolved;
+export async function readDataFile(filePath: string): Promise<Buffer> {
+  const fullPath = path.resolve(DATA, filePath);
+  return fs.readFile(fullPath);
 }
 
-export async function readCanvasAgentFile(filePath: string): Promise<Buffer> {
-  const fullPath = validateCanvasAgentPath(filePath);
-  return fs.readFile(fullPath);
+export async function getDataFileStats(filePath: string) {
+  const fullPath = path.resolve(DATA, filePath);
+  const stats = await fs.stat(fullPath);
+
+  let totalSize = stats.size;
+  if (stats.isDirectory()) {
+    totalSize = await calculateDirectorySize(fullPath);
+  }
+
+  return {
+    size: totalSize,
+    modified: Math.floor(stats.mtimeMs / 1000),
+    isDirectory: stats.isDirectory(),
+    isFile: stats.isFile(),
+    permissions: stats.mode?.toString(8),
+  };
 }
 
 export async function createReadStream(
@@ -116,6 +120,12 @@ export async function createReadStream(
 
 export async function writeFile(filePath: string, content: Buffer | string): Promise<void> {
   const fullPath = validatePath(filePath);
+  const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
+  await fs.writeFile(fullPath, buffer);
+}
+
+export async function writeDataFile(filePath: string, content: Buffer | string): Promise<void> {
+  const fullPath = path.resolve(DATA, filePath);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   await fs.writeFile(fullPath, buffer);
 }

@@ -1834,7 +1834,8 @@
       "addReferences": "Add references",
       "selection": {
         "none": "Nothing selected",
-        "count": "{count} file(s) selected"
+        "count": "{count} file(s) selected",
+        "limit_one": "1 file selected (max)"
       },
       "upload": {
         "hint": "Upload images to use as references for studio generations.",

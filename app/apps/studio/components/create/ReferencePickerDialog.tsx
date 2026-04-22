@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckSquare2, X } from 'lucide-react';
+import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckSquare2, CircleDot, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
@@ -35,6 +35,8 @@ interface ReferencePickerDialogProps {
   onOpenChange: (open: boolean) => void;
   onConfirm: (paths: string[]) => void;
   onUrlAdd?: (url: string) => void;
+  multiple?: boolean;
+  maxSelection?: number;
 }
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp']);
@@ -57,6 +59,7 @@ function TreeNode({
   expandedDirs,
   onToggleDir,
   onToggleSelect,
+  multiple,
 }: {
   node: FileNode;
   depth?: number;
@@ -64,6 +67,7 @@ function TreeNode({
   expandedDirs: Set<string>;
   onToggleDir: (path: string) => void;
   onToggleSelect: (path: string) => void;
+  multiple: boolean;
 }) {
   if (node.type === 'file') {
     if (!isImage(node.name)) return null;
@@ -80,7 +84,11 @@ function TreeNode({
         onClick={() => onToggleSelect(node.path)}
       >
         {isSelected ? (
-          <CheckSquare2 className="h-4 w-4 shrink-0 text-primary" />
+          multiple ? (
+            <CheckSquare2 className="h-4 w-4 shrink-0 text-primary" />
+          ) : (
+            <CircleDot className="h-4 w-4 shrink-0 text-primary" />
+          )
         ) : (
           <div className="h-4 w-4 shrink-0 rounded-sm border border-muted-foreground/30" />
         )}
@@ -112,13 +120,14 @@ function TreeNode({
             expandedDirs={expandedDirs}
             onToggleDir={onToggleDir}
             onToggleSelect={onToggleSelect}
+            multiple={multiple}
           />
         ))}
     </div>
   );
 }
 
-export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: ReferencePickerDialogProps) {
+export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple = true, maxSelection = 3 }: ReferencePickerDialogProps) {
   const t = useTranslations('studio.referencePicker');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<Source>('studio');
@@ -225,9 +234,12 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
 
   const toggleSelect = (path: string) => {
     setSelectedPaths((prev) => {
+      if (!multiple) {
+        return prev.has(path) ? new Set<string>() : new Set([path]);
+      }
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
-      else next.add(path);
+      else if (selectedPaths.size < maxSelection) next.add(path);
       return next;
     });
   };
@@ -267,8 +279,14 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
       if (payload.files?.length) {
         const newPaths = payload.files.map((f: { path: string }) => f.path);
         setSelectedPaths((prev) => {
+          if (!multiple) {
+            return newPaths.length > 0 ? new Set([newPaths[0]]) : new Set<string>();
+          }
           const next = new Set(prev);
-          for (const p of newPaths) next.add(p);
+          for (const p of newPaths) {
+            if (next.size >= maxSelection) break;
+            next.add(p);
+          }
           return next;
         });
       }
@@ -303,8 +321,14 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
       if (payload.files?.length) {
         const newPaths = payload.files.map((f: { path: string }) => f.path);
         setSelectedPaths((prev) => {
+          if (!multiple) {
+            return newPaths.length > 0 ? new Set([newPaths[0]]) : new Set<string>();
+          }
           const next = new Set(prev);
-          for (const p of newPaths) next.add(p);
+          for (const p of newPaths) {
+            if (next.size >= maxSelection) break;
+            next.add(p);
+          }
           return next;
         });
       }
@@ -405,7 +429,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                           <div className="p-2">
                             <p className="truncate text-xs font-medium">{asset.name}</p>
                             {selected && (
-                              <CheckSquare2 className="absolute top-2 right-2 h-4 w-4 text-primary bg-white dark:bg-black rounded-sm" />
+                              multiple ? (
+                                <CheckSquare2 className="absolute top-2 right-2 h-4 w-4 text-primary bg-white dark:bg-black rounded-sm" />
+                              ) : (
+                                <CircleDot className="absolute top-2 right-2 h-4 w-4 text-primary bg-white dark:bg-black rounded-sm" />
+                              )
                             )}
                           </div>
                         </button>
@@ -440,7 +468,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                 ) : (
                   <div className="space-y-0.5">
                     {tree.map((node) => (
-                      <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} />
+                      <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} multiple={multiple} />
                     ))}
                   </div>
                 )}
@@ -457,7 +485,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                   {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   {t('upload.selectFiles')}
                 </Button>
-                <input ref={fileInputRef} type="file" className="hidden" accept="image/*" multiple onChange={(e) => {
+                <input ref={fileInputRef} type="file" className="hidden" accept="image/*" multiple={multiple} onChange={(e) => {
                   if (e.target.files && e.target.files.length > 0) { void preprocessFileSelection(e.target.files); }
                   e.target.value = '';
                 }} />
@@ -493,7 +521,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                         if (!res.ok || !payload.success) throw new Error(payload.error || 'Failed to download image');
                         const filePath: string = payload.filePath;
                         const fullPath = `studio/assets/${filePath}`;
-                        setSelectedPaths((prev) => { const next = new Set(prev); next.add(fullPath); return next; });
+                        setSelectedPaths((prev) => { if (!multiple) { return new Set([fullPath]); } const next = new Set(prev); next.add(fullPath); return next; });
                         setUrlInput('');
                         setTab('studio');
                         await loadStudioAssets();
@@ -535,7 +563,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
 
           <DialogFooter className="shrink-0 flex items-center justify-between sm:justify-between">
             <p className="text-xs text-muted-foreground">
-              {selectedPaths.size === 0 ? t('selection.none') : t('selection.count', { count: selectedPaths.size })}
+              {selectedPaths.size === 0 ? t('selection.none') : (!multiple && selectedPaths.size === 1) ? t('selection.limit_one') : t('selection.count', { count: selectedPaths.size })}
             </p>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
