@@ -221,7 +221,7 @@
             "emptyProductTitle": "Noch keine Produkte",
             "emptyProductDescription": "Erstelle dein erstes Produkt, um Bilder für KI-Generierungen zu referenzieren.",
             "emptyPersonaTitle": "Noch keine Personas",
-    "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen.",
+            "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen."
           },
           "modelCreate": {
             "name": "Name",
@@ -1829,9 +1829,8 @@
       "additionalUrls": "Zus\u00e4tzliche Referenz-URLs",
       "add": "Hinzuf\u00fcgen",
       "urlPlaceholder": "https://example.com/reference.jpg"
-    }
-  },
-      "emptyState": {
+    },
+     "emptyState": {
         "title": "Erstelle dein erstes Bild",
         "subtitle": "Gib deine Idee unten ein und lass die AI ihre Magie wirken. Deine Ergebnisse erscheinen hier – in Echtzeit."
       },
@@ -1839,7 +1838,6 @@
       "recreate": "Nachbilden",
       "recentGenerationsTitle": "Letzte Generierungen",
       "viewAll": "Alle ansehen"
-    }
   },
   "usage": {
     "title": "Nutzung",
