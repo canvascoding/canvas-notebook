@@ -1719,6 +1719,7 @@
       "addUrl": "Hinzufügen",
       "productNamePlaceholder": "z.B. Mein Produkt",
       "personaNamePlaceholder": "z.B. Meine Persona",
+      "styleNamePlaceholder": "z.B. Mein Style",
       "descriptionPlaceholder": "Optionale Beschreibung...",
       "nameRequired": "Name ist erforderlich",
       "createFailed": "Erstellung fehlgeschlagen",

@@ -1694,13 +1694,17 @@
     "modelLibrary": {
       "products": "Products",
       "personas": "Personas",
+      "styles": "Styles",
       "newProduct": "New Product",
       "newPersona": "New Persona",
+      "newStyle": "New Style",
       "searchPlaceholder": "Search models...",
       "emptyProductTitle": "No products yet",
       "emptyProductDescription": "Create your first product to reference images in AI generations.",
       "emptyPersonaTitle": "No personas yet",
-      "emptyPersonaDescription": "Create your first persona to use consistent characters in generations."
+      "emptyPersonaDescription": "Create your first persona to use consistent characters in generations.",
+      "emptyStyleTitle": "No styles yet",
+      "emptyStyleDescription": "Create your first style to reference visual styles in AI generations."
     },
     "modelCreate": {
       "name": "Name",
@@ -1715,6 +1719,7 @@
       "addUrl": "Add",
       "productNamePlaceholder": "e.g. My Product",
       "personaNamePlaceholder": "e.g. My Persona",
+      "styleNamePlaceholder": "e.g. My Style",
       "descriptionPlaceholder": "Optional description...",
       "nameRequired": "Name is required",
       "createFailed": "Creation failed",
