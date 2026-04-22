@@ -14,23 +14,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Loader2,
-  Upload,
-  RefreshCw,
-  ChevronRight,
-  Folder,
-  Image as ImageIcon,
-  CheckSquare2,
-  X,
-} from 'lucide-react';
+import { Loader2, Upload, RefreshCw, ChevronRight, Folder, Image as ImageIcon, CheckSquare2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 
-type Source = 'workspace' | 'studio' | 'upload';
+type Source = 'workspace' | 'studio' | 'upload' | 'urls';
 
 interface ImageAsset {
   path: string;
@@ -44,9 +35,9 @@ interface ReferencePickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (paths: string[]) => void;
+  onUrlAdd?: (url: string) => void;
 }
 
-// --- Workspace Tree Helpers ---
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp']);
 function isImage(name: string) {
   const ext = name.split('.').pop()?.toLowerCase();
@@ -79,24 +70,19 @@ function TreeNode({
     if (!isImage(node.name)) return null;
     const isSelected = selectedPaths.has(node.path);
     return (
-      <button
+      <div
         key={node.path}
-        type="button"
         className={cn(
-          'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition text-left',
+          'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition',
           isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground'
         )}
         style={{ paddingLeft: `${20 + depth * 16}px` }}
         onClick={() => onToggleSelect(node.path)}
       >
-        {isSelected ? (
-          <CheckSquare2 className="h-4 w-4 shrink-0 text-primary" />
-        ) : (
-          <div className="h-4 w-4 shrink-0 rounded-sm border border-muted-foreground/30" />
-        )}
+        <CheckSquare2 className={cn('h-4 w-4 shrink-0', isSelected ? 'text-primary' : 'text-muted-foreground')} />
         <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate">{node.name}</span>
-      </button>
+      </div>
     );
   }
   const isExpanded = expandedDirs.has(node.path);
@@ -104,16 +90,11 @@ function TreeNode({
     <div key={node.path}>
       <button
         type="button"
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted transition text-left"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted transition"
         style={{ paddingLeft: `${20 + depth * 16}px` }}
         onClick={() => onToggleDir(node.path)}
       >
-        <ChevronRight
-          className={cn(
-            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
-            isExpanded && 'rotate-90'
-          )}
-        />
+        <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-90')} />
         <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate font-medium">{node.name}</span>
       </button>
@@ -133,32 +114,28 @@ function TreeNode({
   );
 }
 
-export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: ReferencePickerDialogProps) {
+export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd }: ReferencePickerDialogProps) {
   const t = useTranslations('studio.referencePicker');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<Source>('studio');
   const [search, setSearch] = useState('');
 
-  // Studio / Upload tab state
   const [assets, setAssets] = useState<ImageAsset[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Workspace tab state
   const [tree, setTree] = useState<FileNode[]>([]);
   const [isTreeLoading, setIsTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
-  // Shared selection
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
-  // Upload state (mirrors AssetPickerDialog)
   const [isUploading, setIsUploading] = useState(false);
-  const [imagePreprocessFiles, setImagePreprocessFiles] = useState<
-    import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null
-  >(null);
+  const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
+
+  const [urlInput, setUrlInput] = useState('');
 
   const loadStudioAssets = async () => {
     if (tab !== 'studio') return;
@@ -187,10 +164,8 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
       const res = await fetch('/api/files/tree?path=.&depth=8', { credentials: 'include', cache: 'no-store' });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Failed loading files');
-      // Only keep nodes that have at least one image descendant for a cleaner tree
       const root = payload.data || [];
       setTree(root);
-      // Expand first three levels automatically for convenience
       const initial = new Set<string>();
       const queue: FileNode[] = [...root];
       let depth = 0;
@@ -219,6 +194,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
     if (!open) return;
     setSelectedPaths(new Set());
     setSearch('');
+    setUrlInput('');
     void loadStudioAssets();
     void loadWorkspaceTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,7 +239,6 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
       .filter(Boolean) as ImageAsset[];
   }, [assets, selectedPaths, tree]);
 
-  // Upload helpers (mirrors AssetPickerDialog)
   const handleUploadFiles = async (files: FileList | null, convertParams?: (ConvertParams | null)[]) => {
     if (!files || files.length === 0) return;
     setIsUploading(true);
@@ -273,15 +248,12 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
       Array.from(files).forEach((file) => formData.append('files', file, file.name));
       formData.append('path', 'user-uploads/studio-references');
       if (convertParams && convertParams.length > 0) {
-        const serializable = convertParams.map((p) =>
-          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
-        );
+        const serializable = convertParams.map((p) => (p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null));
         formData.append('convertParams', JSON.stringify(serializable));
       }
       const res = await fetch('/api/files/upload', { method: 'POST', body: formData, credentials: 'include' });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
-      // Switch to studio tab to show updated list and select new files
       setTab('studio');
       await loadStudioAssets();
     } catch (e) {
@@ -301,9 +273,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
       files.forEach((file) => formData.append('files', file, file.name));
       formData.append('path', 'user-uploads/studio-references');
       if (convertParams.length > 0) {
-        const serializable = convertParams.map((p) =>
-          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
-        );
+        const serializable = convertParams.map((p) => (p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null));
         formData.append('convertParams', JSON.stringify(serializable));
       }
       const res = await fetch('/api/files/upload', { method: 'POST', body: formData, credentials: 'include' });
@@ -371,36 +341,23 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
           </DialogHeader>
 
           <Tabs value={tab} onValueChange={(val) => setTab(val as Source)} className="flex flex-col flex-1 min-h-0">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="studio">{t('tabs.studio')}</TabsTrigger>
               <TabsTrigger value="workspace">{t('tabs.workspace')}</TabsTrigger>
               <TabsTrigger value="upload">{t('tabs.upload')}</TabsTrigger>
+              <TabsTrigger value="urls">{t('tabs.urls')}</TabsTrigger>
             </TabsList>
 
             {/* Studio tab */}
             <TabsContent value="studio" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex">
               <div className="flex gap-2 py-3">
-                <Input
-                  placeholder={t('searchPlaceholder')}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 shrink-0"
-                  onClick={() => {
-                    void loadStudioAssets();
-                  }}
-                  disabled={isLoading}
-                >
+                <Input placeholder={t('searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Button variant="outline" size="sm" className="gap-1 shrink-0" onClick={() => { void loadStudioAssets(); }} disabled={isLoading}>
                   <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
                   {t('refresh')}
                 </Button>
               </div>
-
               {error && <p className="text-sm text-destructive mb-2">{error}</p>}
-
               <ScrollArea className="flex-1 border rounded-md bg-background p-3">
                 {isLoading ? (
                   <div className="flex h-40 items-center justify-center text-muted-foreground">
@@ -408,35 +365,17 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                     {t('loading')}
                   </div>
                 ) : assets.length === 0 ? (
-                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                    {t('empty')}
-                  </div>
+                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">{t('empty')}</div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                     {assets.map((asset) => {
                       const selected = selectedPaths.has(asset.path);
                       return (
-                        <button
-                          key={asset.path}
-                          type="button"
-                          onClick={() => toggleSelect(asset.path)}
-                          className={cn(
-                            'relative overflow-hidden border rounded-lg text-left transition',
-                            selected
-                              ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
-                              : 'border-border bg-card hover:border-primary/50'
-                          )}
-                        >
-                           <div className="aspect-video w-full bg-muted">
-                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                             <img
-                               src={asset.previewUrl}
-                               alt={asset.name}
-                               className="h-full w-full object-cover"
-                               loading="lazy"
-                               decoding="async"
-                             />
-                           </div>
+                        <button key={asset.path} type="button" onClick={() => toggleSelect(asset.path)}
+                          className={cn('relative overflow-hidden border rounded-lg text-left transition', selected ? 'border-primary ring-2 ring-primary/20 bg-primary/5' : 'border-border bg-card hover:border-primary/50')}>
+                          <div className="aspect-video w-full bg-muted">
+                            <img src={asset.previewUrl} alt={asset.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
+                          </div>
                           <div className="p-2">
                             <p className="truncate text-xs font-medium">{asset.name}</p>
                             {selected && (
@@ -454,48 +393,25 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
             {/* Workspace tab */}
             <TabsContent value="workspace" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex">
               <div className="flex gap-2 py-3">
-                <Input
-                  placeholder={t('searchWorkspacePlaceholder')}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 shrink-0"
-                  onClick={() => {
-                    void loadWorkspaceTree();
-                  }}
-                  disabled={isTreeLoading}
-                >
+                <Input placeholder={t('searchWorkspacePlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Button variant="outline" size="sm" className="gap-1 shrink-0" onClick={() => { void loadWorkspaceTree(); }} disabled={isTreeLoading}>
                   <RefreshCw className={cn('h-4 w-4', isTreeLoading && 'animate-spin')} />
                   {t('refresh')}
                 </Button>
               </div>
-
               {treeError && <p className="text-sm text-destructive mb-2">{treeError}</p>}
-
-              <ScrollArea className="flex-1 h-full border rounded-md bg-background p-3 overflow-y-auto">
+              <ScrollArea className="flex-1 border rounded-md bg-background p-3">
                 {isTreeLoading ? (
                   <div className="flex h-40 items-center justify-center text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {t('loadingWorkspace')}
                   </div>
                 ) : tree.length === 0 ? (
-                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                    {t('emptyWorkspace')}
-                  </div>
+                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">{t('emptyWorkspace')}</div>
                 ) : (
-                  <div className="space-y-0.5 min-h-0">
+                  <div className="space-y-0.5">
                     {tree.map((node) => (
-                      <TreeNode
-                        key={node.path}
-                        node={node}
-                        selectedPaths={selectedPaths}
-                        expandedDirs={expandedDirs}
-                        onToggleDir={toggleExpanded}
-                        onToggleSelect={toggleSelect}
-                      />
+                      <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} />
                     ))}
                   </div>
                 )}
@@ -512,55 +428,59 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                   </p>
                   <p className="text-xs text-muted-foreground">{t('upload.hint')}</p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                >
+                <Button type="button" variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
                   {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   {t('upload.selectFiles')}
                 </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files.length > 0) {
-                      void preprocessFileSelection(e.target.files);
-                    }
-                    e.target.value = '';
-                  }}
-                />
+                <input ref={fileInputRef} type="file" className="hidden" accept="image/*" multiple onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) { void preprocessFileSelection(e.target.files); }
+                  e.target.value = '';
+                }} />
                 {error && <p className="text-sm text-destructive mt-2">{error}</p>}
+              </div>
+            </TabsContent>
+
+            {/* URLs tab */}
+            <TabsContent value="urls" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex">
+              <div className="flex flex-col gap-4 py-3">
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-foreground">{t('urlTabTitle')}</label>
+                  <p className="text-xs text-muted-foreground">{t('urlTabDescription')}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder={t('urlPlaceholder')} />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const trimmed = urlInput.trim();
+                      if (!trimmed || !onUrlAdd) return;
+                      onUrlAdd(trimmed);
+                      setUrlInput('');
+                    }}
+                    disabled={!urlInput.trim()}
+                  >
+                    {t('addUrl')}
+                  </Button>
+                </div>
               </div>
             </TabsContent>
           </Tabs>
 
           {/* Selection preview */}
           {currentSelectionDisplay.length > 0 && (
-            <div className="shrink-0 pt-4 border-t border-border max-h-28 overflow-y-auto">
+            <div className="shrink-0 pt-4 border-t border-border">
               <p className="text-xs text-muted-foreground mb-2">
                 {t('selection.count', { count: currentSelectionDisplay.length })}
               </p>
               <div className="flex flex-wrap gap-2">
                 {currentSelectionDisplay.map((asset) => (
-                  <button
-                    key={asset.path}
-                    type="button"
-                    onClick={() => toggleSelect(asset.path)}
-                    className="relative group overflow-hidden border rounded-md transition hover:border-destructive"
-                    title={t('selection.count', { count: currentSelectionDisplay.length })}
-                  >
-                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                     <img src={asset.previewUrl} alt={asset.name} className="h-10 w-10 object-cover" />
+                  <button key={asset.path} type="button" onClick={() => toggleSelect(asset.path)}
+                    className="relative group overflow-hidden border rounded-md transition hover:border-destructive" title={t('selection.count', { count: currentSelectionDisplay.length })}>
+                    <img src={asset.previewUrl} alt={asset.name} className="h-10 w-10 object-cover" />
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-50 bg-black/30">
                       <X className="h-4 w-4 text-white" />
                     </div>
-                    {/* Missing X import? using hidden */}
                   </button>
                 ))}
               </div>
