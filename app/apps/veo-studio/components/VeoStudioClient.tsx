@@ -7,6 +7,7 @@ import { Loader2, RefreshCw, WandSparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AssetPickerDialog } from '@/app/apps/veo-studio/components/AssetPickerDialog';
+import { ReferencePickerDialog } from '@/app/apps/studio/components/create/ReferencePickerDialog';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import {
   Dialog,
@@ -497,14 +498,24 @@ export function VeoStudioClient() {
         </CardContent>
       </Card>
 
-      <AssetPickerDialog
-        open={picker.open}
-        onOpenChange={(open) => setPicker((current) => ({ ...current, open }))}
-        kind={picker.kind}
-        multiple={picker.multiple}
-        maxSelection={picker.maxSelection}
-        onConfirm={handlePickerConfirm}
-      />
+      {picker.target === 'input' ? (
+        <AssetPickerDialog
+          open={picker.open}
+          onOpenChange={(open) => setPicker((current) => ({ ...current, open }))}
+          kind={picker.kind}
+          multiple={picker.multiple}
+          maxSelection={picker.maxSelection}
+          onConfirm={handlePickerConfirm}
+        />
+      ) : (
+        <ReferencePickerDialog
+          open={picker.open}
+          onOpenChange={(open) => setPicker((current) => ({ ...current, open }))}
+          multiple={picker.multiple}
+          maxSelection={picker.maxSelection}
+          onConfirm={handlePickerConfirm}
+        />
+      )}
 
       <Dialog open={!!previewItem} onOpenChange={(open) => !open && setPreviewItem(null)}>
         <DialogContent layout="viewport" className="p-0">
