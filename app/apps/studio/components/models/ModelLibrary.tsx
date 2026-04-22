@@ -22,21 +22,33 @@ export function ModelLibrary() {
   const [search, setSearch] = useState('');
   const router = useRouter();
 
-  const productsHook = useStudioProducts();
-  const personasHook = useStudioPersonas();
-  const stylesHook = useStudioStyles();
+  const {
+    products,
+    loading: productsLoading,
+    fetchProducts,
+  } = useStudioProducts();
+  const {
+    personas,
+    loading: personasLoading,
+    fetchPersonas,
+  } = useStudioPersonas();
+  const {
+    styles,
+    loading: stylesLoading,
+    fetchStyles,
+  } = useStudioStyles();
 
   useEffect(() => {
-    productsHook.fetchProducts(search);
-  }, [search, productsHook]);
+    fetchProducts(search);
+  }, [search, fetchProducts]);
 
   useEffect(() => {
-    personasHook.fetchPersonas(search);
-  }, [search, personasHook]);
+    fetchPersonas(search);
+  }, [search, fetchPersonas]);
 
   useEffect(() => {
-    stylesHook.fetchStyles(search);
-  }, [search, stylesHook]);
+    fetchStyles(search);
+  }, [search, fetchStyles]);
 
   const handleCreate = () => {
     const type = activeTab === 'personas' ? 'persona' : activeTab === 'styles' ? 'style' : 'product';
@@ -80,16 +92,16 @@ export function ModelLibrary() {
       </div>
 
       {activeTab === 'products' && (
-        productsHook.loading ? (
+        productsLoading ? (
           <p className="py-8 text-center text-muted-foreground">{t('common.loading')}</p>
-        ) : productsHook.products.length === 0 ? (
+        ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
             <p className="text-sm font-medium text-muted-foreground">{t('modelLibrary.emptyProductTitle')}</p>
             <p className="text-xs text-muted-foreground">{t('modelLibrary.emptyProductDescription')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {productsHook.products.map((product) => (
+            {products.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
@@ -97,16 +109,16 @@ export function ModelLibrary() {
       )}
 
       {activeTab === 'personas' && (
-        personasHook.loading ? (
+        personasLoading ? (
           <p className="py-8 text-center text-muted-foreground">{t('common.loading')}</p>
-        ) : personasHook.personas.length === 0 ? (
+        ) : personas.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
             <p className="text-sm font-medium text-muted-foreground">{t('modelLibrary.emptyPersonaTitle')}</p>
             <p className="text-xs text-muted-foreground">{t('modelLibrary.emptyPersonaDescription')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {personasHook.personas.map((persona) => (
+            {personas.map((persona) => (
               <PersonaCard key={persona.id} persona={persona} />
             ))}
           </div>
@@ -114,16 +126,16 @@ export function ModelLibrary() {
       )}
 
       {activeTab === 'styles' && (
-        stylesHook.loading ? (
+        stylesLoading ? (
           <p className="py-8 text-center text-muted-foreground">{t('common.loading')}</p>
-        ) : stylesHook.styles.length === 0 ? (
+        ) : styles.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
             <p className="text-sm font-medium text-muted-foreground">{t('modelLibrary.emptyStyleTitle')}</p>
             <p className="text-xs text-muted-foreground">{t('modelLibrary.emptyStyleDescription')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {stylesHook.styles.map((style) => (
+            {styles.map((style) => (
               <StyleCard key={style.id} style={style} />
             ))}
           </div>
