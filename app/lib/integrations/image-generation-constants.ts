@@ -13,6 +13,7 @@ export const GEMINI_MODELS = [
 ] as const;
 
 export const OPENAI_MODELS = [
+  { id: 'gpt-image-2', optionKey: 'gptImage2' as const },
   { id: 'gpt-image-1.5', optionKey: 'gptImage15' as const },
   { id: 'gpt-image-1', optionKey: 'gptImage1' as const },
   { id: 'gpt-image-1-mini', optionKey: 'gptImage1Mini' as const },

@@ -64,6 +64,12 @@ const GEMINI_MODELS: ImageModelOption[] = [
 
 const OPENAI_MODELS: ImageModelOption[] = [
   {
+    id: 'gpt-image-2',
+    label: '🎨 Best Quality',
+    shortLabel: 'GPT Image 2',
+    description: 'Latest state-of-the-art model with superior instruction following, text rendering and editing.',
+  },
+  {
     id: 'gpt-image-1.5',
     label: '🎨 Best Quality',
     shortLabel: 'GPT Image 1.5',

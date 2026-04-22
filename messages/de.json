@@ -1469,6 +1469,11 @@
         "shortLabel": "Gemini 2.5 Flash Image",
         "description": "Schnelle Generierung zu geringeren Kosten. Unterstützt bis zu 3 Referenzbilder. Ideal für schnelle Entwürfe, einfache Motive und kurze Iterationen."
       },
+      "gptImage2": {
+        "label": "🎨 Beste Qualität",
+        "shortLabel": "GPT Image 2",
+        "description": "Neuestes Spitzenmodell mit überlegener Befehlsfolge, Textdarstellung und Bildbearbeitung."
+      },
       "gptImage15": {
         "label": "🎨 Beste Qualität",
         "shortLabel": "GPT Image 1.5",
