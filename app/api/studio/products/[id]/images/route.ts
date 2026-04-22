@@ -3,6 +3,7 @@ import { auth } from '@/app/lib/auth';
 import { addProductImage } from '@/app/lib/integrations/studio-product-service';
 import { ensureStudioAssetsWorkspace } from '@/app/lib/integrations/studio-workspace';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
 
 const MAX_URL_IMPORT_SIZE = 10 * 1024 * 1024;
 
@@ -46,17 +47,12 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'URL is required for URL import' }, { status: 400 });
     }
     try {
-      const response = await fetch(body.url, { signal: AbortSignal.timeout(30000) });
-      if (!response.ok) {
-        return NextResponse.json({ success: false, error: `Failed to fetch URL: ${response.status}` }, { status: 400 });
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      if (buffer.length > MAX_URL_IMPORT_SIZE) {
-        return NextResponse.json({ success: false, error: 'File exceeds 10MB limit' }, { status: 400 });
-      }
-      const mimeType = response.headers.get('content-type')?.split(';')[0]?.trim() || 'application/octet-stream';
-      const urlPath = new URL(body.url).pathname;
+      const { buffer, contentType, finalUrl } = await fetchExternalResourceSafely(body.url, {
+        maxBytes: MAX_URL_IMPORT_SIZE,
+        timeoutMs: 30000,
+      });
+      const mimeType = contentType.split(';')[0]?.trim() || 'application/octet-stream';
+      const urlPath = new URL(finalUrl).pathname;
       const fileName = urlPath.split('/').pop() || 'imported-image.jpg';
       fileData = {
         buffer,
@@ -64,7 +60,7 @@ export async function POST(
         mimeType,
         fileSize: buffer.length,
         sourceType: 'url_import',
-        sourceUrl: body.url,
+        sourceUrl: finalUrl,
       };
     } catch (err) {
       return NextResponse.json({ success: false, error: `Failed to download image: ${err instanceof Error ? err.message : 'Unknown error'}` }, { status: 400 });
@@ -72,7 +68,7 @@ export async function POST(
   }
 
   try {
-    const image = await addProductImage(id, fileData);
+    const image = await addProductImage(id, session.user.id, fileData);
     return NextResponse.json({ success: true, image }, { status: 201 });
   } catch (err) {
     if (err instanceof StudioServiceError) {

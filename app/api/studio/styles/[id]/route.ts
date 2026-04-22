@@ -12,7 +12,7 @@ export async function GET(
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
   const { id } = await params;
-  const style = await getStyle(id);
+  const style = await getStyle(id, session.user.id);
   if (!style) {
     return NextResponse.json({ success: false, error: 'Style not found' }, { status: 404 });
   }
@@ -36,22 +36,22 @@ export async function PATCH(
   }
   try {
     if (body.name !== undefined || body.description !== undefined) {
-      await updateStyle(id, {
+      await updateStyle(id, session.user.id, {
         name: body.name?.trim(),
         description: body.description?.trim(),
       });
       if (body.imageOrder && Array.isArray(body.imageOrder)) {
-        await reorderStyleImages(id, body.imageOrder);
+        await reorderStyleImages(id, session.user.id, body.imageOrder);
       }
-      const refreshed = await getStyle(id);
+      const refreshed = await getStyle(id, session.user.id);
       return NextResponse.json({ success: true, style: refreshed });
     }
     if (body.imageOrder && Array.isArray(body.imageOrder)) {
-      await reorderStyleImages(id, body.imageOrder);
-      const refreshed = await getStyle(id);
+      await reorderStyleImages(id, session.user.id, body.imageOrder);
+      const refreshed = await getStyle(id, session.user.id);
       return NextResponse.json({ success: true, style: refreshed });
     }
-    const refreshed = await getStyle(id);
+    const refreshed = await getStyle(id, session.user.id);
     return NextResponse.json({ success: true, style: refreshed });
   } catch (err) {
     if (err instanceof StudioServiceError) {
@@ -72,7 +72,7 @@ export async function DELETE(
   }
   const { id } = await params;
   try {
-    const result = await deleteStyle(id);
+    const result = await deleteStyle(id, session.user.id);
     return NextResponse.json({ success: result.success, warnings: result.warnings });
   } catch (err) {
     if (err instanceof StudioServiceError) {

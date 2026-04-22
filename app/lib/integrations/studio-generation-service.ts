@@ -22,10 +22,11 @@ import {
   generateOutputFilename,
   writeOutputFile,
   readOutputFile,
+  readStudioReferenceFile,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
-import { readFile } from '@/app/lib/filesystem/upload-handler';
 import { generateVideo, type GenerateVideoRequestBody } from '@/app/lib/integrations/veo-generation-service';
+import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 
@@ -97,7 +98,7 @@ function extensionFromMime(mimeType: string): string {
   return MIME_EXTENSION[mimeType] || 'png';
 }
 
-async function loadProductImages(productIds: string[]): Promise<LoadedReferenceImage[]> {
+async function loadProductImages(userId: string, productIds: string[]): Promise<LoadedReferenceImage[]> {
   if (productIds.length === 0) return [];
 
   const images: LoadedReferenceImage[] = [];
@@ -105,7 +106,7 @@ async function loadProductImages(productIds: string[]): Promise<LoadedReferenceI
   for (const productId of productIds) {
     const [product] = await db.select({ id: studioProducts.id, name: studioProducts.name, description: studioProducts.description })
       .from(studioProducts)
-      .where(eq(studioProducts.id, productId));
+      .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
 
     if (!product) {
       throw new StudioServiceError(
@@ -148,7 +149,7 @@ async function loadProductImages(productIds: string[]): Promise<LoadedReferenceI
   return images;
 }
 
-async function loadPersonaImages(personaIds: string[]): Promise<LoadedReferenceImage[]> {
+async function loadPersonaImages(userId: string, personaIds: string[]): Promise<LoadedReferenceImage[]> {
   if (personaIds.length === 0) return [];
 
   const images: LoadedReferenceImage[] = [];
@@ -156,7 +157,7 @@ async function loadPersonaImages(personaIds: string[]): Promise<LoadedReferenceI
   for (const personaId of personaIds) {
     const [persona] = await db.select({ id: studioPersonas.id, name: studioPersonas.name, description: studioPersonas.description })
       .from(studioPersonas)
-      .where(eq(studioPersonas.id, personaId));
+      .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
 
     if (!persona) {
       throw new StudioServiceError(
@@ -199,10 +200,25 @@ async function loadPersonaImages(personaIds: string[]): Promise<LoadedReferenceI
   return images;
 }
 
-async function loadSourceOutputImage(sourceOutputId: string): Promise<LoadedReferenceImage> {
-  const [output] = await db.select()
+export async function getStudioOutputForUser(outputId: string, userId: string) {
+  const [output] = await db.select({
+    id: studioGenerationOutputs.id,
+    generationId: studioGenerationOutputs.generationId,
+    filePath: studioGenerationOutputs.filePath,
+    mimeType: studioGenerationOutputs.mimeType,
+    width: studioGenerationOutputs.width,
+    height: studioGenerationOutputs.height,
+  })
     .from(studioGenerationOutputs)
-    .where(eq(studioGenerationOutputs.id, sourceOutputId));
+    .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+    .where(and(eq(studioGenerationOutputs.id, outputId), eq(studioGenerations.userId, userId)))
+    .limit(1);
+
+  return output ?? null;
+}
+
+async function loadSourceOutputImage(userId: string, sourceOutputId: string): Promise<LoadedReferenceImage> {
+  const output = await getStudioOutputForUser(sourceOutputId, userId);
 
   if (!output) {
     throw new StudioServiceError(
@@ -270,10 +286,23 @@ async function composePresetPromptFragment(presetId: string): Promise<string> {
     .trim();
 }
 
-async function loadSourceOutputReferences(sourceGenerationId: string): Promise<{
+async function loadSourceOutputReferences(userId: string, sourceGenerationId: string): Promise<{
   product_ids: string[];
   persona_ids: string[];
 }> {
+  const [generation] = await db.select({ id: studioGenerations.id })
+    .from(studioGenerations)
+    .where(and(eq(studioGenerations.id, sourceGenerationId), eq(studioGenerations.userId, userId)))
+    .limit(1);
+
+  if (!generation) {
+    throw new StudioServiceError(
+      `Source generation ${sourceGenerationId} not found`,
+      'Die Quell-Generierung wurde nicht gefunden.',
+      'NOT_FOUND',
+    );
+  }
+
   const productRows = await db.select({ productId: studioGenerationProducts.productId })
     .from(studioGenerationProducts)
     .where(eq(studioGenerationProducts.generationId, sourceGenerationId));
@@ -288,7 +317,7 @@ async function loadSourceOutputReferences(sourceGenerationId: string): Promise<{
   };
 }
 
-async function loadExtraReferenceImages(urls: string[]): Promise<LoadedReferenceImage[]> {
+async function loadExtraReferenceImages(userId: string, urls: string[]): Promise<LoadedReferenceImage[]> {
   if (urls.length === 0) return [];
 
   const images: LoadedReferenceImage[] = [];
@@ -305,21 +334,12 @@ async function loadExtraReferenceImages(urls: string[]): Promise<LoadedReference
           throw new Error('Invalid local reference URL');
         }
 
-        const fileBuffer = await readFile(fileId);
-        if (!fileBuffer) {
-          throw new Error(`Local reference image not found: ${fileId}`);
-        }
-        buffer = fileBuffer;
+        buffer = await readStudioReferenceFile(userId, fileId);
         contentType = 'image/png';
       } else {
-        // External URL: fetch directly
-        const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
-        if (!response.ok) {
-          throw new Error(`Failed to fetch image from ${url}: ${response.status}`);
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        buffer = Buffer.from(arrayBuffer);
-        contentType = response.headers.get('content-type') || 'image/png';
+        const response = await fetchExternalResourceSafely(url, { maxBytes: 10 * 1024 * 1024, timeoutMs: 30000 });
+        buffer = response.buffer;
+        contentType = response.contentType || 'image/png';
       }
       
       images.push({
@@ -420,10 +440,7 @@ export async function executeStudioGeneration(
     : (request.model || defaultModel);
 
   if (request.source_output_id) {
-    const [sourceOutput] = await db.select({ generationId: studioGenerationOutputs.generationId })
-      .from(studioGenerationOutputs)
-      .where(eq(studioGenerationOutputs.id, request.source_output_id))
-      .limit(1);
+    const sourceOutput = await getStudioOutputForUser(request.source_output_id, userId);
     sourceGenerationId = sourceOutput?.generationId ?? null;
   }
 
@@ -456,18 +473,16 @@ export async function executeStudioGeneration(
     const allReferenceImages: LoadedReferenceImage[] = [];
 
     if (request.source_output_id) {
-      const sourceImg = await loadSourceOutputImage(request.source_output_id);
+      const sourceImg = await loadSourceOutputImage(userId, request.source_output_id);
       allReferenceImages.push(sourceImg);
 
       if (productIds.length === 0 && personaIds.length === 0) {
-        const [sourceOutput] = await db.select()
-          .from(studioGenerationOutputs)
-          .where(eq(studioGenerationOutputs.id, request.source_output_id));
+        const sourceOutput = await getStudioOutputForUser(request.source_output_id, userId);
         if (sourceOutput) {
-          const sourceRefs = await loadSourceOutputReferences(sourceOutput.generationId);
+          const sourceRefs = await loadSourceOutputReferences(userId, sourceOutput.generationId);
           if (sourceRefs.product_ids.length > 0 || sourceRefs.persona_ids.length > 0) {
-            const productImgs = await loadProductImages(sourceRefs.product_ids);
-            const personaImgs = await loadPersonaImages(sourceRefs.persona_ids);
+            const productImgs = await loadProductImages(userId, sourceRefs.product_ids);
+            const personaImgs = await loadPersonaImages(userId, sourceRefs.persona_ids);
             for (const img of [...productImgs, ...personaImgs]) {
               if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
                 allReferenceImages.push(img);
@@ -478,8 +493,8 @@ export async function executeStudioGeneration(
       }
     }
 
-    const productImgs = await loadProductImages(productIds);
-    const personaImgs = await loadPersonaImages(personaIds);
+    const productImgs = await loadProductImages(userId, productIds);
+    const personaImgs = await loadPersonaImages(userId, personaIds);
     for (const img of [...productImgs, ...personaImgs]) {
       if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
         allReferenceImages.push(img);
@@ -489,7 +504,7 @@ export async function executeStudioGeneration(
     // Load extra reference images from URLs
     const extraUrls = request.extra_reference_urls || [];
     if (extraUrls.length > 0) {
-      const extraImgs = await loadExtraReferenceImages(extraUrls);
+      const extraImgs = await loadExtraReferenceImages(userId, extraUrls);
       for (const img of extraImgs) {
         if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
           allReferenceImages.push(img);

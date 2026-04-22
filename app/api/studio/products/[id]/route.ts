@@ -12,7 +12,7 @@ export async function GET(
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
   const { id } = await params;
-  const product = await getProduct(id);
+  const product = await getProduct(id, session.user.id);
   if (!product) {
     return NextResponse.json({ success: false, error: 'Product not found' }, { status: 404 });
   }
@@ -36,22 +36,22 @@ export async function PATCH(
   }
   try {
     if (body.name !== undefined || body.description !== undefined) {
-      await updateProduct(id, {
+      await updateProduct(id, session.user.id, {
         name: body.name?.trim(),
         description: body.description?.trim(),
       });
       if (body.imageOrder && Array.isArray(body.imageOrder)) {
-        await reorderProductImages(id, body.imageOrder);
+        await reorderProductImages(id, session.user.id, body.imageOrder);
       }
-      const refreshed = await getProduct(id);
+      const refreshed = await getProduct(id, session.user.id);
       return NextResponse.json({ success: true, product: refreshed });
     }
     if (body.imageOrder && Array.isArray(body.imageOrder)) {
-      await reorderProductImages(id, body.imageOrder);
-      const refreshed = await getProduct(id);
+      await reorderProductImages(id, session.user.id, body.imageOrder);
+      const refreshed = await getProduct(id, session.user.id);
       return NextResponse.json({ success: true, product: refreshed });
     }
-    const refreshed = await getProduct(id);
+    const refreshed = await getProduct(id, session.user.id);
     return NextResponse.json({ success: true, product: refreshed });
   } catch (err) {
     if (err instanceof StudioServiceError) {
@@ -72,7 +72,7 @@ export async function DELETE(
   }
   const { id } = await params;
   try {
-    const result = await deleteProduct(id);
+    const result = await deleteProduct(id, session.user.id);
     return NextResponse.json({ success: result.success, warnings: result.warnings });
   } catch (err) {
     if (err instanceof StudioServiceError) {

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { Readable } from 'stream';
-import { getStudioOutputsRoot, getStudioAssetsRoot } from '@/app/lib/integrations/studio-workspace';
+import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
-import path from 'path';
+import { resolveValidatedStudioAssetPath, resolveValidatedStudioOutputPath } from '@/app/lib/integrations/studio-paths';
 
 const MEDIA_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
@@ -37,12 +37,11 @@ function getContentType(filePath: string): string {
 }
 
 function resolveStudioPath(encodedFilePath: string): string | null {
-  // Allow paths under studio/outputs/ and studio/assets/
   if (encodedFilePath.startsWith('studio/outputs/')) {
-    return path.join(getStudioOutputsRoot(), encodedFilePath.slice('studio/outputs/'.length));
+    return resolveValidatedStudioOutputPath(encodedFilePath.slice('studio/outputs/'.length));
   }
   if (encodedFilePath.startsWith('studio/assets/')) {
-    return path.join(getStudioAssetsRoot(), encodedFilePath.slice('studio/assets/'.length));
+    return resolveValidatedStudioAssetPath(encodedFilePath.slice('studio/assets/'.length));
   }
   return null;
 }
@@ -71,14 +70,37 @@ export async function GET(
     const fileSize = stats.size;
     const range = request.headers.get('range');
 
-    const nodeStream = (await fs.open(fullPath, 'r')).createReadStream();
-    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
-
     if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+      if (!match) {
+        return new NextResponse(null, { status: 416, headers: { 'Content-Range': `bytes */${fileSize}` } });
+      }
+
+      let start = match[1] ? parseInt(match[1], 10) : NaN;
+      let end = match[2] ? parseInt(match[2], 10) : NaN;
+
+      if (Number.isNaN(start) && Number.isNaN(end)) {
+        return new NextResponse(null, { status: 416, headers: { 'Content-Range': `bytes */${fileSize}` } });
+      }
+
+      if (Number.isNaN(start)) {
+        const suffixLength = end;
+        if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+          return new NextResponse(null, { status: 416, headers: { 'Content-Range': `bytes */${fileSize}` } });
+        }
+        start = Math.max(fileSize - suffixLength, 0);
+        end = fileSize - 1;
+      } else {
+        end = Number.isNaN(end) ? fileSize - 1 : end;
+      }
+
+      if (start < 0 || end < start || start >= fileSize || end >= fileSize) {
+        return new NextResponse(null, { status: 416, headers: { 'Content-Range': `bytes */${fileSize}` } });
+      }
+
       const chunksize = end - start + 1;
+      const nodeStream = nodeFs.createReadStream(fullPath, { start, end });
+      const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
 
       const headers = new Headers({
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
@@ -89,6 +111,9 @@ export async function GET(
 
       return new NextResponse(webStream, { status: 206, headers });
     }
+
+    const nodeStream = nodeFs.createReadStream(fullPath);
+    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
 
     const headers = new Headers({
       'Content-Length': fileSize.toString(),
