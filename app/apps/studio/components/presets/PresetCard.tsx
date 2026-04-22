@@ -18,11 +18,14 @@ export function PresetCard({ preset, onClick }: PresetCardProps) {
     >
       <div className="relative aspect-square overflow-hidden rounded-lg bg-muted">
         {preset.previewImageUrl ? (
-          <img
-            src={preset.previewImageUrl}
-            alt={preset.name}
-            className="h-full w-full object-cover transition-transform group-hover:scale-105"
-          />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={preset.previewImageUrl}
+              alt={preset.name}
+              className="h-full w-full object-cover transition-transform group-hover:scale-105"
+            />
+          </>
         ) : (
           <div className="flex h-full w-full items-center justify-center">
             <Sparkles className="h-8 w-8 text-muted-foreground/50" />

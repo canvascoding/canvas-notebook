@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Upload, RefreshCw, ChevronRight, Folder, Image, CheckSquare2, X } from 'lucide-react';
+import { Loader2, Upload, RefreshCw, ChevronRight, Folder, Image as ImageIcon, CheckSquare2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
@@ -81,7 +81,7 @@ function TreeNode({
         <CheckSquare2
           className={cn('h-4 w-4 shrink-0', isSelected ? 'text-primary' : 'text-muted-foreground')}
         />
-        <Image className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate">{node.name}</span>
       </div>
     );
@@ -415,15 +415,16 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                               : 'border-border bg-card hover:border-primary/50'
                           )}
                         >
-                          <div className="aspect-video w-full bg-muted">
-                            <img
-                              src={asset.previewUrl}
-                              alt={asset.name}
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                              decoding="async"
-                            />
-                          </div>
+                           <div className="aspect-video w-full bg-muted">
+                             {/* eslint-disable-next-line @next/next/no-img-element */}
+                             <img
+                               src={asset.previewUrl}
+                               alt={asset.name}
+                               className="h-full w-full object-cover"
+                               loading="lazy"
+                               decoding="async"
+                             />
+                           </div>
                           <div className="p-2">
                             <p className="truncate text-xs font-medium">{asset.name}</p>
                             {selected && (
@@ -541,7 +542,8 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                     className="relative group overflow-hidden border rounded-md transition hover:border-destructive"
                     title="Zum Entfernen klicken"
                   >
-                    <img src={asset.previewUrl} alt={asset.name} className="h-10 w-10 object-cover" />
+                     {/* eslint-disable-next-line @next/next/no-img-element */}
+                     <img src={asset.previewUrl} alt={asset.name} className="h-10 w-10 object-cover" />
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-50 bg-black/30">
                       <X className="h-4 w-4 text-white" />
                     </div>

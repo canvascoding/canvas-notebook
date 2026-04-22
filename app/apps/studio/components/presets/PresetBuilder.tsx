@@ -55,9 +55,9 @@ function getIconComponent(iconName: string) {
 }
 
 export function PresetBuilder({ presetId }: PresetBuilderProps) {
-  const t = useTranslations('studio');
+  useTranslations('studio');
   const router = useRouter();
-  const { presets, loading: _loading, error: _error, fetchPresets, fetchBlockCatalog, createPreset, updatePreset, deletePreset, generatePreview } = useStudioPresets();
+  const { presets, fetchPresets, fetchBlockCatalog, createPreset, updatePreset, deletePreset, generatePreview } = useStudioPresets();
 
   const [catalog, setCatalog] = useState<StudioPresetBlockCatalog | null>(null);
   const [activeBlockType, setActiveBlockType] = useState<string | null>(null);
@@ -360,12 +360,15 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
             </div>
 
             <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center">
-              {previewImageUrl && previewEnabled ? (
-                <img
-                  src={previewImageUrl}
-                  alt="Preview"
-                  className="h-full w-full object-cover"
-                />
+               {previewImageUrl && previewEnabled ? (
+                <>
+                 {/* eslint-disable-next-line @next/next/no-img-element */}
+                 <img
+                   src={previewImageUrl}
+                   alt="Preview"
+                   className="h-full w-full object-cover"
+                 />
+                </>
               ) : (
                 <div className="flex flex-col items-center gap-2 text-muted-foreground">
                   <ImageIcon className="h-8 w-8" />
