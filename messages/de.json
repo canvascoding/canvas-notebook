@@ -221,7 +221,9 @@
             "emptyProductTitle": "Noch keine Produkte",
             "emptyProductDescription": "Erstelle dein erstes Produkt, um Bilder für KI-Generierungen zu referenzieren.",
             "emptyPersonaTitle": "Noch keine Personas",
-            "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen."
+            "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen.",
+            "emptyStyleTitle": "Noch keine Styles",
+            "emptyStyleDescription": "Erstelle deinen ersten Style, um konsistente visuelle Stile für Generierungen zu nutzen."
           },
           "modelCreate": {
             "name": "Name",
@@ -1692,13 +1694,17 @@
     "modelLibrary": {
       "products": "Produkte",
       "personas": "Personas",
+      "styles": "Styles",
       "newProduct": "Neues Produkt",
       "newPersona": "Neue Persona",
+      "newStyle": "Neuer Style",
       "searchPlaceholder": "Modelle suchen...",
       "emptyProductTitle": "Noch keine Produkte",
       "emptyProductDescription": "Erstelle dein erstes Produkt, um Bilder für KI-Generierungen zu referenzieren.",
       "emptyPersonaTitle": "Noch keine Personas",
-      "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen."
+      "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen.",
+      "emptyStyleTitle": "Noch keine Styles",
+      "emptyStyleDescription": "Erstelle deinen ersten Style, um konsistente visuelle Stile für Generierungen zu nutzen."
     },
     "modelCreate": {
       "name": "Name",
