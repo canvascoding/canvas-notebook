@@ -18,7 +18,6 @@ import {
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import {
   getVideoModelCapabilities,
-  type VideoModelId,
   type VideoResolution,
   type VideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
