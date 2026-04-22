@@ -1779,6 +1779,62 @@
       },
       "emptyState": {
         "title": "Create your first image",
+        "subtitle": "Type your idea below and let the AI work its magic. Your results will appear here \u2013 in real time."
+      },
+      "startingPointsTitle": "Inspiration",
+      "recreate": "Recreate",
+      "recentGenerationsTitle": "Recent Generations",
+      "viewAll": "View All"
+    },
+    "referencePicker": {
+      "title": "Select image reference",
+      "description": "Choose already generated studio images, files from your workspace, or upload new references.",
+      "tabs": {
+        "studio": "Studio Outputs",
+        "workspace": "Workspace",
+        "upload": "Upload"
+      },
+      "searchPlaceholder": "Search assets...",
+      "searchWorkspacePlaceholder": "Search workspace files...",
+      "refresh": "Refresh",
+      "loading": "Loading assets...",
+      "loadingWorkspace": "Loading workspace...",
+      "empty": "No images found.",
+      "emptyWorkspace": "Workspace is empty.",
+      "cancel": "Cancel",
+      "addReferences": "Add references",
+      "selection": {
+        "none": "Nothing selected",
+        "count": "{count} file(s) selected"
+      },
+      "upload": {
+        "target": "Target:",
+        "hint": "Maximum file size and automatic image resizing available.",
+        "selectFiles": "Select files"
+      }
+    },
+    "promptBar": {
+      "title": "Prompt Bar",
+      "addReference": "Add reference",
+      "referenceCategories": "Reference categories",
+      "imageReference": "Image reference",
+      "product": "Product",
+      "persona": "Persona",
+      "style": "Style",
+      "studio": "Studio",
+      "noProducts": "No products available",
+      "noPersonas": "No personas available",
+      "noStyles": "No styles available",
+      "noPresets": "No presets available",
+      "moreOptions": "More options",
+      "placeholder": "Describe the scene, subject, and intended output...",
+      "additionalUrls": "Additional reference URLs",
+      "add": "Add",
+      "urlPlaceholder": "https://example.com/reference.jpg"
+    }
+  },
+      "emptyState": {
+        "title": "Create your first image",
         "subtitle": "Type your idea below and let the AI work its magic. Your results will appear here – in real time."
       },
       "startingPointsTitle": "Inspiration",

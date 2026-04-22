@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Upload, RefreshCw, ChevronRight, Folder, Image as ImageIcon, CheckSquare2, X } from 'lucide-react';
+import {
+  Loader2,
+  Upload,
+  RefreshCw,
+  ChevronRight,
+  Folder,
+  Image as ImageIcon,
+  CheckSquare2,
+  X,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
@@ -69,21 +79,24 @@ function TreeNode({
     if (!isImage(node.name)) return null;
     const isSelected = selectedPaths.has(node.path);
     return (
-      <div
+      <button
         key={node.path}
+        type="button"
         className={cn(
-          'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition',
+          'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition text-left',
           isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground'
         )}
         style={{ paddingLeft: `${20 + depth * 16}px` }}
         onClick={() => onToggleSelect(node.path)}
       >
-        <CheckSquare2
-          className={cn('h-4 w-4 shrink-0', isSelected ? 'text-primary' : 'text-muted-foreground')}
-        />
+        {isSelected ? (
+          <CheckSquare2 className="h-4 w-4 shrink-0 text-primary" />
+        ) : (
+          <div className="h-4 w-4 shrink-0 rounded-sm border border-muted-foreground/30" />
+        )}
         <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate">{node.name}</span>
-      </div>
+      </button>
     );
   }
   const isExpanded = expandedDirs.has(node.path);
@@ -91,7 +104,7 @@ function TreeNode({
     <div key={node.path}>
       <button
         type="button"
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted transition"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted transition text-left"
         style={{ paddingLeft: `${20 + depth * 16}px` }}
         onClick={() => onToggleDir(node.path)}
       >
@@ -121,6 +134,7 @@ function TreeNode({
 }
 
 export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: ReferencePickerDialogProps) {
+  const t = useTranslations('studio.referencePicker');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<Source>('studio');
   const [search, setSearch] = useState('');
@@ -352,24 +366,22 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="flex flex-col w-[95vw] max-w-4xl max-h-[90vh] overflow-hidden border border-border bg-card">
           <DialogHeader>
-            <DialogTitle>Bildreferenz auswählen</DialogTitle>
-            <DialogDescription>
-              Wähle bereits generierte Studio-Bilder, Dateien aus deinem Workspace, oder lade neue Referenzen hoch.
-            </DialogDescription>
+            <DialogTitle>{t('title')}</DialogTitle>
+            <DialogDescription>{t('description')}</DialogDescription>
           </DialogHeader>
 
           <Tabs value={tab} onValueChange={(val) => setTab(val as Source)} className="flex flex-col flex-1 min-h-0">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="studio">Studio Outputs</TabsTrigger>
-              <TabsTrigger value="workspace">Workspace</TabsTrigger>
-              <TabsTrigger value="upload">Hochladen</TabsTrigger>
+              <TabsTrigger value="studio">{t('tabs.studio')}</TabsTrigger>
+              <TabsTrigger value="workspace">{t('tabs.workspace')}</TabsTrigger>
+              <TabsTrigger value="upload">{t('tabs.upload')}</TabsTrigger>
             </TabsList>
 
             {/* Studio tab */}
             <TabsContent value="studio" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex">
               <div className="flex gap-2 py-3">
                 <Input
-                  placeholder="Assets suchen..."
+                  placeholder={t('searchPlaceholder')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -383,7 +395,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                   disabled={isLoading}
                 >
                   <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
-                  Neu laden
+                  {t('refresh')}
                 </Button>
               </div>
 
@@ -393,11 +405,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                 {isLoading ? (
                   <div className="flex h-40 items-center justify-center text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Lade Assets...
+                    {t('loading')}
                   </div>
                 ) : assets.length === 0 ? (
                   <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                    Keine Bilder gefunden.
+                    {t('empty')}
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -443,7 +455,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
             <TabsContent value="workspace" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex">
               <div className="flex gap-2 py-3">
                 <Input
-                  placeholder="Workspace-Dateien suchen..."
+                  placeholder={t('searchWorkspacePlaceholder')}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -457,24 +469,24 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                   disabled={isTreeLoading}
                 >
                   <RefreshCw className={cn('h-4 w-4', isTreeLoading && 'animate-spin')} />
-                  Neu laden
+                  {t('refresh')}
                 </Button>
               </div>
 
               {treeError && <p className="text-sm text-destructive mb-2">{treeError}</p>}
 
-              <ScrollArea className="flex-1 border rounded-md bg-background p-3">
+              <ScrollArea className="flex-1 h-full border rounded-md bg-background p-3 overflow-y-auto">
                 {isTreeLoading ? (
                   <div className="flex h-40 items-center justify-center text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Lade Workspace...
+                    {t('loadingWorkspace')}
                   </div>
                 ) : tree.length === 0 ? (
                   <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                    Workspace ist leer.
+                    {t('emptyWorkspace')}
                   </div>
                 ) : (
-                  <div className="space-y-0.5">
+                  <div className="space-y-0.5 min-h-0">
                     {tree.map((node) => (
                       <TreeNode
                         key={node.path}
@@ -495,9 +507,10 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
               <div className="flex flex-col flex-1 items-center justify-center border border-dashed border-border bg-background rounded-md p-6 gap-4">
                 <div className="text-center space-y-1">
                   <p className="text-sm text-muted-foreground">
-                    Ziel: <span className="font-mono">user-uploads/studio-references</span>
+                    <span>{t('upload.target')}</span>{' '}
+                    <span className="font-mono">user-uploads/studio-references</span>
                   </p>
-                  <p className="text-xs text-muted-foreground">Maximale Dateigröße und automatische Bildverkleinerung verfügbar.</p>
+                  <p className="text-xs text-muted-foreground">{t('upload.hint')}</p>
                 </div>
                 <Button
                   type="button"
@@ -507,7 +520,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                   disabled={isUploading}
                 >
                   {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  Dateien wählen
+                  {t('upload.selectFiles')}
                 </Button>
                 <input
                   ref={fileInputRef}
@@ -529,9 +542,9 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
 
           {/* Selection preview */}
           {currentSelectionDisplay.length > 0 && (
-            <div className="shrink-0 pt-4 border-t border-border">
+            <div className="shrink-0 pt-4 border-t border-border max-h-28 overflow-y-auto">
               <p className="text-xs text-muted-foreground mb-2">
-                {currentSelectionDisplay.length} ausgewählt
+                {t('selection.count', { count: currentSelectionDisplay.length })}
               </p>
               <div className="flex flex-wrap gap-2">
                 {currentSelectionDisplay.map((asset) => (
@@ -540,7 +553,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                     type="button"
                     onClick={() => toggleSelect(asset.path)}
                     className="relative group overflow-hidden border rounded-md transition hover:border-destructive"
-                    title="Zum Entfernen klicken"
+                    title={t('selection.count', { count: currentSelectionDisplay.length })}
                   >
                      {/* eslint-disable-next-line @next/next/no-img-element */}
                      <img src={asset.previewUrl} alt={asset.name} className="h-10 w-10 object-cover" />
@@ -556,11 +569,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
 
           <DialogFooter className="flex items-center justify-between sm:justify-between">
             <p className="text-xs text-muted-foreground">
-              {selectedPaths.size === 0 ? 'Nichts ausgewählt' : `${selectedPaths.size} Datei(en) ausgewählt`}
+              {selectedPaths.size === 0 ? t('selection.none') : t('selection.count', { count: selectedPaths.size })}
             </p>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Abbrechen
+                {t('cancel')}
               </Button>
               <Button
                 disabled={selectedPaths.size === 0}
@@ -569,7 +582,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: Referen
                   onOpenChange(false);
                 }}
               >
-                Referenzen hinzufügen
+                {t('addReferences')}
               </Button>
             </div>
           </DialogFooter>
