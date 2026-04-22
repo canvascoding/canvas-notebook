@@ -30,7 +30,7 @@ interface UseStudioPresetsReturn {
   blockCatalog: StudioPresetBlockCatalog | null;
   loading: boolean;
   error: string | null;
-  fetchPresets: (category?: string) => Promise<void>;
+  fetchPresets: (category?: string) => Promise<StudioPreset[]>;
   fetchBlockCatalog: () => Promise<StudioPresetBlockCatalog | null>;
   createPreset: (payload: PresetPayload) => Promise<StudioPreset | null>;
   updatePreset: (id: string, payload: PresetUpdatePayload) => Promise<StudioPreset | null>;
@@ -63,9 +63,12 @@ export function useStudioPresets(): UseStudioPresetsReturn {
       const params = category ? `?category=${encodeURIComponent(category)}` : '';
       const response = await fetch(`/api/studio/presets${params}`);
       const data = await parseJsonResponse(response);
-      setPresets(data.presets ?? []);
+      const fetched = (data.presets ?? []) as StudioPreset[];
+      setPresets(fetched);
+      return fetched;
     } catch (err) {
       setError(toErrorMessage(err, 'Failed to fetch presets'));
+      return [];
     } finally {
       setLoading(false);
     }
