@@ -15,6 +15,16 @@ export function toMediaUrl(filePath: string) {
   if (filePath.startsWith('user-uploads/studio-references/')) {
     return `/api/studio/media/${encodedPath}`;
   }
+
+  if (
+    filePath.startsWith('presets/') ||
+    filePath.startsWith('products/') ||
+    filePath.startsWith('personas/') ||
+    filePath.startsWith('styles/') ||
+    filePath.startsWith('references/')
+  ) {
+    return `/api/studio/media/studio/assets/${encodedPath}`;
+  }
   
   // Use API route for media serving (works with Next.js standalone)
   return `/api/media/${encodedPath}`;

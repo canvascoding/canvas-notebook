@@ -118,7 +118,7 @@ function TreeNode({
   );
 }
 
-export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd }: ReferencePickerDialogProps) {
+export function ReferencePickerDialog({ open, onOpenChange, onConfirm }: ReferencePickerDialogProps) {
   const t = useTranslations('studio.referencePicker');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<Source>('studio');
@@ -137,13 +137,14 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd 
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
   const [isUploading, setIsUploading] = useState(false);
+  const [isUrlDownloading, setIsUrlDownloading] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
   const [imagePreprocessFiles, setImagePreprocessFiles] = useState<
     import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null
   >(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
 
   const loadStudioAssets = async () => {
-    if (tab !== 'studio') return;
     setIsLoading(true);
     setError(null);
     try {
@@ -162,7 +163,6 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd 
   };
 
   const loadWorkspaceTree = async () => {
-    if (tab !== 'workspace') return;
     setIsTreeLoading(true);
     setTreeError(null);
     try {
@@ -473,21 +473,44 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd 
                   <p className="text-xs text-muted-foreground">{t('urlTabDescription')}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder={t('urlPlaceholder')} />
+                  <Input value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setUrlError(null); }} placeholder={t('urlPlaceholder')} />
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => {
+                    onClick={async () => {
                       const trimmed = urlInput.trim();
-                      if (!trimmed || !onUrlAdd) return;
-                      onUrlAdd(trimmed);
-                      setUrlInput('');
+                      if (!trimmed) return;
+                      setIsUrlDownloading(true);
+                      setUrlError(null);
+                      try {
+                        const res = await fetch('/api/studio/references', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          credentials: 'include',
+                          body: JSON.stringify({ url: trimmed }),
+                        });
+                        const payload = await res.json();
+                        if (!res.ok || !payload.success) throw new Error(payload.error || 'Failed to download image');
+                        const filePath: string = payload.filePath;
+                        const fullPath = `studio/assets/${filePath}`;
+                        setSelectedPaths((prev) => { const next = new Set(prev); next.add(fullPath); return next; });
+                        setUrlInput('');
+                        setTab('studio');
+                        await loadStudioAssets();
+                      } catch (e) {
+                        setUrlError(e instanceof Error ? e.message : 'Failed to download image');
+                      } finally {
+                        setIsUrlDownloading(false);
+                      }
                     }}
-                    disabled={!urlInput.trim()}
+                    disabled={!urlInput.trim() || isUrlDownloading}
                   >
+                    {isUrlDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                     {t('addUrl')}
                   </Button>
                 </div>
+                {urlError && <p className="text-sm text-destructive">{urlError}</p>}
+                {error && tab === 'urls' && <p className="text-sm text-destructive">{error}</p>}
               </div>
             </TabsContent>
           </Tabs>
@@ -495,9 +518,6 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd 
           {/* Selection preview - bounded height, scrollable */}
           {currentSelectionDisplay.length > 0 && (
             <div className="shrink-0 pt-4 border-t border-border max-h-32 overflow-y-auto">
-              <p className="text-xs text-muted-foreground mb-2">
-                {t('selection.count', { count: currentSelectionDisplay.length })}
-              </p>
               <div className="flex flex-wrap gap-2">
                 {currentSelectionDisplay.map((asset) => (
                   <button key={asset.path} type="button" onClick={() => toggleSelect(asset.path)}
