@@ -1708,6 +1708,8 @@
       "images": "Images",
       "dropzone": "Drop images here or click to select",
       "maxImages": "Up to {max} images",
+      "addImages": "Add images",
+      "noImages": "No images selected yet. Click \"Add images\" to choose from Studio, Workspace, Upload, or URLs.",
       "urlImport": "Import from URL",
       "urlPlaceholder": "https://example.com/image.jpg",
       "addUrl": "Add",
