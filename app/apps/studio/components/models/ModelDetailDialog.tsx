@@ -1,14 +1,14 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Trash2, Pencil, Plus, Loader2 } from 'lucide-react';
-import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
-import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
+import { ReferencePickerDialog } from '../create/ReferencePickerDialog';
+import { toMediaUrl } from '@/app/lib/utils/media-url';
 import type { StudioProduct, StudioProductImage, StudioPersona, StudioPersonaImage, StudioStyle, StudioStyleImage } from '../../types/models';
 
 interface ModelDetailDialogProps {
@@ -27,7 +27,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   const [descriptionValue, setDescriptionValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showPicker, setShowPicker] = useState(false);
 
   const fetchEntity = useCallback(async () => {
     setLoading(true);
@@ -122,23 +122,57 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     }
   }, [entityId, entityType, router]);
 
-  const handleAddImages = useCallback(async (files: File[]) => {
-    for (const file of files) {
-      if (imageCount >= 10) break;
-      const formData = new FormData();
-      formData.append('file', file);
+  const handlePickerConfirm = useCallback(async (paths: string[]) => {
+    const remainingSlots = 10 - imageCount;
+    const toAdd = paths.slice(0, remainingSlots);
+    if (toAdd.length === 0) return;
+
+    setSaving(true);
+    try {
+      for (const path of toAdd) {
+        try {
+          const res = await fetch(toMediaUrl(path));
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const fileName = path.split('/').pop() || 'image.jpg';
+          const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+          const formData = new FormData();
+          formData.append('file', file);
+          const endpoint = entityType === 'product'
+            ? `/api/studio/products/${entityId}/images`
+            : entityType === 'persona'
+            ? `/api/studio/personas/${entityId}/images`
+            : `/api/studio/styles/${entityId}/images`;
+          await fetch(endpoint, { method: 'POST', body: formData });
+        } catch {
+          // skip failed downloads
+        }
+      }
+      await fetchEntity();
+    } finally {
+      setSaving(false);
+    }
+  }, [entityId, entityType, imageCount, fetchEntity]);
+
+  const handlePickerUrlAdd = useCallback(async (url: string) => {
+    if (imageCount >= 10) return;
+    setSaving(true);
+    try {
       const endpoint = entityType === 'product'
         ? `/api/studio/products/${entityId}/images`
         : entityType === 'persona'
         ? `/api/studio/personas/${entityId}/images`
         : `/api/studio/styles/${entityId}/images`;
-      await fetch(endpoint, { method: 'POST', body: formData });
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      await fetchEntity();
+    } finally {
+      setSaving(false);
     }
-    await fetchEntity();
   }, [entityId, entityType, imageCount, fetchEntity]);
-
-  const { handleFiles, dialogState, setDialogState, handleConfirm, handleSkip } =
-    useImagePreprocess({ onUpload: handleAddImages });
 
   const getImageUrl = (imageId: string) => {
     return entityType === 'product'
@@ -196,13 +230,12 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">{t('modelDetail.images')} ({imageCount}/10)</h3>
           {imageCount < 10 && (
-            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} className="gap-1">
+            <Button size="sm" variant="outline" onClick={() => setShowPicker(true)} className="gap-1">
               <Plus className="h-3 w-3" />
               {t('modelDetail.addImages')}
             </Button>
           )}
         </div>
-        <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e: React.ChangeEvent<HTMLInputElement>) => { const files = Array.from(e.target.files ?? []); if (files.length > 0) handleFiles(files); e.target.value = ''; }} />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {images.map((img: StudioProductImage | StudioPersonaImage | StudioStyleImage) => (
             <div key={img.id} className="group relative aspect-square overflow-hidden rounded-md border border-border">
@@ -238,15 +271,12 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         )}
       </div>
 
-      {dialogState && (
-        <ImagePreprocessDialog
-          open={!!dialogState}
-          onOpenChange={(open: boolean) => { if (!open) setDialogState(null); }}
-          files={dialogState.files}
-          onConfirm={handleConfirm}
-          onSkip={handleSkip}
-        />
-      )}
+      <ReferencePickerDialog
+        open={showPicker}
+        onOpenChange={setShowPicker}
+        onConfirm={handlePickerConfirm}
+        onUrlAdd={handlePickerUrlAdd}
+      />
     </div>
   );
 }

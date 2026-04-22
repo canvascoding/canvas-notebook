@@ -137,6 +137,8 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd 
 
   const [urlInput, setUrlInput] = useState('');
 
+  const [isDragOver, setIsDragOver] = useState(false);
+
   const loadStudioAssets = async () => {
     if (tab !== 'studio') return;
     setIsLoading(true);
@@ -420,7 +422,20 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, onUrlAdd 
 
             {/* Upload tab */}
             <TabsContent value="upload" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex">
-              <div className="flex flex-col flex-1 items-center justify-center border border-dashed border-border bg-background rounded-md p-6 gap-4">
+              <div
+                className={cn(
+                  'flex flex-col flex-1 items-center justify-center border border-dashed rounded-md p-6 gap-4 mt-4 transition-colors',
+                  isDragOver ? 'border-primary bg-primary/5' : 'border-border bg-background'
+                )}
+                onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragOver(false);
+                  const files = e.dataTransfer.files;
+                  if (files && files.length > 0) { void preprocessFileSelection(files); }
+                }}
+              >
                 <div className="text-center space-y-1">
                   <p className="text-sm text-muted-foreground">
                     <span>{t('upload.target')}</span>{' '}
