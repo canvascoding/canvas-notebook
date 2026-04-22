@@ -20,7 +20,6 @@ import {
   getVideoModelCapabilities,
   getVideoResolutionsForModel,
   getVideoDurationsForModel,
-  type VideoModelId,
   type VideoResolution,
   type VideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
