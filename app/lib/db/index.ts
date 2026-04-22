@@ -202,6 +202,235 @@ CREATE TABLE IF NOT EXISTS user_hint_state (
   FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
 );
 
+  user_id TEXT NOT NULL,
+  page TEXT NOT NULL,
+  completed INTEGER NOT NULL DEFAULT 0,
+  completed_at INTEGER,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+
+CREATE TABLE IF NOT EXISTS studio_products (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  thumbnail_path TEXT,
+  metadata TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+CREATE INDEX IF NOT EXISTS idx_studio_products_user ON studio_products (user_id);
+CREATE INDEX IF NOT EXISTS idx_studio_products_created ON studio_products (created_at);
+
+CREATE TABLE IF NOT EXISTS studio_product_images (
+  id TEXT PRIMARY KEY NOT NULL,
+  product_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  file_size INTEGER,
+  source_type TEXT NOT NULL,
+  source_url TEXT,
+  sort_order INTEGER NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (product_id) REFERENCES studio_products(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_studio_product_images_product ON studio_product_images (product_id);
+
+CREATE TABLE IF NOT EXISTS studio_personas (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  thumbnail_path TEXT,
+  metadata TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+CREATE INDEX IF NOT EXISTS idx_studio_personas_user ON studio_personas (user_id);
+CREATE INDEX IF NOT EXISTS idx_studio_personas_created ON studio_personas (created_at);
+
+CREATE TABLE IF NOT EXISTS studio_persona_images (
+  id TEXT PRIMARY KEY NOT NULL,
+  persona_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  file_size INTEGER,
+  source_type TEXT NOT NULL,
+  source_url TEXT,
+  sort_order INTEGER NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (persona_id) REFERENCES studio_personas(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_studio_persona_images_persona ON studio_persona_images (persona_id);
+
+CREATE TABLE IF NOT EXISTS studio_styles (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  thumbnail_path TEXT,
+  metadata TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+);
+CREATE INDEX IF NOT EXISTS idx_studio_styles_user ON studio_styles (user_id);
+CREATE INDEX IF NOT EXISTS idx_studio_styles_created ON studio_styles (created_at);
+
+CREATE TABLE IF NOT EXISTS studio_style_images (
+  id TEXT PRIMARY KEY NOT NULL,
+  style_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  file_size INTEGER,
+  source_type TEXT NOT NULL,
+  source_url TEXT,
+  sort_order INTEGER NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (style_id) REFERENCES studio_styles(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_studio_style_images_style ON studio_style_images (style_id);
+
+CREATE TABLE IF NOT EXISTS studio_presets (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT,
+  blocks TEXT NOT NULL,
+  preview_image_path TEXT,
+  tags TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_studio_presets_user ON studio_presets (user_id);
+CREATE INDEX IF NOT EXISTS idx_studio_presets_category ON studio_presets (category);
+CREATE INDEX IF NOT EXISTS idx_studio_presets_created ON studio_presets (created_at);
+
+CREATE TABLE IF NOT EXISTS studio_generations (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  prompt TEXT,
+  raw_prompt TEXT,
+  studio_preset_id TEXT,
+  aspect_ratio TEXT NOT NULL DEFAULT '1:1',
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  bulk_job_id TEXT,
+  pi_session_id TEXT,
+  source_generation_id TEXT,
+  metadata TEXT,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION,
+  FOREIGN KEY (studio_preset_id) REFERENCES studio_presets(id) ON UPDATE NO ACTION ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_studio_generations_user ON studio_generations (user_id);
+CREATE INDEX IF NOT EXISTS idx_studio_generations_status ON studio_generations (status);
+CREATE INDEX IF NOT EXISTS idx_studio_generations_created ON studio_generations (created_at);
+
+CREATE TABLE IF NOT EXISTS studio_generation_products (
+  generation_id TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  PRIMARY KEY (generation_id, product_id),
+  FOREIGN KEY (generation_id) REFERENCES studio_generations(id) ON UPDATE NO ACTION ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES studio_products(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_gen_products_generation ON studio_generation_products (generation_id);
+CREATE INDEX IF NOT EXISTS idx_gen_products_product ON studio_generation_products (product_id);
+
+CREATE TABLE IF NOT EXISTS studio_generation_personas (
+  generation_id TEXT NOT NULL,
+  persona_id TEXT NOT NULL,
+  PRIMARY KEY (generation_id, persona_id),
+  FOREIGN KEY (generation_id) REFERENCES studio_generations(id) ON UPDATE NO ACTION ON DELETE CASCADE,
+  FOREIGN KEY (persona_id) REFERENCES studio_personas(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_gen_personas_generation ON studio_generation_personas (generation_id);
+CREATE INDEX IF NOT EXISTS idx_gen_personas_persona ON studio_generation_personas (persona_id);
+
+CREATE TABLE IF NOT EXISTS studio_generation_styles (
+  generation_id TEXT NOT NULL,
+  style_id TEXT NOT NULL,
+  PRIMARY KEY (generation_id, style_id),
+  FOREIGN KEY (generation_id) REFERENCES studio_generations(id) ON UPDATE NO ACTION ON DELETE CASCADE,
+  FOREIGN KEY (style_id) REFERENCES studio_styles(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_gen_styles_generation ON studio_generation_styles (generation_id);
+CREATE INDEX IF NOT EXISTS idx_gen_styles_style ON studio_generation_styles (style_id);
+
+CREATE TABLE IF NOT EXISTS studio_generation_outputs (
+  id TEXT PRIMARY KEY NOT NULL,
+  generation_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  file_size INTEGER,
+  width INTEGER,
+  height INTEGER,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (generation_id) REFERENCES studio_generations(id) ON UPDATE NO ACTION ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_studio_generation_outputs_generation ON studio_generation_outputs (generation_id);
+
+CREATE TABLE IF NOT EXISTS studio_bulk_jobs (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT,
+  studio_preset_id TEXT,
+  additional_prompt TEXT,
+  aspect_ratio TEXT NOT NULL DEFAULT '1:1',
+  versions_per_product INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL,
+  total_line_items INTEGER NOT NULL,
+  completed_line_items INTEGER NOT NULL DEFAULT 0,
+  failed_line_items INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES user(id) ON UPDATE NO ACTION ON DELETE NO ACTION,
+  FOREIGN KEY (studio_preset_id) REFERENCES studio_presets(id) ON UPDATE NO ACTION ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_user ON studio_bulk_jobs (user_id);
+CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_status ON studio_bulk_jobs (status);
+CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_created ON studio_bulk_jobs (created_at);
+
+CREATE TABLE IF NOT EXISTS studio_bulk_job_line_items (
+  id TEXT PRIMARY KEY NOT NULL,
+  bulk_job_id TEXT NOT NULL,
+  product_id TEXT,
+  persona_id TEXT,
+  generation_id TEXT,
+  status TEXT NOT NULL,
+  output_path TEXT,
+  error_message TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (bulk_job_id) REFERENCES studio_bulk_jobs(id) ON UPDATE NO ACTION ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES studio_products(id) ON UPDATE NO ACTION ON DELETE SET NULL,
+  FOREIGN KEY (persona_id) REFERENCES studio_personas(id) ON UPDATE NO ACTION ON DELETE SET NULL,
+  FOREIGN KEY (generation_id) REFERENCES studio_generations(id) ON UPDATE NO ACTION ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_bulk_job ON studio_bulk_job_line_items (bulk_job_id);
+CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_status ON studio_bulk_job_line_items (status);
+
 CREATE TABLE IF NOT EXISTS page_onboarding_state (
   id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
   user_id TEXT NOT NULL,

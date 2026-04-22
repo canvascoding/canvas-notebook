@@ -76,11 +76,9 @@ import { StudioServiceError } from '../integrations/studio-errors';
 import { createBulkJob } from '../integrations/studio-bulk-service';
 import { db } from '@/app/lib/db';
 import {
-  studioGenerationOutputs,
-  studioGenerations,
   studioPresets,
 } from '@/app/lib/db/schema';
-import { and, eq, or as orDrizzle } from 'drizzle-orm';
+import { eq, or as orDrizzle } from 'drizzle-orm';
 
 
 const execAsync = promisify(exec);
@@ -657,9 +655,7 @@ export function createStudioGenerateTool(
   };
 }
 
-export function createStudioEditImageTool(
-  _deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
-): AgentTool {
+export function createStudioEditImageTool(): AgentTool {
   return {
     name: 'studio_edit_image',
     label: 'Edit studio image (deprecated)',
@@ -1836,7 +1832,7 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
       },
     },
     createStudioGenerateTool({ userId }),
-    createStudioEditImageTool({ userId }),
+    createStudioEditImageTool(),
     createStudioBulkGenerateTool({ userId }),
     createStudioListProductsTool({ userId }),
     createStudioListPersonasTool({ userId }),

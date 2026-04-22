@@ -96,7 +96,7 @@ export async function GET(
     });
 
     return new NextResponse(webStream, { status: 200, headers });
-  } catch (error) {
+  } catch {
     // Auto-cleanup orphaned preset previews
     try {
       if (encodedPath.startsWith('studio/assets/presets/')) {

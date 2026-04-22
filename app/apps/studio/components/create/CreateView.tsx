@@ -102,7 +102,6 @@ export function CreateView() {
   const [personaRefs, setPersonaRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [styleRefs, setStyleRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [presetRef, setPresetRef] = useState<StudioPreset | null>(null);
-  const [negativePrompt, setNegativePrompt] = useState('');
   const [extraReferenceUrls, setExtraReferenceUrls] = useState<StudioReferenceUrl[]>([]);
   const [fileRefs, setFileRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [startFrame, setStartFrame] = useState<File | null>(null);
@@ -191,17 +190,13 @@ export function CreateView() {
   };
 
   const handleGenerate = async () => {
-    const prompt = negativePrompt.trim()
-      ? `${rawPrompt.trim()}\n\nAvoid: ${negativePrompt.trim()}`
-      : rawPrompt.trim();
-
     const fileUrls = fileRefs.map((ref) => toMediaUrl(ref.id));
     const allReferenceUrls = extraReferenceUrls
       .filter((ref) => ref.status === 'success')
       .map((ref) => ref.localUrl).concat(fileUrls);
 
     const result = await generationHook.generate({
-      prompt,
+      prompt: rawPrompt.trim(),
       mode,
       product_ids: productRefs.map((product) => product.id),
       persona_ids: personaRefs.map((persona) => persona.id),
@@ -218,7 +213,6 @@ export function CreateView() {
 
     if (result) {
       setRawPrompt('');
-      setNegativePrompt('');
       setExtraReferenceUrls([]);
       setFileRefs([]);
       setStartFrame(null);
@@ -349,7 +343,6 @@ export function CreateView() {
               personaRefs,
               styleRefs,
               presetRef,
-              negativePrompt,
               extraReferenceUrls,
               fileRefs,
             }}
@@ -399,7 +392,6 @@ export function CreateView() {
               }
               setPresetRef((current) => (current?.id === id ? null : current));
             }}
-            onNegativePromptChange={setNegativePrompt}
             onExtraReferenceUrlAdd={handleAddReferenceUrl}
             onExtraReferenceUrlRemove={handleRemoveReferenceUrl}
             onFileAdd={(paths) => {
@@ -457,10 +449,6 @@ export function CreateView() {
               {mode === 'video' ? 'Video mode' : 'Image mode'}
             </Badge>
             <Badge variant="outline" className="rounded-full px-3 py-1">{provider === 'openai' ? 'OpenAI' : 'Gemini'} -- {model}</Badge>
-            <Badge variant="outline" className="rounded-full px-3 py-1">Presets: {presets.length}</Badge>
-            <Badge variant="outline" className="rounded-full px-3 py-1">Products: {products.length}</Badge>
-            <Badge variant="outline" className="rounded-full px-3 py-1">Personas: {personas.length}</Badge>
-            <Badge variant="outline" className="rounded-full px-3 py-1">Recent generations: {generations.length}</Badge>
             {generationHook.error ? (
               <Badge variant="outline" className="rounded-full border-red-500/40 text-red-700 dark:text-red-300">
                 {generationHook.error}

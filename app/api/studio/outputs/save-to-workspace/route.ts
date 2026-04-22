@@ -4,7 +4,7 @@ import { readOutputFile } from '@/app/lib/integrations/studio-workspace';
 import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { db } from '@/app/lib/db';
 import { studioGenerationOutputs } from '@/app/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -34,12 +34,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Output not found' }, { status: 404 });
     }
 
-    const [generation] = await db
-      .select({ userId: studioGenerationOutputs.generationId })
-      .from(studioGenerationOutputs)
-      .where(eq(studioGenerationOutputs.id, outputId))
-      .limit(1);
-
+    // Verification: output belongs to user and exists (checked above)
     // Read from studio outputs
     const buffer = await readOutputFile(output.filePath);
 

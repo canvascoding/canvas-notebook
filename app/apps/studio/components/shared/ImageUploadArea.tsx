@@ -109,6 +109,7 @@ export function ImageUploadArea({
                 dragIndex === index && 'opacity-50',
               )}
             >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={img.preview} alt="" className="h-full w-full object-cover" />
               <button
                 onClick={(e) => { e.stopPropagation(); onRemoveImage(img.id); }}
