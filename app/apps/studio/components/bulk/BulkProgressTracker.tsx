@@ -1,5 +1,7 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { StudioBulkJob } from '../../types/bulk';
 
@@ -9,6 +11,7 @@ interface BulkProgressTrackerProps {
 }
 
 export function BulkProgressTracker({ job, onCancel }: BulkProgressTrackerProps) {
+  const t = useTranslations('studio.bulk');
   const processed = job.completedLineItems + job.failedLineItems;
   const progress = job.totalLineItems > 0 ? processed / job.totalLineItems : 0;
   const isActive = job.status === 'pending' || job.status === 'processing';
@@ -16,7 +19,7 @@ export function BulkProgressTracker({ job, onCancel }: BulkProgressTrackerProps)
   const statusIcon = (status: string) => {
     switch (status) {
       case 'pending': return <span className="text-muted-foreground">\u23F3</span>;
-      case 'processing': return <span className="text-blue-500 animate-pulse">\uD83D\uDD04</span>;
+      case 'processing': return <span className="animate-pulse text-blue-500">\uD83D\uDD04</span>;
       case 'completed': return <span className="text-green-600">\u2705</span>;
       case 'failed': return <span className="text-red-500">\u274C</span>;
       default: return null;
@@ -25,11 +28,16 @@ export function BulkProgressTracker({ job, onCancel }: BulkProgressTrackerProps)
 
   const jobStatusBadge = () => {
     switch (job.status) {
-      case 'pending': return <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">Pending</span>;
-      case 'processing': return <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">Processing</span>;
-      case 'completed': return <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-200">Completed</span>;
-      case 'partial': return <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900/30 dark:text-orange-200">Partial</span>;
-      case 'failed': return <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-200">Failed</span>;
+      case 'pending':
+        return <Badge variant="outline" className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">{t('statusPending')}</Badge>;
+      case 'processing':
+        return <Badge variant="outline" className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">{t('statusProcessing')}</Badge>;
+      case 'completed':
+        return <Badge variant="outline" className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-200">{t('statusCompleted')}</Badge>;
+      case 'partial':
+        return <Badge variant="outline" className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900/30 dark:text-orange-200">{t('statusPartial')}</Badge>;
+      case 'failed':
+        return <Badge variant="outline" className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-200">{t('statusFailed')}</Badge>;
     }
   };
 
@@ -40,20 +48,20 @@ export function BulkProgressTracker({ job, onCancel }: BulkProgressTrackerProps)
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold">Progress</h3>
+          <h3 className="text-sm font-semibold">{t('progressTitle')}</h3>
           {jobStatusBadge()}
         </div>
         {isActive && (
           <Button variant="destructive" size="sm" onClick={onCancel}>
-            Cancel
+            {t('cancelButton')}
           </Button>
         )}
       </div>
 
       <div className="space-y-1">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{processed}/{job.totalLineItems} completed {job.failedLineItems > 0 ? `(${job.failedLineItems} failed)` : ''}</span>
-          <span>{Math.round(progress * 100)}%</span>
+          <span>{t('progressCompleted', { completed: processed, total: job.totalLineItems })}{job.failedLineItems > 0 ? ` (${job.failedLineItems} failed)` : ''}</span>
+          <span>{t('progressPercent', { percent: Math.round(progress * 100) })}</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-muted">
           <div
@@ -63,7 +71,7 @@ export function BulkProgressTracker({ job, onCancel }: BulkProgressTrackerProps)
         </div>
       </div>
 
-      <div className="max-h-48 overflow-y-auto rounded-lg border border-border">
+      <div className="max-h-48 overflow-y-auto rounded-xl border border-border/60">
         {job.lineItems.map((item, i) => {
           const isNewProduct = item.productName !== lastProductName;
           if (isNewProduct) {

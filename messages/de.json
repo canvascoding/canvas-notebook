@@ -221,9 +221,7 @@
             "emptyProductTitle": "Noch keine Produkte",
             "emptyProductDescription": "Erstelle dein erstes Produkt, um Bilder für KI-Generierungen zu referenzieren.",
             "emptyPersonaTitle": "Noch keine Personas",
-            "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen.",
-            "emptyStyleTitle": "Noch keine Styles",
-            "emptyStyleDescription": "Erstelle deinen ersten Style, um visuelle Stile für KI-Generierungen zu referenzieren."
+    "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen.",
           },
           "modelCreate": {
             "name": "Name",
@@ -1725,12 +1723,48 @@
       "deleteConfirmMessage": "Dieses Modell wird möglicherweise in Generierungen referenziert. Die Referenz wird als [Gelöscht] markiert. Fortfahren?",
       "confirmDelete": "Löschen"
     },
+    "bulk": {
+      "title": "Bulk-Generierung",
+      "description": "Wende ein Studio-Preset auf mehrere Produkte gleichzeitig an – mit individuellen Anpassungen pro Produkt.",
+      "productSelection": "Produktauswahl",
+      "searchPlaceholder": "Produkte suchen...",
+      "selectedCount": "{selected}/{max} ausgewählt",
+      "selectAll": "Alle auswählen",
+      "clearAll": "Auswahl aufheben",
+      "loadingProducts": "Produkte werden geladen...",
+      "emptyProducts": "Keine Produkte gefunden",
+      "batchSettings": "Batch-Einstellungen",
+      "batchSettingsPrompt": "Prompt, der auf alle Produkte angewendet wird...",
+      "presetLabel": "Preset",
+      "presetNone": "Kein",
+      "aspectRatioLabel": "Seitenverhältnis",
+      "versionsLabel": "Versionen",
+      "lineItemsTitle": "Zeilenelemente (Produkt-spezifische Anpassungen)",
+      "lineItemsEmpty": "Wähle oben Produkte aus, um produkt-spezifische Anpassungen zu konfigurieren",
+      "lineItemsProduct": "Produkt",
+      "lineItemsPreset": "Preset",
+      "lineItemsPersona": "Persona",
+      "lineItemsCustomPrompt": "Benutzerdefinierter Prompt",
+      "lineItemsBatch": "(Batch)",
+      "summaryBadge": "{products} Produkte × {versions} Versionen = {total} Generierungen",
+      "startButton": "Bulk-Generierung starten",
+      "progressTitle": "Fortschritt",
+      "progressCompleted": "{completed}/{total} abgeschlossen",
+      "progressPercent": "{percent}%",
+      "cancelButton": "Abbrechen",
+      "statusPending": "Ausstehend",
+      "statusProcessing": "In Bearbeitung",
+      "statusCompleted": "Abgeschlossen",
+      "statusPartial": "Teilweise",
+      "statusFailed": "Fehlgeschlagen",
+      "errorPrefix": "Fehler:"
+    },
     "dashboard": {
       "tabLabel": "Übersicht",
-      "startingPointsBadge": "Starting Points",
-      "headline": "Starte mit einer visuellen Richtung, dann baue auf Produkten, Personas und Presets auf.",
-      "subheadline": "Deine Outputs erscheinen hier in umgekehrter Reihenfolge. Nutze die Prompt-Leiste zum Erstellen von Bildern und Videos.",
-      "quickActionsTitle": "Schnellstart",
+      "startingPointsBadge": "Startpunkte",
+      "headline": "Starte mit einer visuellen Richtung, dann baue aus Produkten, Personas und Presets.",
+      "subheadline": "Deine Outputs erscheinen hier in umgekehrter chronologischer Reihenfolge. Nutze die Prompt-Leiste, um Bilder oder Videos zu erstellen.",
+      "quickActionsTitle": "Schnellaktionen",
       "quickActions": {
         "newProduct": "Neues Produkt",
         "newProductDesc": "Erstelle ein neues Produkt mit Bildern.",
@@ -1739,16 +1773,16 @@
         "startBulk": "Bulk-Generierung",
         "startBulkDesc": "Starte eine Batch-Generierung für mehrere Produkte.",
         "viewPresets": "Presets ansehen",
-        "viewPresetsDesc": "Durchsuche und verwalte deine Presets."
+        "viewPresetsDesc": "Durchsuche und verwalte deine Studio-Presets."
       },
       "emptyState": {
         "title": "Erstelle dein erstes Bild",
-        "subtitle": "Gib unten deine Idee ein und lasse die KI zaubern. Deine Ergebnisse erscheinen hier – in Echtzeit."
+        "subtitle": "Gib deine Idee unten ein und lass die AI ihre Magie wirken. Deine Ergebnisse erscheinen hier – in Echtzeit."
       },
       "startingPointsTitle": "Inspiration",
       "recreate": "Nachbilden",
       "recentGenerationsTitle": "Letzte Generierungen",
-      "viewAll": "Alle anzeigen"
+      "viewAll": "Alle ansehen"
     }
   },
   "usage": {
