@@ -1,3 +1,7 @@
+/**
+ * Studio reference assets listing API
+ * Lists available files in /studio/assets/ and registered media library images
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
@@ -36,7 +40,7 @@ function walkFiles(nodes: FileNode[], list: FileNode[] = []): FileNode[] {
   return list;
 }
 
-function matchesKind(extension: string, _kind: AssetKind): boolean {
+function matchesKind(extension: string): boolean {
   return IMAGE_EXTENSIONS.has(extension);
 }
 
@@ -58,6 +62,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const kindParam = (searchParams.get('kind') || 'all').toLowerCase();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const kind: AssetKind = kindParam === 'image' ? 'image' : 'all';
     const query = (searchParams.get('q') || '').trim().toLowerCase();
     const limitRaw = Number(searchParams.get('limit') || '300');
@@ -77,7 +82,7 @@ export async function GET(request: NextRequest) {
     const filtered: AssetItem[] = [];
     for (const file of allFiles) {
       const ext = getExtension(file.path);
-      if (!matchesKind(ext, kind)) {
+      if (!matchesKind(ext)) {
         continue;
       }
 

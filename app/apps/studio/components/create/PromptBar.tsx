@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AtSign, Folder, LayoutTemplate, Package2, Plus, UserRound, X, Image } from 'lucide-react';
+import { AtSign, LayoutTemplate, Package2, Plus, UserRound, X, Image as ImageIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -106,9 +106,10 @@ function ReferenceUrlChip({
 
   return (
     <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-muted text-foreground">
-      <img
+       {/* eslint-disable-next-line @next/next/no-img-element */}
+       <img
         src={reference.localUrl}
-        alt="Reference"
+        alt=""
         className="h-8 w-8 rounded object-cover"
         loading="lazy"
         onError={(e) => {
@@ -175,7 +176,7 @@ export function PromptBar({
               <DropdownMenuLabel>Reference categories</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setPickerOpen(true)}>
-                <Image className="h-4 w-4 mr-2" />
+                <ImageIcon className="h-4 w-4 mr-2" />
                 Bildreferenz
               </DropdownMenuItem>
               <DropdownMenuSub>

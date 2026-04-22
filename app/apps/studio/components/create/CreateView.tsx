@@ -528,7 +528,7 @@ export function CreateView() {
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
         }}
-        onDelete={(generation, output) => {
+        onDelete={(generation) => {
           void generationHook.deleteGeneration(generation.id);
         }}
         onClose={() => {
