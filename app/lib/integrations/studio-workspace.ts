@@ -11,6 +11,7 @@ export const STUDIO_PRODUCTS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'prod
 export const STUDIO_PERSONAS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'personas');
 export const STUDIO_STYLES_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'styles');
 export const STUDIO_PRESETS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'presets');
+export const STUDIO_REFERENCES_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'references');
 
 export function getStudioAssetsRoot(): string {
   return path.join(resolveCanvasDataRoot(), STUDIO_ASSETS_ROOT_DIR);
@@ -27,6 +28,7 @@ export async function ensureStudioAssetsWorkspace(): Promise<void> {
   await fs.mkdir(path.join(root, 'personas'), { recursive: true });
   await fs.mkdir(path.join(root, 'styles'), { recursive: true });
   await fs.mkdir(path.join(root, 'presets'), { recursive: true });
+  await fs.mkdir(path.join(root, 'references'), { recursive: true });
 }
 
 export async function ensureStudioOutputsWorkspace(): Promise<void> {
@@ -55,6 +57,16 @@ export function generatePresetPreviewPath(presetId: string, ext: string): string
   const safeExt = ext.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
   const uuid = crypto.randomUUID().slice(0, 8);
   return path.posix.join('presets', presetId, `preview-${uuid}.${safeExt}`);
+}
+
+export function generateStudioReferencePath(userId: string, originalName: string): { id: string; relativePath: string } {
+  const ext = path.posix.extname(originalName).replace(/[^a-z0-9.]/gi, '').toLowerCase() || '.png';
+  const safeExt = ext.startsWith('.') ? ext.slice(1) : ext;
+  const id = `ref-${crypto.randomUUID()}.${safeExt || 'png'}`;
+  return {
+    id,
+    relativePath: path.posix.join('references', userId, id),
+  };
 }
 
 function toSlug(input: string): string {
@@ -103,6 +115,17 @@ export async function deleteAssetDir(relativePath: string): Promise<void> {
 
 export async function readOutputFile(filePath: string): Promise<Buffer> {
   const fullPath = path.join(getStudioOutputsRoot(), filePath);
+  return fs.readFile(fullPath);
+}
+
+export async function writeStudioReferenceFile(userId: string, referenceId: string, buffer: Buffer): Promise<void> {
+  const fullPath = path.join(getStudioAssetsRoot(), 'references', userId, referenceId);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, buffer);
+}
+
+export async function readStudioReferenceFile(userId: string, referenceId: string): Promise<Buffer> {
+  const fullPath = path.join(getStudioAssetsRoot(), 'references', userId, referenceId);
   return fs.readFile(fullPath);
 }
 

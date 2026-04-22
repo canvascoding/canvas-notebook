@@ -22,7 +22,7 @@ export async function POST(
   const buffer = Buffer.from(arrayBuffer);
 
   try {
-    const image = await replaceProductImage(id, imgId, {
+    const image = await replaceProductImage(id, session.user.id, imgId, {
       buffer,
       fileName: file.name,
       mimeType: file.type || 'application/octet-stream',

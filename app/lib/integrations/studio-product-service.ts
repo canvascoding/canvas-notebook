@@ -14,6 +14,13 @@ import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 
 const MAX_IMAGES_PER_PRODUCT = 10;
 
+async function getOwnedProduct(productId: string, userId: string) {
+  const [product] = await db.select()
+    .from(studioProducts)
+    .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
+  return product ?? null;
+}
+
 export async function createProduct(
   userId: string,
   data: { name: string; description?: string }
@@ -34,8 +41,8 @@ export async function createProduct(
   return inserted;
 }
 
-export async function getProduct(productId: string) {
-  const [product] = await db.select().from(studioProducts).where(eq(studioProducts.id, productId));
+export async function getProduct(productId: string, userId: string) {
+  const product = await getOwnedProduct(productId, userId);
   if (!product) return null;
   const images = await db.select().from(studioProductImages)
     .where(eq(studioProductImages.productId, productId))
@@ -76,9 +83,10 @@ export async function listProducts(userId: string, search?: string) {
 
 export async function updateProduct(
   productId: string,
+  userId: string,
   data: { name?: string; description?: string }
 ) {
-  const [existing] = await db.select().from(studioProducts).where(eq(studioProducts.id, productId));
+  const existing = await getOwnedProduct(productId, userId);
   if (!existing) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -87,15 +95,16 @@ export async function updateProduct(
     ...(data.name !== undefined && { name: data.name }),
     ...(data.description !== undefined && { description: data.description }),
     updatedAt: now,
-  }).where(eq(studioProducts.id, productId)).returning();
+  }).where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId))).returning();
   return updated;
 }
 
 export async function addProductImage(
   productId: string,
+  userId: string,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import'; sourceUrl?: string }
 ) {
-  const [product] = await db.select().from(studioProducts).where(eq(studioProducts.id, productId));
+  const product = await getOwnedProduct(productId, userId);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -132,12 +141,16 @@ export async function addProductImage(
   }).returning();
   if (sortOrder === 0) {
     await db.update(studioProducts).set({ thumbnailPath: filePath, updatedAt: now })
-      .where(eq(studioProducts.id, productId));
+      .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
   }
   return insertedImage;
 }
 
-export async function deleteProductImage(productId: string, imageId: string) {
+export async function deleteProductImage(productId: string, userId: string, imageId: string) {
+  const product = await getOwnedProduct(productId, userId);
+  if (!product) {
+    throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
+  }
   const [image] = await db.select().from(studioProductImages)
     .where(and(eq(studioProductImages.id, imageId), eq(studioProductImages.productId, productId)));
   if (!image) {
@@ -158,15 +171,20 @@ export async function deleteProductImage(productId: string, imageId: string) {
     await db.update(studioProducts).set({
       thumbnailPath: nextImage?.filePath ?? null,
       updatedAt: now,
-    }).where(eq(studioProducts.id, productId));
+    }).where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
   }
 }
 
 export async function replaceProductImage(
   productId: string,
+  userId: string,
   imageId: string,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number }
 ) {
+  const product = await getOwnedProduct(productId, userId);
+  if (!product) {
+    throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
+  }
   const [image] = await db.select().from(studioProductImages)
     .where(and(eq(studioProductImages.id, imageId), eq(studioProductImages.productId, productId)));
   if (!image) {
@@ -191,13 +209,18 @@ export async function replaceProductImage(
   }
   if (image.sortOrder === 0) {
     await db.update(studioProducts).set({ thumbnailPath: newFilePath, updatedAt: now })
-      .where(eq(studioProducts.id, productId));
+      .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
   }
   return updated;
 }
 
-export async function getProductImageBuffer(imageId: string) {
-  const [image] = await db.select().from(studioProductImages).where(eq(studioProductImages.id, imageId));
+export async function getProductImageBuffer(productId: string, userId: string, imageId: string) {
+  const product = await getOwnedProduct(productId, userId);
+  if (!product) {
+    throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
+  }
+  const [image] = await db.select().from(studioProductImages)
+    .where(and(eq(studioProductImages.id, imageId), eq(studioProductImages.productId, productId)));
   if (!image) {
     throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
   }
@@ -214,7 +237,11 @@ export async function getProductImageBuffer(imageId: string) {
   }
 }
 
-export async function reorderProductImages(productId: string, imageOrder: string[]) {
+export async function reorderProductImages(productId: string, userId: string, imageOrder: string[]) {
+  const product = await getOwnedProduct(productId, userId);
+  if (!product) {
+    throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
+  }
   const images = await db.select().from(studioProductImages)
     .where(eq(studioProductImages.productId, productId));
   const imageMap = new Map(images.map((img) => [img.id, img]));
@@ -231,13 +258,13 @@ export async function reorderProductImages(productId: string, imageOrder: string
     if (firstImage) {
       const now = new Date();
       await db.update(studioProducts).set({ thumbnailPath: firstImage.filePath, updatedAt: now })
-        .where(eq(studioProducts.id, productId));
+        .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
     }
   }
 }
 
-export async function deleteProduct(productId: string) {
-  const [product] = await db.select().from(studioProducts).where(eq(studioProducts.id, productId));
+export async function deleteProduct(productId: string, userId: string) {
+  const product = await getOwnedProduct(productId, userId);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -260,6 +287,6 @@ export async function deleteProduct(productId: string) {
   } catch (err) {
     console.warn(`Failed to delete product directory products/${productId}/:`, err);
   }
-  await db.delete(studioProducts).where(eq(studioProducts.id, productId));
+  await db.delete(studioProducts).where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
   return { success: true, warnings };
 }

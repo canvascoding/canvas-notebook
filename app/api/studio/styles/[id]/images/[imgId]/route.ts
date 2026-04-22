@@ -15,10 +15,10 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  const { imgId } = await params;
+  const { id, imgId } = await params;
   const size = request.nextUrl.searchParams.get('size');
   try {
-    const { buffer, mimeType, fileName } = await getStyleImageBuffer(imgId);
+    const { buffer, mimeType, fileName } = await getStyleImageBuffer(id, session.user.id, imgId);
     const headers = new Headers();
     headers.set('Cache-Control', 'private, max-age=86400');
 
@@ -53,7 +53,7 @@ export async function DELETE(
   }
   const { id, imgId } = await params;
   try {
-    await deleteStyleImage(id, imgId);
+    await deleteStyleImage(id, session.user.id, imgId);
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof StudioServiceError) {

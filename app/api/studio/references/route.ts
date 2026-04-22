@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { saveUploadBuffer } from '@/app/lib/filesystem/upload-handler';
+import { fileTypeFromBuffer } from 'file-type';
+import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
+import { generateStudioReferencePath, writeStudioReferenceFile } from '@/app/lib/integrations/studio-workspace';
 
 const MAX_REFERENCE_SIZE = 10 * 1024 * 1024;
 
@@ -35,16 +37,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
-    if (!response.ok) {
-      return NextResponse.json(
-        { success: false, error: `Failed to fetch image: ${response.status} ${response.statusText}` },
-        { status: 400 }
-      );
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const { buffer, contentType, finalUrl } = await fetchExternalResourceSafely(url, {
+      maxBytes: MAX_REFERENCE_SIZE,
+      timeoutMs: 30000,
+    });
 
     if (buffer.length === 0) {
       return NextResponse.json({ success: false, error: 'Downloaded file is empty' }, { status: 400 });
@@ -59,7 +55,6 @@ export async function POST(request: NextRequest) {
 
     // Validate it's actually an image using magic bytes
     try {
-      const { fileTypeFromBuffer } = await import('file-type');
       const fileType = await fileTypeFromBuffer(buffer);
 
       if (!fileType || !fileType.mime.startsWith('image/')) {
@@ -70,7 +65,6 @@ export async function POST(request: NextRequest) {
       }
     } catch (e) {
       console.warn('[Studio Reference] file-type detection failed, falling back to content-type:', e);
-      const contentType = response.headers.get('content-type') || '';
       if (!contentType.startsWith('image/')) {
         return NextResponse.json(
           { success: false, error: 'The URL does not point to a valid image file. Please provide a direct link to an image.' },
@@ -82,7 +76,7 @@ export async function POST(request: NextRequest) {
     // Extract filename from URL
     let fileName = 'reference-image.jpg';
     try {
-      const urlPath = new URL(url).pathname;
+      const urlPath = new URL(finalUrl).pathname;
       const nameFromUrl = urlPath.split('/').pop();
       if (nameFromUrl) {
         fileName = nameFromUrl;
@@ -91,16 +85,17 @@ export async function POST(request: NextRequest) {
       // Use default filename
     }
 
-    // Save to uploads
-    const uploadedFile = await saveUploadBuffer(buffer, fileName);
+    const { id, relativePath } = generateStudioReferencePath(session.user.id, fileName);
+    await writeStudioReferenceFile(session.user.id, id, buffer);
 
     return NextResponse.json({
       success: true,
-      id: uploadedFile.id,
-      localUrl: `/api/studio/references/${uploadedFile.id}`,
-      originalUrl: url,
-      mimeType: uploadedFile.mimeType,
-      size: uploadedFile.size,
+      id,
+      localUrl: `/api/studio/references/${id}`,
+      originalUrl: finalUrl,
+      mimeType: contentType,
+      size: buffer.length,
+      filePath: relativePath,
     }, { status: 201 });
 
   } catch (err) {

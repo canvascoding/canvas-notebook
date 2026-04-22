@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { readFile } from '@/app/lib/filesystem/upload-handler';
+import { readStudioReferenceFile } from '@/app/lib/integrations/studio-workspace';
 
 /**
  * GET /api/studio/references/:id
@@ -20,8 +20,10 @@ export async function GET(
     return NextResponse.json({ success: false, error: 'File ID required' }, { status: 400 });
   }
 
-  const buffer = await readFile(id);
-  if (!buffer) {
+  let buffer: Buffer;
+  try {
+    buffer = await readStudioReferenceFile(session.user.id, id);
+  } catch {
     return NextResponse.json({ success: false, error: 'Image not found' }, { status: 404 });
   }
 

@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { readOutputFile } from '@/app/lib/integrations/studio-workspace';
 import { writeFile } from '@/app/lib/filesystem/workspace-files';
-import { db } from '@/app/lib/db';
-import { studioGenerationOutputs } from '@/app/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { getStudioOutputForUser } from '@/app/lib/integrations/studio-generation-service';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -24,18 +22,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify output belongs to user
-    const [output] = await db
-      .select()
-      .from(studioGenerationOutputs)
-      .where(eq(studioGenerationOutputs.id, outputId))
-      .limit(1);
+    const output = await getStudioOutputForUser(outputId, session.user.id);
 
     if (!output) {
       return NextResponse.json({ success: false, error: 'Output not found' }, { status: 404 });
     }
 
-    // Verification: output belongs to user and exists (checked above)
-    // Read from studio outputs
     const buffer = await readOutputFile(output.filePath);
 
     // Normalize target path

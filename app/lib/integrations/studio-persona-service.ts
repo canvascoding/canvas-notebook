@@ -14,6 +14,13 @@ import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 
 const MAX_IMAGES_PER_PERSONA = 10;
 
+async function getOwnedPersona(personaId: string, userId: string) {
+  const [persona] = await db.select()
+    .from(studioPersonas)
+    .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
+  return persona ?? null;
+}
+
 export async function createPersona(
   userId: string,
   data: { name: string; description?: string }
@@ -34,8 +41,8 @@ export async function createPersona(
   return inserted;
 }
 
-export async function getPersona(personaId: string) {
-  const [persona] = await db.select().from(studioPersonas).where(eq(studioPersonas.id, personaId));
+export async function getPersona(personaId: string, userId: string) {
+  const persona = await getOwnedPersona(personaId, userId);
   if (!persona) return null;
   const images = await db.select().from(studioPersonaImages)
     .where(eq(studioPersonaImages.personaId, personaId))
@@ -76,9 +83,10 @@ export async function listPersonas(userId: string, search?: string) {
 
 export async function updatePersona(
   personaId: string,
+  userId: string,
   data: { name?: string; description?: string }
 ) {
-  const [existing] = await db.select().from(studioPersonas).where(eq(studioPersonas.id, personaId));
+  const existing = await getOwnedPersona(personaId, userId);
   if (!existing) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -87,15 +95,16 @@ export async function updatePersona(
     ...(data.name !== undefined && { name: data.name }),
     ...(data.description !== undefined && { description: data.description }),
     updatedAt: now,
-  }).where(eq(studioPersonas.id, personaId)).returning();
+  }).where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId))).returning();
   return updated;
 }
 
 export async function addPersonaImage(
   personaId: string,
+  userId: string,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import'; sourceUrl?: string }
 ) {
-  const [persona] = await db.select().from(studioPersonas).where(eq(studioPersonas.id, personaId));
+  const persona = await getOwnedPersona(personaId, userId);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -132,12 +141,16 @@ export async function addPersonaImage(
   }).returning();
   if (sortOrder === 0) {
     await db.update(studioPersonas).set({ thumbnailPath: filePath, updatedAt: now })
-      .where(eq(studioPersonas.id, personaId));
+      .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
   }
   return insertedImage;
 }
 
-export async function deletePersonaImage(personaId: string, imageId: string) {
+export async function deletePersonaImage(personaId: string, userId: string, imageId: string) {
+  const persona = await getOwnedPersona(personaId, userId);
+  if (!persona) {
+    throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
+  }
   const [image] = await db.select().from(studioPersonaImages)
     .where(and(eq(studioPersonaImages.id, imageId), eq(studioPersonaImages.personaId, personaId)));
   if (!image) {
@@ -158,15 +171,20 @@ export async function deletePersonaImage(personaId: string, imageId: string) {
     await db.update(studioPersonas).set({
       thumbnailPath: nextImage?.filePath ?? null,
       updatedAt: now,
-    }).where(eq(studioPersonas.id, personaId));
+    }).where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
   }
 }
 
 export async function replacePersonaImage(
   personaId: string,
+  userId: string,
   imageId: string,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number }
 ) {
+  const persona = await getOwnedPersona(personaId, userId);
+  if (!persona) {
+    throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
+  }
   const [image] = await db.select().from(studioPersonaImages)
     .where(and(eq(studioPersonaImages.id, imageId), eq(studioPersonaImages.personaId, personaId)));
   if (!image) {
@@ -191,13 +209,18 @@ export async function replacePersonaImage(
   }
   if (image.sortOrder === 0) {
     await db.update(studioPersonas).set({ thumbnailPath: newFilePath, updatedAt: now })
-      .where(eq(studioPersonas.id, personaId));
+      .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
   }
   return updated;
 }
 
-export async function getPersonaImageBuffer(imageId: string) {
-  const [image] = await db.select().from(studioPersonaImages).where(eq(studioPersonaImages.id, imageId));
+export async function getPersonaImageBuffer(personaId: string, userId: string, imageId: string) {
+  const persona = await getOwnedPersona(personaId, userId);
+  if (!persona) {
+    throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
+  }
+  const [image] = await db.select().from(studioPersonaImages)
+    .where(and(eq(studioPersonaImages.id, imageId), eq(studioPersonaImages.personaId, personaId)));
   if (!image) {
     throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
   }
@@ -214,7 +237,11 @@ export async function getPersonaImageBuffer(imageId: string) {
   }
 }
 
-export async function reorderPersonaImages(personaId: string, imageOrder: string[]) {
+export async function reorderPersonaImages(personaId: string, userId: string, imageOrder: string[]) {
+  const persona = await getOwnedPersona(personaId, userId);
+  if (!persona) {
+    throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
+  }
   const images = await db.select().from(studioPersonaImages)
     .where(eq(studioPersonaImages.personaId, personaId));
   const imageMap = new Map(images.map((img) => [img.id, img]));
@@ -231,13 +258,13 @@ export async function reorderPersonaImages(personaId: string, imageOrder: string
     if (firstImage) {
       const now = new Date();
       await db.update(studioPersonas).set({ thumbnailPath: firstImage.filePath, updatedAt: now })
-        .where(eq(studioPersonas.id, personaId));
+        .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
     }
   }
 }
 
-export async function deletePersona(personaId: string) {
-  const [persona] = await db.select().from(studioPersonas).where(eq(studioPersonas.id, personaId));
+export async function deletePersona(personaId: string, userId: string) {
+  const persona = await getOwnedPersona(personaId, userId);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -260,6 +287,6 @@ export async function deletePersona(personaId: string) {
   } catch (err) {
     console.warn(`Failed to delete persona directory personas/${personaId}/:`, err);
   }
-  await db.delete(studioPersonas).where(eq(studioPersonas.id, personaId));
+  await db.delete(studioPersonas).where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
   return { success: true, warnings };
 }
