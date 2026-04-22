@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { AtSign, LayoutTemplate, Package2, Plus, UserRound, X, Image as ImageIcon } from 'lucide-react';
 import {
   DropdownMenu,
@@ -140,6 +141,7 @@ export function PromptBar({
   onExtraReferenceUrlRemove,
   onFileAdd,
 }: PromptBarProps) {
+  const t = useTranslations('studio.promptBar');
   const [showOptions, setShowOptions] = useState(false);
   const [extraReferenceUrlInput, setExtraReferenceUrlInput] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -162,31 +164,31 @@ export function PromptBar({
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
           <AtSign className="h-3.5 w-3.5" />
-          Prompt Bar
+          {t('title')}
         </div>
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="outline" size="sm" className="rounded-full">
                 <AtSign className="h-4 w-4" />
-                Add reference
+                {t('addReference')}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-72">
-              <DropdownMenuLabel>Reference categories</DropdownMenuLabel>
+              <DropdownMenuLabel>{t('referenceCategories')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setPickerOpen(true)}>
                 <ImageIcon className="h-4 w-4 mr-2" />
-                Bildreferenz
+                {t('imageReference')}
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <Package2 className="h-4 w-4" />
-                  Product
+                  {t('product')}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
                   {availableProducts.length === 0 ? (
-                    <DropdownMenuItem disabled>No products available</DropdownMenuItem>
+                    <DropdownMenuItem disabled>{t('noProducts')}</DropdownMenuItem>
                   ) : (
                     availableProducts.map((product) => (
                       <DropdownMenuItem key={product.id} onSelect={() => onProductAdd(product)}>
@@ -204,11 +206,11 @@ export function PromptBar({
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <UserRound className="h-4 w-4" />
-                  Persona
+                  {t('persona')}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
                   {availablePersonas.length === 0 ? (
-                    <DropdownMenuItem disabled>No personas available</DropdownMenuItem>
+                    <DropdownMenuItem disabled>{t('noPersonas')}</DropdownMenuItem>
                   ) : (
                     availablePersonas.map((persona) => (
                       <DropdownMenuItem key={persona.id} onSelect={() => onPersonaAdd(persona)}>
@@ -226,11 +228,11 @@ export function PromptBar({
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <LayoutTemplate className="h-4 w-4" />
-                  Style
+                  {t('style')}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
                   {availableStyles.length === 0 ? (
-                    <DropdownMenuItem disabled>No styles available</DropdownMenuItem>
+                    <DropdownMenuItem disabled>{t('noStyles')}</DropdownMenuItem>
                   ) : (
                     availableStyles.map((style) => (
                       <DropdownMenuItem key={style.id} onSelect={() => onStyleAdd(style)}>
@@ -248,11 +250,11 @@ export function PromptBar({
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <LayoutTemplate className="h-4 w-4" />
-                  Studio
+                  {t('studio')}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
                   {presets.length === 0 ? (
-                    <DropdownMenuItem disabled>No presets available</DropdownMenuItem>
+                    <DropdownMenuItem disabled>{t('noPresets')}</DropdownMenuItem>
                   ) : (
                     presets.map((preset) => (
                       <DropdownMenuItem key={preset.id} onSelect={() => onPresetSelect(preset)}>
@@ -278,7 +280,7 @@ export function PromptBar({
             onClick={() => setShowOptions((current) => !current)}
           >
             <Plus className="h-4 w-4" />
-            More options
+            {t('moreOptions')}
           </Button>
         </div>
       </div>
@@ -330,7 +332,7 @@ export function PromptBar({
       <textarea
         value={value.rawPrompt}
         onChange={(event) => onRawPromptChange(event.target.value)}
-        placeholder="Describe the scene, subject, and intended output..."
+        placeholder={t('placeholder')}
         className="min-h-28 w-full resize-y rounded-3xl border border-border/70 bg-background/70 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15"
       />
 
@@ -338,13 +340,13 @@ export function PromptBar({
         <div className="mt-3 grid gap-3 rounded-3xl border border-border/70 bg-background/60 p-3 md:grid-cols-2">
           <div className="space-y-2 md:col-span-2">
             <label className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Additional reference URLs
+              {t('additionalUrls')}
             </label>
             <div className="flex gap-2">
               <Input
                 value={extraReferenceUrlInput}
                 onChange={(event) => setExtraReferenceUrlInput(event.target.value)}
-                placeholder="https://example.com/reference.jpg"
+                placeholder={t('urlPlaceholder')}
               />
               <Button
                 type="button"
@@ -356,7 +358,7 @@ export function PromptBar({
                   setExtraReferenceUrlInput('');
                 }}
               >
-                Add
+                {t('add')}
               </Button>
             </div>
             {value.extraReferenceUrls.length > 0 ? (

@@ -395,3 +395,66 @@ export async function batchDelete(paths: string[]): Promise<{ deleted: string[];
 
   return results;
 }
+
+async function safeStat(filePath: string) {
+  try {
+    return await fs.stat(filePath);
+  } catch {
+    return null;
+  }
+}
+
+export async function buildGenericFileTree(
+  absoluteBasePath: string,
+  dirPath: string = '.',
+  depth: number = 4,
+  currentDepth: number = 0
+): Promise<FileNode[]> {
+  if (currentDepth > depth) {
+    return [];
+  }
+
+  const fullPath = path.join(absoluteBasePath, dirPath);
+  const entries = await fs.readdir(fullPath, { withFileTypes: true });
+
+  const nodes: FileNode[] = [];
+
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry.name);
+    const entryFullPath = path.join(fullPath, entry.name);
+    const stats = await safeStat(entryFullPath);
+
+    nodes.push({
+      name: entry.name,
+      path: entryPath.replace(/\\/g, '/'),
+      type: entry.isDirectory() ? 'directory' : 'file',
+      size: stats?.size,
+      modified: stats ? Math.floor(stats.mtimeMs / 1000) : undefined,
+      permissions: stats?.mode?.toString(8),
+    });
+  }
+
+  nodes.sort((a, b) => {
+    if (a.type === b.type) {
+      return a.name.localeCompare(b.name);
+    }
+    return a.type === 'directory' ? -1 : 1;
+  });
+
+  if (currentDepth < depth) {
+    await Promise.all(
+      nodes.map(async (file) => {
+        if (file.type === 'directory') {
+          try {
+            file.children = await buildGenericFileTree(absoluteBasePath, file.path, depth, currentDepth + 1);
+          } catch (error) {
+            console.warn(`Failed to read directory ${file.path}:`, error);
+            file.children = [];
+          }
+        }
+      })
+    );
+  }
+
+  return nodes;
+}
