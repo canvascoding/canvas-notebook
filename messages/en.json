@@ -1843,6 +1843,17 @@
       "additionalUrls": "Additional reference URLs",
       "add": "Add",
       "urlPlaceholder": "https://example.com/reference.jpg"
+    },
+    "aspectRatio": {
+      "auto": "Auto",
+      "tips": {
+        "square": "Perfect for Instagram & X posts, profile pictures",
+        "widescreen": "Standard for desktop websites, YouTube thumbnails",
+        "portraitVideo": "Ideal for Instagram Reels, TikTok & Stories",
+        "standardLandscape": "Classic for presentations, monitors",
+        "standardPortrait": "Great for Pinterest, portrait products",
+        "adapt": "Adapts to input image (OpenAI)"
+      }
     }
   },
   "usage": {

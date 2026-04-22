@@ -1843,6 +1843,17 @@
       "additionalUrls": "Zusätzliche Referenz-URLs",
       "add": "Hinzufügen",
       "urlPlaceholder": "https://example.com/reference.jpg"
+    },
+    "aspectRatio": {
+      "auto": "Auto",
+      "tips": {
+        "square": "Perfekt für Instagram & X Posts, Profilbilder",
+        "widescreen": "Standard für Desktop-Webseiten, YouTube-Thumbnails",
+        "portraitVideo": "Ideal für Instagram Reels, TikTok & Stories",
+        "standardLandscape": "Klassisch für Präsentationen, Monitore",
+        "standardPortrait": "Gut für Pinterest, Hochformat-Produkte",
+        "adapt": "Passt sich an das Eingabebild an (OpenAI)"
+      }
     }
   },
   "usage": {
