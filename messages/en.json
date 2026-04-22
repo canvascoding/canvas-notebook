@@ -1804,12 +1804,12 @@
       "tabs": {
         "studio": "Studio",
         "workspace": "Workspace",
-        "upload": "Upload",
-        "urls": "URLs"
+        "upload": "Upload"
       },
       "searchPlaceholder": "Search assets...",
       "searchWorkspacePlaceholder": "Search workspace files...",
       "refresh": "Refresh",
+      "collapseAll": "Collapse all",
       "loading": "Loading assets...",
       "loadingWorkspace": "Loading workspace...",
       "empty": "No images found.",
@@ -1821,14 +1821,9 @@
         "count": "{count} file(s) selected"
       },
       "upload": {
-        "target": "Target:",
-        "hint": "Maximum file size and automatic image resizing available.",
+        "hint": "Upload images to use as references for studio generations.",
         "selectFiles": "Select files"
-      },
-      "urlTabTitle": "Load images from URLs",
-      "urlTabDescription": "Enter one or more image URLs. Images will be downloaded and used as references.",
-      "urlPlaceholder": "https://example.com/image.jpg",
-      "addUrl": "Add URL"
+      }
     },
     "promptBar": {
       "title": "Prompt Bar",

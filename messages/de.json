@@ -1804,12 +1804,12 @@
       "tabs": {
         "studio": "Studio",
         "workspace": "Workspace",
-        "upload": "Hochladen",
-        "urls": "URLs"
+        "upload": "Hochladen"
       },
       "searchPlaceholder": "Assets suchen...",
       "searchWorkspacePlaceholder": "Workspace-Dateien suchen...",
       "refresh": "Neu laden",
+      "collapseAll": "Alle zuklappen",
       "loading": "Lade Assets...",
       "loadingWorkspace": "Lade Workspace...",
       "empty": "Keine Bilder gefunden.",
@@ -1821,14 +1821,9 @@
         "count": "{count} Datei(en) ausgewählt"
       },
       "upload": {
-        "target": "Ziel:",
-        "hint": "Maximale Dateigröße und automatische Bildverkleinerung verfügbar.",
+        "hint": "Lade Bilder hoch, die als Referenz für Studio-Generierungen verwendet werden.",
         "selectFiles": "Dateien wählen"
-      },
-      "urlTabTitle": "Bilder von URLs laden",
-      "urlTabDescription": "Gib eine oder mehrere Bild-URLs ein. Die Bilder werden heruntergeladen und als Referenzen verwendet.",
-      "urlPlaceholder": "https://example.com/bild.jpg",
-      "addUrl": "URL hinzufügen"
+      }
     },
     "promptBar": {
       "title": "Prompt Bar",
