@@ -5,13 +5,12 @@ import { useState, useCallback } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Link as LinkIcon, Loader2, X } from 'lucide-react';
-import { ImageUploadArea } from '../shared/ImageUploadArea';
+import { Loader2, Plus, X } from 'lucide-react';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
-import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
-import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
+import { ReferencePickerDialog } from '../create/ReferencePickerDialog';
+import { toMediaUrl } from '@/app/lib/utils/media-url';
 import type { StudioReferenceUrl } from '../../types/generation';
 
 type EntityType = 'product' | 'persona' | 'style';
@@ -100,29 +99,15 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
   const router = useRouter();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [urlInput, setUrlInput] = useState('');
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [pendingReferenceUrls, setPendingReferenceUrls] = useState<PendingReferenceUrl[]>([]);
+  const [showPicker, setShowPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const productsHook = useStudioProducts();
   const personasHook = useStudioPersonas();
   const stylesHook = useStudioStyles();
-
-  const handleUpload = useCallback(async (files: File[]) => {
-    const newImages: PendingImage[] = files.map((file) => ({
-      id: crypto.randomUUID(),
-      file,
-      preview: URL.createObjectURL(file),
-    }));
-    setPendingImages((prev) => [...prev, ...newImages].slice(0, 10));
-  }, []);
-
-  const { handleFiles, dialogState, setDialogState, handleConfirm, handleSkip } =
-    useImagePreprocess({
-      onUpload: handleUpload,
-    });
 
   const handleRemoveImage = useCallback((id: string) => {
     setPendingImages((prev) => {
@@ -132,14 +117,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
     });
   }, []);
 
-  const handleReorderImages = useCallback((fromIndex: number, toIndex: number) => {
-    setPendingImages((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, moved);
-      return next;
-    });
-  }, []);
+  const totalImageCount = pendingImages.length + pendingReferenceUrls.filter((r) => r.status === 'success').length;
 
   const handleAddReferenceUrl = useCallback(async (url: string) => {
     const id = crypto.randomUUID();
@@ -180,16 +158,37 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
     setPendingReferenceUrls((current) => current.filter((item) => item.id !== id));
   }, []);
 
-  const totalImageCount = pendingImages.length + pendingReferenceUrls.filter((r) => r.status === 'success').length;
+  const handlePickerConfirm = useCallback(async (paths: string[]) => {
+    const remainingSlots = 10 - totalImageCount;
+    const toAdd = paths.slice(0, remainingSlots);
+    if (toAdd.length === 0) return;
 
-  const handleAddUrlClick = useCallback(() => {
-    const trimmed = urlInput.trim();
-    if (!trimmed) return;
+    const newImages: PendingImage[] = [];
+    for (const path of toAdd) {
+      try {
+        const res = await fetch(toMediaUrl(path));
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const fileName = path.split('/').pop() || 'image.jpg';
+        const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+        newImages.push({
+          id: crypto.randomUUID(),
+          file,
+          preview: URL.createObjectURL(blob),
+        });
+      } catch {
+        // skip failed downloads
+      }
+    }
+
+    setPendingImages((prev) => [...prev, ...newImages].slice(0, 10));
+  }, [totalImageCount]);
+
+  const handlePickerUrlAdd = useCallback((url: string) => {
     if (totalImageCount >= 10) return;
-    if (pendingReferenceUrls.some((ref) => ref.originalUrl === trimmed)) return;
-    handleAddReferenceUrl(trimmed);
-    setUrlInput('');
-  }, [urlInput, totalImageCount, pendingReferenceUrls, handleAddReferenceUrl]);
+    if (pendingReferenceUrls.some((ref) => ref.originalUrl === url)) return;
+    handleAddReferenceUrl(url);
+  }, [totalImageCount, pendingReferenceUrls, handleAddReferenceUrl]);
 
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
@@ -270,30 +269,40 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">{t('modelCreate.images')}</label>
-        <ImageUploadArea
-          maxImages={10}
-          onFilesSelected={handleFiles}
-          pendingImages={pendingImages}
-          onRemoveImage={handleRemoveImage}
-          onReorderImages={handleReorderImages}
-        />
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-sm font-medium">{t('modelCreate.urlImport')}</label>
-        <div className="flex gap-2">
-          <Input
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            placeholder={t('modelCreate.urlPlaceholder')}
-            className="flex-1"
-          />
-          <Button variant="outline" size="sm" disabled={!urlInput.trim() || totalImageCount >= 10} onClick={handleAddUrlClick}>
-            <LinkIcon className="mr-2 h-4 w-4" />
-            {t('modelCreate.addUrl')}
-          </Button>
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium">{t('modelCreate.images')}</label>
+          {totalImageCount < 10 && (
+            <Button size="sm" variant="outline" onClick={() => setShowPicker(true)} className="gap-1">
+              <Plus className="h-3 w-3" />
+              {t('modelCreate.addImages')}
+            </Button>
+          )}
         </div>
+        {totalImageCount === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('modelCreate.noImages')}</p>
+        ) : (
+          <div className="grid grid-cols-5 gap-2">
+            {pendingImages.map((img) => (
+              <div key={img.id} className="group relative aspect-square overflow-hidden rounded-md border border-border">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img.preview} alt="" className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => handleRemoveImage(img.id)}
+                  className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {pendingReferenceUrls.filter((r) => r.status === 'success').map((ref) => (
+              <div key={ref.id} className="group relative aspect-square overflow-hidden rounded-md border border-border">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={ref.localUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+              </div>
+            ))}
+          </div>
+        )}
         {pendingReferenceUrls.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {pendingReferenceUrls.map((ref) => (
@@ -314,15 +323,12 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
         {t('modelCreate.save')}
       </Button>
 
-      {dialogState && (
-        <ImagePreprocessDialog
-          open={!!dialogState}
-          onOpenChange={(open) => { if (!open) setDialogState(null); }}
-          files={dialogState.files}
-          onConfirm={handleConfirm}
-          onSkip={handleSkip}
-        />
-      )}
+      <ReferencePickerDialog
+        open={showPicker}
+        onOpenChange={setShowPicker}
+        onConfirm={handlePickerConfirm}
+        onUrlAdd={handlePickerUrlAdd}
+      />
     </div>
   );
 }

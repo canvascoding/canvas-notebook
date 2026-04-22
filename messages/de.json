@@ -231,6 +231,8 @@
             "images": "Bilder",
             "dropzone": "Bilder hier ablegen oder klicken zum Auswählen",
             "maxImages": "Maximal {max} Bilder",
+            "addImages": "Bilder hinzufügen",
+            "noImages": "Noch keine Bilder ausgewählt. Klicke auf „Bilder hinzufügen“, um aus Studio, Workspace, Upload oder URLs zu wählen.",
             "urlImport": "Von URL importieren",
             "urlPlaceholder": "https://example.com/image.jpg",
             "addUrl": "Hinzufügen",
