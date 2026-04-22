@@ -1741,6 +1741,10 @@
         "viewPresets": "View Presets",
         "viewPresetsDesc": "Browse and manage your presets."
       },
+      "emptyState": {
+        "title": "Create your first image",
+        "subtitle": "Type your idea below and let the AI work its magic. Your results will appear here – in real time."
+      },
       "startingPointsTitle": "Inspiration",
       "recreate": "Recreate",
       "recentGenerationsTitle": "Recent Generations",

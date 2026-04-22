@@ -613,7 +613,7 @@ export function createStudioGenerateTool(
       'saved products (@product), personas (@persona), and studio presets (@studio) ' +
       'for consistent, branded content. Products and personas provide reference images ' +
       'that guide the generation. Studio presets define the visual setting (lighting, ' +
-      'camera, background). Output files are saved to workspace/studio-outputs/. ' +
+      'camera, background). Output files are saved to studio/outputs/. ' +
       'After generation, embed results as Markdown images in the reply.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the image/video to generate.' }),
