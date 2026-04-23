@@ -30,7 +30,8 @@ import { Switch } from '@/components/ui/switch';
 import {
   resolveEnabledToolNames,
   serializeEnabledToolNames,
-  isLegacyEnabledToolsValue,
+  isDefaultToolsConfig,
+  getDefaultEnabledToolNames,
 } from '@/app/lib/pi/enabled-tools';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 
@@ -478,10 +479,14 @@ export function AgentSettingsPanel() {
 
   const isToolEnabled = (toolName: string): boolean => {
     const enabledTools = getActiveEnabledTools();
-    if (!enabledTools || enabledTools.length === 0 || isLegacyEnabledToolsValue(enabledTools)) {
-      return true;
-    }
     const allNames = availableTools.map((t) => t.name);
+    
+    // If the user has never configured tools (empty config), use defaults
+    if (isDefaultToolsConfig(enabledTools)) {
+      const defaultSet = getDefaultEnabledToolNames(allNames);
+      return defaultSet.has(toolName);
+    }
+    
     const enabledSet = resolveEnabledToolNames(allNames, enabledTools);
     return enabledSet.has(toolName);
   };
