@@ -64,6 +64,10 @@ export interface StudioGenerateRequest {
   extra_reference_urls?: string[];
   video_resolution?: '720p' | '1080p' | '4k';
   video_duration?: number;
+  start_frame_path?: string;
+  end_frame_path?: string;
+  is_looping?: boolean;
+  person_generation?: 'allow_all' | 'allow_adult' | 'dont_allow';
 }
 
 export interface StudioGenerationOutput {
@@ -801,6 +805,10 @@ async function generateStudioVideo(
   videoModel?: string,
   videoResolution?: '720p' | '1080p' | '4k',
   videoDuration?: number,
+  startFramePath?: string | null,
+  endFramePath?: string | null,
+  isLooping?: boolean,
+  personGeneration?: 'allow_all' | 'allow_adult' | 'dont_allow',
 ): Promise<StudioGenerationOutput[]> {
   if (!prompt) {
     throw new StudioServiceError(
