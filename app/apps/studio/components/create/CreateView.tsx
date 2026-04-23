@@ -21,7 +21,7 @@ import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
 import { FrameUpload } from './FrameUpload';
 import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type VideoDuration } from '@/app/lib/integrations/image-generation-constants';
-import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 
 const STARTING_POINTS = [
   {
@@ -83,7 +83,34 @@ function EmptyState() {
   );
 }
 
+function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) {
+  const name = path.split('/').pop() || path;
+
+  return (
+    <div className="flex items-center gap-2 border border-border bg-background px-2 py-1.5 sm:py-1">
+      <div className="h-12 w-16 sm:h-10 sm:w-14 overflow-hidden bg-muted flex-shrink-0">
+        {kind === 'image' ? (
+          <img
+            src={toPreviewUrl(path, 200, { preset: 'mini' })}
+            alt={name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
+        ) : (
+          <video src={toMediaUrl(path)} className="h-full w-full object-cover" muted />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-medium">{name}</p>
+        <p className="truncate text-xs text-muted-foreground hidden sm:block">{path}</p>
+      </div>
+    </div>
+  );
+}
+
 export function CreateView() {
+  const t = useTranslations('studio');
   const searchParams = useSearchParams();
   const generationHook = useStudioGeneration();
   const productsHook = useStudioProducts();
@@ -192,6 +219,10 @@ export function CreateView() {
       extra_reference_urls: fileUrls,
       video_resolution: mode === 'video' ? videoResolution : undefined,
       video_duration: mode === 'video' ? videoDuration : undefined,
+      start_frame_path: mode === 'video' ? startFramePath : undefined,
+      end_frame_path: mode === 'video' ? endFramePath : undefined,
+      is_looping: mode === 'video' ? isLooping : undefined,
+      person_generation: mode === 'video' ? personGeneration : undefined,
     });
 
     if (result) {
@@ -303,11 +334,11 @@ export function CreateView() {
             <div className="space-y-2 border border-border bg-background p-3">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.frames.title')}</p>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('start', 'image')}>
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('start')}>
                   {t('sections.frames.startFrame')}
                 </Button>
                 {!isLooping && (
-                  <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('end', 'image')}>
+                  <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('end')}>
                     {t('sections.frames.endFrame')}
                   </Button>
                 )}
