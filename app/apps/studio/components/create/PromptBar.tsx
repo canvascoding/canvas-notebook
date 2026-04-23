@@ -41,6 +41,7 @@ interface ReferenceTag {
   id: string;
   name: string;
   thumbnailPath?: string;
+  status?: string;
 }
 
 interface PromptBarValue {
@@ -49,7 +50,6 @@ interface PromptBarValue {
   personaRefs: ReferenceTag[];
   styleRefs: ReferenceTag[];
   presetRef: StudioPreset | null;
-  extraReferenceUrls?: string[];
   fileRefs: ReferenceTag[];
 }
 
@@ -66,8 +66,6 @@ interface PromptBarProps {
   onPresetSelect: (preset: StudioPreset) => void;
   onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file', id: string) => void;
   onFileAdd: (paths: string[]) => void;
-  onExtraReferenceUrlAdd?: (url: string) => void;
-  onExtraReferenceUrlRemove?: (url: string) => void;
 }
 
 const PRESET_CATEGORY_ICONS: Record<string, typeof Camera> = {
@@ -116,7 +114,7 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
 
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onFileAdd, onExtraReferenceUrlAdd, onExtraReferenceUrlRemove }: PromptBarProps) {
+export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onFileAdd }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -232,7 +230,7 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
               thumbnailUrl={file.thumbnailPath ? toPreviewUrl(file.thumbnailPath, 64, { preset: 'mini' }) : undefined}
               icon={<ImageIcon className="h-4 w-4 text-rose-600" />}
               onRemove={() => onReferenceRemove('file', file.id)}
-              isLoading={(file as any).status === 'loading'}
+              isLoading={file.status === 'loading'}
             />
           ))}
 

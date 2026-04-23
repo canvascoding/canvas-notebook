@@ -9,7 +9,7 @@ import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
-import type { StudioGenerationMode, StudioGeneration, StudioGenerationOutput, StudioReferenceUrl } from '../../types/generation';
+import type { StudioGenerationMode, StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
@@ -111,7 +111,6 @@ export function CreateView() {
   const [styleRefs, setStyleRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [presetRef, setPresetRef] = useState<StudioPreset | null>(null);
   const [fileRefs, setFileRefs] = useState<Array<{ id: string; name: string; thumbnailPath?: string; status?: 'loading' | string }>>([]);
-  const [extraReferenceUrls, setExtraReferenceUrls] = useState<StudioReferenceUrl[]>([]);
   const [startFrame, setStartFrame] = useState<File | null>(null);
   const [endFrame, setEndFrame] = useState<File | null>(null);
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
@@ -329,7 +328,6 @@ export function CreateView() {
               personaRefs,
               styleRefs,
               presetRef,
-              extraReferenceUrls: extraReferenceUrls.map(ref => ref.originalUrl),
               fileRefs,
             }}
             products={products}
@@ -504,13 +502,8 @@ export function CreateView() {
           setProvider(generation.provider || 'gemini');
           setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
           if (output.mediaUrl) {
-            const newRef: StudioReferenceUrl = {
-              localUrl: output.mediaUrl,
-              originalUrl: output.mediaUrl,
-              status: 'success',
-            };
-            setExtraReferenceUrls((prev) =>
-              prev.some((ref) => ref.originalUrl === output.mediaUrl) ? prev : [...prev, newRef],
+            setFileRefs((current) =>
+              current.some((item) => item.id === output.mediaUrl!) ? current : [...current, { id: output.mediaUrl!, name: output.mediaUrl!, thumbnailPath: output.mediaUrl || undefined }],
             );
           }
           setSelectedGenerationId(null);
@@ -532,13 +525,8 @@ export function CreateView() {
           setProvider(generation.provider || 'gemini');
           setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
           if (output.mediaUrl) {
-            const newRef: StudioReferenceUrl = {
-              localUrl: output.mediaUrl,
-              originalUrl: output.mediaUrl,
-              status: 'success',
-            };
-            setExtraReferenceUrls((prev) =>
-              prev.some((ref) => ref.originalUrl === output.mediaUrl) ? prev : [...prev, newRef],
+            setFileRefs((current) =>
+              current.some((item) => item.id === output.mediaUrl!) ? current : [...current, { id: output.mediaUrl!, name: output.mediaUrl!, thumbnailPath: output.mediaUrl || undefined }],
             );
           }
           setSelectedGenerationId(null);

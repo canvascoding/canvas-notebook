@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import type { StudioPreset } from '../../types/presets';
 
 interface StudioPickerProps {
@@ -59,8 +60,15 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
             <DropdownMenuLabel className="capitalize">{category}</DropdownMenuLabel>
             {categoryPresets.map((preset) => (
               <DropdownMenuItem key={preset.id} onSelect={() => onChange(preset)}>
-                <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                  <div className="min-w-0">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  {preset.previewImagePath ? (
+                    <img src={toPreviewUrl(preset.previewImagePath, 64, { preset: 'mini' })} alt="" className="h-8 w-8 rounded-md object-cover shrink-0" />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 shrink-0">
+                      <LayoutTemplate className="h-4 w-4 text-primary" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{preset.name}</div>
                     {preset.description ? (
                       <div className="truncate text-xs text-muted-foreground">{preset.description}</div>
