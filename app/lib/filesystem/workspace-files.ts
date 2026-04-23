@@ -85,12 +85,12 @@ export async function readFile(filePath: string): Promise<Buffer> {
 }
 
 export async function readDataFile(filePath: string): Promise<Buffer> {
-  const fullPath = path.resolve(DATA, filePath);
+  const fullPath = path.resolve(/*turbopackIgnore: true*/ DATA, filePath);
   return fs.readFile(fullPath);
 }
 
 export async function getDataFileStats(filePath: string) {
-  const fullPath = path.resolve(DATA, filePath);
+  const fullPath = path.resolve(/*turbopackIgnore: true*/ DATA, filePath);
   const stats = await fs.stat(fullPath);
 
   let totalSize = stats.size;
@@ -125,7 +125,7 @@ export async function writeFile(filePath: string, content: Buffer | string): Pro
 }
 
 export async function writeDataFile(filePath: string, content: Buffer | string): Promise<void> {
-  const fullPath = path.resolve(DATA, filePath);
+  const fullPath = path.resolve(/*turbopackIgnore: true*/ DATA, filePath);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   await fs.writeFile(fullPath, buffer);
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { cn } from '@/lib/utils';
@@ -16,7 +16,6 @@ import {
   ArrowLeft,
   Sparkles,
   Loader2,
-  Image as ImageIcon,
   Trash2,
   Check,
   Lamp,
@@ -43,6 +42,7 @@ import {
   Home,
   Car,
   Layers,
+  Image as ImageIcon,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { StudioBlock, StudioPresetBlockCatalog, StudioPreset } from '../../types/presets';
@@ -135,6 +135,17 @@ function getIconComponent(iconName: string, type?: string) {
   return <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted', colorClass)}>{icon}</div>;
 }
 
+const PRESET_CATEGORIES = [
+  'fashion',
+  'product',
+  'food',
+  'lifestyle',
+  'beauty',
+  'tech',
+  'interior',
+  'automotive',
+] as const;
+
 export function PresetBuilder({ presetId }: PresetBuilderProps) {
   useTranslations('studio');
   const router = useRouter();
@@ -151,6 +162,10 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
   const [previewGenerating, setPreviewGenerating] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const prevPreviewEnabled = useRef(false);
+
+  const canSave = name.trim().length > 0 && category.length > 0 && selectedBlocks.length > 0;
 
   // Load catalog and preset data
   useEffect(() => {
@@ -186,7 +201,15 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
     }
   }, [presetId, fetchPresets]);
 
-  // Debounced preview generation
+  // When Live toggle is turned ON and preset exists, generate preview immediately
+  useEffect(() => {
+    if (previewEnabled && !prevPreviewEnabled.current && presetId && selectedBlocks.length > 0) {
+      handleGeneratePreview();
+    }
+    prevPreviewEnabled.current = previewEnabled;
+  }, [previewEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced preview generation on block changes (only when live)
   useEffect(() => {
     if (!previewEnabled || !presetId || selectedBlocks.length === 0) return;
 
@@ -233,20 +256,22 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
   };
 
   const handleSave = async () => {
-    if (!name.trim()) return;
+    if (!canSave) return;
 
     setSaving(true);
+    setSaveError(null);
     try {
       const payload = {
         name: name.trim(),
         description: description.trim() || undefined,
-        category: category.trim() || undefined,
+        category: category,
         blocks: selectedBlocks,
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
       };
 
       if (presetId) {
         await updatePreset(presetId, payload);
+        router.push('/studio/presets');
       } else {
         const created = await createPreset(payload);
         if (created) {
@@ -254,8 +279,8 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
           return;
         }
       }
-
-      router.push('/studio/presets');
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save preset');
     } finally {
       setSaving(false);
     }
@@ -296,7 +321,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
           <Button variant="outline" size="sm" onClick={handleCancel}>
             Cancel
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving || !name.trim()} className="gap-2">
+          <Button size="sm" onClick={handleSave} disabled={saving || !canSave} className="gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             Save
           </Button>
@@ -306,7 +331,9 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
       <div className="flex flex-1 gap-4 overflow-hidden min-h-0">
         {/* Left Sidebar - Block Navigator */}
         <div className="flex w-64 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-card p-3 shrink-0">
-          <h2 className="text-lg font-semibold px-2">Blocks</h2>
+          <h2 className="text-lg font-semibold px-2">
+            Blocks <span className="text-xs text-muted-foreground font-normal">{selectedBlocks.length > 0 ? `${selectedBlocks.length} selected` : ''}</span>
+          </h2>
           <div className="flex flex-col gap-1">
             {catalog?.blockTypes.map((group) => (
               <button
@@ -384,33 +411,43 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
             <h3 className="mb-3 text-sm font-semibold">Preset Details</h3>
             <div className="flex flex-col gap-3">
               <div>
-                <Label>Name</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Editorial Softbox Portrait" />
+                <Label className="mb-1">
+                  Name <span className="text-red-500">*</span>
+                </Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Editorial Softbox Portrait" className={!name.trim() && name.length > 0 ? 'border-red-400' : ''} />
               </div>
               <div>
-                <Label>Description</Label>
+                <Label className="mb-1">Description</Label>
                 <Textarea value={description} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)} placeholder="Optional description..." />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Category</Label>
+                  <Label className="mb-1">
+                    Category <span className="text-red-500">*</span>
+                  </Label>
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                    className={cn(
+                      'flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-sm',
+                      !category ? 'border-red-400' : 'border-input',
+                    )}
                   >
                     <option value="">Select category...</option>
-                    {catalog?.categories.map((cat) => (
+                    {PRESET_CATEGORIES.map((cat) => (
                       <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <Label>Tags (comma separated)</Label>
+                  <Label className="mb-1">Tags (comma separated)</Label>
                   <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="portrait, editorial, soft light" />
                 </div>
               </div>
             </div>
+            {saveError && (
+              <p className="mt-2 text-sm text-red-500">{saveError}</p>
+            )}
           </div>
         </div>
 
@@ -432,28 +469,39 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
             </div>
 
             <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center relative">
-               {previewImageUrl && previewEnabled ? (
-                 <>
-                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                   <img
-                     src={previewImageUrl}
-                     alt="Preview"
-                     className="h-full w-full object-cover"
-                   />
-                 </>
-               ) : (
-                 <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', PREVIEW_CATEGORY_GRADIENTS[category ?? ''] ?? 'from-muted to-muted/50')}>
-                   {(() => {
-                     const FallbackIcon = PREVIEW_CATEGORY_ICONS[category ?? ''] ?? Layers;
-                     const iconColor = PREVIEW_CATEGORY_ICON_COLORS[category ?? ''] ?? 'text-muted-foreground/40';
-                     return <FallbackIcon className={cn('h-10 w-10', iconColor)} />;
-                   })()}
-                   <span className="max-w-[80%] text-center text-xs font-medium leading-tight text-muted-foreground/50 line-clamp-2">
-                     {name || 'Preset Preview'}
-                   </span>
-                   <p className="text-[10px] text-muted-foreground/40">{previewEnabled ? 'Preview will generate after saving' : 'Preview disabled'}</p>
-                 </div>
-               )}
+              {previewImageUrl && previewEnabled ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewImageUrl}
+                    alt="Preview"
+                    className="h-full w-full object-cover"
+                  />
+                </>
+              ) : (
+                <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', PREVIEW_CATEGORY_GRADIENTS[category ?? ''] ?? 'from-muted to-muted/50')}>
+                  {(() => {
+                    const FallbackIcon = PREVIEW_CATEGORY_ICONS[category ?? ''] ?? Layers;
+                    const iconColor = PREVIEW_CATEGORY_ICON_COLORS[category ?? ''] ?? 'text-muted-foreground/40';
+                    return <FallbackIcon className={cn('h-10 w-10', iconColor)} />;
+                  })()}
+                  <span className="max-w-[80%] text-center text-xs font-medium leading-tight text-muted-foreground/50 line-clamp-2">
+                    {name || 'Preset Preview'}
+                  </span>
+                  {!previewEnabled && !presetId && (
+                    <p className="text-[10px] text-muted-foreground/40">Save preset first, then enable Live Preview</p>
+                  )}
+                  {!previewEnabled && presetId && (
+                    <p className="text-[10px] text-muted-foreground/40">Enable Live Preview to generate</p>
+                  )}
+                  {previewEnabled && !presetId && (
+                    <p className="text-[10px] text-muted-foreground/40">Save preset first to generate preview</p>
+                  )}
+                  {previewEnabled && presetId && !previewImageUrl && !previewGenerating && (
+                    <p className="text-[10px] text-muted-foreground/40">Click Generate Preview or add blocks</p>
+                  )}
+                </div>
+              )}
               {previewGenerating && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                   <Loader2 className="h-8 w-8 animate-spin text-white" />
@@ -484,7 +532,9 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
       {/* Bottom - Selected Blocks Bar */}
       <div className="mt-4 rounded-xl border border-border bg-card p-3 shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Selected:</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            Selected <span className="text-red-500">*</span>:
+          </span>
           <div className="flex flex-1 flex-wrap gap-2">
             {selectedBlocks.length === 0 && (
               <span className="text-xs text-muted-foreground">No blocks selected yet. Click blocks from the left sidebar to build your preset.</span>

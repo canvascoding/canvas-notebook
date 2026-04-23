@@ -55,8 +55,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Name is required' }, { status: 400 });
   }
 
-  if (!Array.isArray(body.blocks)) {
-    return NextResponse.json({ success: false, error: 'Blocks are required' }, { status: 400 });
+  if (!body.category || typeof body.category !== 'string' || body.category.trim().length === 0) {
+    return NextResponse.json({ success: false, error: 'Category is required' }, { status: 400 });
+  }
+
+  if (!Array.isArray(body.blocks) || body.blocks.length === 0) {
+    return NextResponse.json({ success: false, error: 'At least one block is required' }, { status: 400 });
   }
 
   try {

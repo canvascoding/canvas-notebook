@@ -4,7 +4,7 @@ import { mkdirSync } from 'fs';
 import path from 'path';
 import * as schema from './schema';
 
-const DATA = process.env.DATA || path.resolve(process.cwd(), 'data');
+const DATA = process.env.DATA || path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'data');
 const sqlitePath = path.join(DATA, 'sqlite.db');
 
 mkdirSync(path.dirname(sqlitePath), { recursive: true });

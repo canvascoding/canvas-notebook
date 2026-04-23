@@ -2,8 +2,8 @@ import path from 'node:path';
 import { getStudioAssetsRoot, getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 
 function resolveWithinRoot(root: string, relativePath: string): string | null {
-  const resolvedRoot = path.resolve(root);
-  const resolvedTarget = path.resolve(root, relativePath);
+  const resolvedRoot = path.resolve(/*turbopackIgnore: true*/ root);
+  const resolvedTarget = path.resolve(/*turbopackIgnore: true*/ root, relativePath);
   if (resolvedTarget === resolvedRoot || resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
     return resolvedTarget;
   }

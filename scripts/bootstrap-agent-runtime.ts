@@ -26,12 +26,12 @@ function directoryExists(targetPath: string): boolean {
 function resolveCanvasDataRoot(cwd = process.cwd()): string {
   const configured = process.env.CANVAS_DATA_ROOT?.trim();
   if (configured) {
-    return path.resolve(configured);
+    return path.resolve(/*turbopackIgnore: true*/ configured);
   }
   if (directoryExists(CONTAINER_DATA_ROOT)) {
     return CONTAINER_DATA_ROOT;
   }
-  return path.resolve(cwd, 'data');
+  return path.resolve(/*turbopackIgnore: true*/ cwd, 'data');
 }
 
 function resolveAgentStorageDir(cwd = process.cwd()): string {

@@ -110,8 +110,8 @@ export function CreateView() {
   const [personaRefs, setPersonaRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [styleRefs, setStyleRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [presetRef, setPresetRef] = useState<StudioPreset | null>(null);
+  const [fileRefs, setFileRefs] = useState<Array<{ id: string; name: string; thumbnailPath?: string; status?: 'loading' | string }>>([]);
   const [extraReferenceUrls, setExtraReferenceUrls] = useState<StudioReferenceUrl[]>([]);
-  const [fileRefs, setFileRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [startFrame, setStartFrame] = useState<File | null>(null);
   const [endFrame, setEndFrame] = useState<File | null>(null);
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
@@ -153,17 +153,12 @@ export function CreateView() {
   }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets, fetchStyles]);
 
   const canGenerate = useMemo(() => {
-    return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null || extraReferenceUrls.length > 0 || fileRefs.length > 0;
-  }, [personaRefs.length, presetRef, productRefs.length, rawPrompt, extraReferenceUrls.length, fileRefs.length]);
+    return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null || fileRefs.length > 0;
+  }, [personaRefs.length, presetRef, productRefs.length, rawPrompt, fileRefs.length]);
 
   const handleAddReferenceUrl = async (url: string) => {
-    const tempItem: StudioReferenceUrl = {
-      localUrl: url,
-      originalUrl: url,
-      status: 'loading',
-    };
-    setExtraReferenceUrls((current) => [...current, tempItem]);
-
+    const loadingId = "loading-" + Date.now() + "-" + url;
+    setFileRefs((current) => [...current, { id: loadingId, name: url, status: 'loading' }]);
     try {
       const response = await fetch('/api/studio/references', {
         method: 'POST',
@@ -171,38 +166,30 @@ export function CreateView() {
         body: JSON.stringify({ url }),
       });
       const data = await response.json();
-      
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to download image');
       }
-
-      setExtraReferenceUrls((current) =>
-        current.map((item) =>
-          item.originalUrl === url
-            ? { ...item, localUrl: data.localUrl, status: 'success' }
-            : item,
-        ),
+      setFileRefs((current) =>
+        current.filter((item) => item.id !== loadingId).concat({
+          id: data.path,
+          name: data.name || url,
+          thumbnailPath: data.path,
+          status: 'success',
+        }),
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to download image';
-      setExtraReferenceUrls((current) =>
-        current.map((item) =>
-          item.originalUrl === url ? { ...item, status: 'error', errorMessage } : item,
-        ),
-      );
+      console.error('[CreateView] URL download failed:', errorMessage);
+      setFileRefs((current) => current.filter((item) => item.id !== loadingId));
     }
-  };
+  };;
 
   const handleRemoveReferenceUrl = (originalUrl: string) => {
-    setExtraReferenceUrls((current) => current.filter((item) => item.originalUrl !== originalUrl));
+    setFileRefs((current) => current.filter((item) => item.id !== originalUrl && item.name !== originalUrl));
   };
 
   const handleGenerate = async () => {
     const fileUrls = fileRefs.map((ref) => toMediaUrl(ref.id));
-    const allReferenceUrls = extraReferenceUrls
-      .filter((ref) => ref.status === 'success')
-      .map((ref) => ref.localUrl).concat(fileUrls);
-
     const result = await generationHook.generate({
       prompt: rawPrompt.trim(),
       mode,
@@ -216,19 +203,18 @@ export function CreateView() {
       quality: provider === 'openai' ? quality : undefined,
       output_format: provider === 'openai' ? outputFormat : undefined,
       background: provider === 'openai' ? background : undefined,
-      extra_reference_urls: allReferenceUrls,
+      extra_reference_urls: fileUrls,
       video_resolution: mode === 'video' ? videoResolution : undefined,
       video_duration: mode === 'video' ? videoDuration : undefined,
     });
 
     if (result) {
       setRawPrompt('');
-      setExtraReferenceUrls([]);
       setFileRefs([]);
       setStartFrame(null);
       setEndFrame(null);
     }
-  };
+  };;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -286,13 +272,8 @@ export function CreateView() {
                 setProvider(generation.provider || 'gemini');
                 setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
                 if (output.mediaUrl) {
-                  const newRef: StudioReferenceUrl = {
-                    localUrl: output.mediaUrl,
-                    originalUrl: output.mediaUrl,
-                    status: 'success',
-                  };
-                  setExtraReferenceUrls((prev) =>
-                    prev.some((ref) => ref.originalUrl === output.mediaUrl) ? prev : [...prev, newRef],
+                  setFileRefs((current) =>
+                    current.some((item) => item.id === output.mediaUrl!) ? current : [...current, { id: output.mediaUrl!, name: output.mediaUrl!, thumbnailPath: output.mediaUrl || undefined }],
                   );
                 }
                 setSelectedGenerationId(null);
@@ -314,13 +295,8 @@ export function CreateView() {
                 setProvider(generation.provider || 'gemini');
                 setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
                 if (output.mediaUrl) {
-                  const newRef: StudioReferenceUrl = {
-                    localUrl: output.mediaUrl,
-                    originalUrl: output.mediaUrl,
-                    status: 'success',
-                  };
-                  setExtraReferenceUrls((prev) =>
-                    prev.some((ref) => ref.originalUrl === output.mediaUrl) ? prev : [...prev, newRef],
+                  setFileRefs((current) =>
+                    current.some((item) => item.id === output.mediaUrl!) ? current : [...current, { id: output.mediaUrl!, name: output.mediaUrl!, thumbnailPath: output.mediaUrl || undefined }],
                   );
                 }
                 setSelectedGenerationId(null);
@@ -353,7 +329,7 @@ export function CreateView() {
               personaRefs,
               styleRefs,
               presetRef,
-              extraReferenceUrls,
+              extraReferenceUrls: extraReferenceUrls.map(ref => ref.originalUrl),
               fileRefs,
             }}
             products={products}
@@ -402,14 +378,12 @@ export function CreateView() {
               }
               setPresetRef((current) => (current?.id === id ? null : current));
             }}
-            onExtraReferenceUrlAdd={handleAddReferenceUrl}
-            onExtraReferenceUrlRemove={handleRemoveReferenceUrl}
             onFileAdd={(paths) => {
               setFileRefs((current) => {
                 const next = [...current];
                 for (const path of paths) {
                   if (!next.some((item) => item.id === path)) {
-                    next.push({ id: path, name: path.split('/').pop() || path });
+                    next.push({ id: path, name: path.split('/').pop() || path, thumbnailPath: path });
                   }
                 }
                 return next;
@@ -505,6 +479,7 @@ export function CreateView() {
         generations={generations}
         products={products}
         personas={personas}
+        styles={styles}
         open={resolvedSelectedGeneration !== null && resolvedSelectedOutput !== null}
         onSelectOutput={({ generation, output }) => {
           setSelectedGenerationId(generation.id);

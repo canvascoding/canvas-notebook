@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     const ownerId = String(session.user.id || session.user.email || 'anonymous');
-    const dataDir = path.resolve(process.cwd(), process.env.DATA || 'data');
+    const dataDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), process.env.DATA || 'data');
     const workspaceDir = path.join(dataDir, 'workspace');
     const finalCwd = cwd && path.isAbsolute(cwd) ? cwd : workspaceDir;
 

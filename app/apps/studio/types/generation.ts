@@ -33,8 +33,10 @@ export interface StudioGeneration {
   outputs: StudioGenerationOutput[];
   products?: string[];
   personas?: string[];
+  styles?: string[];
   product_ids?: string[];
   persona_ids?: string[];
+  style_ids?: string[];
   studioPreset?: StudioPreset | null;
   createdAt: string;
   updatedAt: string;
@@ -46,6 +48,7 @@ export interface StudioGeneratePayload {
   mode?: StudioGenerationMode;
   product_ids?: string[];
   persona_ids?: string[];
+  style_ids?: string[];
   preset_id?: string;
   aspect_ratio?: string;
   count?: number;

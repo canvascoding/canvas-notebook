@@ -5,7 +5,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
-import type { StudioProduct, StudioPersona } from '../../types/models';
+import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ interface StudioPreviewProps {
   generations: StudioGeneration[];
   products: StudioProduct[];
   personas: StudioPersona[];
+  styles: StudioStyle[];
   open: boolean;
   onClose: () => void;
   onSelectOutput: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
@@ -50,6 +51,7 @@ export function StudioPreview({
   generations,
   products,
   personas,
+  styles,
   open,
   onClose,
   onSelectOutput,
@@ -115,7 +117,12 @@ export function StudioPreview({
     return found ? { type: 'persona' as const, id, name: found.name } : { type: 'orphaned-persona' as const, id, name: '[Gelöscht]' };
   });
 
-  const hasAnyReferences = resolvedProducts.length > 0 || resolvedPersonas.length > 0;
+  const resolvedStyles = (generation.style_ids ?? []).map((id) => {
+    const found = styles.find((s) => s.id === id);
+    return found ? { type: 'style' as const, id, name: found.name } : { type: 'orphaned-style' as const, id, name: '[Gelöscht]' };
+  });
+
+  const hasAnyReferences = resolvedProducts.length > 0 || resolvedPersonas.length > 0 || resolvedStyles.length > 0;
 
   const presetName = generation.studioPreset?.name || (generation.studioPresetId ? null : 'No preset');
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
@@ -254,9 +261,77 @@ export function StudioPreview({
                           </span>
                         )
                       )}
+                      {resolvedStyles.map((item) =>
+                        item.type === 'style' ? (
+                          <Badge key={`style-${item.id}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
+                            <span className="h-3 w-3 text-xs">🎨</span>
+                            {item.name}
+                          </Badge>
+                        ) : (
+                          <span
+                            key={`orphaned-style-${item.id}`}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground"
+                          >
+                            <span className="h-3 w-3 text-xs">🎨</span>
+                            {item.name}
+                          </span>
+                        )
+                      )}
                     </div>
                   </div>
                 )}
+
+                {/* Generation Metadata */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Generation Details</p>
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1">
+                      <span className="font-medium text-foreground">Provider:</span> {generation.provider}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1">
+                      <span className="font-medium text-foreground">Model:</span> {generation.model}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1">
+                      <span className="font-medium text-foreground">Variations:</span> {generation.outputs?.length || 1}
+                    </span>
+                    {output.fileSize && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1">
+                        <span className="font-medium text-foreground">Size:</span> {Math.round(output.fileSize / 1024)}KB
+                      </span>
+                    )}
+                    {output.metadata && (() => {
+                      try {
+                        const meta = JSON.parse(output.metadata);
+                        return (
+                          <>
+                            {meta.quality && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1">
+                                <span className="font-medium text-foreground">Quality:</span> {meta.quality}
+                              </span>
+                            )}
+                            {meta.outputFormat && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1">
+                                <span className="font-medium text-foreground">Format:</span> {meta.outputFormat}
+                              </span>
+                            )}
+                            {meta.background && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1">
+                                <span className="font-medium text-foreground">Background:</span> {meta.background}
+                              </span>
+                            )}
+                            {meta.usage && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-2.5 py-1">
+                                <span className="font-medium text-foreground">Tokens:</span> {meta.usage.totalTokens} ({meta.usage.inputTokens} in / {meta.usage.outputTokens} out)
+                              </span>
+                            )}
+                          </>
+                        );
+                      } catch {
+                        return null;
+                      }
+                    })()}
+                  </div>
+                </div>
 
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" className="gap-2 rounded-full" onClick={handleDownload} disabled={!output.mediaUrl}>
