@@ -1875,7 +1875,15 @@
         "standardPortrait": "Great for Pinterest, portrait products",
         "adapt": "Adapts to input image (OpenAI)"
       }
-    }
+    },
+    "sections": {
+      "frames": {
+       "title": "Video Frames",
+       "startFrame": "Start Frame",
+       "endFrame": "End Frame",
+       "loopVideo": "Loop video"
+     }
+   }
   },
   "usage": {
     "title": "Usage",
