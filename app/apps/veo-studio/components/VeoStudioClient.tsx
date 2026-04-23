@@ -125,6 +125,12 @@ export function VeoStudioClient() {
   }, [resolution, validDurations, durationSeconds]);
 
   useEffect(() => {
+    if (!caps.personGeneration.includes(personGeneration)) {
+      setPersonGeneration(caps.personGeneration[0]);
+    }
+  }, [caps, personGeneration]);
+
+  useEffect(() => {
     if (!validModes.includes(mode)) {
       setMode('text_to_video');
     }
