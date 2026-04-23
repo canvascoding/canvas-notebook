@@ -524,6 +524,20 @@ if (tableNames.has('automation_runs')) {
   }
 }
 
+// Fix legacy previewImagePath values that were stored without the studio/assets/ prefix
+if (tableNames.has('studio_presets')) {
+  try {
+    sqlite.exec(`
+      UPDATE studio_presets
+      SET preview_image_path = 'studio/assets/' || preview_image_path
+      WHERE preview_image_path IS NOT NULL
+        AND preview_image_path NOT LIKE 'studio/assets/%'
+    `);
+  } catch {
+    // Migration may fail if column doesn't exist yet, ignore
+  }
+}
+
 // Onboarding completion log
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS onboarding_log (

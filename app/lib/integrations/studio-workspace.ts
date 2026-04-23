@@ -3,6 +3,14 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
+function stripStudioAssetsPrefix(relativePath: string): string {
+  const prefix = 'studio/assets/';
+  if (relativePath.startsWith(prefix)) {
+    return relativePath.slice(prefix.length);
+  }
+  return relativePath;
+}
+
 export const STUDIO_ROOT_DIR = 'studio';
 export const STUDIO_ASSETS_ROOT_DIR = path.posix.join(STUDIO_ROOT_DIR, 'assets');
 export const STUDIO_OUTPUTS_ROOT_DIR = path.posix.join(STUDIO_ROOT_DIR, 'outputs');
@@ -87,7 +95,7 @@ export function generateOutputFilename(slug: string, variationIndex: number, ext
 }
 
 export async function writeAssetFile(relativePath: string, buffer: Buffer): Promise<void> {
-  const fullPath = path.join(getStudioAssetsRoot(), relativePath);
+  const fullPath = path.join(getStudioAssetsRoot(), stripStudioAssetsPrefix(relativePath));
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.writeFile(fullPath, buffer);
 }
@@ -99,17 +107,17 @@ export async function writeOutputFile(filePath: string, buffer: Buffer): Promise
 }
 
 export async function readAssetFile(relativePath: string): Promise<Buffer> {
-  const fullPath = path.join(getStudioAssetsRoot(), relativePath);
+  const fullPath = path.join(getStudioAssetsRoot(), stripStudioAssetsPrefix(relativePath));
   return fs.readFile(fullPath);
 }
 
 export async function deleteAssetFile(relativePath: string): Promise<void> {
-  const fullPath = path.join(getStudioAssetsRoot(), relativePath);
+  const fullPath = path.join(getStudioAssetsRoot(), stripStudioAssetsPrefix(relativePath));
   await fs.rm(fullPath, { force: true });
 }
 
 export async function deleteAssetDir(relativePath: string): Promise<void> {
-  const fullPath = path.join(getStudioAssetsRoot(), relativePath);
+  const fullPath = path.join(getStudioAssetsRoot(), stripStudioAssetsPrefix(relativePath));
   await fs.rm(fullPath, { recursive: true, force: true });
 }
 
