@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
+import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
@@ -104,6 +106,9 @@ export function CreateView() {
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [videoResolution, setVideoResolution] = useState<VideoResolution>('720p');
   const [videoDuration, setVideoDuration] = useState<VideoDuration>(6);
+  const [videoModel, setVideoModel] = useState<string>('veo-3.1-fast-generate-preview');
+  const [isLooping, setIsLooping] = useState(false);
+  const [personGeneration, setPersonGeneration] = useState<'allow_all' | 'allow_adult' | 'dont_allow'>('allow_all');
   const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
   const [rawPrompt, setRawPrompt] = useState(initialPrompt);
   const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
@@ -111,12 +116,26 @@ export function CreateView() {
   const [styleRefs, setStyleRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [presetRef, setPresetRef] = useState<StudioPreset | null>(null);
   const [fileRefs, setFileRefs] = useState<Array<{ id: string; name: string; thumbnailPath?: string; status?: 'loading' | string }>>([]);
-  const [startFrame, setStartFrame] = useState<File | null>(null);
-  const [endFrame, setEndFrame] = useState<File | null>(null);
+  const [startFramePath, setStartFramePath] = useState<string | null>(null);
+  const [endFramePath, setEndFramePath] = useState<string | null>(null);
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
   const [selectedOutputIds, setSelectedOutputIds] = useState<string[]>([]);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+  const [picker, setPicker] = useState<{
+    open: boolean;
+    target: 'start' | 'end' | 'references';
+    maxSelection: number;
+  }>({
+    open: false,
+    target: 'start',
+    maxSelection: 1,
+  });
+
+  const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
+    setPicker({ open: true, target, maxSelection });
+  };
 
   const resolvedSelectedGeneration = selectedGenerationId
     ? generations.find((g) => g.id === selectedGenerationId) ?? null
@@ -178,8 +197,8 @@ export function CreateView() {
     if (result) {
       setRawPrompt('');
       setFileRefs([]);
-      setStartFrame(null);
-      setEndFrame(null);
+      setStartFramePath(null);
+      setEndFramePath(null);
     }
   };;
 
@@ -281,12 +300,36 @@ export function CreateView() {
       <div className="sticky bottom-0 border-t border-border/80 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85 md:px-6">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
           {mode === 'video' ? (
-            <FrameUpload
-              startFrame={startFrame}
-              endFrame={endFrame}
-              onStartFrameChange={setStartFrame}
-              onEndFrameChange={setEndFrame}
-            />
+            <div className="space-y-2 border border-border bg-background p-3">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.frames.title')}</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('start', 'image')}>
+                  {t('sections.frames.startFrame')}
+                </Button>
+                {!isLooping && (
+                  <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('end', 'image')}>
+                    {t('sections.frames.endFrame')}
+                  </Button>
+                )}
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={isLooping}
+                  onChange={(event) => {
+                    setIsLooping(event.target.checked);
+                    if (event.target.checked) {
+                      setEndFramePath(null);
+                    }
+                  }}
+                />
+                {t('sections.frames.loopVideo')}
+              </label>
+              <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
+                {startFramePath && <PreviewChip path={startFramePath} kind="image" />}
+                {!isLooping && endFramePath && <PreviewChip path={endFramePath} kind="image" />}
+              </div>
+            </div>
           ) : null}
 
           <PromptBar
