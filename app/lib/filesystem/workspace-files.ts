@@ -1,6 +1,6 @@
-import { createReadStream as createLocalReadStream, promises as fs, accessSync } from 'fs';
+import {createReadStream as createLocalReadStream, promises as fs, accessSync} from 'fs';
 import path from 'path';
-import { Readable } from 'stream';
+import {Readable} from 'stream';
 
 export interface FileNode {
   name: string;
@@ -12,13 +12,19 @@ export interface FileNode {
   children?: FileNode[];
 }
 
-const DATA = process.env.DATA || path.join(process.cwd(), 'data');
-const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
+function getDataDir(): string {
+  return process.env.DATA || path.join(/*turbopackIgnore: true*/ process.cwd(), 'data');
+}
+
+function getWorkspaceBaseDir(): string {
+  return path.join(getDataDir(), 'workspace');
+}
+
 const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 
 export function validatePath(userPath: string): string {
-  const normalizedBase = path.normalize(WORKSPACE_BASE_DIR);
+  const normalizedBase = path.normalize(getWorkspaceBaseDir());
   const normalizedPath = path.normalize(path.join(normalizedBase, userPath));
 
   if (normalizedPath !== normalizedBase && !normalizedPath.startsWith(`${normalizedBase}${path.sep}`)) {
@@ -41,7 +47,7 @@ function isAppOutputMetadataFile(filePath: string, fileName: string): boolean {
 
 export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> {
   const fullPath = validatePath(dirPath);
-  const entries = await fs.readdir(fullPath, { withFileTypes: true });
+  const entries = await fs.readdir(fullPath, {withFileTypes: true});
 
   return Promise.all(
     entries
@@ -84,12 +90,12 @@ export async function readFile(filePath: string): Promise<Buffer> {
 }
 
 export async function readDataFile(filePath: string): Promise<Buffer> {
-  const fullPath = path.resolve(/*turbopackIgnore: true*/ DATA, filePath);
+  const fullPath = path.resolve(/*turbopackIgnore: true*/ getDataDir(), filePath);
   return fs.readFile(fullPath);
 }
 
 export async function getDataFileStats(filePath: string) {
-  const fullPath = path.resolve(/*turbopackIgnore: true*/ DATA, filePath);
+  const fullPath = path.resolve(/*turbopackIgnore: true*/ getDataDir(), filePath);
   const stats = await fs.stat(fullPath);
 
   let totalSize = stats.size;
@@ -108,8 +114,8 @@ export async function getDataFileStats(filePath: string) {
 
 export async function createReadStream(
   filePath: string,
-  options?: { start?: number; end?: number; highWaterMark?: number }
-): Promise<{ stream: Readable; close: () => Promise<void> }> {
+  options?: {start?: number; end?: number; highWaterMark?: number}
+): Promise<{stream: Readable; close: () => Promise<void>}> {
   const fullPath = validatePath(filePath);
   return {
     stream: createLocalReadStream(fullPath, options) as unknown as Readable,
@@ -124,19 +130,19 @@ export async function writeFile(filePath: string, content: Buffer | string): Pro
 }
 
 export async function writeDataFile(filePath: string, content: Buffer | string): Promise<void> {
-  const fullPath = path.resolve(/*turbopackIgnore: true*/ DATA, filePath);
+  const fullPath = path.resolve(/*turbopackIgnore: true*/ getDataDir(), filePath);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   await fs.writeFile(fullPath, buffer);
 }
 
 export async function createDirectory(dirPath: string): Promise<void> {
   const fullPath = validatePath(dirPath);
-  await fs.mkdir(fullPath, { recursive: true });
+  await fs.mkdir(fullPath, {recursive: true});
 }
 
 export async function deleteFile(filePath: string): Promise<void> {
   const fullPath = validatePath(filePath);
-  await fs.rm(fullPath, { recursive: true, force: true });
+  await fs.rm(fullPath, {recursive: true, force: true});
 }
 
 export interface RenameConflictError extends Error {
@@ -149,7 +155,7 @@ export interface RenameConflictError extends Error {
 export async function checkRenameConflict(oldPath: string, newPath: string): Promise<null | RenameConflictError> {
   const fullOldPath = validatePath(oldPath);
   const fullNewPath = validatePath(newPath);
-  
+
   // Check if source exists
   try {
     await fs.access(fullOldPath);
@@ -161,12 +167,12 @@ export async function checkRenameConflict(oldPath: string, newPath: string): Pro
     error.destPath = newPath;
     return error;
   }
-  
+
   // Check if destination already exists
   try {
     const destStat = await fs.stat(fullNewPath);
     const isSourceDirectory = (await fs.stat(fullOldPath)).isDirectory();
-    
+
     if (destStat.isDirectory()) {
       // Directory exists at destination - cannot overwrite
       const error = new Error(`Directory already exists at destination: ${newPath}`) as RenameConflictError;
@@ -193,13 +199,13 @@ export async function checkRenameConflict(oldPath: string, newPath: string): Pro
 export async function renameFile(oldPath: string, newPath: string, overwrite = false): Promise<void> {
   const fullOldPath = validatePath(oldPath);
   const fullNewPath = validatePath(newPath);
-  
+
   // Ensure parent directory exists
   const parentDir = path.dirname(newPath);
   if (parentDir && parentDir !== '.') {
     await createDirectory(parentDir);
   }
-  
+
   // Check for conflicts
   const conflict = await checkRenameConflict(oldPath, newPath);
   if (conflict) {
@@ -210,7 +216,7 @@ export async function renameFile(oldPath: string, newPath: string, overwrite = f
       throw conflict;
     }
   }
-  
+
   await fs.rename(fullOldPath, fullNewPath);
 }
 
@@ -236,7 +242,7 @@ export async function getFileStats(filePath: string) {
 async function calculateDirectorySize(dirPath: string): Promise<number> {
   let totalSize = 0;
   try {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const entries = await fs.readdir(dirPath, {withFileTypes: true});
     for (const entry of entries) {
       const entryPath = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
@@ -290,14 +296,11 @@ export async function buildFileTree(
 
 export interface CopyResult {
   copied: string[];
-  failed: { path: string; error: string }[];
+  failed: {path: string; error: string}[];
   skipped: string[];
 }
 
-function findAvailableDestName(
-  fileName: string,
-  fullDestDir: string
-): string {
+function findAvailableDestName(fileName: string, fullDestDir: string): string {
   const ext = path.extname(fileName);
   const base = path.basename(fileName, ext);
   let candidate = fileName;
@@ -323,7 +326,7 @@ export async function copyFile(
   destDir: string,
   overwrite = false,
   renameOnCollision = false
-): Promise<{ copied: string; skipped: boolean }> {
+): Promise<{copied: string; skipped: boolean}> {
   const fullSource = validatePath(sourcePath);
   const fullDestDir = validatePath(destDir);
   const fileName = path.basename(fullSource);
@@ -342,9 +345,9 @@ export async function copyFile(
     try {
       await fs.access(fullDest);
       if (!overwrite) {
-        return { copied: '', skipped: true };
+        return {copied: '', skipped: true};
       }
-      await fs.rm(fullDest, { recursive: true, force: true });
+      await fs.rm(fullDest, {recursive: true, force: true});
     } catch {
       // Destination doesn't exist - good
     }
@@ -352,8 +355,8 @@ export async function copyFile(
 
   const fullDest = path.join(fullDestDir, destFileName);
   const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
-  await fs.cp(fullSource, fullDest, { recursive: true });
-  return { copied: destRelative, skipped: false };
+  await fs.cp(fullSource, fullDest, {recursive: true});
+  return {copied: destRelative, skipped: false};
 }
 
 export async function batchCopy(
@@ -362,7 +365,7 @@ export async function batchCopy(
   overwrite = false,
   renameOnCollision = false
 ): Promise<CopyResult> {
-  const results: CopyResult = { copied: [], failed: [], skipped: [] };
+  const results: CopyResult = {copied: [], failed: [], skipped: []};
 
   await Promise.allSettled(
     sources.map(async (sourcePath) => {
@@ -385,8 +388,10 @@ export async function batchCopy(
   return results;
 }
 
-export async function batchDelete(paths: string[]): Promise<{ deleted: string[]; failed: { path: string; error: string }[] }> {
-  const results = { deleted: [] as string[], failed: [] as { path: string; error: string }[] };
+export async function batchDelete(
+  paths: string[]
+): Promise<{deleted: string[]; failed: {path: string; error: string}[]}> {
+  const results = {deleted: [] as string[], failed: [] as {path: string; error: string}[]};
 
   await Promise.allSettled(
     paths.map(async (filePath) => {
@@ -427,7 +432,7 @@ export async function buildGenericFileTree(
 
   let entries: import('fs').Dirent[];
   try {
-    entries = await fs.readdir(fullPath, { withFileTypes: true });
+    entries = await fs.readdir(fullPath, {withFileTypes: true});
   } catch {
     return [];
   }

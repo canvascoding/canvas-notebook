@@ -1,13 +1,20 @@
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import {drizzle} from 'drizzle-orm/better-sqlite3';
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
+import {mkdirSync} from 'fs';
 import path from 'path';
 import * as schema from './schema';
 
-const DATA = process.env.DATA || path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'data');
-const sqlitePath = path.join(DATA, 'sqlite.db');
+function getDataDir(): string {
+  return process.env.DATA || path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'data');
+}
 
-mkdirSync(path.dirname(sqlitePath), { recursive: true });
+function getSqlitePath(): string {
+  return path.join(getDataDir(), 'sqlite.db');
+}
+
+// Initialize on first import (lazy evaluation of paths)
+const sqlitePath = getSqlitePath();
+mkdirSync(path.dirname(sqlitePath), {recursive: true});
 
 const sqlite = new Database(sqlitePath);
 
@@ -452,12 +459,14 @@ CREATE INDEX IF NOT EXISTS idx_page_onboarding_state_user_completed ON page_onbo
 `);
 
 // Idempotent column additions for existing volumes
-const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
+const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+  name: string
+}>;
 const tableNames = new Set(tables.map((t) => t.name));
 
 if (tableNames.has('pi_sessions')) {
   const piSessionColumns = new Set(
-    (sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as Array<{ name: string }>).map((c) => c.name),
+    (sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as Array<{name: string}>).map((c) => c.name),
   );
   if (!piSessionColumns.has('last_message_at')) {
     try {
@@ -478,7 +487,7 @@ if (tableNames.has('pi_sessions')) {
 
 if (tableNames.has('automation_jobs')) {
   const automationJobColumns = new Set(
-    (sqlite.prepare('PRAGMA table_info(automation_jobs)').all() as Array<{ name: string }>).map((c) => c.name),
+    (sqlite.prepare('PRAGMA table_info(automation_jobs)').all() as Array<{name: string}>).map((c) => c.name),
   );
   if (!automationJobColumns.has('target_output_path')) {
     try {
@@ -491,7 +500,7 @@ if (tableNames.has('automation_jobs')) {
 
 if (tableNames.has('automation_runs')) {
   const automationRunColumns = new Set(
-    (sqlite.prepare('PRAGMA table_info(automation_runs)').all() as Array<{ name: string }>).map((c) => c.name),
+    (sqlite.prepare('PRAGMA table_info(automation_runs)').all() as Array<{name: string}>).map((c) => c.name),
   );
   if (!automationRunColumns.has('target_output_path')) {
     try {
@@ -568,15 +577,15 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_oauth_tokens_valid ON oauth_tokens(provider, is_valid);
 `);
 
-export const db = drizzle(sqlite, { schema });
+export const db = drizzle(sqlite, {schema});
 
 // Helper function for raw SQLite operations
 export async function openDb() {
-  const sqlite = new Database(sqlitePath);
+  const freshSqlite = new Database(getSqlitePath());
   return {
-    get: (sql: string, params?: unknown[]) => sqlite.prepare(sql).get(params),
-    run: (sql: string, params?: unknown[]) => sqlite.prepare(sql).run(params),
-    all: (sql: string, params?: unknown[]) => sqlite.prepare(sql).all(params),
-    close: () => sqlite.close(),
+    get: (sql: string, params?: unknown[]) => freshSqlite.prepare(sql).get(params),
+    run: (sql: string, params?: unknown[]) => freshSqlite.prepare(sql).run(params),
+    all: (sql: string, params?: unknown[]) => freshSqlite.prepare(sql).all(params),
+    close: () => freshSqlite.close(),
   };
 }
