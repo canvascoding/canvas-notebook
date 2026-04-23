@@ -7,11 +7,14 @@ import {
   studioProductImages,
   studioPersonas,
   studioPersonaImages,
+  studioStyles,
+  studioStyleImages,
   studioPresets,
   studioGenerations,
   studioGenerationOutputs,
   studioGenerationProducts,
   studioGenerationPersonas,
+  studioGenerationStyles,
 } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
@@ -36,7 +39,7 @@ interface LoadedReferenceImage {
   width: number | null;
   height: number | null;
   fileName: string;
-  source: 'product' | 'persona' | 'source_output' | 'extra_url';
+  source: 'product' | 'persona' | 'style' | 'source_output' | 'extra_url';
   sourceId: string;
   sourceName: string;
   description?: string;
@@ -47,6 +50,7 @@ export interface StudioGenerateRequest {
   mode?: 'image' | 'video';
   product_ids?: string[];
   persona_ids?: string[];
+  style_ids?: string[];
   preset_id?: string;
   aspect_ratio?: string;
   count?: number;
@@ -81,6 +85,7 @@ export interface StudioGenerateResult {
 
 const MAX_PRODUCTS = 5;
 const MAX_PERSONAS = 3;
+const MAX_STYLES = 3;
 const MAX_IMAGE_COUNT = 4;
 
 const PRESET_BLOCK_ORDER = ['lighting', 'camera', 'background', 'props', 'subject'];
@@ -202,6 +207,57 @@ async function loadPersonaImages(userId: string, personaIds: string[]): Promise<
   return images;
 }
 
+async function loadStyleImages(userId: string, styleIds: string[]): Promise<LoadedReferenceImage[]> {
+  if (styleIds.length === 0) return [];
+
+  const images: LoadedReferenceImage[] = [];
+
+  for (const styleId of styleIds) {
+    const [style] = await db.select({ id: studioStyles.id, name: studioStyles.name, description: studioStyles.description })
+      .from(studioStyles)
+      .where(and(eq(studioStyles.id, styleId), eq(studioStyles.userId, userId)));
+
+    if (!style) {
+      throw new StudioServiceError(
+        `Style ${styleId} not found`,
+        `Style '${styleId}' wurde gelöscht. Bitte entferne diese Referenz und wähle einen anderen Style.`,
+        'NOT_FOUND',
+      );
+    }
+
+    const styleImages = await db.select()
+      .from(studioStyleImages)
+      .where(eq(studioStyleImages.styleId, styleId));
+
+    for (const img of styleImages) {
+      let buffer: Buffer;
+      try {
+        buffer = await readAssetFile(img.filePath);
+      } catch {
+        throw new StudioServiceError(
+          `Reference image file not found for style '${style.name}' (${img.fileName})`,
+          `Referenzbild-Datei nicht gefunden für Style '${style.name}' (${img.fileName}). Die Datei wurde möglicherweise gelöscht. Bitte lade das Bild erneut hoch.`,
+          'FILE_NOT_FOUND',
+        );
+      }
+
+      images.push({
+        imageBytes: buffer.toString('base64'),
+        mimeType: img.mimeType,
+        width: img.width,
+        height: img.height,
+        fileName: img.fileName,
+        source: 'style',
+        sourceId: styleId,
+        sourceName: style.name,
+        description: style.description || undefined,
+      });
+    }
+  }
+
+  return images;
+}
+
 export async function getStudioOutputForUser(outputId: string, userId: string) {
   const [output] = await db.select({
     id: studioGenerationOutputs.id,
@@ -291,6 +347,7 @@ async function composePresetPromptFragment(presetId: string): Promise<string> {
 async function loadSourceOutputReferences(userId: string, sourceGenerationId: string): Promise<{
   product_ids: string[];
   persona_ids: string[];
+  style_ids: string[];
 }> {
   const [generation] = await db.select({ id: studioGenerations.id })
     .from(studioGenerations)
@@ -313,9 +370,14 @@ async function loadSourceOutputReferences(userId: string, sourceGenerationId: st
     .from(studioGenerationPersonas)
     .where(eq(studioGenerationPersonas.generationId, sourceGenerationId));
 
+  const styleRows = await db.select({ styleId: studioGenerationStyles.styleId })
+    .from(studioGenerationStyles)
+    .where(eq(studioGenerationStyles.generationId, sourceGenerationId));
+
   return {
     product_ids: productRows.map((r) => r.productId),
     persona_ids: personaRows.map((r) => r.personaId),
+    style_ids: styleRows.map((r) => r.styleId),
   };
 }
 
@@ -382,34 +444,45 @@ function buildReferenceContextPrompt(referenceImages: LoadedReferenceImage[]): {
     groups.get(key)!.push(img);
   }
 
-  let contextText = 'Context: The following images are reference material.\n\n';
+  const sections: string[] = [];
 
   for (const images of groups.values()) {
     const first = images[0];
     const count = images.length;
     
     if (first.source === 'product') {
-      contextText += `Product '${first.sourceName}':\n`;
+      let section = `### Product: ${first.sourceName}\n`;
       if (first.description) {
-        contextText += `Description: ${first.description}\n`;
+        section += `${first.description}\n`;
       }
-      contextText += `The following ${count} image${count > 1 ? 's' : ''} show${count > 1 ? '' : 's'} this product from multiple angles. Use them to maintain the exact shape, texture, material, and design. Do NOT create a collage. Generate a single coherent image of this product.\n\n`;
+      section += `The following ${count} image${count > 1 ? 's' : ''} show${count > 1 ? '' : 's'} this product from multiple angles. Use them to maintain the exact shape, texture, material, and design. Do NOT create a collage. Generate a single coherent image of this product.`;
+      sections.push(section);
     } else if (first.source === 'persona') {
-      contextText += `Persona '${first.sourceName}':\n`;
+      let section = `### Persona: ${first.sourceName}\n`;
       if (first.description) {
-        contextText += `Description: ${first.description}\n`;
+        section += `${first.description}\n`;
       }
-      contextText += `The following ${count} image${count > 1 ? 's' : ''} show${count > 1 ? '' : 's'} this person from various angles and expressions. Use them to maintain the exact facial features, body shape, clothing, and appearance. Do NOT create a collage. Generate a single coherent image of this person.\n\n`;
+      section += `The following ${count} image${count > 1 ? 's' : ''} show${count > 1 ? '' : 's'} this person from various angles and expressions. Use them to maintain the exact facial features, body shape, clothing, and appearance. Do NOT create a collage. Generate a single coherent image of this person.`;
+      sections.push(section);
+    } else if (first.source === 'style') {
+      let section = `### Style: ${first.sourceName}\n`;
+      if (first.description) {
+        section += `${first.description}\n`;
+      }
+      section += `The following ${count} image${count > 1 ? 's' : ''} provide visual style reference. Apply this aesthetic across the entire generation: colors, atmosphere, compositional approach, and finishing quality.`;
+      sections.push(section);
     } else if (first.source === 'source_output') {
-      contextText += `Source Image:\n`;
-      contextText += `The following ${count} image${count > 1 ? 's' : ''} ${count > 1 ? 'are' : 'is'} the previously generated output that should be used as the base for editing or variation.\n\n`;
+      let section = `### Source Image\n`;
+      section += `The following ${count} image${count > 1 ? 's' : ''} ${count > 1 ? 'are' : 'is'} the previously generated output that should be used as the base for editing or variation.`;
+      sections.push(section);
     } else if (first.source === 'extra_url') {
-      contextText += `Additional Reference Images:\n`;
-      contextText += `The following ${count} image${count > 1 ? 's' : ''} provide additional visual context or style reference.\n\n`;
+      let section = `### Additional References\n`;
+      section += `The following ${count} image${count > 1 ? 's' : ''} provide additional visual context or style reference.`;
+      sections.push(section);
     }
   }
 
-  contextText += `User instruction: `;
+  const contextText = `## References\n\nThe following images are reference material.\n\n${sections.join('\n\n')}\n\n---\n`;
 
   return { contextText, providerImages };
 }
@@ -424,8 +497,9 @@ export async function executeStudioGeneration(
   const rawPrompt = sanitizePrompt(request.prompt);
   const productIds = (request.product_ids || []).slice(0, MAX_PRODUCTS);
   const personaIds = (request.persona_ids || []).slice(0, MAX_PERSONAS);
+  const styleIds = (request.style_ids || []).slice(0, MAX_STYLES);
 
-  if (!rawPrompt && productIds.length === 0 && personaIds.length === 0 && !request.source_output_id && !(request.extra_reference_urls?.length)) {
+  if (!rawPrompt && productIds.length === 0 && personaIds.length === 0 && styleIds.length === 0 && !request.source_output_id && !(request.extra_reference_urls?.length)) {
     throw new StudioServiceError(
       'Prompt or reference required',
       'Ein Prompt oder mindestens ein Referenz-Bild (Produkt/Persona) ist erforderlich.',
@@ -446,6 +520,24 @@ export async function executeStudioGeneration(
     sourceGenerationId = sourceOutput?.generationId ?? null;
   }
 
+  const requestMetadata = JSON.stringify({
+    productIds,
+    personaIds,
+    styleIds,
+    presetId: request.preset_id ?? null,
+    aspectRatio,
+    count: request.count,
+    provider: providerId,
+    model,
+    quality: request.quality,
+    outputFormat: request.output_format,
+    background: request.background,
+    videoResolution: request.video_resolution,
+    videoDuration: request.video_duration,
+    extraReferenceUrls: request.extra_reference_urls,
+    sourceOutputId: request.source_output_id,
+  });
+
   await db.insert(studioGenerations).values({
     id: generationId,
     userId,
@@ -458,7 +550,7 @@ export async function executeStudioGeneration(
     model,
     bulkJobId: null,
     sourceGenerationId,
-    metadata: null,
+    metadata: requestMetadata,
     status: 'pending',
     createdAt: now,
     updatedAt: now,
@@ -470,6 +562,9 @@ export async function executeStudioGeneration(
   for (const personaId of personaIds) {
     await db.insert(studioGenerationPersonas).values({ generationId, personaId });
   }
+  for (const styleId of styleIds) {
+    await db.insert(studioGenerationStyles).values({ generationId, styleId });
+  }
 
   try {
     const allReferenceImages: LoadedReferenceImage[] = [];
@@ -478,14 +573,15 @@ export async function executeStudioGeneration(
       const sourceImg = await loadSourceOutputImage(userId, request.source_output_id);
       allReferenceImages.push(sourceImg);
 
-      if (productIds.length === 0 && personaIds.length === 0) {
+      if (productIds.length === 0 && personaIds.length === 0 && styleIds.length === 0) {
         const sourceOutput = await getStudioOutputForUser(request.source_output_id, userId);
         if (sourceOutput) {
           const sourceRefs = await loadSourceOutputReferences(userId, sourceOutput.generationId);
-          if (sourceRefs.product_ids.length > 0 || sourceRefs.persona_ids.length > 0) {
+          if (sourceRefs.product_ids.length > 0 || sourceRefs.persona_ids.length > 0 || sourceRefs.style_ids?.length > 0) {
             const productImgs = await loadProductImages(userId, sourceRefs.product_ids);
             const personaImgs = await loadPersonaImages(userId, sourceRefs.persona_ids);
-            for (const img of [...productImgs, ...personaImgs]) {
+            const styleImgs = await loadStyleImages(userId, sourceRefs.style_ids || []);
+            for (const img of [...productImgs, ...personaImgs, ...styleImgs]) {
               if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
                 allReferenceImages.push(img);
               }
@@ -497,7 +593,8 @@ export async function executeStudioGeneration(
 
     const productImgs = await loadProductImages(userId, productIds);
     const personaImgs = await loadPersonaImages(userId, personaIds);
-    for (const img of [...productImgs, ...personaImgs]) {
+    const styleImgs = await loadStyleImages(userId, styleIds);
+    for (const img of [...productImgs, ...personaImgs, ...styleImgs]) {
       if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
         allReferenceImages.push(img);
       }
@@ -517,16 +614,14 @@ export async function executeStudioGeneration(
     // Build structured context prompt for all references
     const { contextText, providerImages } = buildReferenceContextPrompt(allReferenceImages);
 
+    // Compose the final prompt with structured Markdown sections
     let composedPrompt = rawPrompt;
     if (request.preset_id) {
       const presetFragment = await composePresetPromptFragment(request.preset_id);
       if (presetFragment) {
-        composedPrompt = `${presetFragment} ${rawPrompt}`.trim();
+        composedPrompt = `## Preset — Visual Setting\n${presetFragment}\n\n## Instructions\n\n${rawPrompt}`.trim();
       }
     }
-
-    // Note: contextText is passed separately to providers for structured injection
-    // OpenAI will prepend it to the prompt, Gemini will use it as a separate text part
 
     await db.update(studioGenerations)
       .set({ status: 'generating', updatedAt: new Date() })
@@ -552,8 +647,15 @@ export async function executeStudioGeneration(
     return { generationId, status: 'completed', mode, prompt: composedPrompt, outputs };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const existingGeneration = await db.select({ metadata: studioGenerations.metadata })
+      .from(studioGenerations)
+      .where(eq(studioGenerations.id, generationId))
+      .limit(1);
+    const existingMetadata = existingGeneration[0]?.metadata 
+      ? JSON.parse(existingGeneration[0].metadata) 
+      : {};
     await db.update(studioGenerations)
-      .set({ status: 'failed', metadata: JSON.stringify({ error: errorMessage }), updatedAt: new Date() })
+      .set({ status: 'failed', metadata: JSON.stringify({ ...existingMetadata, error: errorMessage }), updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
     throw error;
   }
@@ -616,6 +718,15 @@ async function generateStudioImages(
 
       const outputId = randomUUID();
       const now = new Date();
+      const outputMetadata = {
+        provider: providerId,
+        model: validatedModel,
+        aspectRatio,
+        quality: options?.quality,
+        outputFormat: options?.outputFormat,
+        background: options?.background,
+        usage: result.usage,
+      };
       await db.insert(studioGenerationOutputs).values({
         id: outputId,
         generationId,
@@ -628,7 +739,7 @@ async function generateStudioImages(
         width: null,
         height: null,
         isFavorite: false,
-        metadata: null,
+        metadata: JSON.stringify(outputMetadata),
         createdAt: now,
       });
 
@@ -780,6 +891,10 @@ export async function listStudioGenerations(userId: string) {
       .from(studioGenerationPersonas)
       .where(eq(studioGenerationPersonas.generationId, gen.id));
 
+    const styleRefs = await db.select({ styleId: studioGenerationStyles.styleId })
+      .from(studioGenerationStyles)
+      .where(eq(studioGenerationStyles.generationId, gen.id));
+
     return {
       ...gen,
       outputs: outputs.map((o) => ({
@@ -788,6 +903,7 @@ export async function listStudioGenerations(userId: string) {
       })),
       product_ids: productRefs.map((r) => r.productId),
       persona_ids: personaRefs.map((r) => r.personaId),
+      style_ids: styleRefs.map((r) => r.styleId),
     };
   }));
 
@@ -813,6 +929,10 @@ export async function getStudioGeneration(generationId: string, userId: string) 
     .from(studioGenerationPersonas)
     .where(eq(studioGenerationPersonas.generationId, generationId));
 
+  const styleRefs = await db.select({ styleId: studioGenerationStyles.styleId })
+    .from(studioGenerationStyles)
+    .where(eq(studioGenerationStyles.generationId, generationId));
+
   return {
     ...generation,
     outputs: outputs.map((o) => ({
@@ -821,6 +941,7 @@ export async function getStudioGeneration(generationId: string, userId: string) 
     })),
     product_ids: productRefs.map((r) => r.productId),
     persona_ids: personaRefs.map((r) => r.personaId),
+    style_ids: styleRefs.map((r) => r.styleId),
   };
 }
 

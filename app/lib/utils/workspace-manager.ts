@@ -2,7 +2,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 
 // Nutze die Umgebungsvariable DATA oder falle auf das lokale data Verzeichnis zurück
-const DATA = process.env.DATA || path.resolve(process.cwd(), 'data');
+const DATA = process.env.DATA || path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
 const TEMP_BASE_DIR = path.join(DATA, 'temp');
 

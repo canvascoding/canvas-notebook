@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import type { StudioGenerationMode } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
 import { ModeToggle } from './ModeToggle';
@@ -130,21 +131,27 @@ export function ControlBar({
           isOpenAI={isOpenAI}
         />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="rounded-full">
-              {countLabel}
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-40">
-            {(mode === 'video' ? [1] : IMAGE_COUNTS).map((option) => (
-              <DropdownMenuItem key={option} onSelect={() => onCountChange(option)}>
-                {option} output{option === 1 ? '' : 's'}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {isVideo ? (
+          <Badge variant="secondary" className="rounded-full px-3 py-1 text-sm">
+            1 output
+          </Badge>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" size="sm" className="rounded-full">
+                {countLabel}
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-40">
+              {IMAGE_COUNTS.map((option) => (
+                <DropdownMenuItem key={option} onSelect={() => onCountChange(option)}>
+                  {option} output{option === 1 ? '' : 's'}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
         {isVideo && (
           <>

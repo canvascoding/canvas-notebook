@@ -12,7 +12,7 @@ function directoryExists(targetPath: string): boolean {
 }
 
 function resolveProjectDataRoot(cwd = process.cwd()): string {
-  return path.resolve(cwd, 'data');
+  return path.resolve(/*turbopackIgnore: true*/ cwd, 'data');
 }
 
 export function resolveCanvasDataRoot(cwd = process.cwd()): string {

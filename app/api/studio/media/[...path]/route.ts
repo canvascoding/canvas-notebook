@@ -48,7 +48,7 @@ function resolveStudioPath(encodedFilePath: string): string | null {
   if (encodedFilePath.startsWith('user-uploads/studio-references/')) {
     const relativePath = encodedFilePath.slice('user-uploads/studio-references/'.length);
     const root = getUserUploadsStudioRefRoot();
-    const resolved = path.resolve(root, relativePath);
+    const resolved = path.resolve(/*turbopackIgnore: true*/ root, relativePath);
     if (resolved === root || resolved.startsWith(`${root}${path.sep}`)) {
       return resolved;
     }

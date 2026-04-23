@@ -2,9 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { fileTypeFromBuffer } from 'file-type';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
-import { generateStudioReferencePath, writeStudioReferenceFile } from '@/app/lib/integrations/studio-workspace';
+import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
+import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import { rateLimit } from '@/app/lib/utils/rate-limit';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 
-const MAX_REFERENCE_SIZE = 10 * 1024 * 1024;
+const MAX_REFERENCE_SIZE = 20 * 1024 * 1024;
+
+function sanitizeFilename(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  const base = path.basename(filename, ext).replace(/[^a-zA-Z0-9._\-]/g, '_').slice(0, 100);
+  return `${base}${ext}`;
+}
 
 /**
  * Download and save an external image URL for use as a reference.
@@ -12,12 +22,21 @@ const MAX_REFERENCE_SIZE = 10 * 1024 * 1024;
  * POST /api/studio/references
  * Body: { url: string }
  *
- * Returns: { id, localUrl, originalUrl, mimeType, size }
+ * Returns: { path, name, mediaUrl, previewUrl }
  */
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const limited = rateLimit(request, {
+    limit: 60,
+    windowMs: 60_000,
+    keyPrefix: 'studio-url-download',
+  });
+  if (!limited.ok) {
+    return limited.response;
   }
 
   let body: { url?: string };
@@ -56,10 +75,9 @@ export async function POST(request: NextRequest) {
     // Validate it's actually an image using magic bytes
     try {
       const fileType = await fileTypeFromBuffer(buffer);
-
       if (!fileType || !fileType.mime.startsWith('image/')) {
         return NextResponse.json(
-          { success: false, error: 'The URL does not point to a valid image file. Please provide a direct link to an image (JPEG, PNG, WebP, GIF, etc.).' },
+          { success: false, error: 'The URL does not point to a valid image file. Please provide a direct link to an image (JPEG, PNG, WebP, etc.).' },
           { status: 400 }
         );
       }
@@ -67,38 +85,43 @@ export async function POST(request: NextRequest) {
       console.warn('[Studio Reference] file-type detection failed, falling back to content-type:', e);
       if (!contentType.startsWith('image/')) {
         return NextResponse.json(
-          { success: false, error: 'The URL does not point to a valid image file. Please provide a direct link to an image.' },
+          { success: false, error: 'The URL does not point to a valid image file.' },
           { status: 400 }
         );
       }
     }
 
-    // Extract filename from URL
+    // Extract filename from URL and sanitize
     let fileName = 'reference-image.jpg';
     try {
       const urlPath = new URL(finalUrl).pathname;
       const nameFromUrl = urlPath.split('/').pop();
       if (nameFromUrl) {
-        fileName = nameFromUrl;
+        fileName = sanitizeFilename(nameFromUrl);
       }
     } catch {
       // Use default filename
     }
 
-    const { id, relativePath } = generateStudioReferencePath(session.user.id, fileName);
-    await writeStudioReferenceFile(session.user.id, id, buffer);
+    const uploadRoot = getUserUploadsStudioRefRoot();
+    await fs.mkdir(uploadRoot, { recursive: true });
 
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const uniqueName = `${timestamp}-${fileName}`;
+    const fullPath = path.join(uploadRoot, uniqueName);
+    await fs.writeFile(fullPath, buffer);
+
+    const relativePath = `user-uploads/studio-references/${uniqueName}`;
     return NextResponse.json({
       success: true,
-      id,
-      localUrl: `/api/studio/references/${id}`,
-      originalUrl: finalUrl,
-      mimeType: contentType,
+      path: relativePath,
+      name: fileName,
+      mediaUrl: toMediaUrl(relativePath),
+      previewUrl: toPreviewUrl(relativePath, 480),
       size: buffer.length,
-      filePath: relativePath,
     }, { status: 201 });
 
-  } catch (err) {
+  } catch (err: any) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     console.error('[Studio Reference] Download failed:', errorMessage);
 

@@ -226,7 +226,7 @@ export async function GET(request: NextRequest) {
     } else if (filePath.startsWith('user-uploads/studio-references/')) {
       const root = getUserUploadsStudioRefRoot();
       const relativePath = filePath.slice('user-uploads/studio-references/'.length);
-      const resolved = path.resolve(root, relativePath);
+      const resolved = path.resolve(/*turbopackIgnore: true*/ root, relativePath);
       if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }

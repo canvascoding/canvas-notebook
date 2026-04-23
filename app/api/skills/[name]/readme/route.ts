@@ -64,8 +64,8 @@ export async function PUT(
     const skillMdPath = path.join(SKILLS_DIR, sanitizedName, 'SKILL.md');
     
     // Verify the path is within the skills directory (path traversal protection)
-    const resolvedPath = path.resolve(skillMdPath);
-    const resolvedSkillsDir = path.resolve(SKILLS_DIR);
+    const resolvedPath = path.resolve(/*turbopackIgnore: true*/ skillMdPath);
+    const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ SKILLS_DIR);
     if (!resolvedPath.startsWith(resolvedSkillsDir)) {
       return NextResponse.json(
         { success: false, error: 'Invalid path' },

@@ -34,7 +34,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
-import type { StudioReferenceUrl } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
 import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/models';
 
@@ -50,7 +49,7 @@ interface PromptBarValue {
   personaRefs: ReferenceTag[];
   styleRefs: ReferenceTag[];
   presetRef: StudioPreset | null;
-  extraReferenceUrls: StudioReferenceUrl[];
+  extraReferenceUrls?: string[];
   fileRefs: ReferenceTag[];
 }
 
@@ -66,9 +65,9 @@ interface PromptBarProps {
   onStyleAdd: (style: StudioStyle) => void;
   onPresetSelect: (preset: StudioPreset) => void;
   onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file', id: string) => void;
-  onExtraReferenceUrlAdd: (value: string) => void;
-  onExtraReferenceUrlRemove: (value: string) => void;
   onFileAdd: (paths: string[]) => void;
+  onExtraReferenceUrlAdd?: (url: string) => void;
+  onExtraReferenceUrlRemove?: (url: string) => void;
 }
 
 const PRESET_CATEGORY_ICONS: Record<string, typeof Camera> = {
@@ -89,13 +88,16 @@ interface ReferenceChipProps {
   onRemove: () => void;
   thumbnailUrl?: string;
   icon: React.ReactNode;
+  isLoading?: boolean;
 }
 
-function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, icon }: ReferenceChipProps) {
+function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, icon, isLoading }: ReferenceChipProps) {
   return (
     <div className="relative inline-flex" title={label}>
       <div className={cn('h-9 w-9 rounded-md border-2 flex items-center justify-center overflow-hidden', borderColor, bgColor)}>
-        {thumbnailUrl ? (
+        {isLoading ? (
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        ) : thumbnailUrl ? (
           <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         ) : (
           icon
@@ -112,57 +114,9 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
   );
 }
 
-function ReferenceUrlChip({ reference, onRemove }: { reference: StudioReferenceUrl; onRemove: () => void }) {
-  if (reference.status === 'loading') {
-    return (
-      <div className="relative inline-flex" title={reference.originalUrl}>
-        <div className="h-9 w-9 rounded-md border-2 border-sky-400 bg-sky-50 flex items-center justify-center">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
-        >
-          <X className="h-2.5 w-2.5" />
-        </button>
-      </div>
-    );
-  }
-  if (reference.status === 'error') {
-    return (
-      <div className="relative inline-flex" title={reference.errorMessage || 'Failed'}>
-        <div className="h-9 w-9 rounded-md border-2 border-red-400 bg-red-50 flex items-center justify-center text-[10px] text-red-700">
-          !
-        </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
-        >
-          <X className="h-2.5 w-2.5" />
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="relative inline-flex" title={reference.originalUrl}>
-      <div className="h-9 w-9 rounded-md border-2 border-sky-400 bg-sky-50 flex items-center justify-center overflow-hidden">
-        <img src={reference.localUrl} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-      </div>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
-      >
-        <X className="h-2.5 w-2.5" />
-      </button>
-    </div>
-  );
-}
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onExtraReferenceUrlAdd, onExtraReferenceUrlRemove, onFileAdd }: PromptBarProps) {
+export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onFileAdd, onExtraReferenceUrlAdd, onExtraReferenceUrlRemove }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -214,21 +168,13 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
                   ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger><LayoutTemplate className="h-4 w-4" />{t('studio')}</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-72">
-                  {presets.length === 0 ? <DropdownMenuItem disabled>{t('noPresets')}</DropdownMenuItem> : presets.map((preset) => (
-                    <DropdownMenuItem key={preset.id} onSelect={() => onPresetSelect(preset)}><div className="min-w-0"><div className="truncate font-medium">{preset.name}</div><div className="truncate text-xs text-muted-foreground capitalize">{preset.category || 'uncategorized'}</div></div></DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
       {/* Unified references above textarea */}
-      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0 || value.extraReferenceUrls.length > 0) ? (
+      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0) ? (
         <div className="mb-3 flex flex-wrap gap-2">
           {value.productRefs.map((product) => (
             <ReferenceChip
@@ -286,11 +232,10 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
               thumbnailUrl={file.thumbnailPath ? toPreviewUrl(file.thumbnailPath, 64, { preset: 'mini' }) : undefined}
               icon={<ImageIcon className="h-4 w-4 text-rose-600" />}
               onRemove={() => onReferenceRemove('file', file.id)}
+              isLoading={(file as any).status === 'loading'}
             />
           ))}
-          {value.extraReferenceUrls.map((ref) => (
-            <ReferenceUrlChip key={ref.originalUrl} reference={ref} onRemove={() => onExtraReferenceUrlRemove(ref.originalUrl)} />
-          ))}
+
         </div>
       ) : null}
 
