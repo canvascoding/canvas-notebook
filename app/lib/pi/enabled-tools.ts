@@ -2,6 +2,15 @@ export const DISABLED_ALL_TOOLS_SENTINEL = '__none__';
 
 const LEGACY_TOOL_NAMES = new Set(['filesystem', 'terminal', 'web-search']);
 
+/**
+ * Tools that are disabled by default for new users.
+ * They can be explicitly enabled in the Agent Settings panel.
+ */
+export const DISABLED_BY_DEFAULT_TOOL_NAMES = new Set<string>([
+  'image_generation',
+  'video_generation',
+]);
+
 function normalizeToolNames(toolNames: Iterable<string>): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -51,6 +60,28 @@ export function resolveEnabledToolNames(
   }
 
   return new Set(configuredTools.filter((toolName) => canonicalToolSet.has(toolName)));
+}
+
+/**
+ * Returns the default enabled tool names for new users (or when config is empty).
+ * Disabled-by-default tools are excluded.
+ */
+export function getDefaultEnabledToolNames(allToolNames: Iterable<string>): Set<string> {
+  const canonicalToolNames = normalizeToolNames(allToolNames);
+  const defaultEnabled = new Set(canonicalToolNames);
+  for (const disabledTool of DISABLED_BY_DEFAULT_TOOL_NAMES) {
+    defaultEnabled.delete(disabledTool);
+  }
+  return defaultEnabled;
+}
+
+/**
+ * Checks if the configuration is in the "empty" state (i.e. user has never configured tools).
+ * When empty, disabled-by-default tools should not appear enabled.
+ */
+export function isDefaultToolsConfig(enabledTools?: string[] | null): boolean {
+  const normalized = normalizeEnabledToolsConfig(enabledTools);
+  return normalized.length === 0 || isLegacyEnabledToolsValue(enabledTools);
 }
 
 export function areAllToolsEnabled(enabledTools?: string[] | null): boolean {

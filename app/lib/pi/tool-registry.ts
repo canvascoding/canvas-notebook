@@ -38,7 +38,7 @@ import {
   type AdLocalizationResultData,
 } from '../integrations/ad-localization-service';
 import { readPiRuntimeConfig } from '../agents/storage';
-import { resolveEnabledToolNames, isLegacyEnabledToolsValue } from './enabled-tools';
+import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
 import {
   QMD_CANONICAL_TOOL_NAME,
   extractFirstJsonArray,
@@ -72,6 +72,7 @@ import {
 } from '../integrations/studio-generation-service';
 import { listProducts } from '../integrations/studio-product-service';
 import { listPersonas } from '../integrations/studio-persona-service';
+import { listStyles } from '../integrations/studio-style-service';
 import { StudioServiceError } from '../integrations/studio-errors';
 import { createBulkJob } from '../integrations/studio-bulk-service';
 import { db } from '@/app/lib/db';
@@ -672,21 +673,35 @@ export function createStudioGenerateTool(
     name: 'studio_generate',
     label: 'Generating studio content',
     description:
-      'Generates images or videos using the Studio system. Supports referencing ' +
-      'saved products (@product), personas (@persona), and studio presets (@studio) ' +
-      'for consistent, branded content. Products and personas provide reference images ' +
-      'that guide the generation. Studio presets define the visual setting (lighting, ' +
-      'camera, background). Output files are saved to studio/outputs/. ' +
+      'Generates images or videos using the Studio system. This is the preferred tool for ALL image and video generation. ' +
+      'Supports referencing saved products, personas, styles, and studio presets for consistent, branded content. ' +
+      'Products provide reference images of items to include. Personas guide character appearance and facial features. ' +
+      'Styles (like visual aesthetics or model references) guide the overall look. ' +
+      'Studio presets define lighting, camera, and background settings. ' +
+      'Output files are saved to studio/outputs/. ' +
       'After generation, embed results as Markdown images in the reply.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the image/video to generate.' }),
       mode: Type.Optional(Type.Union([Type.Literal('image'), Type.Literal('video')], { description: 'Generation mode: image (default) or video.' })),
-      product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to include as reference images.', maxItems: 5 })),
-      persona_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved personas to include as reference images.', maxItems: 3 })),
+      product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to include as reference images (max 5).', maxItems: 5 })),
+      persona_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved personas to include as reference images (max 3).', maxItems: 3 })),
+      style_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved styles (visual aesthetics/models) to apply as reference images (max 3).', maxItems: 3 })),
       preset_id: Type.Optional(Type.String({ description: 'ID of a studio preset to apply (lighting, camera, background settings).' })),
-      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 1:1, 16:9, 9:16, 4:3, 3:4. Default: 1:1' })),
+      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio. Image: 1:1, 16:9, 9:16, 4:3, 3:4. Video: 16:9, 9:16. Default: 1:1 for images, 16:9 for video.' })),
       count: Type.Optional(Type.Number({ description: 'Number of image variations (1-4). Ignored for video. Default: 4' })),
-      provider: Type.Optional(Type.String({ description: 'Provider: gemini or openai. Default: gemini' })),
+      provider: Type.Optional(Type.String({ description: 'Provider: gemini or openai. Default: gemini for images, veo for video.' })),
+      model: Type.Optional(Type.String({ description: 'Model ID. Image: gemini-3.1-flash-image-preview, gemini-2.5-flash-image, gpt-image-1.5, gpt-image-1, gpt-image-1-mini. Video: veo-3.1-fast-generate-preview, veo-3.1-generate-preview, veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001.' })),
+      quality: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('medium'), Type.Literal('high'), Type.Literal('auto')], { description: 'Image quality. Only applies when provider is openai. Default: auto' })),
+      output_format: Type.Optional(Type.Union([Type.Literal('png'), Type.Literal('jpeg'), Type.Literal('webp')], { description: 'Output format. Only applies when provider is openai. Default: png' })),
+      background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. Only applies when provider is openai. Default: auto' })),
+      video_resolution: Type.Optional(Type.Union([Type.Literal('720p'), Type.Literal('1080p'), Type.Literal('4k')], { description: 'Video resolution. Only applies for mode=video. Default: 720p' })),
+      video_duration: Type.Optional(Type.Union([Type.Literal(4), Type.Literal(5), Type.Literal(6), Type.Literal(8)], { description: 'Video duration in seconds. Only applies for mode=video. Default: 6. Note: 1080p/4k and references require 8s.' })),
+      start_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the start frame. Only for mode=video (frames_to_video). Must be a workspace-relative path (e.g. workspace/my-frame.png).' })),
+      end_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the end frame. Only for mode=video (frames_to_video). Optional.' })),
+      is_looping: Type.Optional(Type.Boolean({ description: 'Loop the video back to the start frame. Only for mode=video (frames_to_video). Default: false' })),
+      person_generation: Type.Optional(Type.Union([Type.Literal('allow_all'), Type.Literal('allow_adult'), Type.Literal('dont_allow')], { description: 'Person generation policy. Only for mode=video. Default: allow_all' })),
+      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous studio generation output to use as a base/reference for editing or variation.' })),
+      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Additional reference image URLs or paths. Supports external URLs, or local workspace paths. Can be used to reference a specific studio output file path (e.g. studio/outputs/studio-gen-xxx.png).' })),
     }),
     execute: async (toolCallId, params) => {
       const p = params as StudioGenerateRequest;
@@ -854,8 +869,8 @@ export function createStudioListPersonasTool(
 
   return {
     name: 'studio_list_personas',
-    label: 'Listing personas',
-    description: 'Lists all saved personas (characters) in the Studio library. Returns persona IDs, names, descriptions, and image count. Use this to find persona IDs for studio_generate.',
+    label: 'Listing studio personas',
+    description: 'Lists all saved personas/characters in the Studio library. Returns persona IDs, names, descriptions, and image counts. Use this to find persona IDs for studio_generate.',
     parameters: Type.Object({
       search: Type.Optional(Type.String({ description: 'Optional search term to filter personas by name.' })),
     }),
@@ -877,6 +892,46 @@ export function createStudioListPersonasTool(
         };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Failed to list personas.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createStudioListStylesTool(
+  deps: { listStylesFn?: typeof listStyles; userId?: string } = {},
+): AgentTool {
+  const listFn = deps.listStylesFn ?? listStyles;
+  const userId = deps.userId;
+
+  return {
+    name: 'studio_list_styles',
+    label: 'Listing studio styles',
+    description: 'Lists all saved visual styles/models in the Studio library. Returns style IDs, names, descriptions, and image counts. Use this to find style IDs for studio_generate.',
+    parameters: Type.Object({
+      search: Type.Optional(Type.String({ description: 'Optional search term to filter styles by name.' })),
+    }),
+    execute: async (toolCallId, params) => {
+      const { search } = params as { search?: string };
+      try {
+        if (!userId) {
+          throw new Error('User ID is required.');
+        }
+        const styles = await listFn(userId, search);
+        const text = styles.length === 0
+          ? 'No styles found.'
+          : styles.map((s: { id: string; name: string; description?: string | null; imageCount: number }) =>
+              `• ${s.name} (ID: ${s.id}) — ${s.imageCount} image(s)${s.description ? ` — ${s.description}` : ''}`
+            ).join('\n');
+        return {
+          content: [{ type: 'text', text }],
+          details: { styles },
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to list styles.';
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
           details: { error: message },
@@ -1899,6 +1954,7 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
     createStudioBulkGenerateTool({ userId }),
     createStudioListProductsTool({ userId }),
     createStudioListPersonasTool({ userId }),
+    createStudioListStylesTool({ userId }),
   ] : [];
 
   let allTools: AgentTool[];
@@ -1918,13 +1974,23 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
     const activeProvider = piConfig.providers[piConfig.activeProvider];
     const enabledTools = activeProvider?.enabledTools;
 
+    const allToolNames = allTools.map((t) => t.name);
+
     if (enabledTools && enabledTools.length > 0 && !isLegacyEnabledToolsValue(enabledTools)) {
-      const allToolNames = allTools.map((t) => t.name);
+      // User has explicitly configured tool preferences — apply them
       const enabledSet = resolveEnabledToolNames(allToolNames, enabledTools);
       allTools = allTools.filter((t) => enabledSet.has(t.name));
+    } else {
+      // No user config yet (default state) — exclude disabled-by-default tools
+      const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
+      allTools = allTools.filter((t) => defaultEnabledSet.has(t.name));
     }
   } catch (error) {
-    console.error('[ToolRegistry] Error reading config for tool filtering, returning all tools:', error);
+    console.error('[ToolRegistry] Error reading config for tool filtering, returning default tools:', error);
+    // Fallback: exclude disabled-by-default tools even on error
+    const allToolNames = allTools.map((t) => t.name);
+    const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
+    allTools = allTools.filter((t) => defaultEnabledSet.has(t.name));
   }
 
   return allTools;
