@@ -11,11 +11,12 @@ function directoryExists(targetPath: string): boolean {
   }
 }
 
-function resolveProjectDataRoot(cwd = process.cwd()): string {
-  return path.resolve(/*turbopackIgnore: true*/ cwd, 'data');
+function resolveProjectDataRoot(cwd?: string): string {
+  const resolvedCwd = cwd ?? process.cwd();
+  return path.resolve(/*turbopackIgnore: true*/ resolvedCwd, 'data');
 }
 
-export function resolveCanvasDataRoot(cwd = process.cwd()): string {
+export function resolveCanvasDataRoot(cwd?: string): string {
   const configured = process.env.CANVAS_DATA_ROOT?.trim();
   if (configured) {
     return path.resolve(configured);
@@ -28,30 +29,30 @@ export function resolveCanvasDataRoot(cwd = process.cwd()): string {
   return resolveProjectDataRoot(cwd);
 }
 
-export function resolveAgentStorageDir(cwd = process.cwd()): string {
+export function resolveAgentStorageDir(cwd?: string): string {
   return path.join(resolveCanvasDataRoot(cwd), 'canvas-agent');
 }
 
-export function resolveSecretsDir(cwd = process.cwd()): string {
+export function resolveSecretsDir(cwd?: string): string {
   return path.join(resolveCanvasDataRoot(cwd), 'secrets');
 }
 
-export function resolveSkillsDataDir(cwd = process.cwd()): string {
+export function resolveSkillsDataDir(cwd?: string): string {
   return path.join(resolveCanvasDataRoot(cwd), 'skills');
 }
 
-export function resolveDefaultIntegrationsEnvPath(cwd = process.cwd()): string {
+export function resolveDefaultIntegrationsEnvPath(cwd?: string): string {
   return path.join(resolveSecretsDir(cwd), 'Canvas-Integrations.env');
 }
 
-export function resolveDefaultAgentsEnvPath(cwd = process.cwd()): string {
+export function resolveDefaultAgentsEnvPath(cwd?: string): string {
   return path.join(resolveSecretsDir(cwd), 'Canvas-Agents.env');
 }
 
-export function getUserUploadsRoot(cwd = process.cwd()): string {
+export function getUserUploadsRoot(cwd?: string): string {
   return path.join(resolveCanvasDataRoot(cwd), 'user-uploads');
 }
 
-export function getUserUploadsStudioRefRoot(cwd = process.cwd()): string {
+export function getUserUploadsStudioRefRoot(cwd?: string): string {
   return path.join(resolveCanvasDataRoot(cwd), 'user-uploads', 'studio-references');
 }
