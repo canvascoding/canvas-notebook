@@ -527,7 +527,7 @@ export async function ensureDefaultStudioPresetsSeeded(
 
   for (const seed of DEFAULT_STUDIO_PRESET_SEEDS) {
     const seedFilePath = path.join(seedDir, `${seed.id}.png`);
-    const previewImagePath = `presets/${seed.id}/preview-seed.png`;
+    const previewImagePath = `studio/assets/presets/${seed.id}/preview-seed.png`;
     const assetFilePath = path.join(getStudioAssetsRoot(), previewImagePath);
 
     let previewBuffer: Buffer;
@@ -592,7 +592,7 @@ export async function ensureDefaultStudioPresetsSeeded(
   for (const removedId of REMOVED_DEFAULT_STUDIO_PRESET_IDS) {
     await db.delete(studioPresets).where(eq(studioPresets.id, removedId));
     await fs.rm(path.join(seedDir, `${removedId}.png`), { force: true });
-    await fs.rm(path.join(resolveCanvasDataRoot(), 'studio-assets', 'presets', removedId), {
+    await fs.rm(path.join(getStudioAssetsRoot(), 'presets', removedId), {
       recursive: true,
       force: true,
     });

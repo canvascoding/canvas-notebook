@@ -1084,7 +1084,7 @@ export async function generatePresetPreview(
     await ensureStudioAssetsWorkspace();
     await deleteAssetDir(`presets/${presetId}/`);
 
-    const previewPath = generatePresetPreviewPath(presetId, extensionFromMime(result.mimeType));
+    const previewPath = 'studio/assets/' + generatePresetPreviewPath(presetId, extensionFromMime(result.mimeType));
     await writeAssetFile(previewPath, Buffer.from(result.imageBytes, 'base64'));
 
     const [updated] = await db.update(studioPresets)
