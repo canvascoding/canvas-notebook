@@ -239,7 +239,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       }
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
-      else if (selectedPaths.size < maxSelection) next.add(path);
+      else if (prev.size < maxSelection) next.add(path);
       return next;
     });
   };
@@ -521,7 +521,16 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                         if (!res.ok || !payload.success) throw new Error(payload.error || 'Failed to download image');
                         const filePath: string = payload.filePath;
                         const fullPath = `studio/assets/${filePath}`;
-                        setSelectedPaths((prev) => { if (!multiple) { return new Set([fullPath]); } const next = new Set(prev); next.add(fullPath); return next; });
+                        setSelectedPaths((prev) => {
+                          if (!multiple) {
+                            return new Set([fullPath]);
+                          }
+                          const next = new Set(prev);
+                          if (next.size < maxSelection) {
+                            next.add(fullPath);
+                          }
+                          return next;
+                        });
                         setUrlInput('');
                         setTab('studio');
                         await loadStudioAssets();
