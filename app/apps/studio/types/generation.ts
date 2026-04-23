@@ -61,6 +61,10 @@ export interface StudioGeneratePayload {
   extra_reference_urls?: string[];
   video_resolution?: '720p' | '1080p' | '4k';
   video_duration?: number;
+  start_frame_path?: string | null;
+  end_frame_path?: string | null;
+  is_looping?: boolean;
+  person_generation?: 'allow_all' | 'allow_adult' | 'dont_allow';
 }
 
 export interface StudioReferenceUrl {

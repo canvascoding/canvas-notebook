@@ -634,7 +634,7 @@ export async function executeStudioGeneration(
     let outputs: StudioGenerationOutput[];
 
     if (mode === 'video') {
-      outputs = await generateStudioVideo(generationId, composedPrompt, aspectRatio, providerImages, model, request.video_resolution, request.video_duration);
+      outputs = await generateStudioVideo(generationId, composedPrompt, aspectRatio, providerImages, model, request.video_resolution, request.video_duration, request.start_frame_path || null, request.end_frame_path || null, request.is_looping || false, request.person_generation);
     } else {
       const count = Math.min(Math.max(request.count || 4, 1), MAX_IMAGE_COUNT);
       outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
@@ -822,11 +822,15 @@ async function generateStudioVideo(
   const requestBody: GenerateVideoRequestBody = {
     prompt,
     model: videoModel || 'veo-3.1-fast-generate-preview',
-    mode: referenceImages.length > 0 ? 'references_to_video' : 'text_to_video',
+    mode: (startFramePath || endFramePath) ? 'frames_to_video' : (referenceImages.length > 0 ? 'references_to_video' : 'text_to_video'),
     aspectRatio: videoAspect,
     resolution: videoResolution || '720p',
     durationSeconds: (videoDuration || 6) as GenerateVideoRequestBody['durationSeconds'],
     referenceImagePaths: [],
+    startFramePath: startFramePath || undefined,
+    endFramePath: isLooping ? undefined : (endFramePath || undefined),
+    isLooping: isLooping || false,
+    personGeneration: personGeneration || 'allow_all',
   };
 
   if (referenceImages.length > 0) {
