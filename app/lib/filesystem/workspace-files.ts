@@ -14,7 +14,6 @@ export interface FileNode {
 
 const DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
-const CANVAS_AGENT_DIR = path.join(DATA, 'canvas-agent');
 const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 

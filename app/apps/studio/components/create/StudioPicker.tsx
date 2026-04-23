@@ -62,6 +62,7 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
               <DropdownMenuItem key={preset.id} onSelect={() => onChange(preset)}>
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   {preset.previewImagePath ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={toPreviewUrl(preset.previewImagePath, 64, { preset: 'mini' })} alt="" className="h-8 w-8 rounded-md object-cover shrink-0" />
                   ) : (
                     <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 shrink-0">

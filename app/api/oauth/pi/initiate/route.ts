@@ -90,7 +90,9 @@ export async function POST(request: NextRequest) {
     await writeFile(tempScriptPath, scriptContent);
 
     // Spawn the OAuth process in the temp script directory (where node_modules symlink exists)
-    const child = spawn('node', ['--experimental-vm-modules', tempScriptPath], {
+    // Use a dynamic array so Turbopack doesn't try to resolve the literal strings as modules
+    const args = ['--experimental-vm-modules', tempScriptPath];
+    const child = spawn('node', args, {
       env: { 
         ...process.env,
         // No NODE_PATH needed - ES modules resolve via node_modules symlink in cwd
