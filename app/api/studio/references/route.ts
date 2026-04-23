@@ -81,8 +81,8 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-    } catch (e) {
-      console.warn('[Studio Reference] file-type detection failed, falling back to content-type:', e);
+    } catch {
+      console.warn('[Studio Reference] file-type detection failed, falling back to content-type');
       if (!contentType.startsWith('image/')) {
         return NextResponse.json(
           { success: false, error: 'The URL does not point to a valid image file.' },
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
       size: buffer.length,
     }, { status: 201 });
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     console.error('[Studio Reference] Download failed:', errorMessage);
 

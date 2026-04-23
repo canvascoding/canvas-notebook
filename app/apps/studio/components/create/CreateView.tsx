@@ -155,38 +155,6 @@ export function CreateView() {
     return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null || fileRefs.length > 0;
   }, [personaRefs.length, presetRef, productRefs.length, rawPrompt, fileRefs.length]);
 
-  const handleAddReferenceUrl = async (url: string) => {
-    const loadingId = "loading-" + Date.now() + "-" + url;
-    setFileRefs((current) => [...current, { id: loadingId, name: url, status: 'loading' }]);
-    try {
-      const response = await fetch('/api/studio/references', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to download image');
-      }
-      setFileRefs((current) =>
-        current.filter((item) => item.id !== loadingId).concat({
-          id: data.path,
-          name: data.name || url,
-          thumbnailPath: data.path,
-          status: 'success',
-        }),
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to download image';
-      console.error('[CreateView] URL download failed:', errorMessage);
-      setFileRefs((current) => current.filter((item) => item.id !== loadingId));
-    }
-  };;
-
-  const handleRemoveReferenceUrl = (originalUrl: string) => {
-    setFileRefs((current) => current.filter((item) => item.id !== originalUrl && item.name !== originalUrl));
-  };
-
   const handleGenerate = async () => {
     const fileUrls = fileRefs.map((ref) => toMediaUrl(ref.id));
     const result = await generationHook.generate({

@@ -96,6 +96,7 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
         {isLoading ? (
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
         ) : thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         ) : (
           icon
