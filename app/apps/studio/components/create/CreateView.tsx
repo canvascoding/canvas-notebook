@@ -23,6 +23,7 @@ import { ReferencePickerDialog } from './ReferencePickerDialog';
 import Image from 'next/image';
 import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 
 const STARTING_POINTS = [
   {
@@ -152,6 +153,7 @@ function addFileReference(
 export function CreateView() {
   const t = useTranslations('studio');
   const searchParams = useSearchParams();
+  const setChatContext = useSetStudioChatContext();
   const generationHook = useStudioGeneration();
   const productsHook = useStudioProducts();
   const personasHook = useStudioPersonas();
@@ -225,6 +227,27 @@ export function CreateView() {
   const resolvedSelectedOutput = resolvedSelectedGeneration && selectedOutputId
     ? resolvedSelectedGeneration.outputs.find((o) => o.id === selectedOutputId) ?? null
     : null;
+
+  useEffect(() => {
+    if (resolvedSelectedGeneration && resolvedSelectedOutput) {
+      setChatContext({
+        currentPage: '/studio/create',
+        studioContext: {
+          generationId: resolvedSelectedGeneration.id,
+          currentOutputId: resolvedSelectedOutput.id,
+          generationPrompt: resolvedSelectedGeneration.prompt || resolvedSelectedGeneration.rawPrompt || null,
+          generationPresetId: resolvedSelectedGeneration.studioPresetId,
+          generationProductIds: resolvedSelectedGeneration.product_ids ?? [],
+          generationPersonaIds: resolvedSelectedGeneration.persona_ids ?? [],
+          outputFilePath: resolvedSelectedOutput.filePath,
+          outputMediaUrl: resolvedSelectedOutput.mediaUrl,
+        },
+      });
+      return;
+    }
+
+    setChatContext({ currentPage: '/studio/create' });
+  }, [resolvedSelectedGeneration, resolvedSelectedOutput, setChatContext]);
 
   const handleToggleOutputSelect = (outputId: string, selected: boolean) => {
     if (selected) {
@@ -582,16 +605,11 @@ export function CreateView() {
       <StudioPreview
         generation={resolvedSelectedGeneration}
         output={resolvedSelectedOutput}
-        generations={generations}
         products={products}
         personas={personas}
         styles={styles}
         presets={presets}
         open={resolvedSelectedGeneration !== null && resolvedSelectedOutput !== null}
-        onSelectOutput={({ generation, output }) => {
-          setSelectedGenerationId(generation.id);
-          setSelectedOutputId(output.id);
-        }}
         onToggleFavorite={(generation, output) => {
           void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
         }}
