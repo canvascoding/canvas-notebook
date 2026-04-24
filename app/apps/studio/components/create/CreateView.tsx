@@ -511,9 +511,9 @@ export function CreateView() {
 
       <div
         ref={promptOverlayRef}
-        className="absolute inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/90 px-4 py-4 shadow-[0_-24px_60px_rgba(0,0,0,0.16)] backdrop-blur supports-[backdrop-filter]:bg-background/75 md:px-6"
+        className="absolute inset-x-0 bottom-0 z-40 px-4 py-4 md:px-6"
       >
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
           {mode === 'video' ? (
             <div className="space-y-2 border border-border bg-background p-3">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.frames.title')}</p>
