@@ -915,7 +915,15 @@
         "loading": "Loading tools...",
         "saveError": "Failed to save tool configuration.",
         "enableAll": "Enable all",
-        "disableAll": "Disable all"
+        "disableAll": "Disable all",
+        "parameters": "Inputs",
+        "runtime": "Runtime",
+        "noDescription": "No description available.",
+        "noParameters": "No inputs.",
+        "planningAllowed": "Planning Mode",
+        "planningBlocked": "Standard only",
+        "defaultEnabled": "Default on",
+        "defaultDisabled": "Default off"
       },
       "files": {
         "title": "Agent Managed Files",

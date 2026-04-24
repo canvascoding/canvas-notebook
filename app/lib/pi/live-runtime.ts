@@ -191,6 +191,7 @@ type PiRuntimePromptDispatchTarget = {
   setPlanningMode: (enabled: boolean) => void;
   setPageContext: (page: string | undefined) => void;
   setStudioContext: (context: PiRuntimePromptContext['studioContext']) => void;
+  reloadTools: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
@@ -214,7 +215,7 @@ class LivePiRuntime {
   readonly provider: string;
   readonly model: Model<Api>;
   readonly systemPrompt: string;
-  readonly tools: AgentTool[];
+  private tools: AgentTool[];
   readonly agent: Agent;
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
@@ -436,6 +437,12 @@ class LivePiRuntime {
 
   setStudioContext(context: PiRuntimePromptContext['studioContext']) {
     this.studioContext = context ?? null;
+  }
+
+  async reloadTools() {
+    this.tools = await getPiTools(this.userId);
+    this.lastComposition = null;
+    this.agent.state.tools = this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
   }
 
   private getStudioContextBlock(): string | null {
@@ -953,6 +960,7 @@ export async function dispatchPiRuntimeUserMessage(
 ) {
   const runtime = runtimeInstance ?? (await getOrCreatePiRuntime(sessionId, userId));
   applyPiRuntimePromptContext(runtime, context);
+  await runtime.reloadTools();
   runtime.startPrompt(message);
   return runtime;
 }

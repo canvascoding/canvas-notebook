@@ -39,6 +39,7 @@ import {
 } from '../integrations/ad-localization-service';
 import { readPiRuntimeConfig } from '../agents/storage';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
+import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
 import {
   QMD_CANONICAL_TOOL_NAME,
   extractFirstJsonArray,
@@ -1706,30 +1707,28 @@ export const piTools: AgentTool[] = [
 
 import { getDynamicSkillTools } from '../skills/skill-tools';
 
-const automationToolMetadata: { name: string; label: string; description: string }[] = [
-  { name: 'list_automation_jobs', label: 'Listing automation jobs', description: 'Lists all automation jobs with their status and schedule information.' },
-  { name: 'create_automation_job', label: 'Creating automation job', description: 'Creates a new scheduled automation job.' },
-  { name: 'update_automation_job', label: 'Updating automation job', description: 'Updates an existing automation job.' },
-  { name: 'delete_automation_job', label: 'Deleting automation job', description: 'Permanently deletes an automation job and all its run history.' },
-  { name: 'trigger_automation_job', label: 'Triggering automation job', description: 'Manually triggers an automation job to run immediately.' },
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Skill';
 
-];
+export type PiToolMetadata = {
+  name: string;
+  label: string;
+  description: string;
+  group: PiToolGroup;
+  parameters: string[];
+  planningModeAllowed: boolean;
+  defaultEnabled: boolean;
+  notes: string[];
+};
 
-export async function getPiToolMetadata(): Promise<{ name: string; label: string; description: string }[]> {
-  return [
-    ...piTools.map((tool) => ({
-      name: tool.name,
-      label: tool.label ?? tool.name,
-      description: tool.description ?? '',
-    })),
-    ...automationToolMetadata,
-  ];
+function requireToolUserId(userId: string | undefined, toolLabel: string): string {
+  if (!userId) {
+    throw new Error(`User ID is required for ${toolLabel}.`);
+  }
+  return userId;
 }
 
-export async function getPiTools(userId?: string): Promise<AgentTool[]> {
-  const staticTools = piTools;
-
-  const userAutomationTools: AgentTool[] = userId ? [
+function createUserScopedTools(userId?: string): AgentTool[] {
+  return [
     {
       name: 'list_automation_jobs',
       label: 'Listing automation jobs',
@@ -1737,7 +1736,8 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
       parameters: Type.Object({}),
       execute: async () => {
         try {
-          const jobs = await listAutomationJobs(userId);
+          const scopedUserId = requireToolUserId(userId, 'automation tools');
+          const jobs = await listAutomationJobs(scopedUserId);
           const text = jobs.length === 0
             ? 'No automation jobs found'
             : jobs.map((job, index) => `--- Job ${index + 1} ---\n${formatAutomationJob(job)}`).join('\n\n');
@@ -1794,6 +1794,7 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
           status?: string;
         };
         try {
+          const scopedUserId = requireToolUserId(userId, 'automation tools');
           const job = await createAutomationJob(
             {
               name: name.trim().slice(0, 120),
@@ -1804,7 +1805,7 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
               workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
               status: normalizeAutomationStatus(status) || 'active',
             },
-            userId,
+            scopedUserId,
           );
           return {
             content: [{ type: 'text', text: `Automation job created successfully\n\n${formatAutomationJob(job)}` }],
@@ -1861,6 +1862,7 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
           status?: string;
         };
         try {
+          requireToolUserId(userId, 'automation tools');
           const updatedJob = await updateAutomationJob(jobId, {
             name: normalizeOptionalString(name)?.slice(0, 120),
             prompt: normalizeOptionalString(prompt)?.slice(0, 12000),
@@ -1898,6 +1900,7 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
       execute: async (toolCallId, params) => {
         const { jobId } = params as { jobId: string };
         try {
+          requireToolUserId(userId, 'automation tools');
           const deleted = await deleteAutomationJob(jobId);
           if (!deleted) {
             throw new Error(`Automation job "${jobId}" not found.`);
@@ -1925,6 +1928,7 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
       execute: async (toolCallId, params) => {
         const { jobId } = params as { jobId: string };
         try {
+          requireToolUserId(userId, 'automation tools');
           const job = await getAutomationJob(jobId);
           if (!job) {
             throw new Error(`Automation job "${jobId}" not found.`);
@@ -1955,19 +1959,112 @@ export async function getPiTools(userId?: string): Promise<AgentTool[]> {
     createStudioListProductsTool({ userId }),
     createStudioListPersonasTool({ userId }),
     createStudioListStylesTool({ userId }),
-  ] : [];
+  ];
+}
+
+function getToolGroup(toolName: string): PiToolGroup {
+  if (toolName.startsWith('studio_')) return 'Studio';
+  if (toolName.includes('automation_job')) return 'Automation';
+  if (!piTools.some((tool) => tool.name === toolName)) return 'Skill';
+  return 'Core';
+}
+
+function getParameterType(schema: Record<string, unknown>): string {
+  if (schema.const !== undefined) return JSON.stringify(schema.const);
+  if (schema.type === 'array') return 'array';
+  if (schema.type === 'object') return 'object';
+  if (Array.isArray(schema.anyOf)) return schema.anyOf.map((item) => getParameterType(item as Record<string, unknown>)).join(' | ');
+  return typeof schema.type === 'string' ? schema.type : 'value';
+}
+
+function summarizeToolParameters(parameters: unknown): string[] {
+  if (!parameters || typeof parameters !== 'object') {
+    return [];
+  }
+
+  const schema = parameters as {
+    properties?: Record<string, Record<string, unknown>>;
+    required?: string[];
+  };
+  const properties = schema.properties || {};
+  const required = new Set(schema.required || []);
+
+  return Object.entries(properties).map(([name, property]) => {
+    const optional = required.has(name) ? '' : 'optional ';
+    const type = getParameterType(property);
+    const description = typeof property.description === 'string' ? ` - ${property.description}` : '';
+    return `${name}: ${optional}${type}${description}`;
+  });
+}
+
+function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
+  const notes: string[] = [];
+
+  if (group === 'Studio') {
+    notes.push('Uses Studio services and may read/write Studio library or output files.');
+  }
+  if (group === 'Automation') {
+    notes.push('May create, update, delete, or trigger scheduled automation jobs.');
+  }
+  if (group === 'Skill') {
+    notes.push('Runs an executable skill command in the workspace.');
+  }
+  if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
+    notes.push('May execute local shell commands or inspect local files.');
+  }
+  if (['write', 'edit', 'create_file', 'delete_file', 'image_generation', 'video_generation', 'ad_localization', 'studio_generate', 'studio_bulk_generate'].includes(tool.name)) {
+    notes.push('May write files or create generated media.');
+  }
+  if (['web_fetch', 'image_generation', 'video_generation', 'ad_localization', 'studio_generate', 'studio_bulk_generate'].includes(tool.name)) {
+    notes.push('May call external services or require configured API keys.');
+  }
+  if (['image_generation', 'video_generation', 'ad_localization', 'studio_generate', 'studio_bulk_generate'].includes(tool.name)) {
+    notes.push('Can run for an extended time.');
+  }
+
+  return notes.length > 0 ? notes : ['Read-only or low-side-effect utility under normal use.'];
+}
+
+export async function buildPiToolRegistry(userId?: string): Promise<AgentTool[]> {
+  const userScopedTools = createUserScopedTools(userId);
 
   let allTools: AgentTool[];
   try {
     const dynamicTools = await getDynamicSkillTools();
-    const overriddenNames = new Set(userAutomationTools.map(t => t.name));
-    const base = staticTools.filter(t => !overriddenNames.has(t.name));
-    allTools = [...base, ...userAutomationTools, ...dynamicTools];
+    const overriddenNames = new Set(userScopedTools.map(t => t.name));
+    const base = piTools.filter(t => !overriddenNames.has(t.name));
+    allTools = [...base, ...userScopedTools, ...dynamicTools];
   } catch (error) {
     console.error('[ToolRegistry] Error loading dynamic skills:', error);
-    const overriddenNames = new Set(userAutomationTools.map(t => t.name));
-    allTools = [...staticTools.filter(t => !overriddenNames.has(t.name)), ...userAutomationTools];
+    const overriddenNames = new Set(userScopedTools.map(t => t.name));
+    allTools = [...piTools.filter(t => !overriddenNames.has(t.name)), ...userScopedTools];
   }
+
+  return allTools;
+}
+
+export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
+  const allTools = await buildPiToolRegistry();
+  const allToolNames = allTools.map((tool) => tool.name);
+  const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
+
+  return allTools.map((tool) => {
+    const group = getToolGroup(tool.name);
+    return {
+      name: tool.name,
+      label: tool.label ?? tool.name,
+      description: tool.description ?? '',
+      group,
+      parameters: summarizeToolParameters(tool.parameters),
+      planningModeAllowed: PLANNING_MODE_ALLOWED_TOOLS.has(tool.name),
+      defaultEnabled: defaultEnabledSet.has(tool.name),
+      notes: getToolNotes(tool, group),
+    };
+  });
+}
+
+export async function getPiTools(userId?: string): Promise<AgentTool[]> {
+  let allTools = await buildPiToolRegistry(userId);
 
   try {
     const piConfig = await readPiRuntimeConfig();

@@ -917,7 +917,15 @@
         "loading": "Lade Werkzeuge...",
         "saveError": "Werkzeugkonfiguration konnte nicht gespeichert werden.",
         "enableAll": "Alle aktivieren",
-        "disableAll": "Alle deaktivieren"
+        "disableAll": "Alle deaktivieren",
+        "parameters": "Inputs",
+        "runtime": "Runtime",
+        "noDescription": "Keine Beschreibung verfügbar.",
+        "noParameters": "Keine Inputs.",
+        "planningAllowed": "Planning Mode",
+        "planningBlocked": "Nur Standardmodus",
+        "defaultEnabled": "Standard an",
+        "defaultDisabled": "Standard aus"
       },
       "files": {
         "title": "Agent-Dateien",
