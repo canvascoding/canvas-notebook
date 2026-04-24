@@ -48,12 +48,21 @@ function RecentGenerationThumbnail({
       onClick={onClick}
       className="group relative aspect-square overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={output.mediaUrl!}
-        alt={generation.prompt || 'Studio output'}
-        className="h-full w-full object-cover transition-transform group-hover:scale-105"
-      />
+      {output.type === 'video' ? (
+        <video
+          src={output.mediaUrl!}
+          muted
+          playsInline
+          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+        />
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={output.mediaUrl!}
+          alt={generation.prompt || 'Studio output'}
+          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+        />
+      )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       {generation.prompt && (
         <p className="absolute bottom-2 left-2 right-2 truncate text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
