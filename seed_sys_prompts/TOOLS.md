@@ -1,5 +1,3 @@
-# TOOLS
-
 ## Web Content Extraction Strategy (IMPORTANT)
 
 When extracting content from websites, follow this priority order:

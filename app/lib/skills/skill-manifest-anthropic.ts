@@ -20,6 +20,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { enableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
+export { getSkillsContext } from './skill-context';
 
 // Skill metadata from YAML frontmatter
 export interface SkillFrontmatter {
@@ -619,31 +620,4 @@ export function formatSkillsForPrompt(skills: AnthropicSkill[]): string {
   }
 
   return prompt;
-}
-
-/**
- * Get full skill content for PI Agent context
- * Returns the full markdown content of enabled skills
- */
-export function getSkillsContext(skills: AnthropicSkill[]): string {
-  const enabledSkills = skills.filter(s => s.enabled);
-  
-  if (enabledSkills.length === 0) {
-    return '';
-  }
-
-  let context = '\n\n# Skill Instructions\n\n';
-  context += 'When the user requests tasks that match the following skill descriptions, ';
-  context += 'follow the detailed instructions provided for each skill.\n\n';
-  context += 'If the user explicitly mentions one or more skills with the syntax /skill-name, ';
-  context += 'treat that as a strong preference to use those enabled skills when they are relevant and available.\n\n';
-
-  for (const skill of enabledSkills) {
-    context += `---\n\n`;
-    context += `## Skill: ${skill.name}\n\n`;
-    context += `**Description:** ${skill.description}\n\n`;
-    context += `${skill.content}\n\n`;
-  }
-
-  return context;
 }
