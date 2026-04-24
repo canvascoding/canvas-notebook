@@ -10,7 +10,6 @@ import type { StudioPreset } from '../../types/presets';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,7 +81,7 @@ export function StudioPreview({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleClose, open]);
 
-  if (!generation || !output) {
+  if (!open || !generation || !output) {
     return null;
   }
 
@@ -130,26 +129,22 @@ export function StudioPreview({
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleClose(); }}>
-      <DialogContent layout="viewport" showCloseButton={false} className="overflow-hidden bg-background p-0">
-        <DialogTitle className="sr-only">Studio output preview</DialogTitle>
-        <DialogDescription className="sr-only">
-          Preview the selected studio output.
-        </DialogDescription>
+    <section
+      aria-label="Studio output preview"
+      className="absolute inset-0 z-40 flex min-h-0 flex-col overflow-hidden bg-background"
+    >
+      <div className="flex items-center justify-between border-b border-border/70 px-4 py-3 sm:px-6">
+        <Button variant="ghost" size="sm" className="gap-2 rounded-full" onClick={handleClose}>
+          <ArrowLeft className="h-4 w-4" />
+          Zurück zum Grid
+        </Button>
+        <Badge variant="outline" className="rounded-full px-3 py-1 uppercase tracking-[0.18em]">
+          {output.type}
+        </Badge>
+      </div>
 
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="flex items-center justify-between border-b border-border/70 px-4 py-3 sm:px-6">
-            <Button variant="ghost" size="sm" className="gap-2 rounded-full" onClick={handleClose}>
-              <ArrowLeft className="h-4 w-4" />
-              Zurück zum Grid
-            </Button>
-            <Badge variant="outline" className="rounded-full px-3 py-1 uppercase tracking-[0.18em]">
-              {output.type}
-            </Badge>
-          </div>
-
-          <div className="grid min-h-0 flex-1 grid-cols-1 bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)]">
-            <div className="flex min-h-0 flex-col">
+      <div className="grid min-h-0 flex-1 grid-cols-1 bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)]">
+        <div className="flex min-h-0 flex-col">
               <div className="flex min-h-0 flex-1 items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
                 <div className="flex h-full max-h-full w-full items-center justify-center overflow-hidden rounded-[28px] border border-border/60 bg-card/70 p-3 shadow-sm">
                   {output.mediaUrl ? (
@@ -390,9 +385,7 @@ export function StudioPreview({
                 </AlertDialog>
               </div>
             </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </section>
   );
 }
