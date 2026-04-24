@@ -5,7 +5,7 @@ export const PROVIDERS = [
 
 export const VIDEO_PROVIDERS = [
   { id: 'veo', labelKey: 'Google Veo' as const },
-  { id: 'bytedance', labelKey: 'Bytedance Seedance' as const },
+  { id: 'bytedance', labelKey: 'Bytedance' as const },
 ] as const;
 
 export const GEMINI_MODELS = [
