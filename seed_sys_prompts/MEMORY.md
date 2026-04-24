@@ -1,3 +1,1 @@
-#MEMORY
-
-This file will be maintained constantly by yourself as you learn meore about the user.
+Store only durable, useful facts about the user and their long-term preferences here.

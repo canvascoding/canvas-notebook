@@ -5,14 +5,12 @@ import {
   readPiRuntimeConfig,
 } from './storage';
 import {
-  BASE_AGENT_SYSTEM_PROMPT,
   composeManagedAgentSystemPrompt,
   type ManagedSystemPromptResult,
 } from './system-prompt-shared';
 import { loadSkillsFromDisk, getSkillsContext } from '../skills/skill-loader';
 
 export {
-  BASE_AGENT_SYSTEM_PROMPT,
   composeManagedAgentSystemPrompt,
   type ManagedPromptDiagnostics,
   type ManagedPromptFileName,
@@ -35,7 +33,7 @@ export async function loadManagedAgentSystemPrompt(): Promise<ManagedSystemPromp
     return composeManagedAgentSystemPrompt(files, skillsContext);
   } catch {
     return {
-      systemPrompt: BASE_AGENT_SYSTEM_PROMPT,
+      systemPrompt: '',
       diagnostics: {
         loadedFiles: [],
         includedFiles: [],
