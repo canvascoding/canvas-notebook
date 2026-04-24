@@ -22,18 +22,16 @@ import {
   BACKGROUND_OPTIONS,
   VIDEO_PROVIDERS,
   VIDEO_MODELS,
-  VIDEO_DURATIONS,
+  SEEDANCE_VIDEO_MODELS,
   getModelsForProvider,
   getAspectRatiosForProvider,
   getVideoResolutionsForModel,
   getVideoDurationsForModel,
   type VideoResolution,
-  type VideoDuration,
+  type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 
 const IMAGE_COUNTS = [1, 2, 3, 4] as const;
-
-const VIDEO_DURATION_OPTIONS = VIDEO_DURATIONS;
 
 interface ControlBarProps {
   mode: StudioGenerationMode;
@@ -57,8 +55,14 @@ interface ControlBarProps {
   onBackgroundChange: (value: 'transparent' | 'opaque' | 'auto') => void;
   videoResolution: VideoResolution;
   onVideoResolutionChange: (value: VideoResolution) => void;
-  videoDuration: VideoDuration;
-  onVideoDurationChange: (value: VideoDuration) => void;
+  videoDuration: StudioVideoDuration;
+  onVideoDurationChange: (value: StudioVideoDuration) => void;
+  videoGenerateAudio: boolean;
+  onVideoGenerateAudioChange: (value: boolean) => void;
+  videoWebSearch: boolean;
+  onVideoWebSearchChange: (value: boolean) => void;
+  videoNsfwChecker: boolean;
+  onVideoNsfwCheckerChange: (value: boolean) => void;
   onGenerate: () => void;
   isGenerating: boolean;
   canGenerate: boolean;
@@ -76,6 +80,9 @@ for (const m of VIDEO_MODELS) {
     case 'veo3Fast': MODEL_LABELS[m.id] = 'Veo 3 Fast — Stable'; break;
     case 'veo2': MODEL_LABELS[m.id] = 'Veo 2 — Legacy (No Audio)'; break;
   }
+}
+for (const m of SEEDANCE_VIDEO_MODELS) {
+  MODEL_LABELS[m.id] = 'Seedance 2.0 — Bytedance';
 }
 
 export function ControlBar({
@@ -102,6 +109,12 @@ export function ControlBar({
   onVideoResolutionChange,
   videoDuration,
   onVideoDurationChange,
+  videoGenerateAudio,
+  onVideoGenerateAudioChange,
+  videoWebSearch,
+  onVideoWebSearchChange,
+  videoNsfwChecker,
+  onVideoNsfwCheckerChange,
   onGenerate,
   isGenerating,
   canGenerate,
@@ -113,10 +126,11 @@ export function ControlBar({
   const aspectRatios = getAspectRatiosForProvider(mode, provider);
   const isOpenAI = provider === 'openai';
   const isVideo = mode === 'video';
+  const isSeedance = isVideo && provider === 'bytedance';
 
   const videoResolutions = isVideo ? getVideoResolutionsForModel(model) : [];
   const videoDurations = isVideo ? getVideoDurationsForModel(model) : [];
-  const durationLocked = videoResolution === '1080p' || videoResolution === '4k';
+  const durationLocked = !isSeedance && (videoResolution === '1080p' || videoResolution === '4k');
 
   return (
     <div className="flex flex-col gap-2">
@@ -179,8 +193,8 @@ export function ControlBar({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-40">
-                {(durationLocked ? [8 as VideoDuration] : VIDEO_DURATION_OPTIONS.filter((d) => videoDurations.includes(d))).map((d) => (
-                  <DropdownMenuItem key={d} onSelect={() => onVideoDurationChange(d as VideoDuration)}>
+                {(durationLocked ? [8 as StudioVideoDuration] : videoDurations).map((d) => (
+                  <DropdownMenuItem key={d} onSelect={() => onVideoDurationChange(d as StudioVideoDuration)}>
                     {d}s
                   </DropdownMenuItem>
                 ))}
@@ -225,7 +239,7 @@ export function ControlBar({
               >
                 {(mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS).map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.id === 'gemini' ? 'Google Gemini' : p.id === 'openai' ? 'OpenAI' : 'Google Veo'}
+                    {p.id === 'gemini' ? 'Google Gemini' : p.id === 'openai' ? 'OpenAI' : p.id === 'bytedance' ? 'Bytedance Seedance' : 'Google Veo'}
                   </option>
                 ))}
               </select>
@@ -307,6 +321,35 @@ export function ControlBar({
                   ))}
                 </select>
               </label>
+            ) : null}
+
+            {isSeedance ? (
+              <>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={videoGenerateAudio}
+                    onChange={(event) => onVideoGenerateAudioChange(event.target.checked)}
+                  />
+                  <span>Generate audio</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={videoWebSearch}
+                    onChange={(event) => onVideoWebSearchChange(event.target.checked)}
+                  />
+                  <span>Web search</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={videoNsfwChecker}
+                    onChange={(event) => onVideoNsfwCheckerChange(event.target.checked)}
+                  />
+                  <span>NSFW checker</span>
+                </label>
+              </>
             ) : null}
           </div>
         </div>

@@ -5,6 +5,7 @@ export const PROVIDERS = [
 
 export const VIDEO_PROVIDERS = [
   { id: 'veo', labelKey: 'Google Veo' as const },
+  { id: 'bytedance', labelKey: 'Bytedance Seedance' as const },
 ] as const;
 
 export const GEMINI_MODELS = [
@@ -28,13 +29,23 @@ export const VIDEO_MODELS = [
   { id: 'veo-2.0-generate-001', optionKey: 'veo2' as const },
 ] as const;
 
+export const SEEDANCE_VIDEO_MODELS = [
+  { id: 'bytedance/seedance-2', optionKey: 'seedance2' as const },
+] as const;
+
 export type VideoModelId = (typeof VIDEO_MODELS)[number]['id'];
+export type SeedanceVideoModelId = (typeof SEEDANCE_VIDEO_MODELS)[number]['id'];
 
 export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16'] as const;
+export const SEEDANCE_VIDEO_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9', 'adaptive'] as const;
 export const VIDEO_RESOLUTIONS = ['720p', '1080p', '4k'] as const;
+export const SEEDANCE_VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'] as const;
 export const VIDEO_DURATIONS = [4, 5, 6, 8] as const;
+export const SEEDANCE_VIDEO_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export type VideoDuration = (typeof VIDEO_DURATIONS)[number];
-export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
+export type SeedanceVideoDuration = (typeof SEEDANCE_VIDEO_DURATIONS)[number];
+export type StudioVideoDuration = VideoDuration | SeedanceVideoDuration;
+export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number] | (typeof SEEDANCE_VIDEO_RESOLUTIONS)[number];
 
 export interface VideoModelCapabilities {
   extension: boolean;
@@ -108,10 +119,16 @@ export function getVideoModelCapabilities(modelId: string): VideoModelCapabiliti
 }
 
 export function getVideoResolutionsForModel(modelId: string): readonly VideoResolution[] {
+  if (modelId === 'bytedance/seedance-2') {
+    return SEEDANCE_VIDEO_RESOLUTIONS;
+  }
   return getVideoModelCapabilities(modelId).resolutions;
 }
 
-export function getVideoDurationsForModel(modelId: string): readonly VideoDuration[] {
+export function getVideoDurationsForModel(modelId: string): readonly StudioVideoDuration[] {
+  if (modelId === 'bytedance/seedance-2') {
+    return SEEDANCE_VIDEO_DURATIONS;
+  }
   return getVideoModelCapabilities(modelId).durations;
 }
 
@@ -132,14 +149,14 @@ export function getProvidersForMode(mode: 'image' | 'video') {
 
 export function getModelsForProvider(mode: 'image' | 'video', provider: string) {
   if (mode === 'video') {
-    return VIDEO_MODELS;
+    return provider === 'bytedance' ? SEEDANCE_VIDEO_MODELS : VIDEO_MODELS;
   }
   return provider === 'openai' ? OPENAI_MODELS : GEMINI_MODELS;
 }
 
 export function getAspectRatiosForProvider(mode: 'image' | 'video', provider: string) {
   if (mode === 'video') {
-    return VIDEO_ASPECT_RATIOS;
+    return provider === 'bytedance' ? SEEDANCE_VIDEO_ASPECT_RATIOS : VIDEO_ASPECT_RATIOS;
   }
   return provider === 'openai' ? OPENAI_ASPECT_RATIOS : GEMINI_ASPECT_RATIOS;
 }

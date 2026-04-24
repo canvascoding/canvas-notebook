@@ -59,12 +59,15 @@ export interface StudioGeneratePayload {
   background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
   extra_reference_urls?: string[];
-  video_resolution?: '720p' | '1080p' | '4k';
+  video_resolution?: '480p' | '720p' | '1080p' | '4k';
   video_duration?: number;
   start_frame_path?: string | null;
   end_frame_path?: string | null;
   is_looping?: boolean;
   person_generation?: 'allow_all' | 'allow_adult' | 'dont_allow';
+  video_generate_audio?: boolean;
+  video_web_search?: boolean;
+  video_nsfw_checker?: boolean;
 }
 
 export interface StudioReferenceUrl {
