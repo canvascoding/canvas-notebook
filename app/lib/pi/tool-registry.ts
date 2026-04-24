@@ -695,11 +695,11 @@ export function createStudioGenerateTool(
       quality: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('medium'), Type.Literal('high'), Type.Literal('auto')], { description: 'Image quality. Only applies when provider is openai. Default: auto' })),
       output_format: Type.Optional(Type.Union([Type.Literal('png'), Type.Literal('jpeg'), Type.Literal('webp')], { description: 'Output format. Only applies when provider is openai. Default: png' })),
       background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. Only applies when provider is openai. Default: auto' })),
-      video_resolution: Type.Optional(Type.Union([Type.Literal('480p'), Type.Literal('720p'), Type.Literal('1080p'), Type.Literal('4k')], { description: 'Video resolution. Veo supports 720p, 1080p, 4k. Bytedance Seedance supports 480p, 720p, 1080p. Default: 720p' })),
-      video_duration: Type.Optional(Type.Number({ description: 'Video duration in seconds. Veo supports model-specific values such as 4, 5, 6, 8. Bytedance Seedance supports any integer from 4 to 15. Default: 6.', minimum: 4, maximum: 15 })),
-      video_generate_audio: Type.Optional(Type.Boolean({ description: 'Bytedance Seedance only: generate audio for the video. Default: true' })),
-      video_web_search: Type.Optional(Type.Boolean({ description: 'Bytedance Seedance only: allow online search. Default: false' })),
-      video_nsfw_checker: Type.Optional(Type.Boolean({ description: 'Bytedance Seedance only: enable KIE NSFW checker. Default: false' })),
+      video_resolution: Type.Optional(Type.Union([Type.Literal('480p'), Type.Literal('720p'), Type.Literal('1080p'), Type.Literal('4k')], { description: 'Video resolution. Veo supports 720p, 1080p, 4k. Bytedance supports 480p, 720p, 1080p. Default: 720p' })),
+      video_duration: Type.Optional(Type.Number({ description: 'Video duration in seconds. Veo supports model-specific values such as 4, 5, 6, 8. Bytedance supports any integer from 4 to 15. Default: 6.', minimum: 4, maximum: 15 })),
+      video_generate_audio: Type.Optional(Type.Boolean({ description: 'Bytedance only: generate audio for the video. Default: true' })),
+      video_web_search: Type.Optional(Type.Boolean({ description: 'Bytedance only: allow online search. Default: false' })),
+      video_nsfw_checker: Type.Optional(Type.Boolean({ description: 'Bytedance only: enable KIE NSFW checker. Default: false' })),
       start_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the start frame. Only for mode=video (frames_to_video). Must be a workspace-relative path (e.g. workspace/my-frame.png).' })),
       end_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the end frame. Only for mode=video (frames_to_video). Optional.' })),
       is_looping: Type.Optional(Type.Boolean({ description: 'Loop the video back to the start frame. Only for mode=video (frames_to_video). Default: false' })),
@@ -2036,7 +2036,8 @@ export async function buildPiToolRegistry(userId?: string): Promise<AgentTool[]>
     const dynamicTools = await getDynamicSkillTools();
     const overriddenNames = new Set(userScopedTools.map(t => t.name));
     const base = piTools.filter(t => !overriddenNames.has(t.name));
-    allTools = [...base, ...userScopedTools, ...dynamicTools];
+    const mergedNames = new Set([...base, ...userScopedTools].map(t => t.name));
+    allTools = [...base, ...userScopedTools, ...dynamicTools.filter(t => !mergedNames.has(t.name))];
   } catch (error) {
     console.error('[ToolRegistry] Error loading dynamic skills:', error);
     const overriddenNames = new Set(userScopedTools.map(t => t.name));
