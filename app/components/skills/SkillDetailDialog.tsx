@@ -205,8 +205,8 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
               ) : error ? (
                 <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">{error}</div>
               ) : (
-                <div className="min-h-[400px] border rounded-lg overflow-hidden">
-                  <MarkdownEditor value={draft} onChange={setDraft} />
+                <div className="h-[400px] border rounded-lg overflow-hidden">
+                  <MarkdownEditor key={skill.name} value={draft} onChange={setDraft} />
                 </div>
               )}
             </div>
