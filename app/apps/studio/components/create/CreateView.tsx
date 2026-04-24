@@ -520,6 +520,7 @@ export function CreateView() {
         products={products}
         personas={personas}
         styles={styles}
+        presets={presets}
         open={resolvedSelectedGeneration !== null && resolvedSelectedOutput !== null}
         onSelectOutput={({ generation, output }) => {
           setSelectedGenerationId(generation.id);

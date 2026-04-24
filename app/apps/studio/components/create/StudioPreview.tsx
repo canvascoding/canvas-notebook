@@ -6,6 +6,8 @@ import { useEffect, useState, useMemo } from 'react';
 import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
+import type { StudioPreset } from '../../types/presets';
+import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,6 +30,7 @@ interface StudioPreviewProps {
   products: StudioProduct[];
   personas: StudioPersona[];
   styles: StudioStyle[];
+  presets: StudioPreset[];
   open: boolean;
   onClose: () => void;
   onSelectOutput: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
@@ -52,6 +55,7 @@ export function StudioPreview({
   products,
   personas,
   styles,
+  presets,
   open,
   onClose,
   onSelectOutput,
@@ -109,22 +113,31 @@ export function StudioPreview({
 
   const resolvedProducts = (generation.product_ids ?? []).map((id) => {
     const found = products.find((p) => p.id === id);
-    return found ? { type: 'product' as const, id, name: found.name } : { type: 'orphaned-product' as const, id, name: '[Gelöscht]' };
+    return found 
+      ? { type: 'product' as const, id, name: found.name, thumbnailPath: found.thumbnailPath } 
+      : { type: 'orphaned-product' as const, id, name: '[Gelöscht]' };
   });
 
   const resolvedPersonas = (generation.persona_ids ?? []).map((id) => {
     const found = personas.find((p) => p.id === id);
-    return found ? { type: 'persona' as const, id, name: found.name } : { type: 'orphaned-persona' as const, id, name: '[Gelöscht]' };
+    return found 
+      ? { type: 'persona' as const, id, name: found.name, thumbnailPath: found.thumbnailPath } 
+      : { type: 'orphaned-persona' as const, id, name: '[Gelöscht]' };
   });
 
   const resolvedStyles = (generation.style_ids ?? []).map((id) => {
     const found = styles.find((s) => s.id === id);
-    return found ? { type: 'style' as const, id, name: found.name } : { type: 'orphaned-style' as const, id, name: '[Gelöscht]' };
+    return found 
+      ? { type: 'style' as const, id, name: found.name, thumbnailPath: found.thumbnailPath } 
+      : { type: 'orphaned-style' as const, id, name: '[Gelöscht]' };
   });
+
+  const resolvedPreset = generation.studioPresetId
+    ? presets.find((p) => p.id === generation.studioPresetId)
+    : null;
 
   const hasAnyReferences = resolvedProducts.length > 0 || resolvedPersonas.length > 0 || resolvedStyles.length > 0;
 
-  const presetName = generation.studioPreset?.name || (generation.studioPresetId ? null : 'No preset');
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
 
@@ -203,13 +216,24 @@ export function StudioPreview({
 
               <div className="space-y-4 border-t border-border/70 bg-background/92 px-4 py-4 backdrop-blur sm:px-6">
                 <div className="flex flex-wrap gap-2">
-                  {presetName ? (
-                    <Badge variant="secondary" className="rounded-full px-3 py-1">
-                      {presetName}
+                  {resolvedPreset ? (
+                    <Badge variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
+                      {resolvedPreset.previewImagePath ? (
+                        <img
+                          src={toPreviewUrl(resolvedPreset.previewImagePath, 64, { preset: 'mini' })}
+                          alt=""
+                          className="h-4 w-4 rounded-sm object-cover shrink-0"
+                        />
+                      ) : null}
+                      {resolvedPreset.name}
                     </Badge>
-                  ) : (
+                  ) : generation.studioPresetId ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
                       [Gelöscht]
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
+                      No preset
                     </span>
                   )}
                   <Badge variant="outline" className="rounded-full px-3 py-1">
@@ -232,7 +256,15 @@ export function StudioPreview({
                       {resolvedProducts.map((item) =>
                         item.type === 'product' ? (
                           <Badge key={`product-${item.id}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
-                            <Box className="h-3 w-3" />
+                            {item.thumbnailPath ? (
+                              <img
+                                src={toPreviewUrl(item.thumbnailPath, 64, { preset: 'mini' })}
+                                alt=""
+                                className="h-4 w-4 rounded-sm object-cover shrink-0"
+                              />
+                            ) : (
+                              <Box className="h-3 w-3" />
+                            )}
                             {item.name}
                           </Badge>
                         ) : (
@@ -248,7 +280,15 @@ export function StudioPreview({
                       {resolvedPersonas.map((item) =>
                         item.type === 'persona' ? (
                           <Badge key={`persona-${item.id}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
-                            <User className="h-3 w-3" />
+                            {item.thumbnailPath ? (
+                              <img
+                                src={toPreviewUrl(item.thumbnailPath, 64, { preset: 'mini' })}
+                                alt=""
+                                className="h-4 w-4 rounded-sm object-cover shrink-0"
+                              />
+                            ) : (
+                              <User className="h-3 w-3" />
+                            )}
                             {item.name}
                           </Badge>
                         ) : (
@@ -264,7 +304,15 @@ export function StudioPreview({
                       {resolvedStyles.map((item) =>
                         item.type === 'style' ? (
                           <Badge key={`style-${item.id}`} variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
-                            <span className="h-3 w-3 text-xs">🎨</span>
+                            {item.thumbnailPath ? (
+                              <img
+                                src={toPreviewUrl(item.thumbnailPath, 64, { preset: 'mini' })}
+                                alt=""
+                                className="h-4 w-4 rounded-sm object-cover shrink-0"
+                              />
+                            ) : (
+                              <span className="h-3 w-3 text-xs">🎨</span>
+                            )}
                             {item.name}
                           </Badge>
                         ) : (
