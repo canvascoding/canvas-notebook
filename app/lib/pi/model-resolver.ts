@@ -94,7 +94,8 @@ export function getPiModels(provider: string, customModel?: string) {
         contextWindow: 128000,
         maxTokens: 8192,
       };
-      return [...OLLAMA_MODELS, customModelEntry];
+      const merged = [...OLLAMA_MODELS, customModelEntry];
+      return merged.filter((m, i) => merged.findIndex(x => x.id === m.id) === i);
     }
     return OLLAMA_MODELS;
   }
