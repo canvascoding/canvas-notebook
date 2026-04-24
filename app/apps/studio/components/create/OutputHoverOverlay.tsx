@@ -92,7 +92,7 @@ export function OutputHoverOverlay({
                 variant="secondary"
                 className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70"
                 onClick={() => onSaveToWorkspace(generation, output)}
-                title="In Workspace speichern"
+                title="In Workspace importieren"
               >
                 <Save className="h-4 w-4" />
               </Button>
