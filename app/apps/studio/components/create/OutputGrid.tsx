@@ -111,7 +111,13 @@ export function OutputGrid({
 
   const matchesDateFilter = (value: string) => {
     if (dateFilter === 'all') return true;
-    return getDateBucket(value) === dateFilter;
+    const time = new Date(value).getTime();
+    if (Number.isNaN(time)) return dateFilter === 'older';
+    if (dateFilter === 'today') return time >= startOfToday;
+    if (dateFilter === 'yesterday') return time >= startOfYesterday && time < startOfToday;
+    if (dateFilter === 'last7') return time >= startOfLast7;
+    if (dateFilter === 'last30') return time >= startOfLast30;
+    return time < startOfLast30;
   };
 
   const visiblePendingGenerations = pendingGenerations
@@ -139,7 +145,7 @@ export function OutputGrid({
       if (mediaFilter === 'image' || mediaFilter === 'video') return output.type === mediaFilter;
       return false;
     })
-    .filter((output) => matchesDateFilter(output.createdAt || output.createdAt))
+    .filter((output) => matchesDateFilter(output.createdAt))
     .sort((a, b) => {
       const left = new Date(a.createdAt).getTime();
       const right = new Date(b.createdAt).getTime();
