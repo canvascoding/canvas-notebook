@@ -140,10 +140,21 @@ export async function GET(
         const schemaLib = await import('@/app/lib/db/schema');
         const ormLib = await import('drizzle-orm');
         const presetPath = encodedPath.slice('studio/assets/'.length);
-        await dbLib.db.update(schemaLib.studioPresets)
-          .set({ previewImagePath: null, updatedAt: new Date() })
-          .where(ormLib.eq(schemaLib.studioPresets.previewImagePath, presetPath));
-        console.warn(`Auto-cleaned orphaned preset preview: ${presetPath}`);
+        const wherePreviewPath = ormLib.or(
+          ormLib.eq(schemaLib.studioPresets.previewImagePath, presetPath),
+          ormLib.eq(schemaLib.studioPresets.previewImagePath, encodedPath),
+        );
+        const matchingPresets = await dbLib.db.select({ id: schemaLib.studioPresets.id })
+          .from(schemaLib.studioPresets)
+          .where(wherePreviewPath)
+          .limit(1);
+
+        if (matchingPresets.length > 0) {
+          await dbLib.db.update(schemaLib.studioPresets)
+            .set({ previewImagePath: null, updatedAt: new Date() })
+            .where(wherePreviewPath);
+          console.warn(`Auto-cleaned orphaned preset preview: ${presetPath}`);
+        }
       }
     } catch (cleanupError) {
       console.warn('Failed to clean up orphaned preset preview:', cleanupError);
