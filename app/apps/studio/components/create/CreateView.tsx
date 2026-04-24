@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Sparkles } from 'lucide-react';
+import { ArrowDownUp, CheckSquare, Filter, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -15,7 +15,7 @@ import type { StudioGenerationMode, StudioGeneration, StudioGenerationOutput } f
 import type { StudioPreset } from '../../types/presets';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
-import { OutputGrid } from './OutputGrid';
+import { OutputGrid, type OutputDateFilter, type OutputMediaFilter, type OutputSortOrder } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
 import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
@@ -201,6 +201,10 @@ export function CreateView() {
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
   const [selectedOutputIds, setSelectedOutputIds] = useState<string[]>([]);
+  const [selectionEnabled, setSelectionEnabled] = useState(false);
+  const [mediaFilter, setMediaFilter] = useState<OutputMediaFilter>('all');
+  const [dateFilter, setDateFilter] = useState<OutputDateFilter>('all');
+  const [sortOrder, setSortOrder] = useState<OutputSortOrder>('newest');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
@@ -251,7 +255,7 @@ export function CreateView() {
 
   const handleToggleOutputSelect = (outputId: string, selected: boolean) => {
     if (selected) {
-      setSelectedOutputIds((prev) => [...prev, outputId]);
+      setSelectedOutputIds((prev) => (prev.includes(outputId) ? prev : [...prev, outputId]));
     } else {
       setSelectedOutputIds((prev) => prev.filter((id) => id !== outputId));
     }
@@ -264,6 +268,7 @@ export function CreateView() {
 
   const handleSaveSingleToWorkspace = (_g: StudioGeneration, output: StudioGenerationOutput) => {
     setSelectedOutputIds([output.id]);
+    setSelectionEnabled(true);
     setShowSaveDialog(true);
   };
 
@@ -319,32 +324,116 @@ export function CreateView() {
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.12),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.12),_transparent_32%)]">
-            {selectedOutputIds.length > 0 && (
-              <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border/70 bg-background/90 px-4 py-2 backdrop-blur">
-                <div className="text-sm font-medium">
-                  {selectedOutputIds.length} ausgewahlt
+            <div className="sticky top-0 z-30 border-b border-border/70 bg-background/90 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {([
+                    ['all', 'All'],
+                    ['image', 'Images'],
+                    ['video', 'Videos'],
+                    ['favorites', 'Favorites'],
+                    ['generating', 'Generating'],
+                    ['failed', 'Failed'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setMediaFilter(value)}
+                      className={`rounded-full border px-3 py-1.5 text-sm transition ${mediaFilter === value ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card/80 text-foreground hover:bg-accent'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="rounded-full border border-border bg-card px-3 py-1.5 text-sm hover:bg-accent"
-                    onClick={() => setSelectedOutputIds([])}
-                  >
-                    Abbrechen
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-full bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
-                    onClick={handleSaveToWorkspace}
-                  >
-                    In Workspace speichern
-                  </button>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      <Filter className="h-3.5 w-3.5" />
+                      Date
+                    </span>
+                    {([
+                      ['all', 'All dates'],
+                      ['today', 'Today'],
+                      ['yesterday', 'Yesterday'],
+                      ['last7', 'Last 7 days'],
+                      ['last30', 'Last 30 days'],
+                      ['older', 'Older'],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setDateFilter(value)}
+                        className={`rounded-full border px-3 py-1.5 text-sm transition ${dateFilter === value ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card/80 text-foreground hover:bg-accent'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSortOrder((current) => (current === 'newest' ? 'oldest' : 'newest'))}
+                      className="inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-3 py-1.5 text-sm text-foreground transition hover:bg-accent"
+                    >
+                      <ArrowDownUp className="h-4 w-4" />
+                      {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectionEnabled((current) => {
+                          const next = !current;
+                          if (!next) setSelectedOutputIds([]);
+                          return next;
+                        });
+                      }}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${selectionEnabled ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card/80 text-foreground hover:bg-accent'}`}
+                    >
+                      <CheckSquare className="h-4 w-4" />
+                      Select
+                    </button>
+                  </div>
                 </div>
+
+                {selectionEnabled && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card/80 px-3 py-2">
+                    <div className="text-sm font-medium">
+                      {selectedOutputIds.length} selected
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent"
+                        onClick={() => {
+                          setSelectedOutputIds([]);
+                          setSelectionEnabled(false);
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                        onClick={handleSaveToWorkspace}
+                        disabled={selectedOutputIds.length === 0}
+                      >
+                        Save to workspace
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
             <OutputGrid
               generations={generations}
               emptyState={<EmptyState />}
+              mediaFilter={mediaFilter}
+              dateFilter={dateFilter}
+              sortOrder={sortOrder}
+              selectionEnabled={selectionEnabled}
               selectedOutputIds={selectedOutputIds}
               onToggleSelectOutput={handleToggleOutputSelect}
               onOutputOpen={({ generation, output }) => {
