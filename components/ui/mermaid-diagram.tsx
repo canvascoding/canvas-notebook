@@ -41,7 +41,7 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
-  const [svgId, setSvgId] = useState<string | null>(null);
+  const svgIdRef = useRef<string | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [fullscreenSvg, setFullscreenSvg] = useState<string | null>(null);
@@ -75,11 +75,11 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
     let cancelled = false;
     const renderDiagram = async () => {
       try {
-        if (svgId) cleanupMermaidDom(svgId);
+        if (svgIdRef.current) cleanupMermaidDom(svgIdRef.current);
         const result = await renderMermaid(code, 'm');
         if (!cancelled) {
           setSvg(result.svg);
-          setSvgId(result.id);
+          svgIdRef.current = result.id;
           setError(null);
         } else {
           cleanupMermaidDom(result.id);
@@ -95,12 +95,12 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
     return () => {
       cancelled = true;
     };
-  }, [code, isDark, svgId]);
+  }, [code, isDark]);
 
   useEffect(() => {
-    // run exactly once
+    const id = svgIdRef.current;
     return () => {
-      if (svgId) cleanupMermaidDom(svgId);
+      if (id) cleanupMermaidDom(id);
       if (fullscreenId) cleanupMermaidDom(fullscreenId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
