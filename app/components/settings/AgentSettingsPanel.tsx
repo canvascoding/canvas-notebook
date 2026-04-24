@@ -6,7 +6,9 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2, RotateCcw, ChevronDown, Wrench } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -110,6 +112,11 @@ type ToolMetadata = {
   name: string;
   label: string;
   description: string;
+  group?: string;
+  parameters?: string[];
+  planningModeAllowed?: boolean;
+  defaultEnabled?: boolean;
+  notes?: string[];
 };
 
 type PiConfigData = {
@@ -176,6 +183,7 @@ export function AgentSettingsPanel() {
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
 
   const [availableTools, setAvailableTools] = useState<ToolMetadata[]>([]);
+  const [openToolRows, setOpenToolRows] = useState<Record<string, boolean>>({});
   const [toolsLoading, setToolsLoading] = useState(true);
   const [toolsSaving, setToolsSaving] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
@@ -576,19 +584,73 @@ export function AgentSettingsPanel() {
                   {t('agentPanel.tools.disableAll')}
                 </Button>
               </div>
-              {availableTools.map((tool) => (
-                <div key={tool.name} className="flex items-center justify-between rounded border border-border p-3">
-                  <div className="flex-1 min-w-0 mr-3">
-                    <div className="font-medium text-sm">{tool.label || tool.name}</div>
-                    <div className="text-xs text-muted-foreground truncate">{tool.description}</div>
-                  </div>
-                  <Switch
-                    checked={isToolEnabled(tool.name)}
-                    onCheckedChange={(checked) => handleToolToggle(tool.name, checked)}
-                    disabled={toolsSaving}
-                  />
-                </div>
-              ))}
+              {availableTools.map((tool) => {
+                const isOpen = openToolRows[tool.name] ?? false;
+                return (
+                  <Collapsible
+                    key={tool.name}
+                    open={isOpen}
+                    onOpenChange={(open) => setOpenToolRows((current) => ({ ...current, [tool.name]: open }))}
+                    className="rounded border border-border bg-background"
+                  >
+                    <div className="flex items-center gap-3 p-3">
+                      <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium">{tool.label || tool.name}</span>
+                            {tool.group && <Badge variant="secondary">{tool.group}</Badge>}
+                          </div>
+                          <div className="mt-1 truncate font-mono text-xs text-muted-foreground">{tool.name}</div>
+                        </div>
+                      </CollapsibleTrigger>
+                      <Switch
+                        checked={isToolEnabled(tool.name)}
+                        onCheckedChange={(checked) => handleToolToggle(tool.name, checked)}
+                        disabled={toolsSaving}
+                        aria-label={tool.label || tool.name}
+                      />
+                    </div>
+                    <CollapsibleContent>
+                      <div className="border-t border-border px-10 py-3 text-sm">
+                        <p className="text-muted-foreground">{tool.description || t('agentPanel.tools.noDescription')}</p>
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          <div>
+                            <div className="text-xs font-semibold uppercase text-muted-foreground">{t('agentPanel.tools.parameters')}</div>
+                            {tool.parameters && tool.parameters.length > 0 ? (
+                              <ul className="mt-2 space-y-1">
+                                {tool.parameters.map((parameter) => (
+                                  <li key={parameter} className="break-words font-mono text-xs text-muted-foreground">{parameter}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-2 text-xs text-muted-foreground">{t('agentPanel.tools.noParameters')}</p>
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold uppercase text-muted-foreground">{t('agentPanel.tools.runtime')}</div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Badge variant={tool.planningModeAllowed ? 'secondary' : 'outline'}>
+                                {tool.planningModeAllowed ? t('agentPanel.tools.planningAllowed') : t('agentPanel.tools.planningBlocked')}
+                              </Badge>
+                              <Badge variant={tool.defaultEnabled ? 'secondary' : 'outline'}>
+                                {tool.defaultEnabled ? t('agentPanel.tools.defaultEnabled') : t('agentPanel.tools.defaultDisabled')}
+                              </Badge>
+                            </div>
+                            {tool.notes && tool.notes.length > 0 && (
+                              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                                {tool.notes.map((note) => (
+                                  <li key={note}>{note}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                );
+              })}
             </div>
           )}
           {toolsError && <p className="text-sm text-destructive mt-2">{toolsError}</p>}

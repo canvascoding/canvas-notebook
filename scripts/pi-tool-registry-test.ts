@@ -59,7 +59,7 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
 
-  const { createImageGenerationTool, createRipgrepTool, createVideoGenerationTool, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
+  const { buildPiToolRegistry, createImageGenerationTool, createRipgrepTool, createVideoGenerationTool, piTools } = await import('../app/lib/pi/tool-registry');
   const { getDynamicSkillTools, invalidateSkillsCache } = await import('../app/lib/skills/skill-tools');
 
   const imageCalls: GenerateImageRequestBody[] = [];
@@ -239,7 +239,9 @@ async function main() {
   const tempDataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-dynamic-skills-'));
   const skillsRoot = path.join(tempDataRoot, 'skills');
   const binRoot = path.join(skillsRoot, 'bin');
+  const workspaceRoot = path.join(tempDataRoot, 'workspace');
   await fs.mkdir(binRoot, { recursive: true });
+  await fs.mkdir(workspaceRoot, { recursive: true });
 
   await writeDynamicSkill(skillsRoot, 'browser-tools', {
     name: 'browser-tools',
@@ -359,7 +361,7 @@ async function main() {
   assert.equal(dynamicTools.some((tool) => tool.name === 'browser_start'), true);
   assert.equal(dynamicTools.some((tool) => tool.name === 'legacy_command'), true);
 
-  const allTools = await getPiTools();
+  const allTools = await buildPiToolRegistry();
   const browserStartTool = allTools.find((tool) => tool.name === 'browser_start');
   const browserNavTool = allTools.find((tool) => tool.name === 'browser_nav');
   const browserScreenshotTool = allTools.find((tool) => tool.name === 'browser_screenshot');
