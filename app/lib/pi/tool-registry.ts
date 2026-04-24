@@ -595,8 +595,9 @@ export function createStudioGenerateImageTool(
     name: 'studio_generate_image',
     label: 'Generating studio image',
     description:
-      'Generates images using the Studio system. The preferred tool for all image creation. ' +
+      'Generates and edits images using the Studio system. The preferred tool for all image creation and reference-based image editing. ' +
       'Supports products, personas, styles, and presets for consistent branded content. ' +
+      'For editing or matching existing images from file paths, put one or more image paths in extra_reference_urls; do not only mention the paths in the prompt. ' +
       'Output files are saved to /data/studio/outputs/ — absolute paths are returned so the agent can copy results to the workspace.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the image to generate.' }),
@@ -611,8 +612,8 @@ export function createStudioGenerateImageTool(
       quality: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('medium'), Type.Literal('high'), Type.Literal('auto')], { description: 'Image quality. OpenAI only. Default: auto.' })),
       output_format: Type.Optional(Type.Union([Type.Literal('png'), Type.Literal('jpeg'), Type.Literal('webp')], { description: 'Output format. OpenAI only. Default: png.' })),
       background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. OpenAI only. Default: auto.' })),
-      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous studio output to use as base for editing or variation.' })),
-      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Additional reference image URLs or workspace paths (e.g. studio/outputs/studio-gen-xxx.png).' })),
+      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous Studio output to use as the base image for editing or variation. Prefer this when you have the output ID.' })),
+      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Reference image file paths or URLs to load as visual input for editing, variations, style matching, or image-to-image generation. Put every local reference image path here; do not only write paths in the prompt. Accepts Studio/workspace paths such as studio/outputs/studio-gen-xxx.png, /api/studio/media/studio/outputs/studio-gen-xxx.png, /api/studio/references/reference.png, studio/assets/references/reference.png, products/image.png, personas/image.png, styles/image.png, plus https image URLs.' })),
     }),
     execute: async (toolCallId, params) => {
       const p = params as StudioGenerateRequest;
@@ -665,6 +666,7 @@ export function createStudioGenerateVideoTool(
       'Generates videos using the Studio system. The preferred tool for all video creation. Takes 3-10 minutes. ' +
       'Supports products, personas, styles, and presets for branded content. ' +
       'Providers: veo (default, Veo 3.x models) or bytedance (Seedance). ' +
+      'For visual reference images from file paths, put one or more image paths in extra_reference_urls. Use start_frame_path/end_frame_path only for explicit start/end frame animation. ' +
       'Output files are saved to /data/studio/outputs/ — absolute paths are returned so the agent can copy results to the workspace.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the video to generate.' }),
@@ -677,15 +679,15 @@ export function createStudioGenerateVideoTool(
       model: Type.Optional(Type.String({ description: 'Model ID. Veo: veo-3.1-fast-generate-preview (default), veo-3.1-generate-preview, veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001. Bytedance: bytedance/seedance-2.' })),
       resolution: Type.Optional(Type.Union([Type.Literal('480p'), Type.Literal('720p'), Type.Literal('1080p'), Type.Literal('4k')], { description: 'Resolution. Veo: 720p, 1080p, 4k. Bytedance: 480p, 720p, 1080p. Default: 720p.' })),
       duration: Type.Optional(Type.Number({ description: 'Duration in seconds. Veo: 4, 5, 6, or 8. Bytedance: 4–15. Default: 6.', minimum: 4, maximum: 15 })),
-      start_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the start frame (enables frames_to_video mode).' })),
-      end_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the end frame. Optional for frames_to_video.' })),
+      start_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the start frame. Use this only when the video should animate from a specific first frame; it enables frames_to_video mode.' })),
+      end_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the end frame. Optional for frames_to_video when the video should animate toward a specific final frame.' })),
       is_looping: Type.Optional(Type.Boolean({ description: 'Loop the video back to the start frame. Only for frames_to_video. Default: false.' })),
       person_generation: Type.Optional(Type.Union([Type.Literal('allow_all'), Type.Literal('allow_adult'), Type.Literal('dont_allow')], { description: 'Person generation policy. Veo only. Default: allow_all.' })),
       generate_audio: Type.Optional(Type.Boolean({ description: 'Generate audio. Bytedance only. Default: true.' })),
       web_search: Type.Optional(Type.Boolean({ description: 'Allow online search. Bytedance only. Default: false.' })),
       nsfw_checker: Type.Optional(Type.Boolean({ description: 'Enable NSFW checker. Bytedance only. Default: false.' })),
-      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous studio output to use as reference.' })),
-      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Additional reference image URLs or workspace paths.' })),
+      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous Studio output to use as a visual reference. Prefer this when you have the output ID.' })),
+      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Reference image file paths or URLs to load as visual input for video generation. Put general reference images here; do not only write paths in the prompt. Accepts Studio/workspace paths such as studio/outputs/studio-gen-xxx.png, /api/studio/media/studio/outputs/studio-gen-xxx.png, /api/studio/references/reference.png, studio/assets/references/reference.png, products/image.png, personas/image.png, styles/image.png, plus https image URLs.' })),
     }),
     execute: async (toolCallId, params) => {
       const p = params as Record<string, unknown>;
@@ -751,14 +753,14 @@ export function createStudioEditImageTool(): AgentTool {
   return {
     name: 'studio_edit_image',
     label: 'Edit studio image (deprecated)',
-    description: 'This tool is deprecated. Use studio_generate with reference images instead.',
+    description: 'This tool is deprecated. Use studio_generate_image with source_output_id or extra_reference_urls instead.',
     parameters: Type.Object({
       source_output_id: Type.String({ description: 'Deprecated' }),
       instruction: Type.String({ description: 'Deprecated' }),
     }),
     execute: async () => {
       return {
-        content: [{ type: 'text', text: 'studio_edit_image is deprecated. Use studio_generate with reference images instead.' }],
+        content: [{ type: 'text', text: 'studio_edit_image is deprecated. Use studio_generate_image with source_output_id or extra_reference_urls instead.' }],
         details: {},
       };
     },
@@ -844,7 +846,7 @@ export function createStudioListProductsTool(
   return {
     name: 'studio_list_products',
     label: 'Listing products',
-    description: 'Lists all saved products in the Studio library. Returns product IDs, names, descriptions, and image count. Use this to find product IDs for studio_generate.',
+    description: 'Lists all saved products in the Studio library. Returns product IDs, names, descriptions, and image count. Use this to find product IDs for studio_generate_image or studio_generate_video.',
     parameters: Type.Object({
       search: Type.Optional(Type.String({ description: 'Optional search term to filter products by name.' })),
     }),
@@ -884,7 +886,7 @@ export function createStudioListPersonasTool(
   return {
     name: 'studio_list_personas',
     label: 'Listing studio personas',
-    description: 'Lists all saved personas/characters in the Studio library. Returns persona IDs, names, descriptions, and image counts. Use this to find persona IDs for studio_generate.',
+    description: 'Lists all saved personas/characters in the Studio library. Returns persona IDs, names, descriptions, and image counts. Use this to find persona IDs for studio_generate_image or studio_generate_video.',
     parameters: Type.Object({
       search: Type.Optional(Type.String({ description: 'Optional search term to filter personas by name.' })),
     }),
@@ -924,7 +926,7 @@ export function createStudioListStylesTool(
   return {
     name: 'studio_list_styles',
     label: 'Listing studio styles',
-    description: 'Lists all saved visual styles/models in the Studio library. Returns style IDs, names, descriptions, and image counts. Use this to find style IDs for studio_generate.',
+    description: 'Lists all saved visual styles/models in the Studio library. Returns style IDs, names, descriptions, and image counts. Use this to find style IDs for studio_generate_image or studio_generate_video.',
     parameters: Type.Object({
       search: Type.Optional(Type.String({ description: 'Optional search term to filter styles by name.' })),
     }),
@@ -959,7 +961,7 @@ export function createStudioListPresetsTool(): AgentTool {
   return {
     name: 'studio_list_presets',
     label: 'Listing studio presets',
-    description: 'Lists all available studio presets (visual settings). Returns preset IDs, names, descriptions, and categories. Use this to find preset IDs for studio_generate.',
+    description: 'Lists all available studio presets (visual settings). Returns preset IDs, names, descriptions, and categories. Use this to find preset IDs for studio_generate_image or studio_generate_video.',
     parameters: Type.Object({
       category: Type.Optional(Type.String({ description: 'Filter by category: fashion, product, food, lifestyle, etc.' })),
     }),
