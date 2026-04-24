@@ -1,13 +1,7 @@
 export type AutomationJobStatus = 'active' | 'paused';
 export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'retry_scheduled';
 export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry';
-export type AutomationPreferredSkill =
-  | 'auto'
-  | 'image_generation'
-  | 'video_generation'
-  | 'ad_localization'
-  | 'qmd'
-  | 'qmd_search';
+export type AutomationPreferredSkill = 'auto';
 export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
 export type AutomationWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export type AutomationIntervalUnit = 'minutes' | 'hours' | 'days';

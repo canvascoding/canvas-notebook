@@ -13,39 +13,6 @@ function getText(result: unknown): string {
   return content?.find((item) => item.type === 'text')?.text || '';
 }
 
-async function writeDynamicSkill(
-  skillsDir: string,
-  name: string,
-  manifest: Record<string, unknown>,
-) {
-  const skillDir = path.join(skillsDir, name);
-  await fs.mkdir(skillDir, { recursive: true });
-  await fs.writeFile(
-    path.join(skillDir, 'SKILL.md'),
-    `---\nname: ${name}\ndescription: Dynamic test skill for ${name}\n---\n\n# ${name}\n`,
-    'utf8',
-  );
-  await fs.writeFile(path.join(skillDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
-}
-
-async function writeDynamicWrapper(binDir: string, name: string) {
-  const wrapperPath = path.join(binDir, name);
-  await fs.writeFile(
-    wrapperPath,
-    [
-      '#!/bin/sh',
-      'printf "ARGS:"',
-      'for arg in "$@"; do',
-      '  printf " [%s]" "$arg"',
-      'done',
-      'printf "\\n"',
-      '',
-    ].join('\n'),
-    'utf8',
-  );
-  await fs.chmod(wrapperPath, 0o755);
-}
-
 async function main() {
   process.env.QMD_ENABLED = 'false';
 
@@ -60,8 +27,7 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
 
-  const { buildPiToolRegistry, createImageGenerationTool, createRipgrepTool, createStudioGenerateTool, createVideoGenerationTool, piTools } = await import('../app/lib/pi/tool-registry');
-  const { getDynamicSkillTools, invalidateSkillsCache } = await import('../app/lib/skills/skill-tools');
+  const { buildPiToolRegistry, createImageGenerationTool, createRipgrepTool, createStudioGenerateVideoTool, createVideoGenerationTool, piTools } = await import('../app/lib/pi/tool-registry');
 
   const imageCalls: GenerateImageRequestBody[] = [];
   const videoCalls: GenerateVideoRequestBody[] = [];
@@ -100,20 +66,20 @@ async function main() {
       };
     },
   });
-  const studioTool = createStudioGenerateTool({
+  const studioTool = createStudioGenerateVideoTool({
     userId: 'test-user',
     executeStudioGenerationFn: async (_userId, body) => {
       studioCalls.push(body);
       return {
         generationId: 'studio-seedance-generation',
         status: 'completed',
-        mode: body.mode || 'image',
+        mode: body.mode || 'video',
         prompt: body.prompt,
         outputs: [
           {
             id: 'studio-output',
             variationIndex: 0,
-            filePath: 'studio/outputs/generated.mp4',
+            filePath: 'generated.mp4',
             mediaUrl: '/api/studio/media/generated.mp4',
             mimeType: 'video/mp4',
             fileSize: 1234,
@@ -261,17 +227,16 @@ async function main() {
 
   const studioSeedanceResult = await studioTool.execute('studio-seedance', {
     prompt: 'A cinematic product reveal',
-    mode: 'video',
     provider: 'bytedance',
     model: 'bytedance/seedance-2',
     aspect_ratio: '21:9',
-    video_resolution: '480p',
-    video_duration: 15,
-    video_generate_audio: false,
-    video_web_search: true,
-    video_nsfw_checker: true,
+    resolution: '480p',
+    duration: 15,
+    generate_audio: false,
+    web_search: true,
+    nsfw_checker: true,
   });
-  assert.match(getText(studioSeedanceResult), /Studio generation completed \(video, 1 output/);
+  assert.match(getText(studioSeedanceResult), /Studio video generation completed \(1 output/);
   assert.equal(studioCalls.length, 1);
   assert.equal(studioCalls[0].provider, 'bytedance');
   assert.equal(studioCalls[0].model, 'bytedance/seedance-2');
@@ -282,191 +247,9 @@ async function main() {
   assert.equal(studioCalls[0].video_web_search, true);
   assert.equal(studioCalls[0].video_nsfw_checker, true);
 
-  const originalData = process.env.DATA;
-  const tempDataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-dynamic-skills-'));
-  const skillsRoot = path.join(tempDataRoot, 'skills');
-  const binRoot = path.join(skillsRoot, 'bin');
-  const workspaceRoot = path.join(tempDataRoot, 'workspace');
-  await fs.mkdir(binRoot, { recursive: true });
-  await fs.mkdir(workspaceRoot, { recursive: true });
-
-  await writeDynamicSkill(skillsRoot, 'browser-tools', {
-    name: 'browser-tools',
-    commands: [
-      {
-        name: 'browser-start',
-        exec: ['node', 'browser-start.js'],
-        envScope: 'none',
-        installStrategy: 'none',
-        inputMode: 'structured',
-        inputs: [
-          {
-            name: 'profile',
-            type: 'boolean',
-            description: 'Use the profile flag.',
-            binding: { kind: 'flag', flag: '--profile' },
-          },
-        ],
-      },
-      {
-        name: 'browser-nav',
-        exec: ['node', 'browser-nav.js'],
-        envScope: 'none',
-        installStrategy: 'none',
-        inputMode: 'structured',
-        inputs: [
-          {
-            name: 'url',
-            type: 'string',
-            required: true,
-            description: 'Target URL.',
-            binding: { kind: 'positional' },
-          },
-          {
-            name: 'new_tab',
-            type: 'boolean',
-            description: 'Open a new tab.',
-            binding: { kind: 'flag', flag: '--new' },
-          },
-          {
-            name: 'reload',
-            type: 'boolean',
-            description: 'Reload after navigation.',
-            binding: { kind: 'flag', flag: '--reload' },
-          },
-        ],
-      },
-      {
-        name: 'browser-screenshot',
-        exec: ['node', 'browser-screenshot.js'],
-        envScope: 'none',
-        installStrategy: 'none',
-        inputMode: 'none',
-      },
-      {
-        name: 'browser-content',
-        exec: ['node', 'browser-content.js'],
-        envScope: 'none',
-        installStrategy: 'none',
-        inputMode: 'structured',
-        inputs: [
-          {
-            name: 'url',
-            type: 'string',
-            required: true,
-            description: 'Readable content target URL.',
-            binding: { kind: 'positional' },
-          },
-        ],
-      },
-      {
-        name: 'browser-eval',
-        exec: ['node', 'browser-eval.js'],
-        envScope: 'none',
-        installStrategy: 'none',
-        inputMode: 'structured',
-        inputs: [
-          {
-            name: 'code',
-            type: 'string',
-            required: true,
-            description: 'Code to evaluate.',
-            binding: { kind: 'positional' },
-          },
-        ],
-      },
-    ],
-  });
-
-  await writeDynamicSkill(skillsRoot, 'legacy-skill', {
-    name: 'legacy-skill',
-    commands: [
-      {
-        name: 'legacy-command',
-        exec: ['bash', 'legacy.sh'],
-        envScope: 'none',
-        installStrategy: 'none',
-      },
-    ],
-  });
-
-  for (const name of [
-    'browser-start',
-    'browser-nav',
-    'browser-screenshot',
-    'browser-content',
-    'browser-eval',
-    'legacy-command',
-  ]) {
-    await writeDynamicWrapper(binRoot, name);
-  }
-
-  process.env.DATA = tempDataRoot;
-  invalidateSkillsCache();
-
-  const dynamicTools = await getDynamicSkillTools();
-  assert.equal(dynamicTools.some((tool) => tool.name === 'browser_start'), true);
-  assert.equal(dynamicTools.some((tool) => tool.name === 'legacy_command'), true);
-
-  const allTools = await buildPiToolRegistry();
-  const browserStartTool = allTools.find((tool) => tool.name === 'browser_start');
-  const browserNavTool = allTools.find((tool) => tool.name === 'browser_nav');
-  const browserScreenshotTool = allTools.find((tool) => tool.name === 'browser_screenshot');
-  const browserContentTool = allTools.find((tool) => tool.name === 'browser_content');
-  const browserEvalTool = allTools.find((tool) => tool.name === 'browser_eval');
-  const legacyCommandTool = allTools.find((tool) => tool.name === 'legacy_command');
-
-  assert(browserStartTool);
-  assert(browserNavTool);
-  assert(browserScreenshotTool);
-  assert(browserContentTool);
-  assert(browserEvalTool);
-  assert(legacyCommandTool);
-
-  assert.deepEqual(Object.keys((browserStartTool.parameters as { properties?: Record<string, unknown> }).properties || {}), ['profile']);
-  assert.deepEqual(Object.keys((browserNavTool.parameters as { properties?: Record<string, unknown> }).properties || {}), ['url', 'new_tab', 'reload']);
-  assert.deepEqual(Object.keys((browserScreenshotTool.parameters as { properties?: Record<string, unknown> }).properties || {}), []);
-  assert.deepEqual(Object.keys((browserContentTool.parameters as { properties?: Record<string, unknown> }).properties || {}), ['url']);
-  assert.deepEqual(Object.keys((browserEvalTool.parameters as { properties?: Record<string, unknown> }).properties || {}), ['code']);
-  assert.deepEqual(Object.keys((legacyCommandTool.parameters as { properties?: Record<string, unknown> }).properties || {}), ['prompt']);
-
-  const browserStartIgnoredPrompt = await browserStartTool.execute('browser-start-ignore', { prompt: 'Start Chromium for a browser tools test.' } as never);
-  assert.equal(getText(browserStartIgnoredPrompt).trim(), 'ARGS:');
-
-  const browserStartProfile = await browserStartTool.execute('browser-start-profile', { profile: true });
-  assert.equal(getText(browserStartProfile).trim(), 'ARGS: [--profile]');
-
-  const browserNavResult = await browserNavTool.execute('browser-nav-structured', {
-    url: 'https://example.com',
-    new_tab: true,
-    reload: true,
-  });
-  assert.equal(getText(browserNavResult).trim(), 'ARGS: [https://example.com] [--new] [--reload]');
-
-  const browserContentResult = await browserContentTool.execute('browser-content-structured', {
-    url: 'https://example.com/article',
-  });
-  assert.equal(getText(browserContentResult).trim(), 'ARGS: [https://example.com/article]');
-
-  const browserEvalResult = await browserEvalTool.execute('browser-eval-structured', {
-    code: 'document.title',
-  });
-  assert.equal(getText(browserEvalResult).trim(), 'ARGS: [document.title]');
-
-  const browserScreenshotResult = await browserScreenshotTool.execute('browser-screenshot-none', { prompt: 'ignored' } as never);
-  assert.equal(getText(browserScreenshotResult).trim(), 'ARGS:');
-
-  const legacyCommandResult = await legacyCommandTool.execute('legacy-command-prompt', {
-    prompt: 'keep legacy prompt mode',
-  });
-  assert.equal(getText(legacyCommandResult).trim(), 'ARGS: [keep legacy prompt mode]');
-
-  invalidateSkillsCache();
-  if (originalData === undefined) {
-    delete process.env.DATA;
-  } else {
-    process.env.DATA = originalData;
-  }
+  // Verify skill tools are no longer registered in the tool registry
+  const allTools = buildPiToolRegistry();
+  assert.equal(allTools.every((tool) => !['browser_start', 'browser_nav', 'brave_search', 'transcribe'].includes(tool.name)), true);
 
   console.log('pi-tool-registry-test: ok');
 
