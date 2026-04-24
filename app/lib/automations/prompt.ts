@@ -2,7 +2,7 @@ import { type AutomationJobRecord } from './types';
 
 type BuildAutomationPromptInput = Pick<
   AutomationJobRecord,
-  'name' | 'preferredSkill' | 'workspaceContextPaths' | 'prompt'
+  'name' | 'workspaceContextPaths' | 'prompt'
 > & {
   effectiveTargetOutputPath: string;
   runArtifactDir?: string | null;
@@ -17,7 +17,6 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
     'DO NOT create a new automation - execute the task as described.',
     '',
     `Automation name: ${input.name}`,
-    `Preferred skill hint: ${input.preferredSkill}`,
   ];
 
   if (input.workspaceContextPaths.length > 0) {

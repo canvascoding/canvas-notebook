@@ -87,7 +87,6 @@ assert.equal(
 
 const prompt = buildAutomationPrompt({
   name: 'Daily Briefing',
-  preferredSkill: 'auto',
   workspaceContextPaths: ['README.md'],
   prompt: 'Fasse die relevanten Dateien zusammen.',
   effectiveTargetOutputPath: 'reports/daily',

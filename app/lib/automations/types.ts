@@ -77,7 +77,6 @@ export type AutomationRunRecord = {
 export type CreateAutomationJobInput = {
   name: string;
   prompt: string;
-  preferredSkill?: AutomationPreferredSkill;
   workspaceContextPaths?: string[];
   targetOutputPath?: string | null;
   schedule: FriendlySchedule;

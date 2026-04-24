@@ -1201,10 +1201,9 @@
       "description": "Nicht technisch formulieren. Der Agent führt den Auftrag später im Workspace aus.",
       "fields": {
         "name": "Name",
-        "status": "Status",
-        "prompt": "Was soll erledigt werden?",
-        "preferredSkill": "Bevorzugte Aktion",
-        "timeZone": "Zeitzone",
+         "status": "Status",
+         "prompt": "Was soll erledigt werden?",
+         "timeZone": "Zeitzone",
         "workspaceContext": "Relevante Dateien oder Ordner"
       },
       "placeholders": {
@@ -1321,31 +1320,9 @@
       "thu": "Do",
       "fri": "Fr",
       "sat": "Sa",
-      "sun": "So"
-    },
-    "preferredSkills": {
-      "auto": {
-        "label": "Automatisch",
-        "hint": "Der Agent entscheidet selbst, welche Tools sinnvoll sind."
-      },
-      "image_generation": {
-        "label": "Bild erstellen",
-        "hint": "Fokus auf Bild-Generierung."
-      },
-      "video_generation": {
-        "label": "Video erstellen",
-        "hint": "Fokus auf Video-Generierung."
-      },
-      "ad_localization": {
-        "label": "Anzeige lokalisieren",
-        "hint": "Fokus auf Ad-Lokalisierung."
-      },
-      "qmd": {
-        "label": "Workspace durchsuchen",
-        "hint": "Fokus auf qmd-Workspace-Suche mit Text- und Dokumentindex."
-      }
-    },
-    "directoryPicker": {
+       "sun": "So"
+     },
+     "directoryPicker": {
       "title": "Ordner im Workspace wählen",
       "description": "Wähle einen bestehenden Basisordner im Workspace-Inspector. Der Tree startet standardmäßig eingeklappt.",
       "searchPlaceholder": "Ordner suchen",

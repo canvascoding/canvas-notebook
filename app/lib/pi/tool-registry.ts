@@ -46,7 +46,6 @@ import {
   type AutomationIntervalUnit,
   type AutomationJobRecord,
   type AutomationJobStatus,
-  type AutomationPreferredSkill,
   type AutomationWeekday,
   type FriendlySchedule,
 } from '../automations/types';
@@ -199,9 +198,6 @@ function normalizeOptionalString(value: string | undefined): string | undefined 
   return normalized ? normalized : undefined;
 }
 
-const VALID_AUTOMATION_PREFERRED_SKILLS: AutomationPreferredSkill[] = [
-  'auto',
-];
 const VALID_AUTOMATION_DAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const VALID_AUTOMATION_INTERVAL_UNITS: AutomationIntervalUnit[] = ['minutes', 'hours', 'days'];
 
@@ -212,24 +208,13 @@ function formatAutomationJob(job: AutomationJobRecord): string {
     `ID: ${job.id}`,
     `Name: ${job.name}`,
     `Status: ${job.status}`,
-    `Preferred skill: ${job.preferredSkill}`,
+    `Preferred skill: auto`,
     `Schedule: ${schedule}`,
     `Next run: ${job.nextRunAt || 'not scheduled'}`,
     `Last run: ${job.lastRunAt || 'never'}`,
     `Last run status: ${job.lastRunStatus || 'n/a'}`,
     `Output: ${outputPath}`,
   ].join('\n');
-}
-
-function normalizeAutomationPreferredSkill(value: string | undefined): AutomationPreferredSkill | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.trim();
-  return VALID_AUTOMATION_PREFERRED_SKILLS.includes(normalized as AutomationPreferredSkill)
-    ? (normalized as AutomationPreferredSkill)
-    : undefined;
 }
 
 function normalizeAutomationStatus(value: string | undefined): AutomationJobStatus | undefined {
@@ -1624,7 +1609,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
     {
       name: 'create_automation_job',
       label: 'Creating automation job',
-      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: preferredSkill (auto), targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
+      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
       parameters: Type.Object({
         name: Type.String({ description: 'Name of the automation job (max 120 chars)' }),
         prompt: Type.String({ description: 'The script/prompt to execute when the job runs' }),
@@ -1637,13 +1622,12 @@ function createUserScopedTools(userId?: string): AgentTool[] {
           unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
           timeZone: Type.Optional(Type.String({ description: 'Timezone (default: UTC)' })),
         }),
-        preferredSkill: Type.Optional(Type.String({ description: 'Skill to use: auto' })),
         targetOutputPath: Type.Optional(Type.String({ description: 'Where to save job outputs (relative to workspace)' })),
         workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Array of file paths to include as context' })),
         status: Type.Optional(Type.String({ description: 'Job status: active (default) or paused' })),
       }),
       execute: async (toolCallId, params) => {
-        const { name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status } = params as {
+        const { name, prompt, schedule, targetOutputPath, workspaceContextPaths, status } = params as {
           name: string;
           prompt: string;
           schedule: {
@@ -1655,7 +1639,6 @@ function createUserScopedTools(userId?: string): AgentTool[] {
             unit?: string;
             timeZone?: string;
           };
-          preferredSkill?: string;
           targetOutputPath?: string;
           workspaceContextPaths?: string[];
           status?: string;
@@ -1667,7 +1650,6 @@ function createUserScopedTools(userId?: string): AgentTool[] {
               name: name.trim().slice(0, 120),
               prompt: prompt.trim().slice(0, 12000),
               schedule: normalizeAutomationSchedule(schedule),
-              preferredSkill: normalizeAutomationPreferredSkill(preferredSkill),
               targetOutputPath: normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
               workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
               status: normalizeAutomationStatus(status) || 'active',
@@ -1690,7 +1672,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
     {
       name: 'update_automation_job',
       label: 'Updating automation job',
-      description: 'Updates an existing automation job. Use to modify job parameters, pause/resume jobs, change schedules, or update prompts. Required: jobId. Optional: name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status (active/paused).',
+      description: 'Updates an existing automation job. Use to modify job parameters, pause/resume jobs, change schedules, or update prompts. Required: jobId. Optional: name, prompt, schedule, targetOutputPath, workspaceContextPaths, status (active/paused).',
       parameters: Type.Object({
         jobId: Type.String({ description: 'ID of the job to update' }),
         name: Type.Optional(Type.String({ description: 'New name for the job' })),
@@ -1704,13 +1686,12 @@ function createUserScopedTools(userId?: string): AgentTool[] {
           unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
           timeZone: Type.Optional(Type.String({ description: 'Timezone' })),
         })),
-        preferredSkill: Type.Optional(Type.String({ description: 'Skill to use' })),
         targetOutputPath: Type.Optional(Type.String({ description: 'Where to save outputs' })),
         workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Context file paths' })),
         status: Type.Optional(Type.String({ description: 'active or paused' })),
       }),
       execute: async (toolCallId, params) => {
-        const { jobId, name, prompt, schedule, preferredSkill, targetOutputPath, workspaceContextPaths, status } = params as {
+        const { jobId, name, prompt, schedule, targetOutputPath, workspaceContextPaths, status } = params as {
           jobId: string;
           name?: string;
           prompt?: string;
@@ -1723,7 +1704,6 @@ function createUserScopedTools(userId?: string): AgentTool[] {
             unit?: string;
             timeZone?: string;
           };
-          preferredSkill?: string;
           targetOutputPath?: string;
           workspaceContextPaths?: string[];
           status?: string;
@@ -1733,7 +1713,6 @@ function createUserScopedTools(userId?: string): AgentTool[] {
           const updatedJob = await updateAutomationJob(jobId, {
             name: normalizeOptionalString(name)?.slice(0, 120),
             prompt: normalizeOptionalString(prompt)?.slice(0, 12000),
-            preferredSkill: normalizeAutomationPreferredSkill(preferredSkill),
             targetOutputPath: targetOutputPath === undefined
               ? undefined
               : normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
