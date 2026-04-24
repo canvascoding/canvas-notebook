@@ -19,6 +19,7 @@
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
     "test:browser-start": "node scripts/browser-start-test.mjs",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
+    "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",
     "test:automation:schedule": "tsx scripts/automation-schedule-test.ts",
     "test:e2e": "playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",
