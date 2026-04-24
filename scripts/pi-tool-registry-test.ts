@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import type { GenerateImageRequestBody } from '../app/lib/integrations/image-generation-service';
 import type { GenerateVideoRequestBody } from '../app/lib/integrations/veo-generation-service';
+import type { StudioGenerateRequest } from '../app/lib/integrations/studio-generation-service';
 
 function getText(result: unknown): string {
   const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
@@ -59,11 +60,12 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
 
-  const { buildPiToolRegistry, createImageGenerationTool, createRipgrepTool, createVideoGenerationTool, piTools } = await import('../app/lib/pi/tool-registry');
+  const { buildPiToolRegistry, createImageGenerationTool, createRipgrepTool, createStudioGenerateTool, createVideoGenerationTool, piTools } = await import('../app/lib/pi/tool-registry');
   const { getDynamicSkillTools, invalidateSkillsCache } = await import('../app/lib/skills/skill-tools');
 
   const imageCalls: GenerateImageRequestBody[] = [];
   const videoCalls: GenerateVideoRequestBody[] = [];
+  const studioCalls: StudioGenerateRequest[] = [];
 
   const imageTool = createImageGenerationTool({
     generateImagesFn: async (body) => {
@@ -95,6 +97,28 @@ async function main() {
         path: 'veo-studio/video-generation/generated.mp4',
         metadataPath: 'veo-studio/video-generation/generated.json',
         mediaUrl: '/api/media/veo-studio/video-generation/generated.mp4',
+      };
+    },
+  });
+  const studioTool = createStudioGenerateTool({
+    userId: 'test-user',
+    executeStudioGenerationFn: async (_userId, body) => {
+      studioCalls.push(body);
+      return {
+        generationId: 'studio-seedance-generation',
+        status: 'completed',
+        mode: body.mode || 'image',
+        prompt: body.prompt,
+        outputs: [
+          {
+            id: 'studio-output',
+            variationIndex: 0,
+            filePath: 'studio/outputs/generated.mp4',
+            mediaUrl: '/api/studio/media/generated.mp4',
+            mimeType: 'video/mp4',
+            fileSize: 1234,
+          },
+        ],
       };
     },
   });
@@ -234,6 +258,29 @@ async function main() {
     mode: 'extend_video',
   });
   assert.equal(getText(videoExtendError), 'Error: input_video_path is required for extend_video mode.');
+
+  const studioSeedanceResult = await studioTool.execute('studio-seedance', {
+    prompt: 'A cinematic product reveal',
+    mode: 'video',
+    provider: 'bytedance',
+    model: 'bytedance/seedance-2',
+    aspect_ratio: '21:9',
+    video_resolution: '480p',
+    video_duration: 15,
+    video_generate_audio: false,
+    video_web_search: true,
+    video_nsfw_checker: true,
+  });
+  assert.match(getText(studioSeedanceResult), /Studio generation completed \(video, 1 output/);
+  assert.equal(studioCalls.length, 1);
+  assert.equal(studioCalls[0].provider, 'bytedance');
+  assert.equal(studioCalls[0].model, 'bytedance/seedance-2');
+  assert.equal(studioCalls[0].aspect_ratio, '21:9');
+  assert.equal(studioCalls[0].video_resolution, '480p');
+  assert.equal(studioCalls[0].video_duration, 15);
+  assert.equal(studioCalls[0].video_generate_audio, false);
+  assert.equal(studioCalls[0].video_web_search, true);
+  assert.equal(studioCalls[0].video_nsfw_checker, true);
 
   const originalData = process.env.DATA;
   const tempDataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-dynamic-skills-'));
