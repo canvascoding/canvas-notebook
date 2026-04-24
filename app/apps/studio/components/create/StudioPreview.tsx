@@ -2,13 +2,12 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import type { StudioPreset } from '../../types/presets';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
-import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -26,14 +25,12 @@ import {
 interface StudioPreviewProps {
   generation: StudioGeneration | null;
   output: StudioGenerationOutput | null;
-  generations: StudioGeneration[];
   products: StudioProduct[];
   personas: StudioPersona[];
   styles: StudioStyle[];
   presets: StudioPreset[];
   open: boolean;
   onClose: () => void;
-  onSelectOutput: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
@@ -51,14 +48,12 @@ function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioG
 export function StudioPreview({
   generation,
   output,
-  generations,
   products,
   personas,
   styles,
   presets,
   open,
   onClose,
-  onSelectOutput,
   onToggleFavorite,
   onCreateVariation,
   onCreateVideo,
@@ -86,20 +81,6 @@ export function StudioPreview({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleClose, open]);
-
-  const requestContext = useMemo(() => ({
-    currentPage: '/studio/create',
-    studioContext: generation && output ? {
-      generationId: generation.id,
-      currentOutputId: output.id,
-      generationPrompt: generation.prompt || generation.rawPrompt || null,
-      generationPresetId: generation.studioPresetId,
-      generationProductIds: generation.product_ids ?? [],
-      generationPersonaIds: generation.persona_ids ?? [],
-      outputFilePath: output.filePath,
-      outputMediaUrl: output.mediaUrl,
-    } : undefined,
-  }), [generation, output]);
 
   if (!generation || !output) {
     return null;
@@ -148,39 +129,12 @@ export function StudioPreview({
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
 
-  const handleMediaClick = (mediaUrl: string) => {
-    const targetUrl = (() => {
-      if (typeof window === 'undefined') return mediaUrl;
-      try {
-        return new URL(mediaUrl, window.location.origin).toString();
-      } catch {
-        return mediaUrl;
-      }
-    })();
-
-    for (const candidateGeneration of generations) {
-      const candidateOutput = candidateGeneration.outputs.find((item) => {
-        if (!item.mediaUrl) return false;
-        try {
-          return new URL(item.mediaUrl, window.location.origin).toString() === targetUrl;
-        } catch {
-          return false;
-        }
-      });
-
-      if (candidateOutput) {
-        onSelectOutput({ generation: candidateGeneration, output: candidateOutput });
-        return;
-      }
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleClose(); }}>
       <DialogContent layout="viewport" showCloseButton={false} className="overflow-hidden bg-background p-0">
         <DialogTitle className="sr-only">Studio output preview</DialogTitle>
         <DialogDescription className="sr-only">
-          Preview the selected studio output and chat with the agent.
+          Preview the selected studio output.
         </DialogDescription>
 
         <div className="flex h-full min-h-0 flex-col">
@@ -194,8 +148,8 @@ export function StudioPreview({
             </Badge>
           </div>
 
-          <div className="grid min-h-0 flex-1 bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)] lg:grid-cols-[minmax(0,1fr)_420px] xl:grid-cols-[minmax(0,1fr)_460px]">
-            <div className="flex min-h-0 flex-col border-b border-border/70 lg:border-r lg:border-b-0">
+          <div className="grid min-h-0 flex-1 grid-cols-1 bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)]">
+            <div className="flex min-h-0 flex-col">
               <div className="flex min-h-0 flex-1 items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
                 <div className="flex h-full max-h-full w-full items-center justify-center overflow-hidden rounded-[28px] border border-border/60 bg-card/70 p-3 shadow-sm">
                   {output.mediaUrl ? (
@@ -436,17 +390,6 @@ export function StudioPreview({
                 </AlertDialog>
               </div>
             </div>
-
-            <aside className="flex min-h-0 flex-col bg-card/55">
-              <div className="h-full min-h-0">
-                <CanvasAgentChat
-                  hideNavHeader
-                  requestContext={requestContext}
-                  onMediaClick={handleMediaClick}
-                  isSurfaceVisible
-                />
-              </div>
-            </aside>
           </div>
         </div>
       </DialogContent>
