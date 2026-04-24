@@ -6,7 +6,6 @@ import { useTranslations } from 'next-intl';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
-import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
@@ -19,7 +18,7 @@ import { OutputGrid } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
 import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
-import { FrameUpload } from './FrameUpload';
+import Image from 'next/image';
 import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type VideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 
@@ -87,25 +86,27 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
   const name = path.split('/').pop() || path;
 
   return (
-    <div className="flex items-center gap-2 border border-border bg-background px-2 py-1.5 sm:py-1">
-      <div className="h-12 w-16 sm:h-10 sm:w-14 overflow-hidden bg-muted flex-shrink-0">
-        {kind === 'image' ? (
-          <img
-            src={toPreviewUrl(path, 200, { preset: 'mini' })}
-            alt={name}
-            className="h-full w-full object-cover"
-            loading="lazy"
-            decoding="async"
-          />
-        ) : (
-          <video src={toMediaUrl(path)} className="h-full w-full object-cover" muted />
-        )}
+      <div className="flex items-center gap-2 border border-border bg-background px-2 py-1.5 sm:py-1">
+        <div className="relative h-12 w-16 sm:h-10 sm:w-14 overflow-hidden bg-muted flex-shrink-0">
+          {kind === 'image' ? (
+            <Image
+              src={toPreviewUrl(path, 200, { preset: 'mini' })}
+              alt={name}
+              fill
+              className="object-cover"
+              loading="lazy"
+              sizes="64px"
+              unoptimized
+            />
+          ) : (
+            <video src={toMediaUrl(path)} className="h-full w-full object-cover" muted />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium">{name}</p>
+          <p className="truncate text-xs text-muted-foreground hidden sm:block">{path}</p>
+        </div>
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium">{name}</p>
-        <p className="truncate text-xs text-muted-foreground hidden sm:block">{path}</p>
-      </div>
-    </div>
   );
 }
 
@@ -133,9 +134,8 @@ export function CreateView() {
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [videoResolution, setVideoResolution] = useState<VideoResolution>('720p');
   const [videoDuration, setVideoDuration] = useState<VideoDuration>(6);
-  const [videoModel, setVideoModel] = useState<string>('veo-3.1-fast-generate-preview');
   const [isLooping, setIsLooping] = useState(false);
-  const [personGeneration, setPersonGeneration] = useState<'allow_all' | 'allow_adult' | 'dont_allow'>('allow_all');
+  const personGeneration = 'allow_all';
   const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
   const [rawPrompt, setRawPrompt] = useState(initialPrompt);
   const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
@@ -150,18 +150,9 @@ export function CreateView() {
   const [selectedOutputIds, setSelectedOutputIds] = useState<string[]>([]);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
-  const [picker, setPicker] = useState<{
-    open: boolean;
-    target: 'start' | 'end' | 'references';
-    maxSelection: number;
-  }>({
-    open: false,
-    target: 'start',
-    maxSelection: 1,
-  });
-
   const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
-    setPicker({ open: true, target, maxSelection });
+    void target;
+    void maxSelection;
   };
 
   const resolvedSelectedGeneration = selectedGenerationId
