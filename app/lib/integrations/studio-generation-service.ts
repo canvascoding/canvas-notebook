@@ -31,8 +31,17 @@ import {
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateVideo, type GenerateVideoRequestBody } from '@/app/lib/integrations/veo-generation-service';
+import {
+  generateSeedanceVideo,
+  SEEDANCE_MODEL_ID,
+  SEEDANCE_PROVIDER_ID,
+  type SeedanceAspectRatio,
+  type SeedanceReferenceImage,
+  type SeedanceResolution,
+} from '@/app/lib/integrations/seedance-generation-service';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
 import { resolveValidatedStudioAssetPath, resolveValidatedStudioOutputPath } from '@/app/lib/integrations/studio-paths';
+import { getFileStats, readFile, readDataFile, getDataFileStats } from '@/app/lib/filesystem/workspace-files';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 
@@ -65,12 +74,15 @@ export interface StudioGenerateRequest {
   source_output_id?: string;
   pi_session_id?: string;
   extra_reference_urls?: string[];
-  video_resolution?: '720p' | '1080p' | '4k';
+  video_resolution?: '480p' | '720p' | '1080p' | '4k';
   video_duration?: number;
   start_frame_path?: string;
   end_frame_path?: string;
   is_looping?: boolean;
   person_generation?: 'allow_all' | 'allow_adult' | 'dont_allow';
+  video_generate_audio?: boolean;
+  video_web_search?: boolean;
+  video_nsfw_checker?: boolean;
 }
 
 export interface StudioGenerationOutput {
@@ -624,7 +636,7 @@ export async function executeStudioGeneration(
   request: StudioGenerateRequest,
 ): Promise<StudioGenerateResult> {
   const mode = request.mode || 'image';
-  const providerId = request.provider || 'gemini';
+  const providerId = request.provider || (mode === 'video' ? 'veo' : 'gemini');
   const aspectRatio = request.aspect_ratio || '1:1';
   const rawPrompt = sanitizePrompt(request.prompt);
   const productIds = (request.product_ids || []).slice(0, MAX_PRODUCTS);
@@ -643,8 +655,9 @@ export async function executeStudioGeneration(
   let sourceGenerationId: string | null = null;
 
   const defaultModel = providerId === 'openai' ? 'gpt-image-1.5' : 'gemini-3.1-flash-image-preview';
+  const videoDefaultModel = providerId === SEEDANCE_PROVIDER_ID ? SEEDANCE_MODEL_ID : 'veo-3.1-fast-generate-preview';
   const model = request.mode === 'video'
-    ? 'veo-3.1-fast-generate-preview'
+    ? (request.model || videoDefaultModel)
     : (request.model || defaultModel);
 
   if (request.source_output_id) {
@@ -666,6 +679,9 @@ export async function executeStudioGeneration(
     background: request.background,
     videoResolution: request.video_resolution,
     videoDuration: request.video_duration,
+    videoGenerateAudio: request.video_generate_audio,
+    videoWebSearch: request.video_web_search,
+    videoNsfwChecker: request.video_nsfw_checker,
     extraReferenceUrls: request.extra_reference_urls,
     sourceOutputId: request.source_output_id,
   });
@@ -762,7 +778,25 @@ export async function executeStudioGeneration(
     let outputs: StudioGenerationOutput[];
 
     if (mode === 'video') {
-      outputs = await generateStudioVideo(generationId, composedPrompt, aspectRatio, providerImages, model, request.video_resolution, request.video_duration, request.start_frame_path || null, request.end_frame_path || null, request.is_looping || false, request.person_generation);
+      outputs = await generateStudioVideo(
+        generationId,
+        composedPrompt,
+        aspectRatio,
+        providerImages,
+        providerId,
+        model,
+        request.video_resolution,
+        request.video_duration,
+        request.start_frame_path || null,
+        request.end_frame_path || null,
+        request.is_looping || false,
+        request.person_generation,
+        {
+          generateAudio: request.video_generate_audio,
+          webSearch: request.video_web_search,
+          nsfwChecker: request.video_nsfw_checker,
+        },
+      );
     } else {
       const count = Math.min(Math.max(request.count || 4, 1), MAX_IMAGE_COUNT);
       outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
@@ -930,18 +964,39 @@ async function generateStudioVideo(
   prompt: string,
   aspectRatio: string,
   referenceImages: ProviderReferenceImage[],
+  providerId: string,
   videoModel?: string,
-  videoResolution?: '720p' | '1080p' | '4k',
+  videoResolution?: '480p' | '720p' | '1080p' | '4k',
   videoDuration?: number,
   startFramePath?: string | null,
   endFramePath?: string | null,
   isLooping?: boolean,
   personGeneration?: 'allow_all' | 'allow_adult' | 'dont_allow',
+  videoOptions?: {
+    generateAudio?: boolean;
+    webSearch?: boolean;
+    nsfwChecker?: boolean;
+  },
 ): Promise<StudioGenerationOutput[]> {
   if (!prompt) {
     throw new StudioServiceError(
       'Prompt required for video generation',
       'Ein Prompt ist für Video-Generierung erforderlich.',
+    );
+  }
+
+  if (providerId === SEEDANCE_PROVIDER_ID) {
+    return generateStudioSeedanceVideo(
+      generationId,
+      prompt,
+      aspectRatio,
+      referenceImages,
+      videoResolution,
+      videoDuration,
+      startFramePath,
+      endFramePath,
+      isLooping,
+      videoOptions,
     );
   }
 
@@ -952,7 +1007,7 @@ async function generateStudioVideo(
     model: videoModel || 'veo-3.1-fast-generate-preview',
     mode: (startFramePath || endFramePath) ? 'frames_to_video' : (referenceImages.length > 0 ? 'references_to_video' : 'text_to_video'),
     aspectRatio: videoAspect,
-    resolution: videoResolution || '720p',
+    resolution: videoResolution === '480p' ? '720p' : videoResolution || '720p',
     durationSeconds: (videoDuration || 6) as GenerateVideoRequestBody['durationSeconds'],
     referenceImagePaths: [],
     startFramePath: startFramePath || undefined,
@@ -1009,6 +1064,111 @@ async function generateStudioVideo(
     mediaUrl: videoResult.mediaUrl,
     mimeType: 'video/mp4',
     fileSize: fileSize ?? 0,
+  }];
+}
+
+async function loadSeedanceFrame(filePath: string): Promise<SeedanceReferenceImage> {
+  let stats;
+  let content;
+  try {
+    stats = await getFileStats(filePath);
+    content = await readFile(filePath);
+  } catch {
+    stats = await getDataFileStats(filePath);
+    content = await readDataFile(filePath);
+  }
+
+  if (!stats.isFile) {
+    throw new StudioServiceError(
+      `Not a file: ${filePath}`,
+      `Frame-Datei '${filePath}' wurde nicht gefunden oder ist keine Datei.`,
+    );
+  }
+
+  return {
+    imageBytes: content.toString('base64'),
+    mimeType: mimeFromPath(filePath),
+    fileName: filePath.split('/').pop() || 'frame.png',
+  };
+}
+
+function toSeedanceAspectRatio(aspectRatio: string): SeedanceAspectRatio {
+  const allowed: SeedanceAspectRatio[] = ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9', 'adaptive'];
+  return allowed.includes(aspectRatio as SeedanceAspectRatio) ? aspectRatio as SeedanceAspectRatio : '16:9';
+}
+
+function toSeedanceResolution(resolution?: '480p' | '720p' | '1080p' | '4k'): SeedanceResolution {
+  if (resolution === '480p' || resolution === '720p' || resolution === '1080p') {
+    return resolution;
+  }
+  return '720p';
+}
+
+async function generateStudioSeedanceVideo(
+  generationId: string,
+  prompt: string,
+  aspectRatio: string,
+  referenceImages: ProviderReferenceImage[],
+  videoResolution?: '480p' | '720p' | '1080p' | '4k',
+  videoDuration?: number,
+  startFramePath?: string | null,
+  endFramePath?: string | null,
+  isLooping?: boolean,
+  videoOptions?: {
+    generateAudio?: boolean;
+    webSearch?: boolean;
+    nsfwChecker?: boolean;
+  },
+): Promise<StudioGenerationOutput[]> {
+  const firstFrame = startFramePath ? await loadSeedanceFrame(startFramePath) : null;
+  const lastFramePath = isLooping ? startFramePath : endFramePath;
+  const lastFrame = lastFramePath ? await loadSeedanceFrame(lastFramePath) : null;
+
+  const seedanceReferences: SeedanceReferenceImage[] = referenceImages.map((ref, index) => ({
+    imageBytes: ref.imageBytes,
+    mimeType: ref.mimeType,
+    fileName: `reference-${index}.${extensionFromMime(ref.mimeType)}`,
+  }));
+
+  const videoResult = await generateSeedanceVideo({
+    prompt,
+    aspectRatio: toSeedanceAspectRatio(aspectRatio),
+    resolution: toSeedanceResolution(videoResolution),
+    durationSeconds: videoDuration,
+    firstFrame,
+    lastFrame,
+    referenceImages: seedanceReferences,
+    generateAudio: videoOptions?.generateAudio,
+    webSearch: videoOptions?.webSearch,
+    nsfwChecker: videoOptions?.nsfwChecker,
+    caller: 'studio-generation',
+  });
+
+  const outputId = randomUUID();
+  const now = new Date();
+  await db.insert(studioGenerationOutputs).values({
+    id: outputId,
+    generationId,
+    variationIndex: 0,
+    type: 'video',
+    filePath: videoResult.path,
+    mediaUrl: videoResult.mediaUrl,
+    fileSize: videoResult.fileSize,
+    mimeType: videoResult.mimeType,
+    width: null,
+    height: null,
+    isFavorite: false,
+    metadata: JSON.stringify(videoResult.metadata),
+    createdAt: now,
+  });
+
+  return [{
+    id: outputId,
+    variationIndex: 0,
+    filePath: videoResult.path,
+    mediaUrl: videoResult.mediaUrl,
+    mimeType: videoResult.mimeType,
+    fileSize: videoResult.fileSize,
   }];
 }
 
