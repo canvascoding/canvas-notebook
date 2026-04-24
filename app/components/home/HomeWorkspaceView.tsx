@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { NotebookPen, Workflow, ImageIcon, Clapperboard, Globe, FolderOpen, MessageSquare, Sparkles } from 'lucide-react';
+import { NotebookPen, Workflow, Globe, Sparkles } from 'lucide-react';
 import { PromptHero } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
@@ -63,22 +63,6 @@ export function HomeWorkspaceView() {
           </div>
           <div className="min-w-[260px] max-w-[320px] flex-1">
             <ToolCard
-              icon={MessageSquare}
-              title={tApps('chat.title')}
-              description={tApps('chat.description')}
-              href="/chat"
-            />
-          </div>
-          <div className="min-w-[260px] max-w-[320px] flex-1">
-            <ToolCard
-              icon={FolderOpen}
-              title={tApps('files.title')}
-              description={tApps('files.description')}
-              href="/files"
-            />
-          </div>
-          <div className="min-w-[260px] max-w-[320px] flex-1">
-            <ToolCard
               icon={Workflow}
               title={tApps('automations.title')}
               description={tApps('automations.description')}
@@ -93,22 +77,6 @@ export function HomeWorkspaceView() {
           {t('sections.create')}
         </h3>
         <div className="flex flex-wrap justify-center gap-3">
-          <div className="min-w-[260px] max-w-[320px] flex-1">
-            <ToolCard
-              icon={ImageIcon}
-              title={tApps('imageGeneration.title')}
-              description={tApps('imageGeneration.description')}
-              href="/image-generation"
-            />
-          </div>
-          <div className="min-w-[260px] max-w-[320px] flex-1">
-            <ToolCard
-              icon={Clapperboard}
-              title={tApps('veo.title')}
-              description={tApps('veo.description')}
-              href="/veo"
-            />
-          </div>
           <div className="min-w-[260px] max-w-[320px] flex-1">
             <ToolCard
               icon={Globe}
