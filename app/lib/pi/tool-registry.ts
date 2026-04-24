@@ -4,7 +4,6 @@ import { Type } from '@sinclair/typebox';
 import { exec, execFile } from 'child_process';
 import { promises as fsPromises } from 'fs';
 import { promisify } from 'util';
-import { getWorkspacePath } from '../utils/workspace-manager';
 import path from 'path';
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
@@ -32,25 +31,9 @@ import {
   type GenerateVideoRequestBody,
   type GenerationMode,
 } from '../integrations/veo-generation-service';
-import {
-  AD_LOCALIZATION_ALL_FAILED_MESSAGE,
-  localizeAd,
-  type AdLocalizationResultData,
-} from '../integrations/ad-localization-service';
 import { readPiRuntimeConfig } from '../agents/storage';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
-import {
-  QMD_CANONICAL_TOOL_NAME,
-  extractFirstJsonArray,
-  formatQmdSearchSummary,
-  isQmdEnabled,
-  mergeQmdResults,
-  normalizeQmdCollections,
-  normalizeQmdMode,
-  normalizeQmdResults,
-  type QmdSearchMode,
-} from '../qmd/runtime';
 import {
   createAutomationJob,
   deleteAutomationJob,
@@ -75,12 +58,13 @@ import { listProducts } from '../integrations/studio-product-service';
 import { listPersonas } from '../integrations/studio-persona-service';
 import { listStyles } from '../integrations/studio-style-service';
 import { StudioServiceError } from '../integrations/studio-errors';
+import { getStudioOutputsRoot } from '../integrations/studio-workspace';
 import { createBulkJob } from '../integrations/studio-bulk-service';
 import { db } from '@/app/lib/db';
 import {
   studioPresets,
 } from '@/app/lib/db/schema';
-import { eq, or as orDrizzle } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 
 const execAsync = promisify(exec);
@@ -209,22 +193,6 @@ function formatImageGenerationText(data: ImageGenerationResultData): string {
   return resultText;
 }
 
-function formatAdLocalizationText(data: AdLocalizationResultData): string {
-  let resultText = `Ad localization complete: ${data.successCount} successful, ${data.failureCount} failed\n\n`;
-  data.results.forEach((result) => {
-    if (result.path) {
-      resultText += `Market: ${result.market}\n`;
-      resultText += `Path: ${result.path}\n`;
-      if (result.mediaUrl) {
-        resultText += `URL: ${result.mediaUrl}\n`;
-      }
-    } else if (result.error) {
-      resultText += `Market: ${result.market} - Failed: ${result.error}\n`;
-    }
-    resultText += '\n';
-  });
-  return resultText;
-}
 
 function normalizeOptionalString(value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -233,11 +201,6 @@ function normalizeOptionalString(value: string | undefined): string | undefined 
 
 const VALID_AUTOMATION_PREFERRED_SKILLS: AutomationPreferredSkill[] = [
   'auto',
-  'image_generation',
-  'video_generation',
-  'ad_localization',
-  'qmd',
-  'qmd_search',
 ];
 const VALID_AUTOMATION_DAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const VALID_AUTOMATION_INTERVAL_UNITS: AutomationIntervalUnit[] = ['minutes', 'hours', 'days'];
@@ -264,9 +227,6 @@ function normalizeAutomationPreferredSkill(value: string | undefined): Automatio
   }
 
   const normalized = value.trim();
-  if (normalized === 'qmd_search') {
-    return 'qmd';
-  }
   return VALID_AUTOMATION_PREFERRED_SKILLS.includes(normalized as AutomationPreferredSkill)
     ? (normalized as AutomationPreferredSkill)
     : undefined;
@@ -639,73 +599,35 @@ export function createVideoGenerationTool(
   };
 }
 
-async function executeQmdCommand(args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    BUN_INSTALL: process.env.BUN_INSTALL || '/data/cache/.bun',
-  };
 
-  const bunInstall = env.BUN_INSTALL || '/data/cache/.bun';
-  const pathEntries = [path.join(bunInstall, 'bin'), env.PATH || ''].filter(Boolean);
-  env.PATH = pathEntries.join(':');
-
-  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    execFile('qmd', args, { cwd, env, maxBuffer: 1024 * 1024 * 8 }, (error, stdout, stderr) => {
-      if (error) {
-        const execError = error as CommandExecutionError;
-        execError.stdout = stdout;
-        execError.stderr = stderr;
-        reject(execError);
-        return;
-      }
-
-      resolve({ stdout, stderr });
-    });
-  });
-}
-
-export function createStudioGenerateTool(
+export function createStudioGenerateImageTool(
   deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
 ): AgentTool {
   const executeFn = deps.executeStudioGenerationFn ?? executeStudioGeneration;
   const userId = deps.userId;
 
   return {
-    name: 'studio_generate',
-    label: 'Generating studio content',
+    name: 'studio_generate_image',
+    label: 'Generating studio image',
     description:
-      'Generates images or videos using the Studio system. This is the preferred tool for ALL image and video generation. ' +
-      'Supports referencing saved products, personas, styles, and studio presets for consistent, branded content. ' +
-      'Products provide reference images of items to include. Personas guide character appearance and facial features. ' +
-      'Styles (like visual aesthetics or model references) guide the overall look. ' +
-      'Studio presets define lighting, camera, and background settings. ' +
-      'Output files are saved to studio/outputs/. ' +
-      'After generation, embed results as Markdown images in the reply.',
+      'Generates images using the Studio system. The preferred tool for all image creation. ' +
+      'Supports products, personas, styles, and presets for consistent branded content. ' +
+      'Output files are saved to /data/studio/outputs/ — absolute paths are returned so the agent can copy results to the workspace.',
     parameters: Type.Object({
-      prompt: Type.String({ description: 'Text description of the image/video to generate.' }),
-      mode: Type.Optional(Type.Union([Type.Literal('image'), Type.Literal('video')], { description: 'Generation mode: image (default) or video.' })),
+      prompt: Type.String({ description: 'Text description of the image to generate.' }),
       product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to include as reference images (max 5).', maxItems: 5 })),
       persona_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved personas to include as reference images (max 3).', maxItems: 3 })),
-      style_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved styles (visual aesthetics/models) to apply as reference images (max 3).', maxItems: 3 })),
+      style_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved styles to apply as reference images (max 3).', maxItems: 3 })),
       preset_id: Type.Optional(Type.String({ description: 'ID of a studio preset to apply (lighting, camera, background settings).' })),
-      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio. Image: 1:1, 16:9, 9:16, 4:3, 3:4. Video: 16:9, 9:16. Default: 1:1 for images, 16:9 for video.' })),
-      count: Type.Optional(Type.Number({ description: 'Number of image variations (1-4). Ignored for video. Default: 4' })),
-      provider: Type.Optional(Type.String({ description: 'Provider: images use gemini or openai. Videos use veo or bytedance. Default: gemini for images, veo for video.' })),
-      model: Type.Optional(Type.String({ description: 'Model ID. Image: gemini-3.1-flash-image-preview, gemini-2.5-flash-image, gpt-image-1.5, gpt-image-1, gpt-image-1-mini. Video: veo-3.1-fast-generate-preview, veo-3.1-generate-preview, veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001, bytedance/seedance-2.' })),
-      quality: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('medium'), Type.Literal('high'), Type.Literal('auto')], { description: 'Image quality. Only applies when provider is openai. Default: auto' })),
-      output_format: Type.Optional(Type.Union([Type.Literal('png'), Type.Literal('jpeg'), Type.Literal('webp')], { description: 'Output format. Only applies when provider is openai. Default: png' })),
-      background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. Only applies when provider is openai. Default: auto' })),
-      video_resolution: Type.Optional(Type.Union([Type.Literal('480p'), Type.Literal('720p'), Type.Literal('1080p'), Type.Literal('4k')], { description: 'Video resolution. Veo supports 720p, 1080p, 4k. Bytedance supports 480p, 720p, 1080p. Default: 720p' })),
-      video_duration: Type.Optional(Type.Number({ description: 'Video duration in seconds. Veo supports model-specific values such as 4, 5, 6, 8. Bytedance supports any integer from 4 to 15. Default: 6.', minimum: 4, maximum: 15 })),
-      video_generate_audio: Type.Optional(Type.Boolean({ description: 'Bytedance only: generate audio for the video. Default: true' })),
-      video_web_search: Type.Optional(Type.Boolean({ description: 'Bytedance only: allow online search. Default: false' })),
-      video_nsfw_checker: Type.Optional(Type.Boolean({ description: 'Bytedance only: enable KIE NSFW checker. Default: false' })),
-      start_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the start frame. Only for mode=video (frames_to_video). Must be a workspace-relative path (e.g. workspace/my-frame.png).' })),
-      end_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the end frame. Only for mode=video (frames_to_video). Optional.' })),
-      is_looping: Type.Optional(Type.Boolean({ description: 'Loop the video back to the start frame. Only for mode=video (frames_to_video). Default: false' })),
-      person_generation: Type.Optional(Type.Union([Type.Literal('allow_all'), Type.Literal('allow_adult'), Type.Literal('dont_allow')], { description: 'Person generation policy. Only for mode=video. Default: allow_all' })),
-      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous studio generation output to use as a base/reference for editing or variation.' })),
-      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Additional reference image URLs or paths. Supports external URLs, or local workspace paths. Can be used to reference a specific studio output file path (e.g. studio/outputs/studio-gen-xxx.png).' })),
+      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 1:1 (default), 16:9, 9:16, 4:3, 3:4.' })),
+      count: Type.Optional(Type.Number({ description: 'Number of image variations (1-4). Default: 4.' })),
+      provider: Type.Optional(Type.String({ description: 'Provider: gemini (default) or openai.' })),
+      model: Type.Optional(Type.String({ description: 'Model ID. Gemini: gemini-3.1-flash-image-preview, gemini-2.5-flash-image. OpenAI: gpt-image-1.5, gpt-image-1, gpt-image-1-mini.' })),
+      quality: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('medium'), Type.Literal('high'), Type.Literal('auto')], { description: 'Image quality. OpenAI only. Default: auto.' })),
+      output_format: Type.Optional(Type.Union([Type.Literal('png'), Type.Literal('jpeg'), Type.Literal('webp')], { description: 'Output format. OpenAI only. Default: png.' })),
+      background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. OpenAI only. Default: auto.' })),
+      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous studio output to use as base for editing or variation.' })),
+      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Additional reference image URLs or workspace paths (e.g. studio/outputs/studio-gen-xxx.png).' })),
     }),
     execute: async (toolCallId, params) => {
       const p = params as StudioGenerateRequest;
@@ -713,11 +635,19 @@ export function createStudioGenerateTool(
         if (!userId) {
           throw new Error('User ID is required for studio generation.');
         }
-        const result = await executeFn(userId, p);
-        const outputText = result.outputs
-          .map((o) => `![studio-${o.variationIndex}](${o.mediaUrl})`)
-          .join('\n');
-        const summary = `Studio generation completed (${result.mode}, ${result.outputs.length} output(s))\n\n${outputText}`;
+        const result = await executeFn(userId, { ...p, mode: 'image' });
+        const outputsRoot = getStudioOutputsRoot();
+        const outputLines = result.outputs.map((o) => {
+          const fullPath = path.join(outputsRoot, o.filePath);
+          return `Output ${o.variationIndex + 1}:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}\n  ![studio-${o.variationIndex}](${o.mediaUrl})`;
+        });
+        const summary = [
+          `Studio image generation completed (${result.outputs.length} output(s))`,
+          '',
+          ...outputLines,
+          '',
+          'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+        ].join('\n');
         return {
           content: [{ type: 'text', text: summary }],
           details: result,
@@ -727,7 +657,102 @@ export function createStudioGenerateTool(
           ? error.userMessage
           : error instanceof Error
             ? error.message
-            : 'An unexpected error occurred during studio generation.';
+            : 'An unexpected error occurred during studio image generation.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createStudioGenerateVideoTool(
+  deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
+): AgentTool {
+  const executeFn = deps.executeStudioGenerationFn ?? executeStudioGeneration;
+  const userId = deps.userId;
+
+  return {
+    name: 'studio_generate_video',
+    label: 'Generating studio video',
+    description:
+      'Generates videos using the Studio system. The preferred tool for all video creation. Takes 3-10 minutes. ' +
+      'Supports products, personas, styles, and presets for branded content. ' +
+      'Providers: veo (default, Veo 3.x models) or bytedance (Seedance). ' +
+      'Output files are saved to /data/studio/outputs/ — absolute paths are returned so the agent can copy results to the workspace.',
+    parameters: Type.Object({
+      prompt: Type.String({ description: 'Text description of the video to generate.' }),
+      product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to include as reference images (max 5).', maxItems: 5 })),
+      persona_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved personas to include as reference images (max 3).', maxItems: 3 })),
+      style_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved styles to apply as reference images (max 3).', maxItems: 3 })),
+      preset_id: Type.Optional(Type.String({ description: 'ID of a studio preset to apply.' })),
+      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9 (default) or 9:16.' })),
+      provider: Type.Optional(Type.String({ description: 'Provider: veo (default) or bytedance.' })),
+      model: Type.Optional(Type.String({ description: 'Model ID. Veo: veo-3.1-fast-generate-preview (default), veo-3.1-generate-preview, veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001. Bytedance: bytedance/seedance-2.' })),
+      resolution: Type.Optional(Type.Union([Type.Literal('480p'), Type.Literal('720p'), Type.Literal('1080p'), Type.Literal('4k')], { description: 'Resolution. Veo: 720p, 1080p, 4k. Bytedance: 480p, 720p, 1080p. Default: 720p.' })),
+      duration: Type.Optional(Type.Number({ description: 'Duration in seconds. Veo: 4, 5, 6, or 8. Bytedance: 4–15. Default: 6.', minimum: 4, maximum: 15 })),
+      start_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the start frame (enables frames_to_video mode).' })),
+      end_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the end frame. Optional for frames_to_video.' })),
+      is_looping: Type.Optional(Type.Boolean({ description: 'Loop the video back to the start frame. Only for frames_to_video. Default: false.' })),
+      person_generation: Type.Optional(Type.Union([Type.Literal('allow_all'), Type.Literal('allow_adult'), Type.Literal('dont_allow')], { description: 'Person generation policy. Veo only. Default: allow_all.' })),
+      generate_audio: Type.Optional(Type.Boolean({ description: 'Generate audio. Bytedance only. Default: true.' })),
+      web_search: Type.Optional(Type.Boolean({ description: 'Allow online search. Bytedance only. Default: false.' })),
+      nsfw_checker: Type.Optional(Type.Boolean({ description: 'Enable NSFW checker. Bytedance only. Default: false.' })),
+      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous studio output to use as reference.' })),
+      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Additional reference image URLs or workspace paths.' })),
+    }),
+    execute: async (toolCallId, params) => {
+      const p = params as Record<string, unknown>;
+      try {
+        if (!userId) {
+          throw new Error('User ID is required for studio generation.');
+        }
+        const request: StudioGenerateRequest = {
+          prompt: p.prompt as string,
+          mode: 'video',
+          product_ids: p.product_ids as string[] | undefined,
+          persona_ids: p.persona_ids as string[] | undefined,
+          style_ids: p.style_ids as string[] | undefined,
+          preset_id: p.preset_id as string | undefined,
+          aspect_ratio: p.aspect_ratio as string | undefined,
+          provider: p.provider as string | undefined,
+          model: p.model as string | undefined,
+          video_resolution: p.resolution as StudioGenerateRequest['video_resolution'],
+          video_duration: p.duration as number | undefined,
+          start_frame_path: p.start_frame_path as string | undefined,
+          end_frame_path: p.end_frame_path as string | undefined,
+          is_looping: p.is_looping as boolean | undefined,
+          person_generation: p.person_generation as StudioGenerateRequest['person_generation'],
+          video_generate_audio: p.generate_audio as boolean | undefined,
+          video_web_search: p.web_search as boolean | undefined,
+          video_nsfw_checker: p.nsfw_checker as boolean | undefined,
+          source_output_id: p.source_output_id as string | undefined,
+          extra_reference_urls: p.extra_reference_urls as string[] | undefined,
+        };
+        const result = await executeFn(userId, request);
+        const outputsRoot = getStudioOutputsRoot();
+        const outputLines = result.outputs.map((o) => {
+          const fullPath = path.join(outputsRoot, o.filePath);
+          return `Output:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}`;
+        });
+        const summary = [
+          `Studio video generation completed (${result.outputs.length} output(s))`,
+          '',
+          ...outputLines,
+          '',
+          'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+        ].join('\n');
+        return {
+          content: [{ type: 'text', text: summary }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = error instanceof StudioServiceError
+          ? error.userMessage
+          : error instanceof Error
+            ? error.message
+            : 'An unexpected error occurred during studio video generation.';
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
           details: { error: message },
@@ -965,7 +990,7 @@ export function createStudioListPresetsTool(): AgentTool {
         })
           .from(studioPresets)
           .where(category
-            ? orDrizzle(eq(studioPresets.isDefault, true), eq(studioPresets.category, category))
+            ? eq(studioPresets.category, category)
             : eq(studioPresets.isDefault, true),
           );
 
@@ -1335,113 +1360,6 @@ export function createRipgrepTool(): AgentTool {
   };
 }
 
-async function runQmdSearch(params: {
-  query: string;
-  mode?: unknown;
-  collection?: unknown;
-  limit?: unknown;
-}): Promise<{
-  summary: string;
-  details: {
-    mode: QmdSearchMode;
-    collections: string[];
-    results: ReturnType<typeof mergeQmdResults>;
-    raw: Array<{ collection: string; stdout: string; stderr: string }>;
-    stderr: string[];
-  };
-}> {
-  const workspacePath = getWorkspacePath();
-  const piConfig = await readPiRuntimeConfig();
-  const mode = normalizeQmdMode(params.mode);
-  const collections = normalizeQmdCollections(params.collection);
-  const limit = typeof params.limit === 'number' && Number.isFinite(params.limit)
-    ? Math.max(1, Math.min(Math.trunc(params.limit), 50))
-    : 10;
-
-  if (mode === 'query' && piConfig.qmd?.allowExpensiveQueryMode !== true) {
-    throw new Error(
-      'qmd query mode is disabled by default in Canvas Notebook because it can trigger model downloads and local builds. Set qmd.allowExpensiveQueryMode=true in the PI runtime config to enable it.',
-    );
-  }
-
-  const rawOutputs: Array<{ collection: string; stdout: string; stderr: string }> = [];
-  const parsedResults = [];
-
-  for (const collection of collections) {
-    const args = [mode, params.query, '--json', '-n', String(limit), '-c', collection];
-    const { stdout, stderr } = await executeQmdCommand(args, workspacePath);
-    rawOutputs.push({ collection, stdout, stderr });
-    parsedResults.push(...normalizeQmdResults(extractFirstJsonArray(stdout), collection));
-  }
-
-  const mergedResults = mergeQmdResults(parsedResults);
-
-  return {
-    summary: formatQmdSearchSummary(mergedResults, mode),
-    details: {
-      mode,
-      collections,
-      results: mergedResults,
-      raw: rawOutputs,
-      stderr: rawOutputs.map((entry) => entry.stderr).filter(Boolean),
-    },
-  };
-}
-
-function createQmdTool(name: string, legacy = false): AgentTool {
-  return {
-    name,
-    label: legacy ? 'Searching workspace (legacy qmd alias)' : 'Searching workspace',
-    description: legacy
-      ? 'Legacy alias for qmd. Searches the workspace with qmd using fast BM25 search by default. Prefer mode=search; use vsearch only after weak keyword results. query mode is intentionally disabled by default because it can trigger large local model downloads/builds.'
-      : 'Searches the Canvas workspace with qmd. Use this for file/content lookup across workspace-text and workspace-derived collections. Default mode=search (fast BM25). Use vsearch only after weak keyword results. query mode is intentionally disabled by default because it can trigger large local model downloads/builds.',
-    parameters: Type.Object({
-      query: Type.String({ description: 'Search query' }),
-      mode: Type.Optional(
-        Type.Union([
-          Type.Literal('search'),
-          Type.Literal('vsearch'),
-          Type.Literal('query'),
-        ], { description: 'Search mode. Default: search. query is disabled unless qmd.allowExpensiveQueryMode is enabled in PI config.' }),
-      ),
-      collection: Type.Optional(
-        Type.Union([
-          Type.String({ description: 'Collection name. Defaults to workspace-text and workspace-derived.' }),
-          Type.Array(Type.String(), { description: 'Collection names. Defaults to workspace-text and workspace-derived.' }),
-        ]),
-      ),
-      limit: Type.Optional(Type.Number({ description: 'Maximum number of results. Default: 10 (max 50).' })),
-    }),
-    execute: async (toolCallId, params) => {
-      try {
-        const result = await runQmdSearch(params as {
-          query: string;
-          mode?: unknown;
-          collection?: unknown;
-          limit?: unknown;
-        });
-
-        return {
-          content: [{ type: 'text', text: result.summary }],
-          details: result.details,
-        };
-      } catch (error: unknown) {
-        const execError = asCommandExecutionError(error);
-        const stderr = [execError.stderr, execError.stdout].filter(Boolean).join('\n').trim();
-        const message = stderr || execError.message || getErrorMessage(error);
-
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: {
-            error: message,
-            stdout: execError.stdout,
-            stderr: execError.stderr,
-          },
-        };
-      }
-    },
-  };
-}
 
 /**
  * Registry for PI-compatible tools.
@@ -1628,8 +1546,15 @@ export const piTools: AgentTool[] = [
         const searchRoot = resolveAgentPath(searchPath || '.');
         // Use execFile with argument array to avoid shell injection via pattern
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('find', [searchRoot, '-name', pattern], { cwd: '/' }, (err, stdout, stderr) => {
-            if (err) reject(err); else resolve({ stdout, stderr });
+          execFile('rg', ['--files', '-g', pattern, searchRoot], { cwd: '/' }, (err, stdout, stderr) => {
+            const errCode = (err as NodeJS.ErrnoException & { code?: number })?.code;
+            if (errCode === 1) {
+              resolve({ stdout: '', stderr: '' });
+            } else if (err) {
+              reject(err);
+            } else {
+              resolve({ stdout, stderr });
+            }
           });
         });
         return {
@@ -1646,71 +1571,10 @@ export const piTools: AgentTool[] = [
     },
   },
   // Canvas Notebook Skills
-  createImageGenerationTool(),
-  createVideoGenerationTool(),
   createStudioListPresetsTool(),
-  {
-    name: 'ad_localization',
-    label: 'Localizing ads',
-    description: 'Localizes ad images for target markets using the local Canvas ad-localization service. Preserves layout, typography, and visual design - translates only the text. Use when user asks for: "localize this ad", "translate for market...", "adapt for country...". Output: workspace/nano-banana-ad-localizer/localizations/. The agent should use this local tool directly; no internal API token or manual env loading is required.',
-    parameters: Type.Object({
-      reference_image_path: Type.String({ description: 'Path to reference image (must be under nano-banana-ad-localizer/)' }),
-      target_markets: Type.Array(Type.String(), { description: 'List of target markets (e.g., ["Germany", "France", "Japan"])' }),
-      aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9, 1:1, 9:16, 4:3, 3:4. Default: 16:9' })),
-      instructions: Type.Optional(Type.String({ description: 'Additional localization instructions' })),
-    }),
-    execute: async (toolCallId, params) => {
-      const { reference_image_path, target_markets, aspect_ratio, instructions } = params as {
-        reference_image_path: string;
-        target_markets: string[];
-        aspect_ratio?: string;
-        instructions?: string;
-      };
-      try {
-        const data = await localizeAd(
-          {
-            referenceImagePath: reference_image_path,
-            targetMarkets: target_markets,
-            aspectRatio: aspect_ratio || '16:9',
-            model: 'gemini-3.1-flash-image-preview',
-            customInstructions: instructions || '',
-          },
-          'pi-agent',
-        );
-
-        if (data.successCount === 0) {
-          return {
-            content: [{ type: 'text', text: `Error: ${AD_LOCALIZATION_ALL_FAILED_MESSAGE}` }],
-            details: { error: AD_LOCALIZATION_ALL_FAILED_MESSAGE, data },
-          };
-        }
-
-        return {
-          content: [{ type: 'text', text: formatAdLocalizationText(data) }],
-          details: data,
-        };
-      } catch (error: unknown) {
-        const message = getErrorMessage(error);
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
-  },
-  ...(isQmdEnabled() ? [
-    {
-      ...createQmdTool(QMD_CANONICAL_TOOL_NAME),
-    },
-    {
-      ...createQmdTool('qmd_search', true),
-    },
-  ] : []),
 ];
 
-import { getDynamicSkillTools } from '../skills/skill-tools';
-
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Skill';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation';
 
 export type PiToolMetadata = {
   name: string;
@@ -1760,7 +1624,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
     {
       name: 'create_automation_job',
       label: 'Creating automation job',
-      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: preferredSkill (auto/image_generation/video_generation/ad_localization/qmd), targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
+      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: preferredSkill (auto), targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
       parameters: Type.Object({
         name: Type.String({ description: 'Name of the automation job (max 120 chars)' }),
         prompt: Type.String({ description: 'The script/prompt to execute when the job runs' }),
@@ -1773,7 +1637,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
           unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
           timeZone: Type.Optional(Type.String({ description: 'Timezone (default: UTC)' })),
         }),
-        preferredSkill: Type.Optional(Type.String({ description: 'Skill to use: auto, image_generation, video_generation, ad_localization, qmd' })),
+        preferredSkill: Type.Optional(Type.String({ description: 'Skill to use: auto' })),
         targetOutputPath: Type.Optional(Type.String({ description: 'Where to save job outputs (relative to workspace)' })),
         workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Array of file paths to include as context' })),
         status: Type.Optional(Type.String({ description: 'Job status: active (default) or paused' })),
@@ -1956,7 +1820,8 @@ function createUserScopedTools(userId?: string): AgentTool[] {
         }
       },
     },
-    createStudioGenerateTool({ userId }),
+    createStudioGenerateImageTool({ userId }),
+    createStudioGenerateVideoTool({ userId }),
     createStudioEditImageTool(),
     createStudioBulkGenerateTool({ userId }),
     createStudioListProductsTool({ userId }),
@@ -1968,7 +1833,6 @@ function createUserScopedTools(userId?: string): AgentTool[] {
 function getToolGroup(toolName: string): PiToolGroup {
   if (toolName.startsWith('studio_')) return 'Studio';
   if (toolName.includes('automation_job')) return 'Automation';
-  if (!piTools.some((tool) => tool.name === toolName)) return 'Skill';
   return 'Core';
 }
 
@@ -2009,46 +1873,30 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Automation') {
     notes.push('May create, update, delete, or trigger scheduled automation jobs.');
   }
-  if (group === 'Skill') {
-    notes.push('Runs an executable skill command in the workspace.');
-  }
-  if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
+if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
-  if (['write', 'edit', 'create_file', 'delete_file', 'image_generation', 'video_generation', 'ad_localization', 'studio_generate', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['write', 'edit', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
   }
-  if (['web_fetch', 'image_generation', 'video_generation', 'ad_localization', 'studio_generate', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['web_fetch', 'studio_generate_image', 'studio_generate_video', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May call external services or require configured API keys.');
   }
-  if (['image_generation', 'video_generation', 'ad_localization', 'studio_generate', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['studio_generate_image', 'studio_generate_video', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('Can run for an extended time.');
   }
 
   return notes.length > 0 ? notes : ['Read-only or low-side-effect utility under normal use.'];
 }
 
-export async function buildPiToolRegistry(userId?: string): Promise<AgentTool[]> {
+export function buildPiToolRegistry(userId?: string): AgentTool[] {
   const userScopedTools = createUserScopedTools(userId);
-
-  let allTools: AgentTool[];
-  try {
-    const dynamicTools = await getDynamicSkillTools();
-    const overriddenNames = new Set(userScopedTools.map(t => t.name));
-    const base = piTools.filter(t => !overriddenNames.has(t.name));
-    const mergedNames = new Set([...base, ...userScopedTools].map(t => t.name));
-    allTools = [...base, ...userScopedTools, ...dynamicTools.filter(t => !mergedNames.has(t.name))];
-  } catch (error) {
-    console.error('[ToolRegistry] Error loading dynamic skills:', error);
-    const overriddenNames = new Set(userScopedTools.map(t => t.name));
-    allTools = [...piTools.filter(t => !overriddenNames.has(t.name)), ...userScopedTools];
-  }
-
-  return allTools;
+  const overriddenNames = new Set(userScopedTools.map((t) => t.name));
+  return [...piTools.filter((t) => !overriddenNames.has(t.name)), ...userScopedTools];
 }
 
-export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
-  const allTools = await buildPiToolRegistry();
+export function getPiToolMetadata(): PiToolMetadata[] {
+  const allTools = buildPiToolRegistry();
   const allToolNames = allTools.map((tool) => tool.name);
   const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
 
@@ -2068,7 +1916,7 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
 }
 
 export async function getPiTools(userId?: string): Promise<AgentTool[]> {
-  let allTools = await buildPiToolRegistry(userId);
+  let allTools = buildPiToolRegistry(userId);
 
   try {
     const piConfig = await readPiRuntimeConfig();

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Dirent } from 'node:fs';
 import { db } from '@/app/lib/db';
-import { studioProductImages, studioPersonaImages, studioGenerationOutputs } from '@/app/lib/db/schema';
+import { studioProductImages, studioPersonaImages, studioStyleImages, studioPresets, studioGenerationOutputs } from '@/app/lib/db/schema';
 import { getStudioAssetsRoot, getStudioOutputsRoot, deleteAssetFile } from '@/app/lib/integrations/studio-workspace';
 
 async function listFilesRecursive(dir: string, baseDir: string): Promise<string[]> {
@@ -59,6 +59,22 @@ export async function cleanupOrphanedStudioAssets(): Promise<{ deleted: number; 
     const generationOutputs = await db.select({ filePath: studioGenerationOutputs.filePath }).from(studioGenerationOutputs);
     for (const row of generationOutputs) {
       dbFilePaths.add(normalizePath(row.filePath));
+    }
+
+    const styleImages = await db.select({ filePath: studioStyleImages.filePath }).from(studioStyleImages);
+    for (const row of styleImages) {
+      dbFilePaths.add(normalizePath(row.filePath));
+    }
+
+    // Preset preview paths are stored with 'studio/assets/' prefix in DB but listed relative to assetsRoot on disk
+    const presets = await db.select({ previewImagePath: studioPresets.previewImagePath }).from(studioPresets);
+    for (const row of presets) {
+      if (row.previewImagePath) {
+        const stripped = row.previewImagePath.startsWith('studio/assets/')
+          ? row.previewImagePath.slice('studio/assets/'.length)
+          : row.previewImagePath;
+        dbFilePaths.add(normalizePath(stripped));
+      }
     }
 
     for (const diskFile of allDiskFiles) {
