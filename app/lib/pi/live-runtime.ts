@@ -1,5 +1,6 @@
 import 'server-only';
 
+import path from 'node:path';
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from '@mariozechner/pi-agent-core';
 import type { Api, Model } from '@mariozechner/pi-ai';
 
@@ -24,10 +25,27 @@ import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block';
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
+import { getStudioOutputsRoot, STUDIO_OUTPUTS_ROOT_DIR } from '@/app/lib/integrations/studio-workspace';
 import { and, eq } from 'drizzle-orm';
 
 const IDLE_TTL_MS = 15 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
+
+function getStudioOutputReferencePaths(outputFilePath: string) {
+  const normalizedOutputPath = outputFilePath.replace(/^\/+/, '');
+  const referencePath = normalizedOutputPath.startsWith(`${STUDIO_OUTPUTS_ROOT_DIR}/`)
+    ? normalizedOutputPath
+    : path.posix.join(STUDIO_OUTPUTS_ROOT_DIR, normalizedOutputPath);
+
+  const outputRelativePath = referencePath.startsWith(`${STUDIO_OUTPUTS_ROOT_DIR}/`)
+    ? referencePath.slice(`${STUDIO_OUTPUTS_ROOT_DIR}/`.length)
+    : normalizedOutputPath;
+
+  return {
+    absolutePath: path.join(getStudioOutputsRoot(), outputRelativePath),
+    referencePath,
+  };
+}
 
 // Lazy-cached emitter — resolved once, reused for every subsequent agent event.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -475,6 +493,9 @@ class LivePiRuntime {
     }
     if (this.studioContext.outputFilePath) {
       lines.push(`Output file path: ${this.studioContext.outputFilePath}`);
+      const { absolutePath, referencePath } = getStudioOutputReferencePaths(this.studioContext.outputFilePath);
+      lines.push(`Output absolute file path: ${absolutePath}`);
+      lines.push(`Output reference path for studio_generate_image extra_reference_urls: ${referencePath}`);
     }
     if (this.studioContext.outputMediaUrl) {
       lines.push(`Output media URL: ${this.studioContext.outputMediaUrl}`);
@@ -483,7 +504,7 @@ class LivePiRuntime {
       lines.push(`Active image file path: ${this.studioContext.activeImagePath}`);
     }
 
-    lines.push('When editing this asset, use studio_generate with reference images. The current output file path is provided in the context.');
+    lines.push('When editing this asset, use studio_generate_image with reference images. Prefer the exact Output reference path above in extra_reference_urls.');
     return lines.join('\n');
   }
 
