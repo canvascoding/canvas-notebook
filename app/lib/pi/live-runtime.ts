@@ -492,10 +492,11 @@ class LivePiRuntime {
       lines.push(`Persona IDs: ${this.studioContext.generationPersonaIds.join(', ')}`);
     }
     if (this.studioContext.outputFilePath) {
-      lines.push(`Output file path: ${this.studioContext.outputFilePath}`);
       const { absolutePath, referencePath } = getStudioOutputReferencePaths(this.studioContext.outputFilePath);
-      lines.push(`Output absolute file path: ${absolutePath}`);
-      lines.push(`Output reference path for studio_generate_image extra_reference_urls: ${referencePath}`);
+      lines.push(`Current Studio output DB filePath: ${this.studioContext.outputFilePath}`);
+      lines.push(`Use this exact path when passing the current image as a Studio reference: ${referencePath}`);
+      lines.push(`Use this exact path in studio_generate_image.extra_reference_urls: ${referencePath}`);
+      lines.push(`Absolute filesystem path for file operations only: ${absolutePath}`);
     }
     if (this.studioContext.outputMediaUrl) {
       lines.push(`Output media URL: ${this.studioContext.outputMediaUrl}`);
@@ -504,7 +505,7 @@ class LivePiRuntime {
       lines.push(`Active image file path: ${this.studioContext.activeImagePath}`);
     }
 
-    lines.push('When editing this asset, use studio_generate_image with reference images. Prefer the exact Output reference path above in extra_reference_urls.');
+    lines.push('If the user asks to edit, restyle, recolor, remix, or make a variation of the visible image, call studio_generate_image and include the exact studio/outputs/... reference path above in extra_reference_urls. Do not pass the /data/... absolute filesystem path to studio_generate_image.');
     return lines.join('\n');
   }
 
