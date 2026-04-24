@@ -16,6 +16,7 @@
     "test:pi:attachments": "tsx scripts/pi-attachments-test.ts",
     "test:pi:usage": "tsx scripts/pi-usage-test.ts",
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts",
+    "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
     "test:browser-start": "node scripts/browser-start-test.mjs",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
