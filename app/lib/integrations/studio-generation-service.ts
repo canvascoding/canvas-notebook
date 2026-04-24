@@ -1,6 +1,8 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { db } from '@/app/lib/db';
 import {
   studioProducts,
@@ -30,6 +32,7 @@ import {
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateVideo, type GenerateVideoRequestBody } from '@/app/lib/integrations/veo-generation-service';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
+import { resolveValidatedStudioAssetPath, resolveValidatedStudioOutputPath } from '@/app/lib/integrations/studio-paths';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 
@@ -101,12 +104,24 @@ const MIME_EXTENSION: Record<string, string> = {
   'image/webp': 'webp',
 };
 
+const EXTENSION_MIME: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
+
 function sanitizePrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT_LENGTH);
 }
 
 function extensionFromMime(mimeType: string): string {
   return MIME_EXTENSION[mimeType] || 'png';
+}
+
+function mimeFromPath(filePath: string) {
+  return EXTENSION_MIME[path.posix.extname(filePath).toLowerCase()] || 'image/png';
 }
 
 async function loadProductImages(userId: string, productIds: string[]): Promise<LoadedReferenceImage[]> {
@@ -390,21 +405,52 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
 
   const images: LoadedReferenceImage[] = [];
 
-  for (const url of urls) {
+  for (const rawUrl of urls) {
+    const url = rawUrl.trim();
+    if (!url) continue;
+
     try {
       let buffer: Buffer;
       let contentType: string;
+      let sourceId = url;
+      let fileName = url.split('/').pop() || 'extra-reference.png';
 
-      // Check if it's a local reference
-      if (url.startsWith('/api/studio/references/')) {
-        const fileId = url.split('/').pop();
-        if (!fileId) {
+      const localPath = normalizeLocalExtraReference(url);
+      if (localPath?.kind === 'studio_reference') {
+        const fileId = localPath.referenceId;
+        if (!isSafeReferenceId(fileId)) {
           throw new Error('Invalid local reference URL');
         }
 
         buffer = await readStudioReferenceFile(userId, fileId);
-        contentType = 'image/png';
+        contentType = mimeFromPath(fileId);
+        sourceId = localPath.sourceId;
+        fileName = fileId;
+      } else if (localPath?.kind === 'studio_output') {
+        const fullPath = resolveValidatedStudioOutputPath(localPath.relativePath);
+        if (!fullPath) {
+          throw new Error('Invalid studio output reference path');
+        }
+
+        buffer = await fs.readFile(fullPath);
+        contentType = mimeFromPath(localPath.relativePath);
+        sourceId = localPath.sourceId;
+        fileName = localPath.relativePath.split('/').pop() || fileName;
+      } else if (localPath?.kind === 'studio_asset') {
+        const fullPath = resolveValidatedStudioAssetPath(localPath.relativePath);
+        if (!fullPath) {
+          throw new Error('Invalid studio asset reference path');
+        }
+
+        buffer = await fs.readFile(fullPath);
+        contentType = mimeFromPath(localPath.relativePath);
+        sourceId = localPath.sourceId;
+        fileName = localPath.relativePath.split('/').pop() || fileName;
       } else {
+        if (!/^https?:\/\//i.test(url)) {
+          throw new Error('Unsupported local reference path');
+        }
+
         const response = await fetchExternalResourceSafely(url, { maxBytes: 10 * 1024 * 1024, timeoutMs: 30000 });
         buffer = response.buffer;
         contentType = response.contentType || 'image/png';
@@ -415,9 +461,9 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
         mimeType: contentType.startsWith('image/') ? contentType : 'image/png',
         width: null,
         height: null,
-        fileName: url.split('/').pop() || 'extra-reference.png',
+        fileName,
         source: 'extra_url',
-        sourceId: url,
+        sourceId,
         sourceName: 'Extra Reference',
       });
     } catch (error) {
@@ -426,6 +472,88 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
   }
 
   return images;
+}
+
+type LocalExtraReference =
+  | { kind: 'studio_reference'; referenceId: string; sourceId: string }
+  | { kind: 'studio_output'; relativePath: string; sourceId: string }
+  | { kind: 'studio_asset'; relativePath: string; sourceId: string };
+
+function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | null {
+  const pathOnly = getLocalReferencePath(rawUrl);
+  if (!pathOnly) return null;
+
+  if (pathOnly.startsWith('/api/studio/references/')) {
+    const referenceId = decodePath(pathOnly.slice('/api/studio/references/'.length));
+    return referenceId ? { kind: 'studio_reference', referenceId, sourceId: rawUrl } : null;
+  }
+
+  const studioMediaPath = pathOnly.startsWith('/api/studio/media/')
+    ? decodePath(pathOnly.slice('/api/studio/media/'.length))
+    : decodePath(pathOnly.replace(/^\/+/, ''));
+
+  if (studioMediaPath.startsWith('studio/outputs/')) {
+    return {
+      kind: 'studio_output',
+      relativePath: studioMediaPath.slice('studio/outputs/'.length),
+      sourceId: rawUrl,
+    };
+  }
+
+  if (studioMediaPath.startsWith('studio/assets/')) {
+    return {
+      kind: 'studio_asset',
+      relativePath: studioMediaPath.slice('studio/assets/'.length),
+      sourceId: rawUrl,
+    };
+  }
+
+  if (studioMediaPath.startsWith('products/') || studioMediaPath.startsWith('personas/') || studioMediaPath.startsWith('styles/') || studioMediaPath.startsWith('presets/') || studioMediaPath.startsWith('references/')) {
+    return {
+      kind: 'studio_asset',
+      relativePath: studioMediaPath,
+      sourceId: rawUrl,
+    };
+  }
+
+  if (studioMediaPath.startsWith('studio-gen-')) {
+    return {
+      kind: 'studio_output',
+      relativePath: studioMediaPath,
+      sourceId: rawUrl,
+    };
+  }
+
+  return null;
+}
+
+function getLocalReferencePath(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.pathname;
+  } catch {
+    return rawUrl.split(/[?#]/, 1)[0] || null;
+  }
+}
+
+function decodePath(filePath: string) {
+  return filePath
+    .split('/')
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join('/');
+}
+
+function isSafeReferenceId(referenceId: string) {
+  return referenceId.length > 0 && !referenceId.includes('/') && !referenceId.includes('\\') && !referenceId.includes('..');
 }
 
 function buildReferenceContextPrompt(referenceImages: LoadedReferenceImage[]): { contextText: string; providerImages: ProviderReferenceImage[] } {

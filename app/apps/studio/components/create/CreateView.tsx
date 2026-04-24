@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Sparkles } from 'lucide-react';
@@ -110,6 +111,43 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
   );
 }
 
+function getReferenceRequestValue(ref: { id: string }) {
+  if (ref.id.startsWith('/api/studio/media/') || ref.id.startsWith('/api/studio/references/')) {
+    return ref.id;
+  }
+
+  if (/^https?:\/\//i.test(ref.id)) {
+    return ref.id;
+  }
+
+  return toMediaUrl(ref.id);
+}
+
+function getOutputReference(output: StudioGenerationOutput) {
+  if (!output.filePath) return null;
+
+  const name = output.filePath.split('/').pop() || output.filePath;
+  const thumbnailPath = output.filePath.startsWith('studio/')
+    ? output.filePath
+    : `studio/outputs/${output.filePath}`;
+  return {
+    id: output.filePath,
+    name,
+    thumbnailPath,
+  };
+}
+
+function addFileReference(
+  setFileRefs: Dispatch<SetStateAction<Array<{ id: string; name: string; thumbnailPath?: string; status?: 'loading' | string }>>>,
+  reference: { id: string; name: string; thumbnailPath?: string } | null,
+) {
+  if (!reference) return;
+
+  setFileRefs((current) =>
+    current.some((item) => item.id === reference.id) ? current : [...current, reference],
+  );
+}
+
 export function CreateView() {
   const t = useTranslations('studio');
   const searchParams = useSearchParams();
@@ -193,7 +231,7 @@ export function CreateView() {
   }, [personaRefs.length, presetRef, productRefs.length, rawPrompt, fileRefs.length]);
 
   const handleGenerate = async () => {
-    const fileUrls = fileRefs.map((ref) => toMediaUrl(ref.id));
+    const fileUrls = fileRefs.map(getReferenceRequestValue);
     const result = await generationHook.generate({
       prompt: rawPrompt.trim(),
       mode,
@@ -279,11 +317,7 @@ export function CreateView() {
                 setAspectRatio(generation.aspectRatio || '1:1');
                 setProvider(generation.provider || 'gemini');
                 setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
-                if (output.mediaUrl) {
-                  setFileRefs((current) =>
-                    current.some((item) => item.id === output.mediaUrl!) ? current : [...current, { id: output.mediaUrl!, name: output.mediaUrl!, thumbnailPath: output.mediaUrl || undefined }],
-                  );
-                }
+                addFileReference(setFileRefs, getOutputReference(output));
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
               }}
@@ -302,11 +336,7 @@ export function CreateView() {
                 setAspectRatio(generation.aspectRatio || '1:1');
                 setProvider(generation.provider || 'gemini');
                 setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
-                if (output.mediaUrl) {
-                  setFileRefs((current) =>
-                    current.some((item) => item.id === output.mediaUrl!) ? current : [...current, { id: output.mediaUrl!, name: output.mediaUrl!, thumbnailPath: output.mediaUrl || undefined }],
-                  );
-                }
+                addFileReference(setFileRefs, getOutputReference(output));
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
               }}
@@ -535,11 +565,7 @@ export function CreateView() {
           setAspectRatio(generation.aspectRatio || '1:1');
           setProvider(generation.provider || 'gemini');
           setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
-          if (output.mediaUrl) {
-            setFileRefs((current) =>
-              current.some((item) => item.id === output.mediaUrl!) ? current : [...current, { id: output.mediaUrl!, name: output.mediaUrl!, thumbnailPath: output.mediaUrl || undefined }],
-            );
-          }
+          addFileReference(setFileRefs, getOutputReference(output));
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
         }}
@@ -558,11 +584,7 @@ export function CreateView() {
           setAspectRatio(generation.aspectRatio || '1:1');
           setProvider(generation.provider || 'gemini');
           setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
-          if (output.mediaUrl) {
-            setFileRefs((current) =>
-              current.some((item) => item.id === output.mediaUrl!) ? current : [...current, { id: output.mediaUrl!, name: output.mediaUrl!, thumbnailPath: output.mediaUrl || undefined }],
-            );
-          }
+          addFileReference(setFileRefs, getOutputReference(output));
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
         }}

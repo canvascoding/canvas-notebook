@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
@@ -66,19 +66,26 @@ export function StudioPreview({
 }: StudioPreviewProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
+  const handleClose = useCallback(() => {
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    onClose();
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        handleClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, open]);
+  }, [handleClose, open]);
 
   const requestContext = useMemo(() => ({
     currentPage: '/studio/create',
@@ -107,7 +114,7 @@ export function StudioPreview({
     setShowDeleteDialog(false);
     if (generation && output) {
       onDelete(generation, output);
-      onClose();
+      handleClose();
     }
   };
 
@@ -169,7 +176,7 @@ export function StudioPreview({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleClose(); }}>
       <DialogContent layout="viewport" showCloseButton={false} className="overflow-hidden bg-background p-0">
         <DialogTitle className="sr-only">Studio output preview</DialogTitle>
         <DialogDescription className="sr-only">
@@ -178,7 +185,7 @@ export function StudioPreview({
 
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex items-center justify-between border-b border-border/70 px-4 py-3 sm:px-6">
-            <Button variant="ghost" size="sm" className="gap-2 rounded-full" onClick={onClose}>
+            <Button variant="ghost" size="sm" className="gap-2 rounded-full" onClick={handleClose}>
               <ArrowLeft className="h-4 w-4" />
               Zurück zum Grid
             </Button>
