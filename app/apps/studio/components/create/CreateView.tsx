@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
 import Image from 'next/image';
-import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type VideoDuration } from '@/app/lib/integrations/image-generation-constants';
+import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 
 const STARTING_POINTS = [
@@ -171,7 +171,10 @@ export function CreateView() {
   const [background, setBackground] = useState<'transparent' | 'opaque' | 'auto'>('auto');
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [videoResolution, setVideoResolution] = useState<VideoResolution>('720p');
-  const [videoDuration, setVideoDuration] = useState<VideoDuration>(6);
+  const [videoDuration, setVideoDuration] = useState<StudioVideoDuration>(6);
+  const [videoGenerateAudio, setVideoGenerateAudio] = useState(true);
+  const [videoWebSearch, setVideoWebSearch] = useState(false);
+  const [videoNsfwChecker, setVideoNsfwChecker] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
   const personGeneration = 'allow_all';
   const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
@@ -252,6 +255,9 @@ export function CreateView() {
       end_frame_path: mode === 'video' ? endFramePath : undefined,
       is_looping: mode === 'video' ? isLooping : undefined,
       person_generation: mode === 'video' ? personGeneration : undefined,
+      video_generate_audio: mode === 'video' && provider === 'bytedance' ? videoGenerateAudio : undefined,
+      video_web_search: mode === 'video' && provider === 'bytedance' ? videoWebSearch : undefined,
+      video_nsfw_checker: mode === 'video' && provider === 'bytedance' ? videoNsfwChecker : undefined,
     });
 
     if (result) {
@@ -333,9 +339,9 @@ export function CreateView() {
                   return { id, name: p?.name || id };
                 }));
                 setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
-                setAspectRatio(generation.aspectRatio || '1:1');
-                setProvider(generation.provider || 'gemini');
-                setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+                setAspectRatio(['16:9', '9:16'].includes(generation.aspectRatio) ? generation.aspectRatio : '16:9');
+                setProvider('veo');
+                setModel(getDefaultModelForProvider('video', 'veo'));
                 addFileReference(setFileRefs, getOutputReference(output));
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
@@ -463,6 +469,9 @@ export function CreateView() {
                 setAspectRatio('16:9');
                 setVideoResolution('720p');
                 setVideoDuration(6);
+                setVideoGenerateAudio(true);
+                setVideoWebSearch(false);
+                setVideoNsfwChecker(false);
               } else {
                 setProvider('gemini');
                 setModel(getDefaultModelForProvider('image', 'gemini'));
@@ -485,7 +494,14 @@ export function CreateView() {
               setModel(getDefaultModelForProvider(mode, nextProvider));
               const validRatios = getAspectRatiosForProvider(mode, nextProvider);
               if (!validRatios.includes(aspectRatio as never)) {
-                setAspectRatio('1:1');
+                setAspectRatio(mode === 'video' ? '16:9' : '1:1');
+              }
+              if (mode === 'video') {
+                const nextModel = getDefaultModelForProvider(mode, nextProvider);
+                const validRes = getVideoResolutionsForModel(nextModel);
+                setVideoResolution(validRes.includes(videoResolution) ? videoResolution : validRes[0] as VideoResolution);
+                const validDur = getVideoDurationsForModel(nextModel);
+                setVideoDuration(validDur.includes(videoDuration) ? videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
               }
             }}
             model={model}
@@ -498,7 +514,7 @@ export function CreateView() {
                 }
                 const validDur = getVideoDurationsForModel(nextModel);
                 if (!validDur.includes(videoDuration)) {
-                  setVideoDuration(validDur.includes(6) ? 6 : validDur[0] as VideoDuration);
+                  setVideoDuration(validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
                 }
               }
             }}
@@ -511,12 +527,18 @@ export function CreateView() {
             videoResolution={videoResolution}
             onVideoResolutionChange={(res) => {
               setVideoResolution(res);
-              if (res === '1080p' || res === '4k') {
+              if (provider !== 'bytedance' && (res === '1080p' || res === '4k')) {
                 setVideoDuration(8);
               }
             }}
             videoDuration={videoDuration}
             onVideoDurationChange={setVideoDuration}
+            videoGenerateAudio={videoGenerateAudio}
+            onVideoGenerateAudioChange={setVideoGenerateAudio}
+            videoWebSearch={videoWebSearch}
+            onVideoWebSearchChange={setVideoWebSearch}
+            videoNsfwChecker={videoNsfwChecker}
+            onVideoNsfwCheckerChange={setVideoNsfwChecker}
             onGenerate={handleGenerate}
             isGenerating={generationHook.loading}
             canGenerate={canGenerate}
