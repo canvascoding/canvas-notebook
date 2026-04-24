@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import type {
   AutomationJobRecord,
-  AutomationPreferredSkill,
   AutomationRunRecord,
   AutomationRunStatus,
   AutomationTriggerType,
@@ -28,7 +27,6 @@ type JobDraft = {
   id: string | null;
   name: string;
   prompt: string;
-  preferredSkill: AutomationPreferredSkill;
   workspaceContextText: string;
   targetOutputPath: string;
   status: 'active' | 'paused';
@@ -51,7 +49,6 @@ type PersistedAutomationSessionMessage = {
 };
 
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-const PREFERRED_SKILLS: AutomationPreferredSkill[] = ['auto', 'image_generation', 'video_generation', 'ad_localization', 'qmd'];
 
 function defaultDraft(): JobDraft {
   const now = new Date();
@@ -61,7 +58,6 @@ function defaultDraft(): JobDraft {
     id: null,
     name: '',
     prompt: '',
-    preferredSkill: 'auto',
     workspaceContextText: '',
     targetOutputPath: '',
     status: 'active',
@@ -106,7 +102,6 @@ function buildPayload(draft: JobDraft) {
   return {
     name: draft.name,
     prompt: draft.prompt,
-    preferredSkill: draft.preferredSkill,
     workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
     targetOutputPath: draft.targetOutputPath.trim() || null,
     status: draft.status,
@@ -224,7 +219,6 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.id = job.id;
   draft.name = job.name;
   draft.prompt = job.prompt;
-  draft.preferredSkill = job.preferredSkill;
   draft.workspaceContextText = job.workspaceContextPaths.join('\n');
   draft.targetOutputPath = job.targetOutputPath || '';
   draft.status = job.status;
@@ -297,16 +291,6 @@ export function AutomationsClient() {
     }),
     [t],
   );
-  const preferredSkills = useMemo(
-    () =>
-      PREFERRED_SKILLS.map((value) => ({
-        value,
-        label: t(`preferredSkills.${value}.label`),
-        hint: t(`preferredSkills.${value}.hint`),
-      })),
-    [t],
-  );
-
   async function loadJobs(options?: { keepSelection?: boolean }) {
     setIsLoadingJobs(true);
     try {
@@ -681,23 +665,6 @@ export function AutomationsClient() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">{t('editor.fields.preferredSkill')}</span>
-                <select
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  value={draft.preferredSkill}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, preferredSkill: event.target.value as AutomationPreferredSkill }))
-                  }
-                >
-                  {preferredSkills.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('editor.fields.timeZone')}</span>
                 <input
                   className="h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -706,9 +673,6 @@ export function AutomationsClient() {
                 />
               </label>
             </div>
-            <p className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {preferredSkills.find((option) => option.value === draft.preferredSkill)?.hint}
-            </p>
 
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>

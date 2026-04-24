@@ -1199,10 +1199,9 @@
       "description": "Keep it non-technical. The agent will execute the task in the workspace later.",
       "fields": {
         "name": "Name",
-        "status": "Status",
-        "prompt": "What should be done?",
-        "preferredSkill": "Preferred action",
-        "timeZone": "Time zone",
+         "status": "Status",
+         "prompt": "What should be done?",
+         "timeZone": "Time zone",
         "workspaceContext": "Relevant files or folders"
       },
       "placeholders": {
@@ -1319,31 +1318,9 @@
       "thu": "Thu",
       "fri": "Fri",
       "sat": "Sat",
-      "sun": "Sun"
-    },
-    "preferredSkills": {
-      "auto": {
-        "label": "Automatic",
-        "hint": "The agent decides on its own which tools make sense."
-      },
-      "image_generation": {
-        "label": "Create image",
-        "hint": "Focus on image generation."
-      },
-      "video_generation": {
-        "label": "Create video",
-        "hint": "Focus on video generation."
-      },
-      "ad_localization": {
-        "label": "Localize ad",
-        "hint": "Focus on ad localization."
-      },
-      "qmd": {
-        "label": "Search workspace",
-        "hint": "Focus on qmd workspace search with text and document index."
-      }
-    },
-    "directoryPicker": {
+       "sun": "Sun"
+     },
+     "directoryPicker": {
       "title": "Choose folder in workspace",
       "description": "Choose an existing base folder in the workspace inspector. The tree starts collapsed by default.",
       "searchPlaceholder": "Search folders",

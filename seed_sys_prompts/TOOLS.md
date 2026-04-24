@@ -101,24 +101,14 @@ Rules:
 - Only if absolutely necessary, use: pip3 install --break-system-packages <package>.
 - Before assuming anything, quickly verify with: whoami, sudo -n true, python3 --version, pip3 --version.
 
-### ad_localization
-Localizes advertisements. Use when the user says: "localize this ad", "translate for market...", "adapt for country..."
-
 ## Important Notes
 
-- **image_generation, video_generation, ad_localization** require GEMINI_API_KEY configured in Settings → Integrations. No other keys or tokens are needed for any tool.
 - **Automation tools** (create_automation_job, update_automation_job, delete_automation_job, trigger_automation_job, list_automation_jobs) require no API key or authentication — they work directly out of the box.
-- **Do not read token/env files:** For Gemini tools, do not use internal API routes or env files directly. The wrappers resolve the central integration configuration themselves.
 - All skill-related secrets and environment variables supplied by the user live in `/data/secrets/Canvas-Integrations.env`
 - If you create a new skill that needs env vars, explicitly instruct the user to add them in Settings → Integrations so they end up in `/data/secrets/Canvas-Integrations.env`
 - Never store new secrets in `/data/skills/<skill-name>/`, `/data/workspace`, or other ad-hoc files
 - Do not manually maintain generated wrappers in `/data/skills/bin`; update the skill manifest/runtime and let the wrappers be regenerated
 - **Output directories:** All results are workspace-relative under /data/workspace
-
-## Detailed Documentation
-
-For complete documentation, parameter details, and examples:
-- /data/skills/ad-localization/SKILL.md
 
 ## Workflow Automation
 
@@ -131,7 +121,7 @@ Automations are scheduled tasks that execute prompts automatically at specified 
 1. **Creating a New Automation** (User requests in chat):
    - When the user says: "Create an automation...", "Set up a scheduled task...", "Automate this..."
    - Use `create_automation_job` directly to create a new job
-   - Required: name, prompt, schedule. Optional: preferredSkill, targetOutputPath, workspaceContextPaths, status
+   - Required: name, prompt, schedule. Optional: targetOutputPath, workspaceContextPaths, status
 
 2. **Executing an Automation** (Scheduled/Manual trigger):
    - When a message arrives with prefix "Automation name: ..." or similar automation context
@@ -154,30 +144,9 @@ No API key, token, or authentication is required for any automation tool.
 - **NEVER** create an automation when you receive an automation execution message
 - **ALWAYS** execute the task when the message contains automation context
 - Use the built-in automation tools when the user asks to create or manage automations
-- Automation execution messages come with pre-configured context (name, preferred skill, output paths)
+- Automation execution messages come with pre-configured context (name, output paths)
 
 ## Trigger Phrases (When to use which tool)
-
-**image_generation:**
-- "create an image"
-- "generate a photo"
-- "make a picture of..."
-- "erstelle ein Bild"
-- "generiere ein Foto"
-
-**video_generation:**
-- "create a video"
-- "generate a video"
-- "make a video of..."
-- "erstelle ein Video"
-- "generiere ein Video"
-
-**ad_localization:**
-- "localize this ad"
-- "translate for market..."
-- "adapt for country..."
-- "lokalisiere diese Anzeige"
-- "übersetze für Markt..."
 
 **automation tools:**
 - "create an automation" → `create_automation_job`

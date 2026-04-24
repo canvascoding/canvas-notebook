@@ -145,7 +145,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
   const promptText = buildAutomationPrompt({
     name: job.name,
-    preferredSkill: job.preferredSkill,
     workspaceContextPaths: job.workspaceContextPaths,
     prompt: job.prompt,
     effectiveTargetOutputPath,

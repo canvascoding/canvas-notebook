@@ -18,7 +18,6 @@ import {
   type UpdateAutomationJobInput,
 } from './types';
 
-const VALID_PREFERRED_SKILLS = new Set<AutomationPreferredSkill>(['auto']);
 const STALE_AUTOMATION_RUN_TTL_MS = 15 * 60_000;
 
 type AutomationSessionMetadata = {
@@ -41,10 +40,10 @@ function normalizeString(value: unknown, field: string, maxLength = 4000): strin
   return trimmed.slice(0, maxLength);
 }
 
-function normalizePreferredSkill(value: unknown): AutomationPreferredSkill {
-  const normalized = typeof value === 'string' ? value.trim() : 'auto';
-  if (VALID_PREFERRED_SKILLS.has(normalized as AutomationPreferredSkill)) {
-    return normalized as AutomationPreferredSkill;
+function ensurePreferredSkill(value: unknown): AutomationPreferredSkill {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (normalized === 'auto') {
+    return 'auto';
   }
   return 'auto';
 }
@@ -95,7 +94,7 @@ function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord
     name: row.name,
     status: row.status as AutomationJobRecord['status'],
     prompt: row.prompt,
-    preferredSkill: normalizePreferredSkill(row.preferredSkill),
+    preferredSkill: ensurePreferredSkill(row.preferredSkill),
     workspaceContextPaths,
     targetOutputPath,
     effectiveTargetOutputPath: getEffectiveAutomationTargetOutputPath({ name: row.name, targetOutputPath }),
@@ -217,7 +216,7 @@ export async function getAutomationRun(runId: string): Promise<AutomationRunReco
 export async function createAutomationJob(input: CreateAutomationJobInput, userId: string): Promise<AutomationJobRecord> {
   const name = normalizeString(input.name, 'Name', 120);
   const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
-  const preferredSkill = normalizePreferredSkill(input.preferredSkill);
+  const preferredSkill: AutomationPreferredSkill = 'auto';
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const { schedule, error } = validateFriendlySchedule(input.schedule);
@@ -279,7 +278,7 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
     .set({
       name: input.name ? normalizeString(input.name, 'Name', 120) : existing.name,
       prompt: input.prompt ? normalizeString(input.prompt, 'Prompt', 12_000) : existing.prompt,
-      preferredSkill: input.preferredSkill ? normalizePreferredSkill(input.preferredSkill) : (existing.preferredSkill as AutomationPreferredSkill),
+      preferredSkill: ensurePreferredSkill(existing.preferredSkill),
       workspaceContextPathsJson: input.workspaceContextPaths
         ? JSON.stringify(normalizeWorkspaceContextPaths(input.workspaceContextPaths))
         : existing.workspaceContextPathsJson,
