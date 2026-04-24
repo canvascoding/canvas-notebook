@@ -231,8 +231,30 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }
       fullPath = resolved;
+    } else if (
+      filePath.startsWith('products/') ||
+      filePath.startsWith('personas/') ||
+      filePath.startsWith('styles/') ||
+      filePath.startsWith('presets/') ||
+      filePath.startsWith('references/')
+    ) {
+      // Studio asset paths stored without full prefix
+      const resolved = resolveValidatedStudioAssetPath(filePath);
+      if (!resolved) {
+        return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+      }
+      fullPath = resolved;
     } else {
       fullPath = validatePath(filePath);
+    }
+
+    // Check if file exists before stat
+    const exists = await fileExists(fullPath);
+    if (!exists) {
+      return NextResponse.json(
+        { success: false, error: 'File not found' },
+        { status: 404 }
+      );
     }
 
     const stats = await fs.stat(fullPath);
