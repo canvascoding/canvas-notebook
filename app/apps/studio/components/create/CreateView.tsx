@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -206,6 +206,8 @@ export function CreateView() {
   const [dateFilter, setDateFilter] = useState<OutputDateFilter>('all');
   const [sortOrder, setSortOrder] = useState<OutputSortOrder>('newest');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const promptOverlayRef = useRef<HTMLDivElement | null>(null);
+  const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
 
   const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
     setPicker({ open: true, target, maxSelection });
@@ -280,6 +282,20 @@ export function CreateView() {
     void fetchPresets();
   }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets, fetchStyles]);
 
+  useEffect(() => {
+    const node = promptOverlayRef.current;
+    if (!node) return;
+
+    const updateOverlayHeight = () => {
+      setPromptOverlayHeight(Math.ceil(node.getBoundingClientRect().height));
+    };
+
+    updateOverlayHeight();
+    const observer = new ResizeObserver(updateOverlayHeight);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [mode, showMoreOptions]);
+
   const canGenerate = useMemo(() => {
     return rawPrompt.trim().length > 0 || productRefs.length > 0 || personaRefs.length > 0 || presetRef !== null || fileRefs.length > 0;
   }, [personaRefs.length, presetRef, productRefs.length, rawPrompt, fileRefs.length]);
@@ -323,7 +339,10 @@ export function CreateView() {
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col">
-          <div className="flex-1 min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.12),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.12),_transparent_32%)]">
+          <div
+            className="flex-1 min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.12),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.12),_transparent_32%)]"
+            style={{ paddingBottom: promptOverlayHeight + 32 }}
+          >
             <div className="sticky top-0 z-30 border-b border-border/70 bg-background/90 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/75">
               <div className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -490,7 +509,10 @@ export function CreateView() {
         </div>
       </div>
 
-      <div className="sticky bottom-0 border-t border-border/80 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85 md:px-6">
+      <div
+        ref={promptOverlayRef}
+        className="absolute inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/90 px-4 py-4 shadow-[0_-24px_60px_rgba(0,0,0,0.16)] backdrop-blur supports-[backdrop-filter]:bg-background/75 md:px-6"
+      >
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
           {mode === 'video' ? (
             <div className="space-y-2 border border-border bg-background p-3">
