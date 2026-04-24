@@ -1159,6 +1159,9 @@
       "title": "Keine Skills gefunden",
       "description": "Skills erscheinen hier, sobald sie dem Verzeichnis /data/skills/ hinzugefügt wurden."
     },
+    "saving": "Speichern...",
+    "unsavedChanges": "Ungespeicherte Änderungen",
+    "savedAt": "Gespeichert {time}",
     "detail": {
       "srDescription": "Details und Dokumentation für den ausgewählten Skill.",
       "enabled": "Aktiviert",
@@ -1171,7 +1174,8 @@
       "license": "Lizenz:",
       "compatibility": "Kompatibilität:",
       "errors": {
-        "loadContent": "Skill-Inhalt konnte nicht geladen werden"
+        "loadContent": "Skill-Inhalt konnte nicht geladen werden",
+        "saveFailed": "Skill-Inhalt konnte nicht gespeichert werden"
       }
     }
   },

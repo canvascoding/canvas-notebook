@@ -1157,6 +1157,9 @@
       "title": "No Skills Found",
       "description": "Skills will appear here once they are added to the /data/skills/ directory."
     },
+    "saving": "Saving...",
+    "unsavedChanges": "Unsaved changes",
+    "savedAt": "Saved {time}",
     "detail": {
       "srDescription": "Details and documentation for the selected skill.",
       "enabled": "Enabled",
@@ -1169,7 +1172,8 @@
       "license": "License:",
       "compatibility": "Compatibility:",
       "errors": {
-        "loadContent": "Failed to load skill content"
+        "loadContent": "Failed to load skill content",
+        "saveFailed": "Failed to save skill content"
       }
     }
   },
