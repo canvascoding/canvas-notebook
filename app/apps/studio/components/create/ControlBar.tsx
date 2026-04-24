@@ -239,7 +239,7 @@ export function ControlBar({
               >
                 {(mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS).map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.id === 'gemini' ? 'Google Gemini' : p.id === 'openai' ? 'OpenAI' : p.id === 'bytedance' ? 'Bytedance Seedance' : 'Google Veo'}
+                    {p.id === 'gemini' ? 'Google Gemini' : p.id === 'openai' ? 'OpenAI' : p.id === 'bytedance' ? 'Bytedance' : 'Google Veo'}
                   </option>
                 ))}
               </select>

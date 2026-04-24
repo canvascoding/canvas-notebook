@@ -19,6 +19,7 @@ import { OutputGrid } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
 import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
+import { ReferencePickerDialog } from './ReferencePickerDialog';
 import Image from 'next/image';
 import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
@@ -186,14 +187,36 @@ export function CreateView() {
   const [fileRefs, setFileRefs] = useState<Array<{ id: string; name: string; thumbnailPath?: string; status?: 'loading' | string }>>([]);
   const [startFramePath, setStartFramePath] = useState<string | null>(null);
   const [endFramePath, setEndFramePath] = useState<string | null>(null);
+  const [picker, setPicker] = useState<{
+    open: boolean;
+    target: 'start' | 'end' | 'references';
+    maxSelection: number;
+  }>({
+    open: false,
+    target: 'start',
+    maxSelection: 1,
+  });
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
   const [selectedOutputIds, setSelectedOutputIds] = useState<string[]>([]);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
-    void target;
-    void maxSelection;
+    setPicker({ open: true, target, maxSelection });
+  };
+
+  const handlePickerConfirm = (paths: string[]) => {
+    if (picker.target === 'start') {
+      setStartFramePath(paths[0] || null);
+      if (isLooping) {
+        setEndFramePath(null);
+      }
+      return;
+    }
+    if (picker.target === 'end') {
+      setEndFramePath(paths[0] || null);
+      return;
+    }
   };
 
   const resolvedSelectedGeneration = selectedGenerationId
@@ -622,6 +645,13 @@ export function CreateView() {
         open={showSaveDialog}
         onOpenChange={setShowSaveDialog}
         outputIds={selectedOutputIds}
+      />
+      <ReferencePickerDialog
+        open={picker.open}
+        onOpenChange={(open) => setPicker((current) => ({ ...current, open }))}
+        multiple={false}
+        maxSelection={picker.maxSelection}
+        onConfirm={handlePickerConfirm}
       />
     </div>
   );
