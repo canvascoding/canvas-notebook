@@ -128,7 +128,7 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
   const availableStyles = useMemo(() => (styles ?? []).filter((style) => !(value.styleRefs ?? []).some((selected) => selected.id === style.id)), [styles, value.styleRefs]);
 
   return (
-    <div className="rounded-[28px] border border-border/70 bg-card/85 p-4 shadow-xl">
+    <div className="rounded-[28px] border border-border/80 bg-card/95 p-4 shadow-2xl">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
           <AtSign className="h-3.5 w-3.5" />
@@ -283,7 +283,7 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
         </div>
       ) : null}
 
-      <textarea value={value.rawPrompt} onChange={(event) => onRawPromptChange(event.target.value)} placeholder={t('placeholder')} className="min-h-24 w-full resize-y rounded-3xl border border-border/70 bg-background/80 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15" />
+      <textarea value={value.rawPrompt} onChange={(event) => onRawPromptChange(event.target.value)} placeholder={t('placeholder')} className="min-h-24 w-full resize-y rounded-3xl border border-border/80 bg-background/95 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15" />
 
       <ReferencePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onConfirm={(paths) => { onFileAdd(paths); setPickerOpen(false); }} />
     </div>
