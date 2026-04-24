@@ -147,7 +147,22 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
                 <DropdownMenuSubTrigger><Package2 className="h-4 w-4" />{t('product')}</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
                   {availableProducts.length === 0 ? <DropdownMenuItem disabled>{t('noProducts')}</DropdownMenuItem> : availableProducts.map((product) => (
-                    <DropdownMenuItem key={product.id} onSelect={() => onProductAdd(product)}><div className="min-w-0"><div className="truncate font-medium">{product.name}</div>{product.description ? <div className="truncate text-xs text-muted-foreground">{product.description}</div> : null}</div></DropdownMenuItem>
+                    <DropdownMenuItem key={product.id} onSelect={() => onProductAdd(product)} className="flex items-center gap-3">
+                      {product.thumbnailPath ? (
+                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={toPreviewUrl(product.thumbnailPath, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        </div>
+                      ) : (
+                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50 bg-muted flex items-center justify-center">
+                          <Package2 className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{product.name}</div>
+                        {product.description ? <div className="truncate text-xs text-muted-foreground">{product.description}</div> : null}
+                      </div>
+                    </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -155,7 +170,22 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
                 <DropdownMenuSubTrigger><UserRound className="h-4 w-4" />{t('persona')}</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
                   {availablePersonas.length === 0 ? <DropdownMenuItem disabled>{t('noPersonas')}</DropdownMenuItem> : availablePersonas.map((persona) => (
-                    <DropdownMenuItem key={persona.id} onSelect={() => onPersonaAdd(persona)}><div className="min-w-0"><div className="truncate font-medium">{persona.name}</div>{persona.description ? <div className="truncate text-xs text-muted-foreground">{persona.description}</div> : null}</div></DropdownMenuItem>
+                    <DropdownMenuItem key={persona.id} onSelect={() => onPersonaAdd(persona)} className="flex items-center gap-3">
+                      {persona.thumbnailPath ? (
+                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={toPreviewUrl(persona.thumbnailPath, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        </div>
+                      ) : (
+                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50 bg-muted flex items-center justify-center">
+                          <UserRound className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{persona.name}</div>
+                        {persona.description ? <div className="truncate text-xs text-muted-foreground">{persona.description}</div> : null}
+                      </div>
+                    </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -163,7 +193,22 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
                 <DropdownMenuSubTrigger><LayoutTemplate className="h-4 w-4" />{t('style')}</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
                   {availableStyles.length === 0 ? <DropdownMenuItem disabled>{t('noStyles')}</DropdownMenuItem> : availableStyles.map((style) => (
-                    <DropdownMenuItem key={style.id} onSelect={() => onStyleAdd(style)}><div className="min-w-0"><div className="truncate font-medium">{style.name}</div>{style.description ? <div className="truncate text-xs text-muted-foreground">{style.description}</div> : null}</div></DropdownMenuItem>
+                    <DropdownMenuItem key={style.id} onSelect={() => onStyleAdd(style)} className="flex items-center gap-3">
+                      {style.thumbnailPath ? (
+                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={toPreviewUrl(style.thumbnailPath, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        </div>
+                      ) : (
+                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50 bg-muted flex items-center justify-center">
+                          <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{style.name}</div>
+                        {style.description ? <div className="truncate text-xs text-muted-foreground">{style.description}</div> : null}
+                      </div>
+                    </DropdownMenuItem>
                   ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
