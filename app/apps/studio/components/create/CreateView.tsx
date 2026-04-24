@@ -439,7 +439,7 @@ export function CreateView() {
                         onClick={handleSaveToWorkspace}
                         disabled={selectedOutputIds.length === 0}
                       >
-                        Save to workspace
+                        Import to workspace
                       </button>
                     </div>
                   </div>
@@ -774,6 +774,10 @@ export function CreateView() {
         open={showSaveDialog}
         onOpenChange={setShowSaveDialog}
         outputIds={selectedOutputIds}
+        onImported={() => {
+          setSelectedOutputIds([]);
+          setSelectionEnabled(false);
+        }}
       />
       <ReferencePickerDialog
         open={picker.open}
