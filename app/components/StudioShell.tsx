@@ -31,7 +31,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 type DesktopChatMode = 'side' | 'fullscreen';
 
-const CHAT_WIDTH_MIN = 300;
+const CHAT_WIDTH_MIN = 390;
 const CHAT_WIDTH_MAX = 600;
 const DEFAULT_CHAT_WIDTH = 420;
 
