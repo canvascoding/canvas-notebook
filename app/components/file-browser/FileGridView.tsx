@@ -85,7 +85,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
         curExpanded.size > 0 ||
         curSearch.trim().length > 0;
 
-      if (variant !== 'mobile-sheet' || !hasRestorableState) {
+      if (!hasRestorableState) {
         await loadFileTree('.', 0);
         return;
       }
@@ -120,11 +120,12 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
           }
         }
 
-        useFileStore.setState((state) => ({
-          expandedDirs: new Set(
-            Array.from(state.expandedDirs).filter((dirPath) => dirPath === '.' || validExpandedDirs.has(dirPath))
-          ),
-        }));
+        const currentExpanded = useFileStore.getState().expandedDirs;
+        useFileStore.getState().setExpandedDirs(
+          new Set(
+            Array.from(currentExpanded).filter((dirPath) => dirPath === '.' || validExpandedDirs.has(dirPath))
+          )
+        );
 
         const restoredTree = useFileStore.getState().fileTree;
         const currentDirExists = curDir === '.' || findPathInTree(curDir, restoredTree);
