@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, Code2, Download, Eye, FileText, Loader2, RefreshCw, Save, Share2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, RefreshCw, Save, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { useFileStore } from '@/app/store/file-store';
+import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
 import { MarkdownEditor } from './MarkdownEditor';
 import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
@@ -93,6 +93,38 @@ function getExtension(path: string) {
   return parts[parts.length - 1].toLowerCase();
 }
 
+function flattenDirectoryImages(nodes: FileNode[], dirPath: string): string[] {
+  const isImagePath = (path: string) => IMAGE_EXTENSIONS.has(getExtension(path));
+
+  if (dirPath === '.') {
+    return nodes
+      .filter((node) => node.type === 'file' && isImagePath(node.path))
+      .map((node) => node.path);
+  }
+
+  for (const node of nodes) {
+    if (node.path === dirPath) {
+      return (node.children ?? [])
+        .filter((child) => child.type === 'file' && isImagePath(child.path))
+        .map((child) => child.path);
+    }
+    if (node.children) {
+      const nestedImages = flattenDirectoryImages(node.children, dirPath);
+      if (nestedImages.length > 0) {
+        return nestedImages;
+      }
+    }
+  }
+
+  return [];
+}
+
+function isTextInputTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable;
+}
+
 function formatTimestamp(timestamp: number | null) {
   if (!timestamp) return null;
   return new Date(timestamp).toLocaleTimeString([], {
@@ -103,7 +135,7 @@ function formatTimestamp(timestamp: number | null) {
 
 export function FileEditor() {
   const t = useTranslations('notebook');
-  const { currentFile, isLoadingFile, fileError, saveFile, downloadFile } = useFileStore();
+  const { currentFile, isLoadingFile, fileError, saveFile, downloadFile, loadFile, fileTree, currentDirectory } = useFileStore();
   const {
     activePath,
     draft,
@@ -120,6 +152,7 @@ export function FileEditor() {
   } = useEditorStore();
 
   const saveTimeoutRef = useRef<number | null>(null);
+  const imagePreviewRef = useRef<HTMLDivElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('preview');
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
@@ -208,6 +241,23 @@ export function FileEditor() {
   const savedTime = formatTimestamp(lastSavedAt);
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const mediaMimeType = MEDIA_MIME_TYPES[extension];
+  const imagePaths = useMemo(
+    () => flattenDirectoryImages(fileTree, currentDirectory),
+    [currentDirectory, fileTree]
+  );
+  const imageIndex = currentFile && isImage ? imagePaths.indexOf(currentFile.path) : -1;
+  const hasImagePrev = imageIndex > 0;
+  const hasImageNext = imageIndex >= 0 && imageIndex < imagePaths.length - 1;
+
+  const handleImagePrev = useCallback(() => {
+    if (!hasImagePrev) return;
+    void loadFile(imagePaths[imageIndex - 1], true);
+  }, [hasImagePrev, imageIndex, imagePaths, loadFile]);
+
+  const handleImageNext = useCallback(() => {
+    if (!hasImageNext) return;
+    void loadFile(imagePaths[imageIndex + 1], true);
+  }, [hasImageNext, imageIndex, imagePaths, loadFile]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -239,6 +289,34 @@ export function FileEditor() {
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
   }, [markSaved, markSaving, saveFile, setSaveError, t]);
+
+  useEffect(() => {
+    if (!isImage) return;
+    imagePreviewRef.current?.focus({ preventScroll: true });
+  }, [currentFile?.path, isImage]);
+
+  useEffect(() => {
+    if (!isImage || imagePaths.length <= 1) return;
+
+    const handleImageKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (isTextInputTarget(event.target)) return;
+
+      const previewElement = imagePreviewRef.current;
+      if (!previewElement?.contains(document.activeElement)) return;
+
+      event.preventDefault();
+      if (event.key === 'ArrowLeft') {
+        handleImagePrev();
+      } else {
+        handleImageNext();
+      }
+    };
+
+    window.addEventListener('keydown', handleImageKeyDown);
+    return () => window.removeEventListener('keydown', handleImageKeyDown);
+  }, [handleImageNext, handleImagePrev, imagePaths.length, isImage]);
 
   if (isLoadingFile) {
     return (
@@ -344,7 +422,7 @@ export function FileEditor() {
           )}
         </div>
       </div>
-      <div className={isVideo || isMarkdown || isHtml ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
+      <div className={isImage || isVideo || isMarkdown || isHtml ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText className="h-8 w-8" />
@@ -355,7 +433,39 @@ export function FileEditor() {
               </Button>
             </div>
           ) : isImage ? (
-            <ImageViewer path={currentFile.path} />
+            <div
+              ref={imagePreviewRef}
+              tabIndex={0}
+              className="relative h-full outline-none"
+              aria-label={breadcrumbs[breadcrumbs.length - 1] ?? currentFile.path}
+            >
+              <ImageViewer path={currentFile.path} />
+
+              {imagePaths.length > 1 && imageIndex >= 0 && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-background/90 shadow-sm backdrop-blur disabled:opacity-40"
+                    onClick={handleImagePrev}
+                    disabled={!hasImagePrev}
+                    aria-label={t('previous')}
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-background/90 shadow-sm backdrop-blur disabled:opacity-40"
+                    onClick={handleImageNext}
+                    disabled={!hasImageNext}
+                    aria-label={t('next')}
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </Button>
+                </>
+              )}
+            </div>
           ) : isOffice ? (
             <OfficeEditor 
               key={currentFile.path} 
