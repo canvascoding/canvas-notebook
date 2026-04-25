@@ -87,11 +87,13 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
       contextMenuJustOpened.current = true;
       if (!isMultiSelected) {
         useFileStore.getState().clearMultiSelect();
-        selectNode(node);
+        useFileStore.setState({
+          selectedNode: { path: node.path, type: node.type, name: node.name },
+        });
       }
       openContextMenu(node, { x: event.clientX, y: event.clientY });
     },
-    [node, isMultiSelected, selectNode, openContextMenu]
+    [node, isMultiSelected, openContextMenu]
   );
 
   const thumbnailSrc = showImagePreview && !thumbnailError
@@ -131,14 +133,23 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
           </button>
         ) : (
           <button
+            onPointerDown={(e) => {
+              e.stopPropagation();
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+            }}
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
+              contextMenuJustOpened.current = true;
               useFileStore.getState().clearMultiSelect();
-              selectNode(node);
+              useFileStore.setState({
+                selectedNode: { path: node.path, type: node.type, name: node.name },
+              });
               openContextMenu(node, { x: e.clientX, y: e.clientY });
             }}
-            className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-accent/70 transition-opacity"
+            className="shrink-0 rounded p-1 opacity-100 transition-opacity hover:bg-accent/70 md:opacity-0 md:group-hover:opacity-100"
             aria-label="More actions"
           >
             <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
