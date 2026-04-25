@@ -109,15 +109,18 @@ Copy `.env.docker.example` to `.env.docker.local` and set the values below. `npm
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `BETTER_AUTH_SECRET` | Yes | Random 32-byte base64 secret — run `openssl rand -base64 32` |
-| `BASE_URL` | Yes | App URL, e.g. `http://localhost:3456` |
-| `BETTER_AUTH_BASE_URL` | Yes | Same as BASE_URL |
+| `BETTER_AUTH_SECRET` | **Yes** | Random 32-byte base64 secret — run `openssl rand -base64 32` |
+| `CANVAS_INTERNAL_API_KEY` | **Yes** | Internal API secret — run `openssl rand -base64 32` |
+| `BASE_URL` | **Yes** | App URL, e.g. `http://localhost:3456` |
+| `BETTER_AUTH_BASE_URL` | **Yes** | Same as BASE_URL |
 | `BOOTSTRAP_ADMIN_EMAIL` | Recommended | Single app login email, created or synchronized on every start |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Recommended | Password for the bootstrap admin |
 | `BOOTSTRAP_ADMIN_NAME` | No | Display name for the bootstrap admin (default: Administrator) |
+| `DATA` | No | Base path for all app data (default: `/data`) |
 | `ONBOARDING` | No | Set to `true` to show the provider onboarding wizard after login |
-| `AI_CLI_AUTO_INSTALL` | No | Auto-install Codex CLI if missing (default: `true`) |
-| `OLLAMA_CLI_AUTO_INSTALL` | No | Auto-install Ollama CLI if missing (default: `true`) |
+| `AI_CLI_AUTO_INSTALL` | No | Auto-install AI CLI if missing (default: `false`) |
+| `OLLAMA_CLI_AUTO_INSTALL` | No | Auto-install Ollama CLI if missing (default: `false`) |
+| `LOG_LEVEL` | No | Logging level: `off` \| `error` \| `warn` \| `info` \| `debug` (default: `info`) |
 
 AI provider API keys (Claude, OpenRouter, Gemini, etc.) are configured inside the running app — you don't need them in the env file.
 
