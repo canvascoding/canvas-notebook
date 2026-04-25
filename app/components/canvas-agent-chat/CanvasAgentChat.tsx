@@ -263,6 +263,16 @@ function isImagePart(value: unknown): value is { type: 'image'; data: string; mi
   return isRecord(value) && value.type === 'image' && typeof value.data === 'string' && typeof value.mimeType === 'string';
 }
 
+function resolveAttachmentCategory(attachment: Attachment): string {
+  const category = attachment.category || (attachment.contentKind === 'image' ? 'image' : 'document');
+  return category;
+}
+
+function buildAttachmentContainerPath(attachment: Attachment): string {
+  const category = resolveAttachmentCategory(attachment);
+  return `/data/user-uploads/${category}/${attachment.id}`;
+}
+
 function buildPromptContent(text: string, attachments: Attachment[]): UserPiContent {
   if (attachments.length === 0) {
     return text;
@@ -273,12 +283,23 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
     content.push({ type: 'text', text });
   }
 
-  // Build direct file paths using DATA environment variable
-  // This allows the agent to read files directly from the filesystem
-  const DATA_DIR = process.env.DATA || './data';
-  const UPLOAD_BASE = `${DATA_DIR}/user-uploads`;
-
   for (const attachment of attachments) {
+    const category = resolveAttachmentCategory(attachment);
+    const containerFilePath = attachment.filePath || buildAttachmentContainerPath(attachment);
+
+    content.push({
+      type: 'text',
+      text: `--- Attachment: ${attachment.name} ---
+containerFilePath: ${containerFilePath}
+fileId: ${attachment.id}
+mimeType: ${attachment.mimeType || 'application/octet-stream'}
+category: ${category}
+contentKind: ${attachment.contentKind}
+
+[Agent-Hinweis: Verwende containerFilePath, wenn du die Datei per Tool lesen, kopieren, verschieben oder im Workspace organisieren sollst.]
+--- Ende Attachment: ${attachment.name} ---`,
+    });
+
     if (attachment.contentKind === 'image') {
       // Images: Use API URL (will be converted to Base64 by message-normalization.ts)
       // This keeps the existing image handling intact
@@ -286,24 +307,6 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
         type: 'image',
         data: `/api/files/${encodeURIComponent(attachment.id)}`,
         mimeType: attachment.mimeType!,
-      });
-    } else {
-      // Documents: Provide direct filesystem path
-      // Agent can read these files directly using tools or skills
-      const directFilePath = `${UPLOAD_BASE}/${attachment.category}/${attachment.id}`;
-      
-      content.push({
-        type: 'text',
-        text: `--- Datei: ${attachment.name} ---
-Pfad: ${directFilePath}
-File ID: ${attachment.id}
-Typ: ${attachment.mimeType || attachment.category || 'document'}
-Kategorie: ${attachment.category || 'other'}
-
-[Agent-Hinweis: Diese Datei kann direkt vom Dateisystem gelesen werden.
-Verwende ein passendes Tool zum Lesen (z.B. read_file, pdf, docx-Skill).
-Dateityp erfordert ggf. spezielle Verarbeitung.]
---- Ende: ${attachment.name} ---`,
       });
     }
   }
