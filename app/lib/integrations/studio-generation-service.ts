@@ -40,10 +40,12 @@ import {
   type SeedanceResolution,
 } from '@/app/lib/integrations/seedance-generation-service';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
-import { 
-  resolveValidatedStudioAssetPath, 
+import {
+  resolveValidatedStudioAssetPath,
   resolveValidatedStudioOutputPath,
-  resolveValidatedUserUploadStudioRefPath
+  resolveValidatedUserUploadStudioRefPath,
+  resolveValidatedWorkspaceFilePath,
+  getWorkspaceRoot,
 } from '@/app/lib/integrations/studio-paths';
 import { getFileStats, readFile, readDataFile, getDataFileStats } from '@/app/lib/filesystem/workspace-files';
 
@@ -472,6 +474,16 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
         contentType = mimeFromPath(localPath.relativePath);
         sourceId = localPath.sourceId;
         fileName = localPath.relativePath.split('/').pop() || fileName;
+      } else if (localPath?.kind === 'workspace_file') {
+        const fullPath = resolveValidatedWorkspaceFilePath(localPath.absolutePath);
+        if (!fullPath) {
+          throw new Error('Invalid workspace file reference path');
+        }
+
+        buffer = await fs.readFile(fullPath);
+        contentType = mimeFromPath(localPath.absolutePath);
+        sourceId = localPath.sourceId;
+        fileName = localPath.absolutePath.split('/').pop() || fileName;
       } else {
         if (!/^https?:\/\//i.test(url)) {
           throw new Error('Unsupported local reference path');
@@ -504,7 +516,8 @@ type LocalExtraReference =
   | { kind: 'studio_reference'; referenceId: string; sourceId: string }
   | { kind: 'studio_output'; relativePath: string; sourceId: string }
   | { kind: 'studio_asset'; relativePath: string; sourceId: string }
-  | { kind: 'user_upload'; relativePath: string; sourceId: string };
+  | { kind: 'user_upload'; relativePath: string; sourceId: string }
+  | { kind: 'workspace_file'; absolutePath: string; sourceId: string };
 
 function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | null {
   const pathOnly = getLocalReferencePath(rawUrl);
@@ -557,6 +570,12 @@ function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | nul
       relativePath: studioMediaPath,
       sourceId: rawUrl,
     };
+  }
+
+  // Handle absolute workspace filesystem paths (e.g. /data/workspace/...)
+  const workspaceRoot = getWorkspaceRoot();
+  if (pathOnly.startsWith(workspaceRoot + '/') || pathOnly.startsWith(workspaceRoot + path.sep)) {
+    return { kind: 'workspace_file', absolutePath: pathOnly, sourceId: rawUrl };
   }
 
   return null;

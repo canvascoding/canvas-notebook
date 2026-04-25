@@ -242,6 +242,23 @@ function serveMedia(req, res) {
   });
 }
 
+// Run database migrations before anything else touches the DB
+try {
+  console.log('[Startup] Running database migrations...');
+  const Database = require('better-sqlite3');
+  const { runMigrations } = require('./app/lib/db/migrate');
+  const dbPath = require('path').join(process.env.DATA || require('path').resolve(process.cwd(), 'data'), 'sqlite.db');
+  require('fs').mkdirSync(require('path').dirname(dbPath), { recursive: true });
+  const migrationDb = new Database(dbPath);
+  runMigrations(migrationDb);
+  migrationDb.close();
+  console.log('[Startup] Database migrations completed');
+} catch (error) {
+  console.error('[Startup] CRITICAL ERROR in database migrations:', error.message);
+  console.error('[Startup] Stack trace:', error.stack);
+  process.exit(1);
+}
+
 // Ensure all runtime directories and tokens are set up before starting the server
 console.log('[Startup] Starting runtime setup...');
 
