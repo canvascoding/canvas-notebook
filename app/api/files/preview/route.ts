@@ -6,8 +6,11 @@ import { spawn } from 'child_process';
 import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
-import { resolveValidatedStudioAssetPath, resolveValidatedStudioOutputPath } from '@/app/lib/integrations/studio-paths';
-import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
+import { 
+  resolveValidatedStudioAssetPath, 
+  resolveValidatedStudioOutputPath,
+  resolveValidatedUserUploadStudioRefPath 
+} from '@/app/lib/integrations/studio-paths';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 const CACHE_ROOT = '/tmp/canvas-media-cache';
@@ -224,10 +227,8 @@ export async function GET(request: NextRequest) {
       }
       fullPath = resolved;
     } else if (filePath.startsWith('user-uploads/studio-references/')) {
-      const root = getUserUploadsStudioRefRoot();
-      const relativePath = filePath.slice('user-uploads/studio-references/'.length);
-      const resolved = path.resolve(/*turbopackIgnore: true*/ root, relativePath);
-      if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+      const resolved = resolveValidatedUserUploadStudioRefPath(filePath.slice('user-uploads/studio-references/'.length));
+      if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }
       fullPath = resolved;
