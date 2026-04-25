@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, Code2, Download, Eye, FileText, Loader2, RefreshCw, Save } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Code2, Download, Eye, FileText, Loader2, RefreshCw, Save, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
 import { MarkdownEditor } from './MarkdownEditor';
+import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
 import { CodeEditor } from './CodeEditor';
 import { HtmlViewer } from './HtmlViewer';
 import { ImageViewer } from './ImageViewer';
@@ -119,6 +120,7 @@ export function FileEditor() {
   } = useEditorStore();
 
   const saveTimeoutRef = useRef<number | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('preview');
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
 
@@ -265,6 +267,7 @@ export function FileEditor() {
   }
 
   return (
+    <>
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex flex-nowrap items-center justify-between border-b border-border px-3 sm:px-4 py-2 text-sm text-muted-foreground gap-2 overflow-hidden">
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground overflow-hidden">
@@ -307,6 +310,17 @@ export function FileEditor() {
             </>
           )}
           {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">{t('readOnly')}</span>}
+          {isMarkdown && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setShareOpen(true)}
+              title="Export / Share"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
           {saveError ? (
             <span className="flex items-center gap-1 text-destructive shrink-0" title={saveError}>
               <AlertCircle className="h-3.5 w-3.5" />
@@ -375,5 +389,14 @@ export function FileEditor() {
           )}
       </div>
     </div>
+    {isMarkdown && currentFile && (
+      <ShareMarkdownDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        filePath={currentFile.path}
+        fileName={breadcrumbs[breadcrumbs.length - 1] ?? currentFile.path}
+      />
+    )}
+    </>
   );
 }
