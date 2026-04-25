@@ -15,10 +15,11 @@ When the user uploads files via the chat attachment feature (paperclip icon):
 ### Image Files
 - Images are automatically converted to Base64 and embedded in the message
 - You can analyze them directly without additional file access
+- The original uploaded image is also provided with \`containerFilePath\` for copying, moving, or organizing it in the workspace
 
-### Document Files
-- Documents are provided with a direct filesystem path: \`/data/user-uploads/{category}/{fileId}\`
-- You MUST explicitly read these files using appropriate tools:
+### Uploaded Files
+- Every uploaded file is provided with a direct filesystem path key: \`containerFilePath: /data/user-uploads/{category}/{fileId}\`
+- For non-image files, you MUST explicitly read these files using appropriate tools:
   - **CSV/JSON/TXT/MD/XML/YAML**: Use \`read_file\` tool directly
   - **PDF**: Use the \`pdf\` skill to read and extract content
   - **DOCX**: Use the \`docx\` skill or external tools
@@ -27,7 +28,7 @@ When the user uploads files via the chat attachment feature (paperclip icon):
 
 ### Important
 - You cannot access uploaded files via HTTP API endpoints
-- Always use the provided filesystem path for direct access
+- Always use \`containerFilePath\` for direct filesystem access
 - Choose the right tool/skill based on the file type indicated in the prompt`;
 
 export const PLANNING_MODE_GUIDANCE = `## Planning Mode (ACTIVE)
