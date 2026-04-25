@@ -961,7 +961,7 @@ export function createStudioListPresetsTool(): AgentTool {
   return {
     name: 'studio_list_presets',
     label: 'Listing studio presets',
-    description: 'Lists all available studio presets (visual settings). Returns preset IDs, names, descriptions, and categories. Use this to find preset IDs for studio_generate_image or studio_generate_video.',
+    description: 'Lists all available studio presets (visual settings). Returns preset IDs, names, descriptions, categories, tags, and the prompt fragments that make up each preset. Use this to find preset IDs for studio_generate_image or studio_generate_video.',
     parameters: Type.Object({
       category: Type.Optional(Type.String({ description: 'Filter by category: fashion, product, food, lifestyle, etc.' })),
     }),
@@ -973,6 +973,8 @@ export function createStudioListPresetsTool(): AgentTool {
           name: studioPresets.name,
           description: studioPresets.description,
           category: studioPresets.category,
+          tags: studioPresets.tags,
+          blocks: studioPresets.blocks,
           isDefault: studioPresets.isDefault,
         })
           .from(studioPresets)
@@ -983,9 +985,24 @@ export function createStudioListPresetsTool(): AgentTool {
 
         const text = presets.length === 0
           ? 'No studio presets found.'
-          : presets.map((p) =>
-              `• ${p.name} (ID: ${p.id}) [${p.category || 'uncategorized'}]${p.description ? ` — ${p.description}` : ''}`
-            ).join('\n');
+          : presets.map((p) => {
+              let tags: string[] = [];
+              try { tags = JSON.parse(p.tags ?? '[]'); } catch { /* ignore */ }
+
+              let fragments: string[] = [];
+              try {
+                const blocks: Array<{ promptFragment?: string }> = JSON.parse(p.blocks ?? '[]');
+                fragments = blocks.map((b) => b.promptFragment).filter((f): f is string => !!f);
+              } catch { /* ignore */ }
+
+              const lines = [
+                `• ${p.name} (ID: ${p.id}) [${p.category || 'uncategorized'}]${p.description ? ` — ${p.description}` : ''}`,
+                tags.length > 0 ? `  Tags: ${tags.join(', ')}` : '',
+                fragments.length > 0 ? `  Prompt: ${fragments.join(' | ')}` : '',
+              ];
+              return lines.filter(Boolean).join('\n');
+            }).join('\n\n');
+
         return {
           content: [{ type: 'text', text }],
           details: { presets },
