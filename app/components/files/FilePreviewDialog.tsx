@@ -8,21 +8,33 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 
-function flattenDirectoryFiles(nodes: FileNode[], dirPath: string): string[] {
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico']);
+
+function getExtension(path: string) {
+  const parts = path.split('.');
+  if (parts.length <= 1) return '';
+  return parts[parts.length - 1].toLowerCase();
+}
+
+function flattenDirectoryImages(nodes: FileNode[], dirPath: string): string[] {
+  const isImagePath = (filePath: string) => IMAGE_EXTENSIONS.has(getExtension(filePath));
+
   if (dirPath === '.') {
-    return nodes.filter((node) => node.type === 'file').map((node) => node.path);
+    return nodes
+      .filter((node) => node.type === 'file' && isImagePath(node.path))
+      .map((node) => node.path);
   }
 
   for (const node of nodes) {
     if (node.path === dirPath) {
       return (node.children ?? [])
-        .filter((child) => child.type === 'file')
+        .filter((child) => child.type === 'file' && isImagePath(child.path))
         .map((child) => child.path);
     }
     if (node.children) {
-      const nestedFiles = flattenDirectoryFiles(node.children, dirPath);
-      if (nestedFiles.length > 0) {
-        return nestedFiles;
+      const nestedImages = flattenDirectoryImages(node.children, dirPath);
+      if (nestedImages.length > 0) {
+        return nestedImages;
       }
     }
   }
@@ -47,15 +59,15 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to path changes
   }, [path]);
 
-  const filePaths = useMemo(
-    () => flattenDirectoryFiles(fileTree, currentDirectory),
+  const imagePaths = useMemo(
+    () => flattenDirectoryImages(fileTree, currentDirectory),
     [currentDirectory, fileTree]
   );
 
   const activePath = currentFile?.path ?? path;
-  const currentIndex = activePath ? filePaths.indexOf(activePath) : -1;
+  const currentIndex = activePath ? imagePaths.indexOf(activePath) : -1;
   const hasPrev = currentIndex > 0;
-  const hasNext = currentIndex >= 0 && currentIndex < filePaths.length - 1;
+  const hasNext = currentIndex >= 0 && currentIndex < imagePaths.length - 1;
 
   const handleClose = useCallback(() => {
     clearCurrentFile();
@@ -64,13 +76,13 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
 
   const handlePrev = useCallback(() => {
     if (currentIndex <= 0) return;
-    void loadFile(filePaths[currentIndex - 1], true);
-  }, [currentIndex, filePaths, loadFile]);
+    void loadFile(imagePaths[currentIndex - 1], true);
+  }, [currentIndex, imagePaths, loadFile]);
 
   const handleNext = useCallback(() => {
-    if (currentIndex < 0 || currentIndex >= filePaths.length - 1) return;
-    void loadFile(filePaths[currentIndex + 1], true);
-  }, [currentIndex, filePaths, loadFile]);
+    if (currentIndex < 0 || currentIndex >= imagePaths.length - 1) return;
+    void loadFile(imagePaths[currentIndex + 1], true);
+  }, [currentIndex, imagePaths, loadFile]);
 
   useEffect(() => {
     if (!path) return;
@@ -104,8 +116,8 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{fileName}</p>
-            {currentIndex >= 0 && filePaths.length > 1 && (
-              <p className="text-xs text-muted-foreground">{currentIndex + 1} / {filePaths.length}</p>
+            {currentIndex >= 0 && imagePaths.length > 1 && (
+              <p className="text-xs text-muted-foreground">{currentIndex + 1} / {imagePaths.length}</p>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -126,24 +138,26 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <FileEditor />
 
-          {filePaths.length > 1 && hasPrev && (
+          {imagePaths.length > 1 && currentIndex >= 0 && (
             <Button
               variant="ghost"
               size="icon"
-              className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-background/90 shadow-sm backdrop-blur"
+              className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-background/90 shadow-sm backdrop-blur disabled:opacity-40"
               onClick={handlePrev}
+              disabled={!hasPrev}
               aria-label={t('previous')}
             >
               <ChevronLeft className="h-5 w-5" />
             </Button>
           )}
 
-          {filePaths.length > 1 && hasNext && (
+          {imagePaths.length > 1 && currentIndex >= 0 && (
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-background/90 shadow-sm backdrop-blur"
+              className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-background/90 shadow-sm backdrop-blur disabled:opacity-40"
               onClick={handleNext}
+              disabled={!hasNext}
               aria-label={t('next')}
             >
               <ChevronRight className="h-5 w-5" />
