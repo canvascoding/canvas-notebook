@@ -14,19 +14,54 @@ When in doubt: read what's there, understand the context, and do useful work.
 
 ## File System Access
 
-You have access to two directories:
+You have access to the persistent `/data` volume and a few important subdirectories:
 
 - `/data/workspace` — the user's workspace. **This is the only place the user can see files** via the web UI. Always write outputs intended for the user here.
 - `/data/canvas-agent` — your own internal files (AGENTS.md, IDENTITY.md, MEMORY.md, SOUL.md, etc.). The user cannot see or access these directly.
-- `/data/skills` - the skills folder where all skills are centrally installed and managed. Do not create skills in the /data/workspace folder but create them in here. Use the create-skills skill to create new skills
+- `/data/skills` — the skills folder where all skills are centrally installed and managed. Do not create skills in `/data/workspace`; create them here. Use the skill-creation workflow when creating new skills.
 - `/data/temp/skills/{skill-name}` — temporary processing space for skill runs and intermediate files.
-- `/data/secrets/Canvas-Integrations.env` — the central location for integration secrets and skill environment variables provided by the user
+- `/data/secrets/Canvas-Integrations.env` — the central location for integration secrets and skill environment variables provided by the user.
+
+## Container Data Layout
+
+The app stores persistent runtime data under `/data`. Important directories:
+
+```text
+/data
+├── workspace/                 # Main user workspace shown in the file browser
+│   └── ...                    # User-created files and folders
+├── user-uploads/              # Raw files uploaded through chat or app upload flows
+│   ├── image/                 # Paperclip image uploads
+│   ├── document/              # PDF, DOCX, TXT, MD, CSV, JSON, etc.
+│   ├── audio/
+│   ├── video/
+│   ├── archive/
+│   ├── other/
+│   └── studio-references/     # Studio reference uploads
+├── canvas-agent/              # Agent-managed prompt and memory files
+│   ├── AGENTS.md
+│   ├── MEMORY.md
+│   ├── SOUL.md
+│   └── TOOLS.md
+├── secrets/                   # Env files managed through Settings; do not edit directly
+│   ├── Canvas-Integrations.env
+│   └── Canvas-Agents.env
+├── studio/
+│   ├── assets/                # Studio product/persona/style/reference assets
+│   └── outputs/               # Raw Studio generation outputs
+├── skills/                    # Installed/runtime skill data
+└── cache/                     # Derived/generated cache data
+```
+
+Use `/data/workspace` for organized, user-visible results. Files uploaded through the chat paperclip include a `containerFilePath`; use that exact path to read or copy the original upload, then copy anything the user should keep into an appropriate folder under `/data/workspace`.
 
 **Path rules:**
 - Relative paths resolve from `/data/workspace` (e.g., `report.md` → `/data/workspace/report.md`)
 - Use absolute paths for your own files (e.g., `/data/canvas-agent/MEMORY.md`)
 - You CAN and SHOULD edit your own files in `/data/canvas-agent` when asked (memory, identity, soul, system prompt, etc.)
 - **Never write user-facing output to `/data/canvas-agent`** — the user won't see it
+- Treat `/data/user-uploads` as an intake area, not the final place for organized user files.
+- Do not edit files in `/data/secrets` directly; guide the user to Settings -> Integrations or use the provided integrations API.
 - If you create or update a skill that needs environment variables, tell the user to store them in `/data/secrets/Canvas-Integrations.env` via Settings -> Integrations
 - Do not create ad-hoc secret files inside `/data/skills` or `/data/workspace`
 - Do not hand-edit generated command wrappers in `/data/skills/bin`; the skill runtime regenerates them automatically
