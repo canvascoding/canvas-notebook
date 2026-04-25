@@ -301,14 +301,12 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
 
 export async function deleteAutomationJob(jobId: string): Promise<boolean> {
   return db.transaction((tx) => {
-    const existing = tx.query.automationJobs.findFirst({
-      where: eq(automationJobs.id, jobId),
-    });
+    const existing = tx.select().from(automationJobs).where(eq(automationJobs.id, jobId)).limit(1).get();
     if (!existing) {
       return false;
     }
-    tx.delete(automationRuns).where(eq(automationRuns.jobId, jobId));
-    tx.delete(automationJobs).where(eq(automationJobs.id, jobId));
+    tx.delete(automationRuns).where(eq(automationRuns.jobId, jobId)).run();
+    tx.delete(automationJobs).where(eq(automationJobs.id, jobId)).run();
     return true;
   });
 }
@@ -317,7 +315,7 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
   return db.transaction((tx) => {
     const job = tx.query.automationJobs.findFirst({
       where: eq(automationJobs.id, jobId),
-    });
+    }).sync();
     if (!job) {
       throw new Error('Automation job not found.');
     }
@@ -343,7 +341,8 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
         piSessionId: null,
         createdAt: now,
       })
-      .returning();
+      .returning()
+      .all();
 
     tx
       .update(automationJobs)
@@ -351,7 +350,8 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
         lastRunStatus: 'pending',
         updatedAt: now,
       })
-      .where(and(eq(automationJobs.id, jobId), eq(automationJobs.status, job.status)));
+      .where(and(eq(automationJobs.id, jobId), eq(automationJobs.status, job.status)))
+      .run();
 
     return mapRunRow(inserted, null);
   });
@@ -410,7 +410,8 @@ async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise
             errorMessage: 'Automation run was marked stale before a new run could start.',
             finishedAt: now,
           })
-          .where(eq(automationRuns.id, run.id));
+          .where(eq(automationRuns.id, run.id))
+          .run();
 
         tx
           .update(automationJobs)
@@ -419,7 +420,8 @@ async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise
             lastRunStatus: 'failed',
             updatedAt: now,
           })
-          .where(eq(automationJobs.id, run.jobId));
+          .where(eq(automationJobs.id, run.jobId))
+          .run();
       }
     });
   }
@@ -444,7 +446,7 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
   return db.transaction((tx) => {
     const job = tx.query.automationJobs.findFirst({
       where: eq(automationJobs.id, jobId),
-    });
+    }).sync();
     if (!job) {
       throw new Error('Automation job not found.');
     }
@@ -454,7 +456,7 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
         eq(automationRuns.jobId, jobId),
         notInArray(automationRuns.status, ['success', 'failed']),
       ),
-    });
+    }).sync();
     if (inFlightRun) {
       return null;
     }
@@ -480,7 +482,8 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
         piSessionId: null,
         createdAt: now,
       })
-      .returning();
+      .returning()
+      .all();
 
     tx
       .update(automationJobs)
@@ -488,7 +491,8 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
         lastRunStatus: 'pending',
         updatedAt: now,
       })
-      .where(eq(automationJobs.id, jobId));
+      .where(eq(automationJobs.id, jobId))
+      .run();
 
     return mapRunRow(inserted, null);
   });
@@ -561,7 +565,7 @@ export async function markAutomationRunRetryScheduled(
   return db.transaction((tx) => {
     const current = tx.query.automationRuns.findFirst({
       where: eq(automationRuns.id, runId),
-    });
+    }).sync();
     if (!current) {
       return null;
     }
@@ -578,7 +582,8 @@ export async function markAutomationRunRetryScheduled(
         metadataJson: JSON.stringify(metadataJson),
       })
       .where(eq(automationRuns.id, runId))
-      .returning();
+      .returning()
+      .all();
 
     tx
       .update(automationJobs)
@@ -586,7 +591,8 @@ export async function markAutomationRunRetryScheduled(
         lastRunStatus: 'retry_scheduled',
         updatedAt: new Date(),
       })
-      .where(eq(automationJobs.id, current.jobId));
+      .where(eq(automationJobs.id, current.jobId))
+      .run();
 
     return updated ? mapRunRow(updated, null) : null;
   });
@@ -604,7 +610,7 @@ export async function markAutomationRunFinished(
   return db.transaction((tx) => {
     const current = tx.query.automationRuns.findFirst({
       where: eq(automationRuns.id, runId),
-    });
+    }).sync();
     if (!current) {
       return null;
     }
@@ -620,7 +626,8 @@ export async function markAutomationRunFinished(
         metadataJson: JSON.stringify(values.metadataJson),
       })
       .where(eq(automationRuns.id, runId))
-      .returning();
+      .returning()
+      .all();
 
     tx
       .update(automationJobs)
@@ -629,7 +636,8 @@ export async function markAutomationRunFinished(
         lastRunStatus: values.status,
         updatedAt: now,
       })
-      .where(eq(automationJobs.id, current.jobId));
+      .where(eq(automationJobs.id, current.jobId))
+      .run();
 
     return updated ? mapRunRow(updated, null) : null;
   });
