@@ -1,9 +1,11 @@
-import puppeteer, { Browser } from 'puppeteer-core';
+import puppeteer, { Browser, Page } from 'puppeteer-core';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
 let browser: Browser | null = null;
+
+const EMOJI_FONT_FALLBACK = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
 
 function findChromiumExecutable(): string {
   // 1. Explicit env override
@@ -109,6 +111,9 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
   const page = await b.newPage();
   try {
     await page.setContent(html, { waitUntil: 'networkidle0', timeout: 20000 });
+    await page.evaluate(async () => {
+      await document.fonts?.ready;
+    });
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -120,6 +125,33 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
   }
 }
 
+async function applyEmojiFontFallback(page: Page) {
+  await page.evaluate((fallbackFonts) => {
+    const emojiPattern = /\p{Extended_Pictographic}/u;
+    const fallbackNames = fallbackFonts
+      .split(',')
+      .map((font) => font.replace(/["']/g, '').trim().toLowerCase())
+      .filter(Boolean);
+
+    for (const element of Array.from(document.querySelectorAll<HTMLElement>('body, body *'))) {
+      if (!element.textContent || !emojiPattern.test(element.textContent)) {
+        continue;
+      }
+
+      const currentFamily = window.getComputedStyle(element).fontFamily;
+      const currentLower = currentFamily.toLowerCase();
+      const hasEmojiFallback = fallbackNames.some((font) => currentLower.includes(font));
+
+      if (!hasEmojiFallback) {
+        element.style.fontFamily = `${currentFamily}, ${fallbackFonts}`;
+      }
+    }
+  }, EMOJI_FONT_FALLBACK);
+  await page.evaluate(async () => {
+    await document.fonts?.ready;
+  });
+}
+
 export async function generatePdfFromUrl(url: string, headers?: Record<string, string>): Promise<Buffer> {
   const b = await getBrowser();
   const page = await b.newPage();
@@ -129,6 +161,7 @@ export async function generatePdfFromUrl(url: string, headers?: Record<string, s
     }
 
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 20000 });
+    await applyEmojiFontFallback(page);
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
