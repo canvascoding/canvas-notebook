@@ -3,7 +3,6 @@ import { auth } from '@/app/lib/auth';
 import { Readable } from 'stream';
 import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { 
   resolveValidatedStudioAssetPath, 
   resolveValidatedStudioOutputPath,

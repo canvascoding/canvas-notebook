@@ -121,7 +121,7 @@ export function OutputGrid({
   };
 
   const visiblePendingGenerations = pendingGenerations
-    .filter((generation) => mediaFilter === 'all' || mediaFilter === 'generating')
+    .filter(() => mediaFilter === 'all' || mediaFilter === 'generating')
     .filter((generation) => matchesDateFilter(generation.createdAt))
     .sort((a, b) => {
       const left = new Date(a.createdAt).getTime();
@@ -130,7 +130,7 @@ export function OutputGrid({
     });
 
   const visibleFailedGenerations = failedGenerations
-    .filter((generation) => mediaFilter === 'all' || mediaFilter === 'failed')
+    .filter(() => mediaFilter === 'all' || mediaFilter === 'failed')
     .filter((generation) => matchesDateFilter(generation.createdAt))
     .sort((a, b) => {
       const left = new Date(a.createdAt).getTime();
