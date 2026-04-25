@@ -6,12 +6,18 @@ services:
     env_file:
       - .env.docker.local
     environment:
+      # Do not change
       HOSTNAME: 0.0.0.0
       DATA: /data
       ALLOW_SIGNUP: "false"
-      AI_CLI_AUTO_INSTALL: "true"
-      OLLAMA_CLI_AUTO_INSTALL: "true"
-      NODE_OPTIONS: "--max-old-space-size=1536"
+
+      # Auto-install CLI tools if missing (default: false)
+      OLLAMA_CLI_AUTO_INSTALL: "false"
+      AI_CLI_AUTO_INSTALL: "false"
+
+      # Logging level: off | error | warn | info | debug (default: info)
+      LOG_LEVEL: "info"
+
     volumes:
       - ./data:/data
       - canvas_notebook_home:/home/node
