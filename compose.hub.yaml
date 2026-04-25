@@ -4,8 +4,9 @@ services:
     ports:
       - "3456:3000"
     environment:
-      # Required: random 32-byte base64 secret — generate with: openssl rand -base64 32
+      # Required: random 32-byte base64 secrets — generate with: openssl rand -base64 32
       BETTER_AUTH_SECRET: "change-me-generate-with-openssl-rand-base64-32"
+      CANVAS_INTERNAL_API_KEY: "change-me-generate-with-openssl-rand-base64-32"
 
       # Required: the URL where the app will be accessible
       BASE_URL: "http://localhost:3456"
@@ -18,6 +19,13 @@ services:
 
       # Set to "true" to show the provider onboarding wizard after first login
       ONBOARDING: "true"
+
+      # Auto-install CLI tools if missing (default: false)
+      OLLAMA_CLI_AUTO_INSTALL: "false"
+      AI_CLI_AUTO_INSTALL: "false"
+
+      # Logging level: off | error | warn | info | debug (default: info)
+      LOG_LEVEL: "info"
 
       # Do not change
       HOSTNAME: "0.0.0.0"
