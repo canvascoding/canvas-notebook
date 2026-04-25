@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { NotebookPen, Workflow, Globe, Sparkles } from 'lucide-react';
+import { NotebookPen, Workflow, Sparkles } from 'lucide-react';
 import { PromptHero } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
@@ -77,14 +77,6 @@ export function HomeWorkspaceView() {
           {t('sections.create')}
         </h3>
         <div className="flex flex-wrap justify-center gap-3">
-          <div className="min-w-[260px] max-w-[320px] flex-1">
-            <ToolCard
-              icon={Globe}
-              title={tApps('nanoBanana.title')}
-              description={tApps('nanoBanana.description')}
-              href="/nano-banana-localizer"
-            />
-          </div>
           <div className="min-w-[260px] max-w-[320px] flex-1">
             <ToolCard
               icon={Sparkles}
