@@ -141,7 +141,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   const outputPaths = buildOutputPaths(job, run);
   const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
   await createDirectory(outputPaths.outputDir);
-  await createDirectory(effectiveTargetOutputPath);
+  await createDirectory(path.dirname(effectiveTargetOutputPath));
 
   const promptText = buildAutomationPrompt({
     name: job.name,
