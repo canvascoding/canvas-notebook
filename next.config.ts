@@ -20,8 +20,6 @@ const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
   : [];
 
 const nextConfig: NextConfig = {
-  // Output standalone for smaller Docker image
-  output: 'standalone',
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
 
   // Wichtig für native Server-Pakete: Als external markieren im Server Bundle

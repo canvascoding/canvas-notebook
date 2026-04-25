@@ -60,9 +60,7 @@ ENV NODE_ENV=production \
     CANVAS_TERMINAL_USE_UNIX_SOCKET=true \
     XDG_CACHE_HOME=/data/cache
 
-# Copy only standalone output (much smaller than full .next)
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/skills ./skills
 COPY --from=builder /app/app ./app
