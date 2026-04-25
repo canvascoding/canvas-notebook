@@ -200,7 +200,6 @@ docker run -d \
   -p 3456:3000 \
   -v $(pwd)/data:/data \
   -v canvas_notebook_home:/home/node \
-  -v canvas_notebook_ollama:/ollama \
   -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
   -e BASE_URL="http://localhost:3456" \
   -e BETTER_AUTH_BASE_URL="http://localhost:3456" \
