@@ -30,6 +30,13 @@ function getDirectoryDepth(path: string) {
   return path.split('/').filter(Boolean).length;
 }
 
+function getDirectoryPathChain(path: string) {
+  if (path === '.') return [];
+
+  const segments = path.split('/').filter(Boolean);
+  return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
+}
+
 function flattenDirectoryChildren(nodes: FileNodeType[], dirPath: string): FileNodeType[] | null {
   if (dirPath === '.') return nodes;
   for (const node of nodes) {
@@ -96,7 +103,12 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
         await refreshRootTree(true);
         if (cancelled) return;
 
-        const expandedPaths = Array.from(curExpanded).sort((a, b) => {
+        const restorePaths = new Set<string>([
+          ...Array.from(curExpanded).flatMap(getDirectoryPathChain),
+          ...getDirectoryPathChain(curDir),
+        ]);
+
+        const expandedPaths = Array.from(restorePaths).sort((a, b) => {
           const depthDiff = getDirectoryDepth(a) - getDirectoryDepth(b);
           return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
         });
@@ -115,7 +127,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
           if (cancelled) return;
 
           const nextTree = useFileStore.getState().fileTree;
-          if (findPathInTree(dirPath, nextTree)) {
+          if (curExpanded.has(dirPath) && findPathInTree(dirPath, nextTree)) {
             validExpandedDirs.add(dirPath);
           }
         }
