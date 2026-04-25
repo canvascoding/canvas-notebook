@@ -4,8 +4,11 @@ import { Readable } from 'stream';
 import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { resolveValidatedStudioAssetPath, resolveValidatedStudioOutputPath } from '@/app/lib/integrations/studio-paths';
-import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
+import { 
+  resolveValidatedStudioAssetPath, 
+  resolveValidatedStudioOutputPath,
+  resolveValidatedUserUploadStudioRefPath
+} from '@/app/lib/integrations/studio-paths';
 
 const MEDIA_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
@@ -46,13 +49,7 @@ function resolveStudioPath(encodedFilePath: string): string | null {
     return resolveValidatedStudioAssetPath(encodedFilePath.slice('studio/assets/'.length));
   }
   if (encodedFilePath.startsWith('user-uploads/studio-references/')) {
-    const relativePath = encodedFilePath.slice('user-uploads/studio-references/'.length);
-    const root = getUserUploadsStudioRefRoot();
-    const resolved = path.resolve(/*turbopackIgnore: true*/ root, relativePath);
-    if (resolved === root || resolved.startsWith(`${root}${path.sep}`)) {
-      return resolved;
-    }
-    return null;
+    return resolveValidatedUserUploadStudioRefPath(encodedFilePath.slice('user-uploads/studio-references/'.length));
   }
   return null;
 }

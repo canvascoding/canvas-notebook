@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { getStudioAssetsRoot, getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 
 function resolveWithinRoot(root: string, relativePath: string): string | null {
   const resolvedRoot = path.resolve(/*turbopackIgnore: true*/ root);
@@ -16,4 +17,8 @@ export function resolveValidatedStudioAssetPath(relativePath: string): string | 
 
 export function resolveValidatedStudioOutputPath(relativePath: string): string | null {
   return resolveWithinRoot(getStudioOutputsRoot(), path.normalize(relativePath));
+}
+
+export function resolveValidatedUserUploadStudioRefPath(relativePath: string): string | null {
+  return resolveWithinRoot(getUserUploadsStudioRefRoot(), path.normalize(relativePath));
 }

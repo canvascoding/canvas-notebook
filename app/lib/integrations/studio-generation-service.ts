@@ -40,7 +40,11 @@ import {
   type SeedanceResolution,
 } from '@/app/lib/integrations/seedance-generation-service';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
-import { resolveValidatedStudioAssetPath, resolveValidatedStudioOutputPath } from '@/app/lib/integrations/studio-paths';
+import { 
+  resolveValidatedStudioAssetPath, 
+  resolveValidatedStudioOutputPath,
+  resolveValidatedUserUploadStudioRefPath
+} from '@/app/lib/integrations/studio-paths';
 import { getFileStats, readFile, readDataFile, getDataFileStats } from '@/app/lib/filesystem/workspace-files';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
@@ -458,6 +462,16 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
         contentType = mimeFromPath(localPath.relativePath);
         sourceId = localPath.sourceId;
         fileName = localPath.relativePath.split('/').pop() || fileName;
+      } else if (localPath?.kind === 'user_upload') {
+        const fullPath = resolveValidatedUserUploadStudioRefPath(localPath.relativePath);
+        if (!fullPath) {
+          throw new Error('Invalid user upload reference path');
+        }
+
+        buffer = await fs.readFile(fullPath);
+        contentType = mimeFromPath(localPath.relativePath);
+        sourceId = localPath.sourceId;
+        fileName = localPath.relativePath.split('/').pop() || fileName;
       } else {
         if (!/^https?:\/\//i.test(url)) {
           throw new Error('Unsupported local reference path');
@@ -489,7 +503,8 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
 type LocalExtraReference =
   | { kind: 'studio_reference'; referenceId: string; sourceId: string }
   | { kind: 'studio_output'; relativePath: string; sourceId: string }
-  | { kind: 'studio_asset'; relativePath: string; sourceId: string };
+  | { kind: 'studio_asset'; relativePath: string; sourceId: string }
+  | { kind: 'user_upload'; relativePath: string; sourceId: string };
 
 function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | null {
   const pathOnly = getLocalReferencePath(rawUrl);
@@ -516,6 +531,14 @@ function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | nul
     return {
       kind: 'studio_asset',
       relativePath: studioMediaPath.slice('studio/assets/'.length),
+      sourceId: rawUrl,
+    };
+  }
+
+  if (studioMediaPath.startsWith('user-uploads/studio-references/')) {
+    return {
+      kind: 'user_upload',
+      relativePath: studioMediaPath.slice('user-uploads/studio-references/'.length),
       sourceId: rawUrl,
     };
   }
