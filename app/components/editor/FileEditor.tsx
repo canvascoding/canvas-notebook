@@ -388,7 +388,7 @@ export function FileEditor() {
             </>
           )}
           {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">{t('readOnly')}</span>}
-          {isMarkdown && (
+          {(isMarkdown || isHtml) && (
             <Button
               variant="ghost"
               size="sm"
@@ -499,12 +499,13 @@ export function FileEditor() {
           )}
       </div>
     </div>
-    {isMarkdown && currentFile && (
+    {(isMarkdown || isHtml) && currentFile && (
       <ShareMarkdownDialog
         open={shareOpen}
         onOpenChange={setShareOpen}
         filePath={currentFile.path}
         fileName={breadcrumbs[breadcrumbs.length - 1] ?? currentFile.path}
+        kind={isHtml ? 'html' : 'markdown'}
       />
     )}
     </>

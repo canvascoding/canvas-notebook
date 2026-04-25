@@ -11,12 +11,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { toMediaUrl } from '@/app/lib/utils/media-url';
 
 interface ShareMarkdownDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   filePath: string;
   fileName: string;
+  kind?: 'markdown' | 'html';
 }
 
 export function ShareMarkdownDialog({
@@ -24,6 +26,7 @@ export function ShareMarkdownDialog({
   onOpenChange,
   filePath,
   fileName,
+  kind = 'markdown',
 }: ShareMarkdownDialogProps) {
   const t = useTranslations('notebook');
   const [loading, setLoading] = useState(false);
@@ -33,6 +36,13 @@ export function ShareMarkdownDialog({
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const loadHtmlExport = useCallback(async () => {
+    if (kind === 'html') {
+      setLoading(false);
+      setError('');
+      setHtmlContent('');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -57,7 +67,7 @@ export function ShareMarkdownDialog({
     } finally {
       setLoading(false);
     }
-  }, [filePath, t]);
+  }, [filePath, kind, t]);
 
   useEffect(() => {
     if (open && filePath) {
@@ -72,7 +82,7 @@ export function ShareMarkdownDialog({
     setPdfLoading(true);
     const newWindow = window.open('', '_blank');
     try {
-      const response = await fetch('/api/files/markdown-pdf', {
+      const response = await fetch(kind === 'html' ? '/api/files/html-pdf' : '/api/files/markdown-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: filePath }),
@@ -101,6 +111,8 @@ export function ShareMarkdownDialog({
       setPdfLoading(false);
     }
   };
+
+  const hasPreview = kind === 'html' || !!htmlContent;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -133,7 +145,15 @@ export function ShareMarkdownDialog({
             </div>
           ) : (
             <div className="border rounded-lg overflow-hidden bg-white h-full">
-              {htmlContent ? (
+              {kind === 'html' ? (
+                <iframe
+                  ref={iframeRef}
+                  src={toMediaUrl(filePath)}
+                  className="w-full h-full"
+                  sandbox="allow-scripts allow-same-origin"
+                  title={t('previewTitle', { fileName })}
+                />
+              ) : htmlContent ? (
                 <iframe
                   ref={iframeRef}
                   srcDoc={htmlContent}
@@ -173,7 +193,7 @@ export function ShareMarkdownDialog({
 
             <Button
               onClick={handleOpenPDF}
-              disabled={loading || pdfLoading || !!error || !htmlContent}
+              disabled={loading || pdfLoading || !!error || !hasPreview}
               size="sm"
               className="md:size-default"
             >

@@ -119,3 +119,23 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
     await page.close();
   }
 }
+
+export async function generatePdfFromUrl(url: string, headers?: Record<string, string>): Promise<Buffer> {
+  const b = await getBrowser();
+  const page = await b.newPage();
+  try {
+    if (headers && Object.keys(headers).length > 0) {
+      await page.setExtraHTTPHeaders(headers);
+    }
+
+    await page.goto(url, { waitUntil: 'networkidle0', timeout: 20000 });
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' },
+    });
+    return Buffer.from(pdf);
+  } finally {
+    await page.close();
+  }
+}
