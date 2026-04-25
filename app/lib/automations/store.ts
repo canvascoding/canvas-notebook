@@ -300,22 +300,22 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
 }
 
 export async function deleteAutomationJob(jobId: string): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const existing = await tx.query.automationJobs.findFirst({
+  return db.transaction((tx) => {
+    const existing = tx.query.automationJobs.findFirst({
       where: eq(automationJobs.id, jobId),
     });
     if (!existing) {
       return false;
     }
-    await tx.delete(automationRuns).where(eq(automationRuns.jobId, jobId));
-    await tx.delete(automationJobs).where(eq(automationJobs.id, jobId));
+    tx.delete(automationRuns).where(eq(automationRuns.jobId, jobId));
+    tx.delete(automationJobs).where(eq(automationJobs.id, jobId));
     return true;
   });
 }
 
 export async function createPendingAutomationRun(jobId: string, triggerType: AutomationRunRecord['triggerType']): Promise<AutomationRunRecord> {
-  return db.transaction(async (tx) => {
-    const job = await tx.query.automationJobs.findFirst({
+  return db.transaction((tx) => {
+    const job = tx.query.automationJobs.findFirst({
       where: eq(automationJobs.id, jobId),
     });
     if (!job) {
@@ -323,7 +323,7 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
     }
 
     const now = new Date();
-    const [inserted] = await tx
+    const [inserted] = tx
       .insert(automationRuns)
       .values({
         id: `run-${randomUUID()}`,
@@ -345,7 +345,7 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
       })
       .returning();
 
-    await tx
+    tx
       .update(automationJobs)
       .set({
         lastRunStatus: 'pending',
@@ -401,9 +401,9 @@ async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise
     );
 
   if (staleRuns.length > 0) {
-    await db.transaction(async (tx) => {
+    db.transaction((tx) => {
       for (const run of staleRuns) {
-        await tx
+        tx
           .update(automationRuns)
           .set({
             status: 'failed',
@@ -412,7 +412,7 @@ async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise
           })
           .where(eq(automationRuns.id, run.id));
 
-        await tx
+        tx
           .update(automationJobs)
           .set({
             lastRunAt: now,
@@ -441,15 +441,15 @@ export async function hasInFlightAutomationRun(jobId: string): Promise<boolean> 
 export async function scheduleAutomationJobRun(jobId: string, triggerType: AutomationRunRecord['triggerType'], scheduledFor: Date): Promise<AutomationRunRecord | null> {
   await failStaleAutomationRuns(jobId);
 
-  return db.transaction(async (tx) => {
-    const job = await tx.query.automationJobs.findFirst({
+  return db.transaction((tx) => {
+    const job = tx.query.automationJobs.findFirst({
       where: eq(automationJobs.id, jobId),
     });
     if (!job) {
       throw new Error('Automation job not found.');
     }
 
-    const inFlightRun = await tx.query.automationRuns.findFirst({
+    const inFlightRun = tx.query.automationRuns.findFirst({
       where: and(
         eq(automationRuns.jobId, jobId),
         notInArray(automationRuns.status, ['success', 'failed']),
@@ -460,7 +460,7 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
     }
 
     const now = new Date();
-    const [inserted] = await tx
+    const [inserted] = tx
       .insert(automationRuns)
       .values({
         id: `run-${randomUUID()}`,
@@ -482,7 +482,7 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
       })
       .returning();
 
-    await tx
+    tx
       .update(automationJobs)
       .set({
         lastRunStatus: 'pending',
@@ -558,15 +558,15 @@ export async function markAutomationRunRetryScheduled(
   eventsLog: string[],
   metadataJson: Record<string, unknown>,
 ): Promise<AutomationRunRecord | null> {
-  return db.transaction(async (tx) => {
-    const current = await tx.query.automationRuns.findFirst({
+  return db.transaction((tx) => {
+    const current = tx.query.automationRuns.findFirst({
       where: eq(automationRuns.id, runId),
     });
     if (!current) {
       return null;
     }
 
-    const [updated] = await tx
+    const [updated] = tx
       .update(automationRuns)
       .set({
         status: 'retry_scheduled',
@@ -580,7 +580,7 @@ export async function markAutomationRunRetryScheduled(
       .where(eq(automationRuns.id, runId))
       .returning();
 
-    await tx
+    tx
       .update(automationJobs)
       .set({
         lastRunStatus: 'retry_scheduled',
@@ -601,8 +601,8 @@ export async function markAutomationRunFinished(
     metadataJson: Record<string, unknown>;
   },
 ): Promise<AutomationRunRecord | null> {
-  return db.transaction(async (tx) => {
-    const current = await tx.query.automationRuns.findFirst({
+  return db.transaction((tx) => {
+    const current = tx.query.automationRuns.findFirst({
       where: eq(automationRuns.id, runId),
     });
     if (!current) {
@@ -610,7 +610,7 @@ export async function markAutomationRunFinished(
     }
 
     const now = new Date();
-    const [updated] = await tx
+    const [updated] = tx
       .update(automationRuns)
       .set({
         status: values.status,
@@ -622,7 +622,7 @@ export async function markAutomationRunFinished(
       .where(eq(automationRuns.id, runId))
       .returning();
 
-    await tx
+    tx
       .update(automationJobs)
       .set({
         lastRunAt: now,
