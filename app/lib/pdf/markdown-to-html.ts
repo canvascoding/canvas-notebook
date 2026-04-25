@@ -2,9 +2,6 @@ import { readFile } from '@/app/lib/filesystem/workspace-files';
 import { marked } from 'marked';
 import path from 'path';
 import fs from 'fs/promises';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -37,7 +34,7 @@ async function renderMermaidToSvg(code: string): Promise<string | null> {
   const page = await browser.newPage();
 
   try {
-    const mermaidPath = require.resolve('mermaid');
+    const mermaidPath = path.resolve(process.cwd(), 'node_modules/mermaid/dist/mermaid.min.js');
     const mermaidJs = await fs.readFile(mermaidPath, 'utf-8');
 
     const escapedCode = escapeForJsTemplate(code);
@@ -131,20 +128,19 @@ function isColorCode(str: string): boolean {
 }
 
 function processColorCodes(htmlContent: string): string {
-  // Find inline <code> elements and replace color codes with styled spans
-  return htmlContent.replace(/&lt;code&gt;([^&]*)&lt;\/code&gt;/g, (match, codeContent) => {
+  return htmlContent.replace(/<code>([^<]*)<\/code>/g, (match, codeContent) => {
     const decodedContent = codeContent
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"');
-    
+
     if (isColorCode(decodedContent)) {
       const color = decodedContent.trim();
       const swatchStyle = `display:inline-block;width:14px;height:14px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);margin-left:4px;vertical-align:middle;background-color:${color};`;
       return `<span style="display:inline-flex;align-items:center;gap:4px;"><code style="font-size:0.75rem;">${codeContent}</code><span style="${swatchStyle}"></span></span>`;
     }
-    
+
     return match;
   });
 }
