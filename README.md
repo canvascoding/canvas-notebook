@@ -204,6 +204,7 @@ docker run -d \
   -v $(pwd)/data:/data \
   -v canvas_notebook_home:/home/node \
   -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
+  -e CANVAS_INTERNAL_API_KEY="$(openssl rand -base64 32)" \
   -e BASE_URL="http://localhost:3456" \
   -e BETTER_AUTH_BASE_URL="http://localhost:3456" \
   -e BOOTSTRAP_ADMIN_EMAIL="admin@example.com" \
