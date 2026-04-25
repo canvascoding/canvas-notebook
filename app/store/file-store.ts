@@ -49,6 +49,51 @@ const TEXT_EXTENSIONS = new Set([
   'toml',
 ]);
 
+const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
+
+interface StoredExplorerState {
+  currentDirectory?: string;
+  expandedDirs?: string[];
+}
+
+function readStoredExplorerState(): StoredExplorerState {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const stored = window.localStorage.getItem(EXPLORER_STATE_STORAGE_KEY);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored) as StoredExplorerState;
+    return {
+      currentDirectory: typeof parsed.currentDirectory === 'string' && parsed.currentDirectory.trim()
+        ? parsed.currentDirectory
+        : undefined,
+      expandedDirs: Array.isArray(parsed.expandedDirs)
+        ? parsed.expandedDirs.filter((dir): dir is string => typeof dir === 'string' && dir.trim().length > 0)
+        : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function persistExplorerState(nextState: Pick<FileStoreState, 'currentDirectory' | 'expandedDirs'>) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(
+      EXPLORER_STATE_STORAGE_KEY,
+      JSON.stringify({
+        currentDirectory: nextState.currentDirectory,
+        expandedDirs: Array.from(nextState.expandedDirs),
+      })
+    );
+  } catch {
+    // Non-critical: explorer state can fall back to in-memory Zustand state.
+  }
+}
+
+const initialExplorerState = readStoredExplorerState();
+
 function getExtension(path: string) {
   const parts = path.split('.');
   if (parts.length <= 1) return '';
@@ -97,6 +142,7 @@ interface FileStoreState {
   // Expanded directories
   expandedDirs: Set<string>;
   currentDirectory: string;
+  setExpandedDirs: (dirs: Set<string>) => void;
   uploadProgress: number | null;
   searchQuery: string;
   autoRefresh: boolean;
@@ -185,8 +231,15 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   isLoadingFile: false,
   fileError: null,
 
-  expandedDirs: new Set<string>(),
-  currentDirectory: '.',
+  expandedDirs: new Set<string>(initialExplorerState.expandedDirs ?? []),
+  currentDirectory: initialExplorerState.currentDirectory ?? '.',
+  setExpandedDirs: (dirs: Set<string>) => {
+    set((state) => {
+      const nextState = { ...state, expandedDirs: new Set(dirs) };
+      persistExplorerState(nextState);
+      return { expandedDirs: nextState.expandedDirs };
+    });
+  },
   uploadProgress: null,
   searchQuery: '',
   autoRefresh: false,
@@ -406,7 +459,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (!expandedDirs.has(dirPath)) {
         const newExpanded = new Set(expandedDirs);
         newExpanded.add(dirPath);
-        set({ expandedDirs: newExpanded });
+        get().setExpandedDirs(newExpanded);
       }
       return;
     }
@@ -456,7 +509,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const newLoading = new Set(get().loadingDirs);
       newLoading.delete(dirPath);
 
-      set({ fileTree: newTree, expandedDirs: newExpanded, loadingDirs: newLoading });
+      set({ fileTree: newTree, loadingDirs: newLoading });
+      get().setExpandedDirs(newExpanded);
     } catch (error) {
       const newLoading = new Set(get().loadingDirs);
       newLoading.delete(dirPath);
@@ -589,6 +643,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         isMultiSelectMode: false,
         lastSelectedPath: node.path,
       });
+      persistExplorerState({
+        currentDirectory: nextDir || '.',
+        expandedDirs: get().expandedDirs,
+      });
     }
   },
 
@@ -719,7 +777,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           remapped.add(isDescendant(dir) ? remapPath(dir) : dir);
         }
         updatedExpandedDirs = remapped;
-        set({ expandedDirs: updatedExpandedDirs });
+        get().setExpandedDirs(updatedExpandedDirs);
       }
 
       if (currentDirectory === oldPath || currentDirectory.startsWith(oldPath + '/')) {
@@ -852,13 +910,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
     if (newExpanded.has(path)) {
       newExpanded.delete(path);
-      set({ expandedDirs: newExpanded });
+      get().setExpandedDirs(newExpanded);
     } else {
       get().loadSubdirectory(path);
     }
   },
   collapseAllDirectories: () => {
-    set({ expandedDirs: new Set<string>() });
+    get().setExpandedDirs(new Set<string>());
   },
 
   clearCurrentFile: () => {
@@ -869,6 +927,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
   setCurrentDirectory: (path: string) => {
     set({ currentDirectory: path });
+    persistExplorerState({
+      currentDirectory: path,
+      expandedDirs: get().expandedDirs,
+    });
   },
   toggleAutoRefresh: () => {
     set((state) => ({ autoRefresh: !state.autoRefresh }));
