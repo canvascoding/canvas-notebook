@@ -96,6 +96,25 @@
     "redirecting": "Redirecting to login..."
   },
   "onboarding": {
+    "logoAlt": "Canvas Notebook logo",
+    "languageTitle": "Choose language",
+    "languageDescription": "Choose the interface language. Changes are applied immediately.",
+    "languageActive": "Active",
+    "languageContinue": "Continue",
+    "welcome": "Welcome to Canvas Notebook",
+    "description": "Set up your agent provider so Canvas Notebook is ready to use.",
+    "providerTitle": "Set up agent provider",
+    "providerDescription": "Choose the provider and model your agent should use for chat and automations.",
+    "saveProvider": "Save provider",
+    "saveSuccessMessage": "Provider saved.",
+    "providerSaved": "Provider settings saved",
+    "skipSetup": "Skip setup",
+    "setupComplete": "Setup complete",
+    "setupCompleteDescription": "Canvas Notebook is ready. You can change these settings later at any time.",
+    "completing": "Completing...",
+    "toApp": "Go to app",
+    "completionError": "Could not complete onboarding",
+    "unexpectedError": "An unexpected error occurred",
     "hints": {
       "home": {
         "promptHero": {
