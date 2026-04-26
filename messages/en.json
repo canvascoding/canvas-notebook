@@ -460,6 +460,8 @@
     "compact": "Compact",
     "details": "Details",
     "contextLabel": "{percent}% · {used}/{available} budget · {window} window",
+    "contextCompactLabel": "{percent}% · {available} budget",
+    "contextTooltip": "History budget: {used} of {available} tokens used\nModel window: {window} tokens\nReserved for system, tools, response, and safety: approx. {reserved} tokens",
     "noSessionYet": "No session yet",
     "backToChat": "Back to chat",
     "openHistory": "Open history",
