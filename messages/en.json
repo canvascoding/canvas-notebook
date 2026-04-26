@@ -890,6 +890,8 @@
       "totalSize": "Total Size",
       "fileCount": "Files",
       "downloadZip": "Download as ZIP",
+      "downloadDataZip": "Download all data as ZIP",
+      "dataZipHint": "The data export includes the complete /data directory, including workspace, agent files, database, uploads, and stored secrets.",
       "downloading": "Preparing download...",
       "refresh": "Refresh",
       "emptyWorkspace": "Your workspace is empty.",

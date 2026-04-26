@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { promises as fs } from 'fs';
 import path from 'path';
 import { createReadStream, getFileStats, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { Readable } from 'stream';
@@ -9,10 +10,29 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024;
 const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024;
 
+function getDataRoot(): string {
+  return path.resolve(process.env.DATA || path.join(/*turbopackIgnore: true*/ process.cwd(), 'data'));
+}
+
 function resolveDownloadName(filePath: string): string {
   const basename = path.posix.basename(filePath);
   if (basename === '' || basename === '/') return 'workspace';
   return basename;
+}
+
+function createZipResponse(fullPath: string, downloadName: string) {
+  const archive = archiver('zip', { zlib: { level: 1 } });
+  const webStream = Readable.toWeb(archive) as ReadableStream<Uint8Array>;
+
+  archive.directory(fullPath, downloadName);
+  archive.finalize();
+
+  return new NextResponse(webStream, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${downloadName}.zip"`,
+    },
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -32,6 +52,23 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const filePath = searchParams.get('path');
+  const scope = searchParams.get('scope');
+
+  if (scope === 'data') {
+    try {
+      const dataRoot = getDataRoot();
+      const stats = await fs.stat(dataRoot);
+      if (!stats.isDirectory()) {
+        return NextResponse.json({ success: false, error: 'Data directory does not exist' }, { status: 404 });
+      }
+
+      return createZipResponse(dataRoot, 'data');
+    } catch (error) {
+      console.error('[API] Data download error:', error);
+      const message = error instanceof Error ? error.message : 'Failed to download data directory';
+      return NextResponse.json({ success: false, error: message }, { status: 500 });
+    }
+  }
 
   if (!filePath) {
     return NextResponse.json({ success: false, error: 'Path parameter is required' }, { status: 400 });
@@ -50,18 +87,7 @@ export async function GET(request: NextRequest) {
       }
 
       const fullPath = validatePath(filePath);
-      const archive = archiver('zip', { zlib: { level: 1 } });
-      const webStream = Readable.toWeb(archive) as ReadableStream<Uint8Array>;
-
-      archive.directory(fullPath, downloadName);
-      archive.finalize();
-
-      return new NextResponse(webStream, {
-        headers: {
-          'Content-Type': 'application/zip',
-          'Content-Disposition': `attachment; filename="${downloadName}.zip"`,
-        },
-      });
+      return createZipResponse(fullPath, downloadName);
     } else {
       if (stats.size > MAX_SINGLE_FILE_SIZE) {
         return NextResponse.json(

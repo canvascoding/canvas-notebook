@@ -892,6 +892,8 @@
       "totalSize": "Gesamtgröße",
       "fileCount": "Dateien",
       "downloadZip": "Als ZIP herunterladen",
+      "downloadDataZip": "Alle Daten als ZIP herunterladen",
+      "dataZipHint": "Der Daten-Export enthält das komplette /data-Verzeichnis inklusive Workspace, Agent-Dateien, Datenbank, Uploads und gespeicherten Secrets.",
       "downloading": "Download wird vorbereitet...",
       "refresh": "Aktualisieren",
       "emptyWorkspace": "Dein Workspace ist leer.",
