@@ -48,6 +48,22 @@ export function PptxViewer({ path }: PptxViewerProps) {
             mode: 'slide',
           });
 
+          // The library's _renderBackground crashes when a slide object is undefined.
+          // It lives on htmlRender's prototype (not on the gt wrapper init() returns),
+          // so we patch it there. This also covers the race where destroy() tears down
+          // pptx while an in-flight render still fires renderSlide.
+          const htmlRender = (previewer as { htmlRender?: unknown }).htmlRender;
+          if (htmlRender) {
+            const hrProto = Object.getPrototypeOf(htmlRender);
+            if (typeof hrProto._renderBackground === 'function') {
+              const original = hrProto._renderBackground;
+              hrProto._renderBackground = function (slide: unknown, el: unknown) {
+                if (!slide) return;
+                return original.call(this, slide, el);
+              };
+            }
+          }
+
           previewerRef.current = previewer;
 
           // Load the presentation
