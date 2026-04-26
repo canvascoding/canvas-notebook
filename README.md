@@ -130,10 +130,6 @@ All data is stored in a `./data` directory on the host, mounted into the contain
 | `/data/skills/` | Custom agent skills |
 | `/data/secrets/` | Integration tokens and secrets |
 
-Two named Docker volumes keep tooling persistent across container updates:
-- `canvas_notebook_home` → `/home/node` — globally installed CLI tools
-- `canvas_notebook_ollama` → `/ollama` — Ollama models
-
 ---
 
 ## Update

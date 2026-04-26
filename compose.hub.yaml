@@ -29,10 +29,4 @@ services:
       ALLOW_SIGNUP: "false"
     volumes:
       - ./data:/data
-      - canvas_notebook_home:/home/node
-      - canvas_notebook_ollama:/ollama
     restart: unless-stopped
-
-volumes:
-  canvas_notebook_home:
-  canvas_notebook_ollama:
