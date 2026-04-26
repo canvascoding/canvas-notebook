@@ -239,6 +239,179 @@ wait_for_canvas_startup() {
   fail "Canvas Notebook did not become healthy within ${max_attempts}s. Run: $DOCKER_COMPOSE -f ${COMPOSE_FILE} logs canvas-notebook"
 }
 
+install_management_cli() {
+  local install_dir compose_path bin_path tmp_path install_dir_q compose_path_q
+
+  install_dir="$(pwd)"
+  compose_path="${install_dir}/${COMPOSE_FILE}"
+  bin_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
+  tmp_path="$(mktemp)"
+
+  printf -v install_dir_q '%q' "$install_dir"
+  printf -v compose_path_q '%q' "$compose_path"
+
+  cat > "$tmp_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_DIR=${install_dir_q}
+COMPOSE_FILE=${compose_path_q}
+SERVICE="canvas-notebook"
+DEFAULT_HEALTH_ATTEMPTS="\${CANVAS_HEALTH_MAX_ATTEMPTS:-180}"
+
+ok()      { printf '✓ %s\n' "\$*"; }
+info()    { printf '  %s\n' "\$*"; }
+warn()    { printf '! %s\n' "\$*" >&2; }
+fail()    { printf '✗ %s\n' "\$*" >&2; exit 1; }
+
+usage() {
+  cat <<'HELP'
+Canvas Notebook VM management
+
+Usage:
+  canvas-notebook <command>
+
+Commands:
+  help       Show this help
+  install    Pull the image and start/recreate the container
+  update     Pull the latest image, recreate the container, and wait until healthy
+  start      Start the container and wait until healthy
+  restart    Restart the container and wait until healthy
+  stop       Stop the container
+  down       Stop and remove the container
+  status     Show compose status
+  logs       Follow container logs
+  health     Check the local health endpoint
+  config     Show the compose file path
+
+Environment:
+  CANVAS_HEALTH_MAX_ATTEMPTS=180   Health wait timeout in seconds
+  TAIL=120                         Number of log lines shown before following
+HELP
+}
+
+compose() {
+  cd "\$INSTALL_DIR"
+  if docker info >/dev/null 2>&1; then
+    docker compose -f "\$COMPOSE_FILE" "\$@"
+  elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+    sudo docker compose -f "\$COMPOSE_FILE" "\$@"
+  else
+    fail "Docker is not reachable. Try logging out/in for docker group changes, or run with a user that can access Docker."
+  fi
+}
+
+host_port() {
+  compose port "\$SERVICE" 3000 2>/dev/null | tail -1 | awk -F: '{print \$NF}'
+}
+
+health_url() {
+  local port
+  port="\$(host_port)"
+  port="\${port:-3456}"
+  printf 'http://127.0.0.1:%s/api/health\n' "\$port"
+}
+
+wait_until_healthy() {
+  local url attempts attempt
+  url="\$(health_url)"
+  attempts="\$DEFAULT_HEALTH_ATTEMPTS"
+  info "Waiting for Canvas Notebook health check: \$url"
+
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    if curl -fsS "\$url" >/dev/null 2>&1; then
+      ok "Canvas Notebook is healthy"
+      return 0
+    fi
+    sleep 1
+  done
+
+  fail "Canvas Notebook did not become healthy within \${attempts}s. Run: canvas-notebook logs"
+}
+
+follow_until_healthy() {
+  local log_pid attempts attempt url
+  attempts="\$DEFAULT_HEALTH_ATTEMPTS"
+  url="\$(health_url)"
+
+  info "Streaming startup logs until Canvas Notebook is healthy..."
+  compose logs -f --tail="\${TAIL:-120}" "\$SERVICE" &
+  log_pid=\$!
+
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    if curl -fsS "\$url" >/dev/null 2>&1; then
+      kill "\$log_pid" >/dev/null 2>&1 || true
+      wait "\$log_pid" >/dev/null 2>&1 || true
+      ok "Canvas Notebook is healthy"
+      return 0
+    fi
+
+    if ! kill -0 "\$log_pid" >/dev/null 2>&1; then
+      fail "Container logs stopped before the app became healthy. Run: canvas-notebook logs"
+    fi
+
+    sleep 1
+  done
+
+  kill "\$log_pid" >/dev/null 2>&1 || true
+  wait "\$log_pid" >/dev/null 2>&1 || true
+  fail "Canvas Notebook did not become healthy within \${attempts}s. Run: canvas-notebook logs"
+}
+
+cmd="\${1:-help}"
+case "\$cmd" in
+  help|-h|--help)
+    usage
+    ;;
+  install|update)
+    compose pull "\$SERVICE"
+    compose up -d --force-recreate "\$SERVICE"
+    follow_until_healthy
+    ;;
+  start)
+    compose up -d "\$SERVICE"
+    wait_until_healthy
+    ;;
+  restart)
+    compose restart "\$SERVICE"
+    wait_until_healthy
+    ;;
+  stop)
+    compose stop "\$SERVICE"
+    ;;
+  down)
+    compose down
+    ;;
+  status|ps)
+    compose ps
+    ;;
+  logs)
+    compose logs -f --tail="\${TAIL:-120}" "\$SERVICE"
+    ;;
+  health)
+    curl -fsS "\$(health_url)" && printf '\n'
+    ;;
+  config)
+    printf 'Install dir: %s\nCompose file: %s\n' "\$INSTALL_DIR" "\$COMPOSE_FILE"
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+EOF
+
+  chmod +x "$tmp_path"
+  if [[ -w "$(dirname "$bin_path")" ]]; then
+    mv "$tmp_path" "$bin_path"
+  else
+    sudo mv "$tmp_path" "$bin_path"
+  fi
+
+  ok "Installed management CLI: ${bin_path}"
+  info "Run: canvas-notebook help"
+}
+
 # ── Mode 1: Pre-built image ───────────────────────────────────────────────────
 if [[ "$MODE_CHOICE" == "1" ]]; then
 
@@ -317,6 +490,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --force-recreate
   ok "Container started"
   wait_for_canvas_startup
+  install_management_cli
 
   # Configure Caddy
   CONFIGURED_BASE_URL="$(grep 'BETTER_AUTH_BASE_URL:' "$COMPOSE_FILE" | head -1 | sed 's/.*"\(.*\)"/\1/' | tr -d '[:space:]')"
@@ -327,7 +501,9 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   echo -e "${GREEN}${BOLD}Canvas Notebook is running.${RESET}"
   echo
   info "To update to the latest version:"
-  info "  $DOCKER_COMPOSE -f ${COMPOSE_FILE} pull && $DOCKER_COMPOSE -f ${COMPOSE_FILE} up -d"
+  info "  canvas-notebook update"
+  info "To inspect or manage the service:"
+  info "  canvas-notebook help"
   echo
 
 # ── Mode 2: From source ───────────────────────────────────────────────────────
