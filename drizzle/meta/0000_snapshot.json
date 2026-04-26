@@ -1458,6 +1458,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "file_name": {
+          "name": "file_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "media_url": {
           "name": "media_url",
           "type": "text",
