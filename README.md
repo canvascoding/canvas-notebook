@@ -160,7 +160,7 @@ npm run setup
 | `BOOTSTRAP_ADMIN_EMAIL` | **Yes** | Login email — created or updated on every start |
 | `BOOTSTRAP_ADMIN_PASSWORD` | **Yes** | Login password |
 | `BOOTSTRAP_ADMIN_NAME` | No | Display name for the admin (default: `Administrator`) |
-| `ONBOARDING` | No | Set to `true` to show the provider setup wizard after first login |
+| `ONBOARDING` | No | Provider setup wizard is enabled by default; set to `false` to skip it |
 | `LOG_LEVEL` | No | `off` \| `error` \| `warn` \| `info` \| `debug` (default: `info`) |
 
 AI provider API keys (Claude, OpenRouter, Gemini, etc.) are configured inside the running app — you don't need them here.
