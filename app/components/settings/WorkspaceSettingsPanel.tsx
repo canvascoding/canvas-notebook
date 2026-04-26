@@ -13,11 +13,13 @@ interface WorkspaceStats {
   totalSizeHuman: string;
 }
 
+type DownloadScope = 'workspace' | 'data';
+
 export function WorkspaceSettingsPanel() {
   const t = useTranslations('settings');
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [activeDownload, setActiveDownload] = useState<DownloadScope | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadStats = useCallback(async () => {
@@ -42,14 +44,16 @@ export function WorkspaceSettingsPanel() {
     void loadStats();
   }, [loadStats]);
 
-  const handleDownload = async () => {
-    setIsDownloading(true);
+  const handleDownload = async (scope: DownloadScope) => {
+    setActiveDownload(scope);
     setError(null);
     try {
-      const url = '/api/files/download?path=/&download=1';
+      const url = scope === 'data'
+        ? '/api/files/download?scope=data&download=1'
+        : '/api/files/download?path=/&download=1';
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'workspace.zip';
+      anchor.download = scope === 'data' ? 'data.zip' : 'workspace.zip';
       anchor.rel = 'noopener';
       document.body.appendChild(anchor);
       anchor.click();
@@ -58,7 +62,7 @@ export function WorkspaceSettingsPanel() {
       const message = err instanceof Error ? err.message : t('workspacePanel.errors.downloadFailed');
       setError(message);
     } finally {
-      setTimeout(() => setIsDownloading(false), 2000);
+      setTimeout(() => setActiveDownload(null), 2000);
     }
   };
 
@@ -101,19 +105,36 @@ export function WorkspaceSettingsPanel() {
               {error && <p className="text-sm text-destructive">{error}</p>}
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={handleDownload} disabled={isDownloading || stats.fileCount === 0}>
-                  {isDownloading ? (
+                <Button
+                  onClick={() => handleDownload('workspace')}
+                  disabled={activeDownload !== null || stats.fileCount === 0}
+                >
+                  {activeDownload === 'workspace' ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Download className="mr-2 h-4 w-4" />
                   )}
-                  {isDownloading ? t('workspacePanel.downloading') : t('workspacePanel.downloadZip')}
+                  {activeDownload === 'workspace' ? t('workspacePanel.downloading') : t('workspacePanel.downloadZip')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleDownload('data')}
+                  disabled={activeDownload !== null}
+                >
+                  {activeDownload === 'data' ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FolderArchive className="mr-2 h-4 w-4" />
+                  )}
+                  {activeDownload === 'data' ? t('workspacePanel.downloading') : t('workspacePanel.downloadDataZip')}
                 </Button>
                 <Button type="button" variant="outline" onClick={() => void loadStats()} disabled={isLoading}>
                   <RefreshCw className="mr-2 h-4 w-4" />
                   {t('workspacePanel.refresh')}
                 </Button>
               </div>
+              <p className="text-sm text-muted-foreground">{t('workspacePanel.dataZipHint')}</p>
 
               {stats.fileCount === 0 && (
                 <p className="text-sm text-muted-foreground">{t('workspacePanel.emptyWorkspace')}</p>
