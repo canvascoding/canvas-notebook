@@ -11,10 +11,6 @@ services:
       DATA: /data
       ALLOW_SIGNUP: "false"
 
-      # Auto-install CLI tools if missing (default: false)
-      OLLAMA_CLI_AUTO_INSTALL: "false"
-      AI_CLI_AUTO_INSTALL: "false"
-
       # Logging level: off | error | warn | info | debug (default: info)
       LOG_LEVEL: "info"
 
