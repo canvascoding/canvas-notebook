@@ -2756,17 +2756,21 @@ export default function CanvasAgentChat({
 
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
-  const contextLabel = runtimeStatus
-    ? t('contextLabel', {
+  const contextCompactLabel = runtimeStatus
+    ? t('contextCompactLabel', {
         percent: runtimeStatus.contextUsagePercent,
+        available: formatContextTokens(runtimeStatus.availableHistoryTokens),
+      })
+    : t('noSessionYet');
+  const contextTooltip = runtimeStatus
+    ? t('contextTooltip', {
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
         window: formatContextTokens(runtimeStatus.contextWindow),
+        reserved: formatContextTokens(Math.max(0, runtimeStatus.contextWindow - runtimeStatus.availableHistoryTokens)),
       })
     : t('noSessionYet');
-  const contextCompactLabel = runtimeStatus
-    ? `${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.contextWindow)}`
-    : t('noSessionYet');
+  const contextProgressPercent = Math.min(100, Math.max(0, runtimeStatus?.contextUsagePercent ?? 0));
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const scrollContentPadding = composerHeight + 24;
@@ -3022,7 +3026,7 @@ export default function CanvasAgentChat({
               {!isMobile ? (
                 <span
                   data-testid="chat-context-meter"
-                  title={contextLabel}
+                  title={contextTooltip}
                   className="inline-flex items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                 >
                   {contextCompactLabel}
@@ -3076,7 +3080,7 @@ export default function CanvasAgentChat({
           </div>
           
           {/* Context Progress Bar - Slim */}
-          <div className="mt-1.5 flex items-center gap-2">
+          <div className="mt-1.5 flex items-center gap-2" title={contextTooltip}>
             <div className="flex-1 h-1 overflow-hidden rounded-full bg-black/5 dark:bg-gray-700">
               <div
                 data-testid="chat-context-progress"
@@ -3087,7 +3091,7 @@ export default function CanvasAgentChat({
                       ? 'bg-amber-400'
                       : 'bg-cyan-400'
                 }`}
-                style={{ width: `${Math.max(4, runtimeStatus?.contextUsagePercent || 0)}%` }}
+                style={{ width: `${contextProgressPercent}%` }}
               />
             </div>
           </div>
@@ -3124,7 +3128,7 @@ export default function CanvasAgentChat({
                   </span>
                 )}
               </div>
-              <div data-testid="chat-context-meter" title={contextLabel} className="text-[10px] text-muted-foreground">
+              <div data-testid="chat-context-meter" title={contextTooltip} className="text-[10px] text-muted-foreground">
                 {contextCompactLabel}
               </div>
               {totalQueuedMessages > 0 && (
