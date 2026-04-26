@@ -153,6 +153,13 @@ configure_caddy() {
       && ! [[ "$host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
   }
 
+  detect_public_ip() {
+    curl -sf4 https://ifconfig.me 2>/dev/null \
+      || curl -sf4 https://api.ipify.org 2>/dev/null \
+      || curl -sf4 https://checkip.amazonaws.com 2>/dev/null \
+      || true
+  }
+
   section "Public access"
   if is_real_domain "$domain"; then
     CADDYFILE="/etc/caddy/Caddyfile"
@@ -175,16 +182,61 @@ EOF
       info "Let's Encrypt certificate will be obtained automatically on the first request."
     fi
 
-    SERVER_IP=$(curl -sf4 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    SERVER_IP="$(detect_public_ip)"
     echo
     warn "Make sure ports 80 and 443 are open in your firewall / security group."
-    warn "Make sure your DNS A record points '${domain}' to ${SERVER_IP}"
+    warn "Make sure your DNS A record points '${domain}' to the public IP of this VM/server."
+    if [[ -n "$SERVER_IP" ]]; then
+      info "Best-effort detected public IP: ${SERVER_IP}"
+      info "Verify it against your cloud provider before changing DNS."
+    else
+      info "Could not detect a public IP from here. Use the public IP shown by your VM/cloud provider."
+    fi
   else
-    SERVER_IP=$(curl -sf4 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
-    ok "App available at http://${SERVER_IP}:3456"
+    SERVER_IP="$(detect_public_ip)"
+    if [[ -n "$SERVER_IP" ]]; then
+      ok "App available at http://${SERVER_IP}:3456"
+      info "If this server is behind NAT, use the public IP shown by your VM/cloud provider instead."
+    else
+      ok "App available at http://<your-public-server-ip>:3456"
+      info "Use the public IP shown by your VM/cloud provider."
+    fi
     info "To enable HTTPS: set your domain in the config and re-run."
     info "Make sure port 3456 is open in your firewall / security group."
   fi
+}
+
+wait_for_canvas_startup() {
+  local host_port health_url log_pid attempt max_attempts
+
+  host_port="$($DOCKER_COMPOSE -f "$COMPOSE_FILE" port canvas-notebook 3000 2>/dev/null | tail -1 | awk -F: '{print $NF}')"
+  host_port="${host_port:-3456}"
+  health_url="http://127.0.0.1:${host_port}/api/health"
+  max_attempts="${INSTALL_HEALTH_MAX_ATTEMPTS:-180}"
+
+  section "Container startup logs"
+  info "Streaming container logs until Canvas Notebook is healthy..."
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --tail=80 canvas-notebook &
+  log_pid=$!
+
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
+    if curl -fsS "$health_url" >/dev/null 2>&1; then
+      kill "$log_pid" >/dev/null 2>&1 || true
+      wait "$log_pid" >/dev/null 2>&1 || true
+      ok "Canvas Notebook health check passed (${health_url})"
+      return 0
+    fi
+
+    if ! kill -0 "$log_pid" >/dev/null 2>&1; then
+      fail "Container logs stopped before the app became healthy. Run: $DOCKER_COMPOSE -f ${COMPOSE_FILE} logs canvas-notebook"
+    fi
+
+    sleep 1
+  done
+
+  kill "$log_pid" >/dev/null 2>&1 || true
+  wait "$log_pid" >/dev/null 2>&1 || true
+  fail "Canvas Notebook did not become healthy within ${max_attempts}s. Run: $DOCKER_COMPOSE -f ${COMPOSE_FILE} logs canvas-notebook"
 }
 
 # ── Mode 1: Pre-built image ───────────────────────────────────────────────────
@@ -264,6 +316,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" pull
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --force-recreate
   ok "Container started"
+  wait_for_canvas_startup
 
   # Configure Caddy
   CONFIGURED_BASE_URL="$(grep 'BETTER_AUTH_BASE_URL:' "$COMPOSE_FILE" | head -1 | sed 's/.*"\(.*\)"/\1/' | tr -d '[:space:]')"
