@@ -64,3 +64,54 @@ export const BUSINESS_STARTER_PROMPTS: StarterPromptDefinition[] = [
     icon: 'organize',
   },
 ];
+
+export const STUDIO_STARTER_PROMPTS: StarterPromptDefinition[] = [
+  {
+    id: 'studio-product-photo',
+    title: 'Produktfoto generieren',
+    description: 'Ein hochwertiges Produktmotiv mit Licht, Hintergrund und Formatvorgaben vorbereiten.',
+    prompt:
+      'Erstelle ein hochwertiges Produktfoto für mein Produkt. Entwickle einen Studio-Prompt mit passendem Hintergrund, Lichtsetzung, Kameraperspektive, Bildkomposition, Social-Ad-Format und klaren Varianten für unterschiedliche Looks.',
+    icon: 'creative',
+  },
+  {
+    id: 'studio-image-to-video',
+    title: 'Bild in Video verwandeln',
+    description: 'Aus einem Still ein kurzes Video mit Kamerabewegung, Timing und Stimmung entwickeln.',
+    prompt:
+      'Mach aus dem aktuellen Bild ein kurzes Produktvideo. Beschreibe Kamerabewegung, Szenenaufbau, Timing, Licht, Stimmung, Bewegungsdetails und erstelle daraus einen präzisen Video-Generation-Prompt.',
+    icon: 'video',
+  },
+  {
+    id: 'studio-ad-variants',
+    title: 'Creative-Varianten bauen',
+    description: 'Mehrere Foto- oder Video-Angles für Ads, Social Posts und Kampagnen ausarbeiten.',
+    prompt:
+      'Entwickle 5 starke Foto- oder Video-Creative-Varianten für mein Produkt. Gib pro Variante Hook, visuelle Idee, Prompt, Format, Zielplattform und eine kurze Begründung, warum der Angle funktionieren kann.',
+    icon: 'campaign',
+  },
+  {
+    id: 'studio-preset-prompt',
+    title: 'Preset-Prompt schärfen',
+    description: 'Ein Studio-Preset mit Produkt, Stil, Zielgruppe und Motividee sauber kombinieren.',
+    prompt:
+      'Hilf mir, ein passendes Studio-Preset für mein Ziel zu nutzen. Formuliere einen präzisen Prompt, der Produkt, Stil, Zielgruppe, Licht, Hintergrund, Komposition und gewünschtes Ausgabeformat sauber kombiniert.',
+    icon: 'strategy',
+  },
+  {
+    id: 'studio-persona-shot',
+    title: 'Persona- oder Model-Shot',
+    description: 'Lifestyle-Motive mit Persona, Produkt, Umgebung, Pose und Bildsprache planen.',
+    prompt:
+      'Erstelle ein Lifestyle- oder Model-Motiv für mein Produkt. Beschreibe Persona, Umgebung, Pose, Styling, Licht, Produktplatzierung, Bildsprache und liefere einen konkreten Prompt für die Generierung.',
+    icon: 'creative',
+  },
+  {
+    id: 'studio-improve-output',
+    title: 'Ergebnis verbessern',
+    description: 'Ein aktuelles Studio-Ergebnis analysieren und gezielt für die nächste Version optimieren.',
+    prompt:
+      'Analysiere das aktuelle Studio-Ergebnis und schlage konkrete Verbesserungen vor. Achte auf Produktdarstellung, Komposition, Licht, Hintergrund, Markenwirkung und formuliere einen verbesserten Prompt für die nächste Version.',
+    icon: 'video',
+  },
+];

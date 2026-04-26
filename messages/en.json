@@ -515,6 +515,8 @@
     "openLatestSession": "Open latest session",
     "starterTitle": "What should Canvas Chat prepare for you?",
     "starterDescription": "Start with a template for campaigns, creatives, strategies, documents, or a better file organization.",
+    "studioStarterTitle": "What should Canvas Studio create for you?",
+    "studioStarterDescription": "Start with prompts for product photos, video generation, creative variants, presets, or improving existing Studio outputs.",
     "sessions": "Sessions",
     "noRecentSessions": "No recent sessions",
     "noSessionsFoundWithFilter": "No sessions found with these filters",
@@ -576,6 +578,38 @@
         "title": "Organize files",
         "description": "Set up a productive folder and file structure for projects, campaigns, or clients.",
         "prompt": "Help me organize my files and project materials better. Create a sensible workspace structure with folder logic, file naming, storage for assets and documents, and simple rules so my team can work faster and spend less time searching."
+      }
+    },
+    "studioStarterPrompts": {
+      "studio-product-photo": {
+        "title": "Generate a product photo",
+        "description": "Prepare a polished product visual with lighting, background, and format guidance.",
+        "prompt": "Create a high-quality product photo for my product. Develop a Studio prompt with a fitting background, lighting setup, camera angle, composition, social ad format, and clear variants for different looks."
+      },
+      "studio-image-to-video": {
+        "title": "Turn image into video",
+        "description": "Develop a short video from a still with camera motion, timing, and mood.",
+        "prompt": "Turn the current image into a short product video. Describe the camera movement, scene setup, timing, light, mood, motion details, and turn that into a precise video generation prompt."
+      },
+      "studio-ad-variants": {
+        "title": "Build creative variants",
+        "description": "Work out multiple photo or video angles for ads, social posts, and campaigns.",
+        "prompt": "Develop 5 strong photo or video creative variants for my product. For each variant, include the hook, visual idea, prompt, format, target platform, and a short reason why the angle can work."
+      },
+      "studio-preset-prompt": {
+        "title": "Sharpen a preset prompt",
+        "description": "Combine a Studio preset with product, style, audience, and visual idea.",
+        "prompt": "Help me use a fitting Studio preset for my goal. Write a precise prompt that combines product, style, target audience, lighting, background, composition, and desired output format."
+      },
+      "studio-persona-shot": {
+        "title": "Persona or model shot",
+        "description": "Plan lifestyle visuals with persona, product, environment, pose, and visual language.",
+        "prompt": "Create a lifestyle or model visual for my product. Describe the persona, environment, pose, styling, lighting, product placement, visual language, and provide a concrete generation prompt."
+      },
+      "studio-improve-output": {
+        "title": "Improve the result",
+        "description": "Analyze the current Studio output and optimize it for the next version.",
+        "prompt": "Analyze the current Studio result and suggest concrete improvements. Focus on product presentation, composition, lighting, background, brand effect, and write an improved prompt for the next version."
       }
     }
   },
