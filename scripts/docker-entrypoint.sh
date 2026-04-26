@@ -102,8 +102,8 @@ fi
 
 # ─── Pre-compute all flags ────────────────────────────────────────────────
 export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
-auto_install="${AI_CLI_AUTO_INSTALL:-${CODEX_AUTO_INSTALL:-true}}"
-ollama_auto_install="${OLLAMA_CLI_AUTO_INSTALL:-true}"
+auto_install="${AI_CLI_AUTO_INSTALL:-${CODEX_AUTO_INSTALL:-false}}"
+ollama_auto_install="${OLLAMA_CLI_AUTO_INSTALL:-false}"
 
 if [ -n "${QMD_ENABLED:-}" ]; then
   if env_flag_enabled "$QMD_ENABLED"; then
