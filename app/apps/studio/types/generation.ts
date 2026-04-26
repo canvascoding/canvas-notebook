@@ -9,6 +9,7 @@ export interface StudioGenerationOutput {
   variationIndex: number;
   type: 'image' | 'video';
   filePath: string;
+  fileName?: string | null;
   mediaUrl: string | null;
   fileSize: number | null;
   mimeType: string | null;

@@ -209,6 +209,7 @@ CREATE TABLE `studio_generation_outputs` (
 	`variation_index` integer NOT NULL,
 	`type` text NOT NULL,
 	`file_path` text NOT NULL,
+	`file_name` text,
 	`media_url` text,
 	`file_size` integer,
 	`mime_type` text,

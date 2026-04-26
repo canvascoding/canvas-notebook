@@ -349,6 +349,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       variation_index INTEGER NOT NULL DEFAULT 0,
       type TEXT NOT NULL DEFAULT 'image',
       file_path TEXT NOT NULL,
+      file_name TEXT,
       media_url TEXT,
       file_size INTEGER,
       mime_type TEXT,
@@ -500,6 +501,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'studio_generation_outputs', {
     variation_index: 'INTEGER NOT NULL DEFAULT 0',
     type: "TEXT NOT NULL DEFAULT 'image'",
+    file_name: 'TEXT',
     media_url: 'TEXT',
     is_favorite: 'INTEGER NOT NULL DEFAULT 0',
     metadata: 'TEXT',

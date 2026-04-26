@@ -95,6 +95,7 @@ export interface StudioGenerationOutput {
   id: string;
   variationIndex: number;
   filePath: string;
+  fileName?: string;
   mediaUrl: string;
   mimeType: string;
   fileSize: number;
@@ -941,6 +942,7 @@ async function generateStudioImages(
         variationIndex: index,
         type: 'image',
         filePath: outputPath,
+        fileName: outputFilename,
         mediaUrl: toMediaUrl(outputPath),
         fileSize: outputBytes.length,
         mimeType: result.mimeType,
@@ -955,6 +957,7 @@ async function generateStudioImages(
         id: outputId,
         variationIndex: index,
         filePath: outputPath,
+        fileName: outputFilename,
         mediaUrl: toMediaUrl(outputPath),
         mimeType: result.mimeType,
         fileSize: outputBytes.length,
@@ -969,6 +972,7 @@ async function generateStudioImages(
         variationIndex: index,
         type: 'image',
         filePath: '',
+        fileName: `failed-image-${index}`,
         mediaUrl: null,
         fileSize: null,
         mimeType: null,
@@ -1089,6 +1093,7 @@ async function generateStudioVideo(
     variationIndex: 0,
     type: 'video',
     filePath: videoPath,
+    fileName: path.basename(videoPath),
     mediaUrl: videoResult.mediaUrl,
     fileSize,
     mimeType: 'video/mp4',
@@ -1103,6 +1108,7 @@ async function generateStudioVideo(
     id: outputId,
     variationIndex: 0,
     filePath: videoPath,
+    fileName: path.basename(videoPath),
     mediaUrl: videoResult.mediaUrl,
     mimeType: 'video/mp4',
     fileSize: fileSize ?? 0,
@@ -1194,6 +1200,7 @@ async function generateStudioSeedanceVideo(
     variationIndex: 0,
     type: 'video',
     filePath: videoResult.path,
+    fileName: path.basename(videoResult.path),
     mediaUrl: videoResult.mediaUrl,
     fileSize: videoResult.fileSize,
     mimeType: videoResult.mimeType,
@@ -1208,6 +1215,7 @@ async function generateStudioSeedanceVideo(
     id: outputId,
     variationIndex: 0,
     filePath: videoResult.path,
+    fileName: path.basename(videoResult.path),
     mediaUrl: videoResult.mediaUrl,
     mimeType: videoResult.mimeType,
     fileSize: videoResult.fileSize,
