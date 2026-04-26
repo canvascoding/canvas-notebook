@@ -2764,6 +2764,9 @@ export default function CanvasAgentChat({
         window: formatContextTokens(runtimeStatus.contextWindow),
       })
     : t('noSessionYet');
+  const contextCompactLabel = runtimeStatus
+    ? `${runtimeStatus.contextUsagePercent}% · ${formatContextTokens(runtimeStatus.contextWindow)}`
+    : t('noSessionYet');
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const scrollContentPadding = composerHeight + 24;
@@ -3019,9 +3022,10 @@ export default function CanvasAgentChat({
               {!isMobile ? (
                 <span
                   data-testid="chat-context-meter"
+                  title={contextLabel}
                   className="inline-flex items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                 >
-                  {contextLabel}
+                  {contextCompactLabel}
                 </span>
               ) : null}
               {!isMobile && (
@@ -3120,8 +3124,8 @@ export default function CanvasAgentChat({
                   </span>
                 )}
               </div>
-              <div data-testid="chat-context-meter" className="text-[10px] text-muted-foreground">
-                {contextLabel}
+              <div data-testid="chat-context-meter" title={contextLabel} className="text-[10px] text-muted-foreground">
+                {contextCompactLabel}
               </div>
               {totalQueuedMessages > 0 && (
                 <div data-testid="chat-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
