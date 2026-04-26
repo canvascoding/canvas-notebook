@@ -167,6 +167,22 @@ AI provider API keys (Claude, OpenRouter, Gemini, etc.) are configured inside th
 
 ---
 
+## VM Management CLI
+
+The Linux installer creates a host-side `canvas-notebook` command for common operations:
+
+```bash
+canvas-notebook help
+canvas-notebook update
+canvas-notebook logs
+canvas-notebook status
+canvas-notebook restart
+```
+
+Run these commands on the VM/server, not inside the app container. Updates pull the latest image, recreate the container, stream startup logs, and wait for the health check.
+
+---
+
 ## Skills
 
 Skills extend what the AI agent can do. A skill is a folder with a `SKILL.md` file:
