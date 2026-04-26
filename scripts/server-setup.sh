@@ -168,12 +168,18 @@ fi
 
 ok ".env.docker.local is configured"
 
-# ── Step 6: Build & start via existing setup script ───────────────────────────
-section "Step 6: Building and starting Canvas Notebook"
+# ── Step 6: Data directory ────────────────────────────────────────────────────
+section "Step 6: Data directory"
+mkdir -p "$ROOT_DIR/data"
+sudo chown -R 1000:1000 "$ROOT_DIR/data"
+ok "./data ready (owned by container user)"
+
+# ── Step 7: Build & start via existing setup script ───────────────────────────
+section "Step 7: Building and starting Canvas Notebook"
 npm run setup
 
-# ── Step 7: Public access via Caddy ──────────────────────────────────────────
-section "Step 7: Public access"
+# ── Step 8: Public access via Caddy ──────────────────────────────────────────
+section "Step 8: Public access"
 
 if [[ "$SETUP_CADDY" != "true" ]]; then
   SERVER_IP=$(curl -sf4 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')

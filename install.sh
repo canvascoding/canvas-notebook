@@ -213,7 +213,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   done
 
   compose_has_placeholders() {
-    grep -qE 'admin@example\.com|BOOTSTRAP_ADMIN_PASSWORD:.*"change-me"' "$COMPOSE_FILE" 2>/dev/null
+    grep -qE 'admin@example\.com|BOOTSTRAP_ADMIN_PASSWORD:.*"change-me"|your-domain\.com' "$COMPOSE_FILE" 2>/dev/null
   }
 
   # Inject env vars (non-interactive)
@@ -228,7 +228,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   # Interactive config if placeholders remain
   if compose_has_placeholders; then
     if [[ "$NONINTERACTIVE" == "true" ]]; then
-      fail "Config still contains placeholder values. Set ADMIN_EMAIL, ADMIN_PASSWORD, and BASE_URL env vars."
+      fail "Config still contains placeholder values. Required env vars: ADMIN_EMAIL, ADMIN_PASSWORD, BASE_URL (e.g. BASE_URL=https://canvas.example.com)"
     fi
     section "Configuration"
     echo
@@ -250,6 +250,13 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   fi
 
   ok "${COMPOSE_FILE} is configured"
+
+  # Ensure data directory exists with correct permissions
+  # Container runs as node (UID 1000) — host directory must be owned by that UID
+  section "Data directory"
+  mkdir -p ./data
+  sudo chown -R 1000:1000 ./data
+  ok "./data ready (owned by container user)"
 
   # Pull and start
   section "Starting Canvas Notebook"
