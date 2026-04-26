@@ -103,10 +103,15 @@ function printDockerInstructions() {
     info('  2. Wait until the whale icon in the taskbar is steady (not animated)');
     info('  3. Run this script again: npm run setup');
   } else {
-    info('Install Docker Engine for Linux:');
-    info('  https://docs.docker.com/engine/install/');
+    info('On a fresh Linux server, run the server setup script instead:');
+    info('  bash scripts/server-setup.sh');
+    info('  (or: npm run server:setup)');
+    info('');
+    info('It installs Node.js, Docker, and Caddy automatically,');
+    info('then builds and starts Canvas Notebook.');
     console.log();
-    info('After installing, make sure your user is in the docker group:');
+    info('If you already have Docker, install it manually:');
+    info('  curl -fsSL https://get.docker.com | sh');
     info('  sudo usermod -aG docker $USER   # then log out and back in');
     console.log();
     info('Then run this script again: npm run setup');
@@ -468,7 +473,6 @@ async function main() {
 
   // ── Step 7: Wait for app ───────────────────────────────────────────────────
   step(7, 'Waiting for the app to be ready...');
-  info('The first startup includes installing optional CLI tools (may take ~60s).');
   console.log();
   const ready = await waitForReady(`${APP_URL}/api/health`);
   console.log();
