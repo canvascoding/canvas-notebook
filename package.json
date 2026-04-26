@@ -30,6 +30,7 @@
     "test:websocket:toast": "node scripts/test-websocket-toast.js",
     "test:websocket:load": "node scripts/test-websocket-load.js",
     "setup": "node scripts/setup.mjs",
+    "server:setup": "bash scripts/server-setup.sh",
     "container:rebuild": "node scripts/setup.mjs"
   },
   "dependencies": {

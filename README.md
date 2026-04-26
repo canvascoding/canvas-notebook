@@ -8,7 +8,7 @@
   <a href="https://github.com/canvascoding/canvas-notebook/releases"><img src="https://img.shields.io/github/v/release/canvascoding/canvas-notebook?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Sustainable_Use_1.0-orange?style=for-the-badge" alt="Sustainable Use License 1.0"></a>
   <img src="https://img.shields.io/badge/Next.js-black?style=for-the-badge&logo=next.js&logoColor=white" alt="Next.js">
-  <a href="https://hub.docker.com/r/canvascoding/canvas-notebook"><img src="https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
+  <a href="https://ghcr.io/canvascoding/canvas-notebook"><img src="https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
 </p>
 
 ---
@@ -64,31 +64,64 @@ The interface is fully translated — switch languages from the header or the on
 
 ---
 
-## Quickstart
+## Install
 
-**Requirements:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Node.js (v18+).
+### Linux / VPS (recommended)
+
+One command on a fresh Ubuntu or Debian server:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh | bash
+```
+
+The installer will:
+1. Install **Docker** (and optionally **Caddy** for automatic HTTPS)
+2. Pull the latest pre-built image from `ghcr.io` — no build step, no Node.js needed
+3. Auto-generate secrets
+4. Ask you to set your email, password, and public URL
+5. Start the container
+6. Configure Caddy with a Let's Encrypt TLS certificate automatically
+
+**Firewall:** open ports **80** and **443** at your provider. Port 3456 stays internal behind Caddy.
+
+**DNS:** point an A record for your domain to your server IP before the first request — Caddy handles the certificate automatically.
+
+#### Non-interactive / launch script
+
+All prompts can be bypassed with environment variables — useful when provisioning a new instance automatically:
+
+```bash
+INSTALL_MODE=1 \
+SETUP_CADDY=true \
+BASE_URL=https://canvas.example.com \
+ADMIN_EMAIL=me@example.com \
+ADMIN_PASSWORD=yourpassword \
+bash <(curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh)
+```
+
+---
+
+### Mac / Windows (local)
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Node.js (v18+).
 
 ```bash
 npm run setup
 ```
 
-That's it. The script will:
-1. Check that Docker is installed and running — if not, it tells you exactly where to download it
-2. Create a config file (`.env.docker.local`) from the template if one doesn't exist yet, and ask you to fill in your credentials
-3. Build the Docker image and start the container
-4. Wait for the app to be ready and open a browser window at `http://localhost:3456`
-
-If you don't change the config, the default login is `admin@example.com` / `admin`. You can change email and password at any time by editing the env file and restarting the container — the bootstrap script syncs the admin user on every startup.
-
-After login, an optional onboarding wizard can guide you through AI provider setup.
-
-> `npm install` is not required — the setup script only uses built-in Node.js modules.
+The script checks Docker, creates a config file from the template, builds the image, and opens the app at `http://localhost:3456`.
 
 ---
 
-## Data & Volumes
+### Hosting platforms (EasyPanel, Coolify, Portainer, etc.)
 
-Everything is stored in `./data` on your host machine, mounted into the container at `/data`:
+Use `ghcr.io/canvascoding/canvas-notebook:latest` as the image. Mount `/data` as a persistent volume. Set the environment variables listed in the [Configuration](#configuration) section below.
+
+---
+
+## Your Data
+
+All data is stored in a `./data` directory on the host, mounted into the container at `/data`. It is never lost when the container is updated, restarted, or rebuilt.
 
 | Path | What lives here |
 |------|----------------|
@@ -97,38 +130,50 @@ Everything is stored in `./data` on your host machine, mounted into the containe
 | `/data/skills/` | Custom agent skills |
 | `/data/secrets/` | Integration tokens and secrets |
 
-Two named Docker volumes handle persistent tooling:
-- `canvas_notebook_home` → `/home/node` — CLI tools installed at runtime (e.g. codex) survive container rebuilds
-- `canvas_notebook_ollama` → `/ollama` — Ollama models don't need to be re-downloaded after updates
+Two named Docker volumes keep tooling persistent across container updates:
+- `canvas_notebook_home` → `/home/node` — globally installed CLI tools
+- `canvas_notebook_ollama` → `/ollama` — Ollama models
 
 ---
 
-## Environment Variables
+## Update
 
-Copy `.env.docker.example` to `.env.docker.local` and set the values below. `npm run setup` does this automatically on first run.
+Pull the latest image and restart — your data is untouched:
+
+```bash
+docker compose -f canvas-notebook-compose.yaml pull
+docker compose -f canvas-notebook-compose.yaml up -d
+```
+
+For local / from-source installs:
+
+```bash
+git pull
+npm run setup
+```
+
+---
+
+## Configuration
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `BETTER_AUTH_SECRET` | **Yes** | Random 32-byte base64 secret — run `openssl rand -base64 32` |
-| `CANVAS_INTERNAL_API_KEY` | **Yes** | Internal API secret — run `openssl rand -base64 32` |
-| `BASE_URL` | **Yes** | App URL, e.g. `http://localhost:3456` |
-| `BETTER_AUTH_BASE_URL` | **Yes** | Same as BASE_URL |
-| `BOOTSTRAP_ADMIN_EMAIL` | Recommended | Single app login email, created or synchronized on every start |
-| `BOOTSTRAP_ADMIN_PASSWORD` | Recommended | Password for the bootstrap admin |
-| `BOOTSTRAP_ADMIN_NAME` | No | Display name for the bootstrap admin (default: Administrator) |
-| `DATA` | No | Base path for all app data (default: `/data`) |
-| `ONBOARDING` | No | Set to `true` to show the provider onboarding wizard after login |
-| `AI_CLI_AUTO_INSTALL` | No | Auto-install AI CLI if missing (default: `false`) |
-| `OLLAMA_CLI_AUTO_INSTALL` | No | Auto-install Ollama CLI if missing (default: `false`) |
-| `LOG_LEVEL` | No | Logging level: `off` \| `error` \| `warn` \| `info` \| `debug` (default: `info`) |
+| `BETTER_AUTH_SECRET` | **Yes** | Random 32-byte base64 secret — auto-generated by the installer |
+| `CANVAS_INTERNAL_API_KEY` | **Yes** | Internal API secret — auto-generated by the installer |
+| `BETTER_AUTH_BASE_URL` | **Yes** | Public URL of the app, e.g. `https://canvas.example.com` |
+| `BOOTSTRAP_ADMIN_EMAIL` | **Yes** | Login email — created or updated on every start |
+| `BOOTSTRAP_ADMIN_PASSWORD` | **Yes** | Login password |
+| `BOOTSTRAP_ADMIN_NAME` | No | Display name for the admin (default: `Administrator`) |
+| `ONBOARDING` | No | Set to `true` to show the provider setup wizard after first login |
+| `LOG_LEVEL` | No | `off` \| `error` \| `warn` \| `info` \| `debug` (default: `info`) |
 
-AI provider API keys (Claude, OpenRouter, Gemini, etc.) are configured inside the running app — you don't need them in the env file.
+AI provider API keys (Claude, OpenRouter, Gemini, etc.) are configured inside the running app — you don't need them here.
 
 ---
 
 ## Skills
 
-Skills extend what the AI agent can do. A skill is just a folder with a `SKILL.md` file:
+Skills extend what the AI agent can do. A skill is a folder with a `SKILL.md` file:
 
 ```
 /data/skills/
@@ -137,7 +182,6 @@ Skills extend what the AI agent can do. A skill is just a folder with a `SKILL.m
     bin/my-skill      # optional: executable makes this skill a callable tool
 ```
 
-The `SKILL.md` uses simple YAML frontmatter:
 ```yaml
 ---
 name: my-skill
@@ -151,73 +195,21 @@ Skills without an executable are loaded as context into the agent's system promp
 
 ---
 
-## Useful Commands
+## Development
+
+To build and run from source:
 
 ```bash
-# Install / first-time setup / rebuild
-npm run setup
+git clone https://github.com/canvascoding/canvas-notebook.git
+cd canvas-notebook
+npm run setup          # builds image and starts container
 
-# Watch logs
-docker compose logs -f canvas-notebook
-
-# Open a shell inside the container
-docker exec -it canvas-notebook sh
-
-# Stop
-docker compose down
-
-# Start again without rebuilding
-docker compose up -d
+npm run dev            # local dev server (no Docker)
+npm run lint
+npm run test:all
 ```
 
----
-
-## Pre-built Image
-
-A pre-built image is available on Docker Hub — no local build required:
-
-```
-docker pull canvascoding/canvas-notebook:latest
-```
-
-### Option A: Docker Compose (recommended)
-
-Download [`compose.hub.yaml`](https://github.com/canvascoding/canvas-notebook/blob/main/compose.hub.yaml), fill in your values, and run:
-
-```bash
-docker compose -f compose.hub.yaml up -d
-```
-
-All required environment variables are documented as comments inside the file. The only things you need to change are:
-- `BETTER_AUTH_SECRET` — generate with `openssl rand -base64 32`
-- `BASE_URL` / `BETTER_AUTH_BASE_URL` — the URL where the app will be reachable
-- `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` — your login credentials (defaults: `admin@example.com` / `admin`)
-
-You can update these at any time — just edit the values and restart the container. The bootstrap script syncs the admin user on every startup.
-
-### Option B: Quick start with docker run
-
-```bash
-docker run -d \
-  --name canvas-notebook \
-  -p 3456:3000 \
-  -v $(pwd)/data:/data \
-  -v canvas_notebook_home:/home/node \
-  -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
-  -e CANVAS_INTERNAL_API_KEY="$(openssl rand -base64 32)" \
-  -e BASE_URL="http://localhost:3456" \
-  -e BETTER_AUTH_BASE_URL="http://localhost:3456" \
-  -e BOOTSTRAP_ADMIN_EMAIL="admin@example.com" \
-  -e BOOTSTRAP_ADMIN_PASSWORD="change-me" \
-  -e ONBOARDING="true" \
-  canvascoding/canvas-notebook:latest
-```
-
-Then open `http://localhost:3456`.
-
-### Hosting platforms (EasyPanel, Coolify, etc.)
-
-Use `canvascoding/canvas-notebook:latest` as the image source and set the environment variables above in the platform UI. Mount `/data` as a persistent volume.
+Pre-built images are published automatically to `ghcr.io/canvascoding/canvas-notebook` when a new release tag is pushed.
 
 ---
 
