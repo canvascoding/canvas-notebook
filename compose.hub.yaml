@@ -9,8 +9,8 @@ services:
       CANVAS_INTERNAL_API_KEY: "change-me-generate-with-openssl-rand-base64-32"
 
       # Required: the URL where the app will be accessible
-      BASE_URL: "http://localhost:3456"
-      BETTER_AUTH_BASE_URL: "http://localhost:3456"
+      BASE_URL: "https://your-domain.com"
+      BETTER_AUTH_BASE_URL: "https://your-domain.com"
 
       # Recommended: your login credentials
       BOOTSTRAP_ADMIN_EMAIL: "admin@example.com"
