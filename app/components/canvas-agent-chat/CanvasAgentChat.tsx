@@ -58,7 +58,7 @@ import { LogoutButton } from '@/app/components/LogoutButton';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
+import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
@@ -855,11 +855,14 @@ export default function CanvasAgentChat({
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
   const [availableSkills, setAvailableSkills] = useState<SkillPickerSkill[] | null>(null);
 
-  const localizedStarterPrompts = BUSINESS_STARTER_PROMPTS.map((prompt) => ({
+  const isStudioChatContext = Boolean(requestContext?.currentPage?.startsWith('/studio') || pathname?.startsWith('/studio'));
+  const starterPromptSource = isStudioChatContext ? STUDIO_STARTER_PROMPTS : BUSINESS_STARTER_PROMPTS;
+  const starterPromptTranslationKey = isStudioChatContext ? 'studioStarterPrompts' : 'starterPrompts';
+  const localizedStarterPrompts = starterPromptSource.map((prompt) => ({
     ...prompt,
-    title: t(`starterPrompts.${prompt.id}.title`),
-    description: t(`starterPrompts.${prompt.id}.description`),
-    prompt: t(`starterPrompts.${prompt.id}.prompt`),
+    title: t(`${starterPromptTranslationKey}.${prompt.id}.title`),
+    description: t(`${starterPromptTranslationKey}.${prompt.id}.description`),
+    prompt: t(`${starterPromptTranslationKey}.${prompt.id}.prompt`),
   }));
   const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
   const [composerHeight, setComposerHeight] = useState(220);
@@ -3471,9 +3474,11 @@ export default function CanvasAgentChat({
                     </div>
                   ) : null}
                   <div className="space-y-1">
-                    <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">{t('starterTitle')}</h2>
+                    <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+                      {t(isStudioChatContext ? 'studioStarterTitle' : 'starterTitle')}
+                    </h2>
                     <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                      {t('starterDescription')}
+                      {t(isStudioChatContext ? 'studioStarterDescription' : 'starterDescription')}
                     </p>
                   </div>
                 </div>
