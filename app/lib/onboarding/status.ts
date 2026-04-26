@@ -3,7 +3,7 @@ import { db } from '@/app/lib/db';
 import { onboardingLog } from '@/app/lib/db/schema';
 
 export function isOnboardingEnabled(): boolean {
-  return process.env.ONBOARDING === 'true';
+  return process.env.ONBOARDING?.trim().toLowerCase() !== 'false';
 }
 
 export async function isOnboardingComplete(): Promise<boolean> {

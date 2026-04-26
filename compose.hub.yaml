@@ -17,16 +17,9 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: "change-me"
       BOOTSTRAP_ADMIN_NAME: "Administrator"
 
-      # Set to "true" to show the provider onboarding wizard after first login
-      ONBOARDING: "true"
-
-      # Logging level: off | error | warn | info | debug (default: info)
-      LOG_LEVEL: "info"
-
       # Do not change
       HOSTNAME: "0.0.0.0"
       DATA: "/data"
-      ALLOW_SIGNUP: "false"
     volumes:
       - ./data:/data
     restart: unless-stopped
