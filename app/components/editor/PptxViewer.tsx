@@ -1,32 +1,36 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { init } from 'pptx-preview';
 
 interface PptxViewerProps {
   path: string;
 }
 
+type Previewer = ReturnType<typeof init> & {
+  renderNextSlide?: () => void;
+  renderPreSlide?: () => void;
+  currentIndex?: number;
+  pptx?: { slides?: unknown[] };
+};
+
 export function PptxViewer({ path }: PptxViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const previewerRef = useRef<ReturnType<typeof init> | null>(null);
+  const previewerRef = useRef<Previewer | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [totalSlides, setTotalSlides] = useState(0);
-  const isMobile = useIsMobile();
 
   useEffect(() => {
     const loadPptx = async () => {
       try {
-        // Fetch PPTX file
         const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`, {
           credentials: 'include'
         });
-        
+
         if (!response.ok) {
           throw new Error(`Failed to load file: ${response.status}`);
         }
@@ -34,44 +38,32 @@ export function PptxViewer({ path }: PptxViewerProps) {
         const arrayBuffer = await response.arrayBuffer();
 
         if (containerRef.current) {
-          // Calculate responsive dimensions
-          const containerWidth = containerRef.current.clientWidth - 32; // padding
+          // destroy() does not clear the DOM, so we do it manually to prevent
+          // double renders (React 18 StrictMode double-invokes effects)
+          containerRef.current.innerHTML = '';
+
+          const containerWidth = containerRef.current.clientWidth - 32;
           const isMobileDevice = window.innerWidth < 768;
           const baseWidth = isMobileDevice ? Math.min(containerWidth, 640) : 960;
-          const aspectRatio = 16 / 9;
-          const height = Math.floor(baseWidth / aspectRatio);
+          const height = Math.floor(baseWidth / (16 / 9));
 
-          // Initialize pptx-preview
           const previewer = init(containerRef.current, {
             width: baseWidth,
             height: height,
             mode: 'slide',
-          });
-
-          // The library's _renderBackground crashes when a slide object is undefined.
-          // It lives on htmlRender's prototype (not on the gt wrapper init() returns),
-          // so we patch it there. This also covers the race where destroy() tears down
-          // pptx while an in-flight render still fires renderSlide.
-          const htmlRender = (previewer as { htmlRender?: unknown }).htmlRender;
-          if (htmlRender) {
-            const hrProto = Object.getPrototypeOf(htmlRender);
-            if (typeof hrProto._renderBackground === 'function') {
-              const original = hrProto._renderBackground;
-              hrProto._renderBackground = function (slide: unknown, el: unknown) {
-                if (!slide) return;
-                return original.call(this, slide, el);
-              };
-            }
-          }
+          }) as Previewer;
 
           previewerRef.current = previewer;
-
-          // Load the presentation
           await previewer.preview(arrayBuffer);
 
-          // Count slides by querying the DOM
-          const slides = containerRef.current.querySelectorAll('.pptx-slide');
-          setTotalSlides(slides.length);
+          // Hide the library's built-in nav buttons — we render our own
+          containerRef.current.querySelectorAll<HTMLElement>(
+            '.pptx-preview-wrapper-next, .pptx-preview-wrapper-pagination'
+          ).forEach(el => { el.style.display = 'none'; });
+
+          const count = previewer.pptx?.slides?.length ?? 0;
+          setTotalSlides(count);
+          setCurrentSlide(0);
           setIsLoading(false);
         }
       } catch (err) {
@@ -84,34 +76,25 @@ export function PptxViewer({ path }: PptxViewerProps) {
     loadPptx();
 
     return () => {
-      // Cleanup
       if (previewerRef.current) {
         previewerRef.current.destroy();
         previewerRef.current = null;
       }
     };
-  }, [path, isMobile]);
-
-  const goToSlide = (index: number) => {
-    if (containerRef.current && index >= 0 && index < totalSlides) {
-      const slides = containerRef.current.querySelectorAll('.pptx-slide');
-      if (slides[index]) {
-        slides[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setCurrentSlide(index);
-      }
-    }
-  };
+  }, [path]);
 
   const nextSlide = () => {
-    if (currentSlide < totalSlides - 1) {
-      goToSlide(currentSlide + 1);
-    }
+    const p = previewerRef.current;
+    if (!p || currentSlide >= totalSlides - 1) return;
+    p.renderNextSlide?.();
+    setCurrentSlide(idx => idx + 1);
   };
 
   const prevSlide = () => {
-    if (currentSlide > 0) {
-      goToSlide(currentSlide - 1);
-    }
+    const p = previewerRef.current;
+    if (!p || currentSlide <= 0) return;
+    p.renderPreSlide?.();
+    setCurrentSlide(idx => idx - 1);
   };
 
   if (error) {
@@ -134,13 +117,13 @@ export function PptxViewer({ path }: PptxViewerProps) {
           </div>
         </div>
       )}
-      
-      <div 
-        ref={containerRef} 
+
+      <div
+        ref={containerRef}
         className="flex-1 overflow-auto p-2 sm:p-4"
         style={{ minHeight: '300px' }}
       />
-      
+
       {!isLoading && totalSlides > 0 && (
         <div className="flex items-center justify-center gap-2 sm:gap-4 p-2 sm:p-4 border-t border-border">
           <Button
@@ -152,11 +135,11 @@ export function PptxViewer({ path }: PptxViewerProps) {
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          
+
           <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
-            {currentSlide + 1}/{totalSlides}
+            {currentSlide + 1} / {totalSlides}
           </span>
-          
+
           <Button
             variant="outline"
             size="sm"
