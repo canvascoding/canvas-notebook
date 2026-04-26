@@ -4,8 +4,13 @@
 #   1. Pre-built image (recommended) — pulls ghcr.io image, no build needed
 #   2. From source                   — clones repo and builds locally
 #
-# Usage:
-#   curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh | bash
+# Usage (interactive):
+#   bash <(curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh)
+#
+# Usage (non-interactive / launch script):
+#   INSTALL_MODE=1 SETUP_CADDY=true BASE_URL=https://canvas.example.com \
+#     ADMIN_EMAIL=me@example.com ADMIN_PASSWORD=secret \
+#     bash <(curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh)
 
 set -euo pipefail
 
@@ -16,6 +21,14 @@ info()    { echo -e "${CYAN}  $*${RESET}"; }
 warn()    { echo -e "${YELLOW}! $*${RESET}"; }
 fail()    { echo -e "${RED}✗ $*${RESET}"; exit 1; }
 section() { echo; echo -e "${YELLOW}$*${RESET}"; }
+
+# read from /dev/tty so prompts work even when piped through curl | bash
+ask() {
+  local prompt="$1" var="$2" default="${3:-}"
+  local answer
+  read -rp "$prompt" answer </dev/tty || true
+  printf -v "$var" '%s' "${answer:-$default}"
+}
 
 REPO="https://github.com/canvascoding/canvas-notebook.git"
 IMAGE="ghcr.io/canvascoding/canvas-notebook:latest"
@@ -35,39 +48,48 @@ echo
 echo -e "${BOLD}╔══════════════════════════════════════════╗${RESET}"
 echo -e "${BOLD}║   Canvas Notebook  —  Installer          ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${RESET}"
-# ── Non-interactive mode detection ───────────────────────────────────────────
-# All prompts can be bypassed via environment variables:
-#   INSTALL_MODE=1            (1=prebuilt, 2=source; default: 1)
+echo
+
+# ── Non-interactive detection ─────────────────────────────────────────────────
+# Non-interactive mode is active when env vars are provided.
+# Env vars available:
+#   INSTALL_MODE=1|2          (1=prebuilt, 2=source; default: 1)
 #   SETUP_CADDY=true|false    (default: false)
-#   ADMIN_EMAIL=...           your login email
-#   ADMIN_PASSWORD=...        your login password
-#   BASE_URL=...              public URL, e.g. https://canvas.example.com
-#
-# Example launch script:
-#   INSTALL_MODE=1 SETUP_CADDY=true BASE_URL=https://canvas.example.com \
-#     ADMIN_EMAIL=me@example.com ADMIN_PASSWORD=secret bash install.sh
+#   ADMIN_EMAIL=...
+#   ADMIN_PASSWORD=...
+#   BASE_URL=...              e.g. https://canvas.example.com
 
 NONINTERACTIVE=false
 if [[ -n "${INSTALL_MODE:-}" || -n "${ADMIN_EMAIL:-}" || -n "${BASE_URL:-}" ]]; then
   NONINTERACTIVE=true
 fi
 
+# ── Collect all choices upfront ───────────────────────────────────────────────
 if [[ "$NONINTERACTIVE" == "true" ]]; then
   MODE_CHOICE="${INSTALL_MODE:-1}"
-  info "Non-interactive mode (INSTALL_MODE=${MODE_CHOICE})"
+  SETUP_CADDY="${SETUP_CADDY:-false}"
+  info "Non-interactive mode — INSTALL_MODE=${MODE_CHOICE}, SETUP_CADDY=${SETUP_CADDY}"
 else
-  echo
   echo "How would you like to install Canvas Notebook?"
   echo
   echo "  1) Pre-built image  (recommended — fast, no build required)"
   echo "  2) From source      (for developers or custom builds)"
   echo
-  read -rp "Choice [1/2, default 1]: " MODE_CHOICE
-  MODE_CHOICE="${MODE_CHOICE:-1}"
+  ask "Choice [1/2, default 1]: " MODE_CHOICE "1"
+
+  if [[ "$MODE_CHOICE" == "1" ]]; then
+    echo
+    ask "Set up Caddy for public HTTPS access? [y/N]: " CADDY_ANSWER "n"
+    SETUP_CADDY=false
+    if [[ "${CADDY_ANSWER,,}" == "y" || "${CADDY_ANSWER,,}" == "yes" ]]; then
+      SETUP_CADDY=true
+    fi
+  fi
 fi
 
-# ── Shared helpers ────────────────────────────────────────────────────────────
+export SETUP_CADDY MODE_CHOICE
 
+# ── Shared: install Docker ────────────────────────────────────────────────────
 install_docker() {
   section "Docker"
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
@@ -97,20 +119,9 @@ install_docker() {
   export DOCKER_COMPOSE
 }
 
+# ── Shared: install Caddy ─────────────────────────────────────────────────────
 install_caddy() {
   section "Caddy (HTTPS reverse proxy)"
-
-  if [[ "$NONINTERACTIVE" == "true" ]]; then
-    SETUP_CADDY="${SETUP_CADDY:-false}"
-  else
-    echo
-    read -rp "  Set up Caddy for public HTTPS access? [y/N]: " CADDY_ANSWER
-    SETUP_CADDY=false
-    if [[ "${CADDY_ANSWER,,}" == "y" || "${CADDY_ANSWER,,}" == "yes" ]]; then
-      SETUP_CADDY=true
-    fi
-  fi
-
   if [[ "$SETUP_CADDY" == "true" ]]; then
     if command -v caddy >/dev/null 2>&1; then
       ok "Caddy already installed"
@@ -128,9 +139,9 @@ install_caddy() {
   else
     ok "Skipped"
   fi
-  export SETUP_CADDY
 }
 
+# ── Shared: configure Caddy ───────────────────────────────────────────────────
 configure_caddy() {
   local domain="$1"
   if [[ "$SETUP_CADDY" != "true" ]]; then return; fi
@@ -171,15 +182,13 @@ EOF
   else
     SERVER_IP=$(curl -sf4 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
     ok "App available at http://${SERVER_IP}:3456"
-    info "To enable HTTPS: set your domain in the config and re-run: bash install.sh"
+    info "To enable HTTPS: set your domain in the config and re-run."
     info "Make sure port 3456 is open in your firewall / security group."
   fi
 }
 
 # ── Mode 1: Pre-built image ───────────────────────────────────────────────────
 if [[ "$MODE_CHOICE" == "1" ]]; then
-  echo
-  info "Using pre-built image: ${IMAGE}"
 
   install_docker
   install_caddy
@@ -203,32 +212,25 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
     fi
   done
 
-  # Check for remaining placeholders
   compose_has_placeholders() {
     grep -qE 'admin@example\.com|BOOTSTRAP_ADMIN_PASSWORD:.*"change-me"' "$COMPOSE_FILE" 2>/dev/null
   }
 
-  # Inject env vars directly if provided (non-interactive mode)
-  if [[ -n "${ADMIN_EMAIL:-}" ]]; then
-    sed -i "s|BOOTSTRAP_ADMIN_EMAIL:.*|BOOTSTRAP_ADMIN_EMAIL: \"${ADMIN_EMAIL}\"|" "$COMPOSE_FILE"
-    ok "Set BOOTSTRAP_ADMIN_EMAIL"
-  fi
-  if [[ -n "${ADMIN_PASSWORD:-}" ]]; then
-    sed -i "s|BOOTSTRAP_ADMIN_PASSWORD:.*|BOOTSTRAP_ADMIN_PASSWORD: \"${ADMIN_PASSWORD}\"|" "$COMPOSE_FILE"
-    ok "Set BOOTSTRAP_ADMIN_PASSWORD"
-  fi
+  # Inject env vars (non-interactive)
+  [[ -n "${ADMIN_EMAIL:-}" ]]    && sed -i "s|BOOTSTRAP_ADMIN_EMAIL:.*|BOOTSTRAP_ADMIN_EMAIL: \"${ADMIN_EMAIL}\"|" "$COMPOSE_FILE"    && ok "Set BOOTSTRAP_ADMIN_EMAIL"
+  [[ -n "${ADMIN_PASSWORD:-}" ]] && sed -i "s|BOOTSTRAP_ADMIN_PASSWORD:.*|BOOTSTRAP_ADMIN_PASSWORD: \"${ADMIN_PASSWORD}\"|" "$COMPOSE_FILE" && ok "Set BOOTSTRAP_ADMIN_PASSWORD"
   if [[ -n "${BASE_URL:-}" ]]; then
     sed -i "s|BETTER_AUTH_BASE_URL:.*|BETTER_AUTH_BASE_URL: \"${BASE_URL}\"|" "$COMPOSE_FILE"
     sed -i "s|BASE_URL:.*\"http|BASE_URL: \"${BASE_URL}\" #http|" "$COMPOSE_FILE"
     ok "Set BASE_URL / BETTER_AUTH_BASE_URL"
   fi
 
+  # Interactive config if placeholders remain
   if compose_has_placeholders; then
     if [[ "$NONINTERACTIVE" == "true" ]]; then
       fail "Config still contains placeholder values. Set ADMIN_EMAIL, ADMIN_PASSWORD, and BASE_URL env vars."
     fi
-    echo
-    echo -e "${BOLD}  Configure your credentials in ${COMPOSE_FILE}${RESET}"
+    section "Configuration"
     echo
     info "Set at minimum:"
     info "  BOOTSTRAP_ADMIN_EMAIL    — your login email"
@@ -239,8 +241,8 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
     EDITOR_CMD="${EDITOR:-nano}"
     command -v "$EDITOR_CMD" >/dev/null 2>&1 || EDITOR_CMD="vi"
 
-    read -rp "  Press Enter to open ${COMPOSE_FILE} in ${EDITOR_CMD}, or Ctrl+C to abort: "
-    "$EDITOR_CMD" "$COMPOSE_FILE"
+    ask "  Press Enter to open ${COMPOSE_FILE} in ${EDITOR_CMD}, or Ctrl+C to abort: " _dummy ""
+    "$EDITOR_CMD" "$COMPOSE_FILE" </dev/tty
 
     if compose_has_placeholders; then
       fail "Config still contains placeholder values. Edit ${COMPOSE_FILE} and re-run: bash install.sh"
@@ -256,9 +258,9 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --force-recreate
   ok "Container started"
 
-  # Extract domain for Caddy
-  BASE_URL="$(grep 'BETTER_AUTH_BASE_URL:' "$COMPOSE_FILE" | head -1 | sed 's/.*"\(.*\)"/\1/' | tr -d '[:space:]')"
-  DOMAIN="$(echo "$BASE_URL" | sed 's|^https\?://||' | cut -d/ -f1 | cut -d: -f1)"
+  # Configure Caddy
+  CONFIGURED_BASE_URL="$(grep 'BETTER_AUTH_BASE_URL:' "$COMPOSE_FILE" | head -1 | sed 's/.*"\(.*\)"/\1/' | tr -d '[:space:]')"
+  DOMAIN="$(echo "$CONFIGURED_BASE_URL" | sed 's|^https\?://||' | cut -d/ -f1 | cut -d: -f1)"
   configure_caddy "$DOMAIN"
 
   echo
@@ -270,8 +272,6 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
 
 # ── Mode 2: From source ───────────────────────────────────────────────────────
 elif [[ "$MODE_CHOICE" == "2" ]]; then
-  echo
-  info "Building from source — cloning ${REPO}"
 
   if ! command -v git >/dev/null 2>&1; then
     sudo apt-get update -qq && sudo apt-get install -y git
@@ -281,6 +281,7 @@ elif [[ "$MODE_CHOICE" == "2" ]]; then
     ok "Repo already exists — pulling latest changes"
     git -C "$DEST" pull
   else
+    section "Cloning repository"
     git clone "$REPO" "$DEST"
     ok "Cloned into ./${DEST}"
   fi

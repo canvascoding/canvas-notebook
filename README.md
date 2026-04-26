@@ -71,7 +71,7 @@ The interface is fully translated — switch languages from the header or the on
 One command on a fresh Ubuntu or Debian server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh)
 ```
 
 The installer will:
