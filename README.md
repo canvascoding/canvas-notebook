@@ -80,11 +80,24 @@ The installer will:
 3. Auto-generate secrets
 4. Ask you to set your email, password, and public URL
 5. Start the container
-6. Configure Caddy with a Let's Encrypt TLS certificate automatically
+6. Install the host-side `canvas-notebook` management command
+7. Configure Caddy with a Let's Encrypt TLS certificate automatically
 
 **Firewall:** open ports **80** and **443** at your provider. Port 3456 stays internal behind Caddy.
 
 **DNS:** point an A record for your domain to your server IP before the first request — Caddy handles the certificate automatically.
+
+After installation, manage the VM from any directory with:
+
+```bash
+canvas-notebook help
+canvas-notebook update
+canvas-notebook logs
+canvas-notebook status
+canvas-notebook restart
+```
+
+The CLI runs on the VM host and remembers the install directory and Compose file for you. You do not need to `cd` into the project folder or run Docker Compose commands manually.
 
 #### Non-interactive / launch script
 
@@ -134,12 +147,13 @@ All data is stored in a `./data` directory on the host, mounted into the contain
 
 ## Update
 
-Pull the latest image and restart — your data is untouched:
+On Linux / VPS installs, update from anywhere on the VM:
 
 ```bash
-docker compose -f canvas-notebook-compose.yaml pull
-docker compose -f canvas-notebook-compose.yaml up -d
+canvas-notebook update
 ```
+
+This pulls the latest image, recreates the container, streams startup logs, and waits until the app is healthy. Your data is untouched because it lives in the host `./data` directory.
 
 For local / from-source installs:
 
@@ -169,17 +183,21 @@ AI provider API keys (Claude, OpenRouter, Gemini, etc.) are configured inside th
 
 ## VM Management CLI
 
-The Linux installer creates a host-side `canvas-notebook` command for common operations:
+The Linux installer creates a host-side `/usr/local/bin/canvas-notebook` command. It can be run from any directory:
 
 ```bash
 canvas-notebook help
+canvas-notebook install
 canvas-notebook update
 canvas-notebook logs
 canvas-notebook status
 canvas-notebook restart
+canvas-notebook stop
+canvas-notebook start
+canvas-notebook health
 ```
 
-Run these commands on the VM/server, not inside the app container. Updates pull the latest image, recreate the container, stream startup logs, and wait for the health check.
+Run these commands on the VM/server, not inside the app container. The CLI stores the install directory and Compose file path during setup, so it can manage the container without you being in the right folder.
 
 ---
 
