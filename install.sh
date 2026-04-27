@@ -483,7 +483,9 @@ wait_for_canvas_startup() {
 
   section "Container startup logs"
   info "Streaming container logs until Canvas Notebook is healthy..."
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --tail=80 canvas-notebook &
+  local since_ts
+  since_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --since="$since_ts" canvas-notebook &
   log_pid=$!
 
   stop_log_stream() {
@@ -899,12 +901,13 @@ wait_until_healthy() {
 }
 
 follow_until_healthy() {
-  local log_pid attempts attempt url
+  local log_pid attempts attempt url since_ts
   attempts="\$DEFAULT_HEALTH_ATTEMPTS"
   url="\$(health_url)"
+  since_ts="\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   info "Streaming startup logs until Canvas Notebook is healthy..."
-  compose logs -f --tail="\${TAIL:-120}" "\$SERVICE" &
+  compose logs -f --since="\$since_ts" "\$SERVICE" 2>&1 | tee -a "\$LOG_FILE" &
   log_pid=\$!
 
   stop_log_stream() {
