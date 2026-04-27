@@ -34,6 +34,10 @@ function toErrorMessage(error: unknown, fallback: string): string {
 }
 
 async function parseJsonResponse(response: Response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json') && !contentType.includes('text/plain')) {
+    throw new Error(`Server error: ${response.status}. Bitte versuche es erneut.`);
+  }
   const data = await response.json();
   if (!response.ok || data?.success === false) {
     throw new Error(data?.error || `Request failed with ${response.status}`);

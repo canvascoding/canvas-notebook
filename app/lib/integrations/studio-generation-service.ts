@@ -695,10 +695,10 @@ function buildReferenceContextPrompt(referenceImages: LoadedReferenceImage[]): {
   return { contextText, providerImages };
 }
 
-export async function executeStudioGeneration(
+export async function createStudioGeneration(
   userId: string,
   request: StudioGenerateRequest,
-): Promise<StudioGenerateResult> {
+): Promise<{ generationId: string; mode: string; prompt: string }> {
   const mode = request.mode || 'image';
   const providerId = request.provider || (mode === 'video' ? 'veo' : 'gemini');
   const aspectRatio = request.aspect_ratio || '1:1';
@@ -748,6 +748,10 @@ export async function executeStudioGeneration(
     videoNsfwChecker: request.video_nsfw_checker,
     extraReferenceUrls: request.extra_reference_urls,
     sourceOutputId: request.source_output_id,
+    startFramePath: request.start_frame_path || null,
+    endFramePath: request.end_frame_path || null,
+    isLooping: request.is_looping || false,
+    personGeneration: request.person_generation || 'allow_all',
   });
 
   await db.insert(studioGenerations).values({
@@ -778,25 +782,132 @@ export async function executeStudioGeneration(
     await db.insert(studioGenerationStyles).values({ generationId, styleId });
   }
 
-  console.log(`[Studio Generation] Starting generation: id=${generationId}, mode=${mode}, provider=${providerId}, model=${model || 'default'}, prompt="${rawPrompt.slice(0, 80)}..."`);
+  console.log(`[Studio Generation] Created generation record: id=${generationId}, mode=${mode}, provider=${providerId}, model=${model || 'default'}, prompt="${rawPrompt.slice(0, 80)}..."`);
   console.log(`[Studio Generation] References: products=${productIds.length}, personas=${personaIds.length}, styles=${styleIds.length}, extra_urls=${request.extra_reference_urls?.length || 0}, source_output=${request.source_output_id || 'none'}`);
+
+  return { generationId, mode, prompt: rawPrompt };
+}
+
+export async function runStudioGeneration(generationId: string): Promise<void> {
+  const [row] = await db.select({
+    userId: studioGenerations.userId,
+    mode: studioGenerations.mode,
+    provider: studioGenerations.provider,
+    model: studioGenerations.model,
+    aspectRatio: studioGenerations.aspectRatio,
+    prompt: studioGenerations.prompt,
+    metadata: studioGenerations.metadata,
+  })
+    .from(studioGenerations)
+    .where(eq(studioGenerations.id, generationId))
+    .limit(1);
+
+  if (!row) {
+    console.error(`[Studio Generation] Generation not found for background processing: id=${generationId}`);
+    return;
+  }
+
+  try {
+    await executeStudioGenerationProcessing(row.userId, row, generationId);
+  } catch (error) {
+    console.error(`[Studio Generation] Background generation failed: id=${generationId}`, error);
+  }
+}
+
+export async function executeStudioGeneration(
+  userId: string,
+  request: StudioGenerateRequest,
+): Promise<StudioGenerateResult> {
+  const { generationId, mode, prompt } = await createStudioGeneration(userId, request);
+  const [row] = await db.select({
+    userId: studioGenerations.userId,
+    mode: studioGenerations.mode,
+    provider: studioGenerations.provider,
+    model: studioGenerations.model,
+    aspectRatio: studioGenerations.aspectRatio,
+    prompt: studioGenerations.prompt,
+    metadata: studioGenerations.metadata,
+  })
+    .from(studioGenerations)
+    .where(eq(studioGenerations.id, generationId))
+    .limit(1);
+
+  if (!row) {
+    throw new StudioServiceError('Generation not found after creation', 'Generierung wurde nicht gefunden.');
+  }
+
+  await executeStudioGenerationProcessing(row.userId, row, generationId);
+
+  const [completed] = await db.select({ status: studioGenerations.status, prompt: studioGenerations.prompt })
+    .from(studioGenerations)
+    .where(eq(studioGenerations.id, generationId))
+    .limit(1);
+
+  const outputs = await db.select()
+    .from(studioGenerationOutputs)
+    .where(eq(studioGenerationOutputs.generationId, generationId));
+
+  return {
+    generationId,
+    status: completed?.status || 'completed',
+    mode,
+    prompt: completed?.prompt || prompt,
+    outputs: outputs.map((o) => ({
+      id: o.id,
+      variationIndex: o.variationIndex,
+      filePath: o.filePath,
+      fileName: o.fileName ?? undefined,
+      mediaUrl: o.mediaUrl || toMediaUrl(o.filePath),
+      mimeType: o.mimeType || 'image/png',
+      fileSize: o.fileSize ?? 0,
+    })),
+  };
+}
+
+interface GenerationRow {
+  userId: string;
+  mode: string;
+  provider: string;
+  model: string;
+  aspectRatio: string;
+  prompt: string | null;
+  metadata: string | null;
+}
+
+async function executeStudioGenerationProcessing(
+  userId: string,
+  generation: GenerationRow,
+  generationId: string,
+): Promise<void> {
+  const parsedMeta = generation.metadata ? JSON.parse(generation.metadata) : {};
+  const productIds: string[] = parsedMeta.productIds || [];
+  const personaIds: string[] = parsedMeta.personaIds || [];
+  const styleIds: string[] = parsedMeta.styleIds || [];
+  const providerId = generation.provider;
+  const mode = generation.mode;
+  const aspectRatio = generation.aspectRatio;
+  const rawPrompt = generation.prompt || '';
+  const model = generation.model;
+
+  console.log(`[Studio Generation] Starting background processing: id=${generationId}, mode=${mode}, provider=${providerId}`);
 
   try {
     const allReferenceImages: LoadedReferenceImage[] = [];
 
-    if (request.source_output_id) {
-      const sourceImg = await loadSourceOutputImage(userId, request.source_output_id);
+    const sourceOutputId = parsedMeta.sourceOutputId;
+    if (sourceOutputId) {
+      const sourceImg = await loadSourceOutputImage(userId, sourceOutputId);
       allReferenceImages.push(sourceImg);
 
       if (productIds.length === 0 && personaIds.length === 0 && styleIds.length === 0) {
-        const sourceOutput = await getStudioOutputForUser(request.source_output_id, userId);
+        const sourceOutput = await getStudioOutputForUser(sourceOutputId, userId);
         if (sourceOutput) {
           const sourceRefs = await loadSourceOutputReferences(userId, sourceOutput.generationId);
           if (sourceRefs.product_ids.length > 0 || sourceRefs.persona_ids.length > 0 || sourceRefs.style_ids?.length > 0) {
-            const productImgs = await loadProductImages(userId, sourceRefs.product_ids);
-            const personaImgs = await loadPersonaImages(userId, sourceRefs.persona_ids);
-            const styleImgs = await loadStyleImages(userId, sourceRefs.style_ids || []);
-            for (const img of [...productImgs, ...personaImgs, ...styleImgs]) {
+            const srcProductImgs = await loadProductImages(userId, sourceRefs.product_ids);
+            const srcPersonaImgs = await loadPersonaImages(userId, sourceRefs.persona_ids);
+            const srcStyleImgs = await loadStyleImages(userId, sourceRefs.style_ids || []);
+            for (const img of [...srcProductImgs, ...srcPersonaImgs, ...srcStyleImgs]) {
               if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
                 allReferenceImages.push(img);
               }
@@ -815,8 +926,7 @@ export async function executeStudioGeneration(
       }
     }
 
-    // Load extra reference images from URLs
-    const extraUrls = request.extra_reference_urls || [];
+    const extraUrls = parsedMeta.extraReferenceUrls || [];
     if (extraUrls.length > 0) {
       const extraImgs = await loadExtraReferenceImages(userId, extraUrls);
       for (const img of extraImgs) {
@@ -826,14 +936,13 @@ export async function executeStudioGeneration(
       }
     }
 
-    // Build structured context prompt for all references
     const { contextText, providerImages } = buildReferenceContextPrompt(allReferenceImages);
     console.log(`[Studio Generation] Reference images prepared: total=${allReferenceImages.length}, forProvider=${providerImages.length}, contextLength=${contextText.length}`);
 
-    // Compose the final prompt with structured Markdown sections
     let composedPrompt = rawPrompt;
-    if (request.preset_id) {
-      const presetFragment = await composePresetPromptFragment(request.preset_id);
+    const presetId = parsedMeta.presetId;
+    if (presetId) {
+      const presetFragment = await composePresetPromptFragment(presetId);
       if (presetFragment) {
         composedPrompt = `## Preset — Visual Setting\n${presetFragment}\n\n## Instructions\n\n${rawPrompt}`.trim();
       }
@@ -853,24 +962,24 @@ export async function executeStudioGeneration(
         providerImages,
         providerId,
         model,
-        request.video_resolution,
-        request.video_duration,
-        request.start_frame_path || null,
-        request.end_frame_path || null,
-        request.is_looping || false,
-        request.person_generation,
+        parsedMeta.videoResolution,
+        parsedMeta.videoDuration,
+        parsedMeta.startFramePath || null,
+        parsedMeta.endFramePath || null,
+        parsedMeta.isLooping || false,
+        parsedMeta.personGeneration,
         {
-          generateAudio: request.video_generate_audio,
-          webSearch: request.video_web_search,
-          nsfwChecker: request.video_nsfw_checker,
+          generateAudio: parsedMeta.videoGenerateAudio,
+          webSearch: parsedMeta.videoWebSearch,
+          nsfwChecker: parsedMeta.videoNsfwChecker,
         },
       );
     } else {
-      const count = Math.min(Math.max(request.count || 4, 1), MAX_IMAGE_COUNT);
+      const count = Math.min(Math.max(parsedMeta.count || 4, 1), MAX_IMAGE_COUNT);
       outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
-        quality: request.quality,
-        outputFormat: request.output_format,
-        background: request.background,
+        quality: parsedMeta.quality,
+        outputFormat: parsedMeta.outputFormat,
+        background: parsedMeta.background,
       }, contextText);
     }
 
@@ -879,7 +988,6 @@ export async function executeStudioGeneration(
       .where(eq(studioGenerations.id, generationId));
 
     console.log(`[Studio Generation] Completed: id=${generationId}, mode=${mode}, outputs=${outputs.length}`);
-    return { generationId, status: 'completed', mode, prompt: composedPrompt, outputs };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`[Studio Generation] Generation failed: id=${generationId}, error="${errorMessage}"`, error instanceof Error ? error.stack : error);
@@ -887,13 +995,12 @@ export async function executeStudioGeneration(
       .from(studioGenerations)
       .where(eq(studioGenerations.id, generationId))
       .limit(1);
-    const existingMetadata = existingGeneration[0]?.metadata 
-      ? JSON.parse(existingGeneration[0].metadata) 
+    const existingMetadata = existingGeneration[0]?.metadata
+      ? JSON.parse(existingGeneration[0].metadata)
       : {};
     await db.update(studioGenerations)
       .set({ status: 'failed', metadata: JSON.stringify({ ...existingMetadata, error: errorMessage }), updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
-    throw error;
   }
 }
 
@@ -1207,11 +1314,18 @@ async function generateStudioSeedanceVideo(
   const lastFrame = lastFramePath ? await loadSeedanceFrame(lastFramePath) : null;
   console.log(`[Studio Generation] Seedance frames loaded: first=${firstFrame ? `${firstFrame.mimeType} ${firstFrame.fileName}` : 'none'}, last=${lastFrame ? `${lastFrame.mimeType} ${lastFrame.fileName}` : 'none'}`);
 
-  const seedanceReferences: SeedanceReferenceImage[] = referenceImages.map((ref, index) => ({
-    imageBytes: ref.imageBytes,
-    mimeType: ref.mimeType,
-    fileName: `reference-${index}.${extensionFromMime(ref.mimeType)}`,
-  }));
+  const hasFrameScenario = Boolean(firstFrame || lastFrame);
+  const seedanceReferences: SeedanceReferenceImage[] = hasFrameScenario
+    ? []
+    : referenceImages.map((ref, index) => ({
+        imageBytes: ref.imageBytes,
+        mimeType: ref.mimeType,
+        fileName: `reference-${index}.${extensionFromMime(ref.mimeType)}`,
+      }));
+
+  if (hasFrameScenario && referenceImages.length > 0) {
+    console.log(`[Studio Generation] Seedance: ${referenceImages.length} reference images dropped because first/last-frame mode is active (references are already in context prompt)`);
+  }
 
   const videoResult = await generateSeedanceVideo({
     prompt,

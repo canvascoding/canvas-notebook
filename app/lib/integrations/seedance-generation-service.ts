@@ -149,30 +149,39 @@ function parseResultUrls(resultJson: string | undefined): string[] {
   }
 }
 
+const KIE_FETCH_TIMEOUT_MS = 60_000;
+
 async function kieFetch<T>(url: string, apiKey: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      ...(init?.headers || {}),
-    },
-  });
-
-  let body: unknown = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), KIE_FETCH_TIMEOUT_MS);
   try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        ...(init?.headers || {}),
+      },
+    });
 
-  if (!response.ok) {
-    throw new IntegrationServiceError(
-      `KIE request failed: ${response.status} ${response.statusText}`,
-      response.status,
-    );
-  }
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
 
-  return body as T;
+    if (!response.ok) {
+      throw new IntegrationServiceError(
+        `KIE request failed: ${response.status} ${response.statusText}`,
+        response.status,
+      );
+    }
+
+    return body as T;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function uploadReferenceImage(
@@ -298,19 +307,27 @@ async function pollSeedanceTask(
   throw new IntegrationServiceError('Seedance generation timed out.', 504);
 }
 
+const VIDEO_DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
+
 async function downloadVideo(url: string): Promise<{ bytes: Buffer; mimeType: string }> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new IntegrationServiceError(
-      `Failed to download Seedance video: ${response.status} ${response.statusText}`,
-      response.status,
-    );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), VIDEO_DOWNLOAD_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new IntegrationServiceError(
+        `Failed to download Seedance video: ${response.status} ${response.statusText}`,
+        response.status,
+      );
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return {
+      bytes: Buffer.from(arrayBuffer),
+      mimeType: response.headers.get('content-type') || 'video/mp4',
+    };
+  } finally {
+    clearTimeout(timeout);
   }
-  const arrayBuffer = await response.arrayBuffer();
-  return {
-    bytes: Buffer.from(arrayBuffer),
-    mimeType: response.headers.get('content-type') || 'video/mp4',
-  };
 }
 
 export async function generateSeedanceVideo(
