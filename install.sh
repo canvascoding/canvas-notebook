@@ -175,6 +175,23 @@ migrate_legacy_data() {
   ok "Migrated existing data directory to ${INSTALL_DIR}/data"
 }
 
+cleanup_docker_artifacts() {
+  section "Docker cleanup"
+  info "Removing stopped containers and unused images..."
+
+  if docker container prune -f >/dev/null 2>&1 || sudo docker container prune -f >/dev/null 2>&1; then
+    ok "Removed stopped containers"
+  else
+    warn "Could not prune stopped containers"
+  fi
+
+  if docker image prune -a -f >/dev/null 2>&1 || sudo docker image prune -a -f >/dev/null 2>&1; then
+    ok "Removed unused images"
+  else
+    warn "Could not prune unused images"
+  fi
+}
+
 install_manager_config() {
   local config_dir config_path install_dir_q compose_path_q log_dir_q
   config_dir="/etc/canvas-notebook"
@@ -481,6 +498,12 @@ run_compose() {
   return "\${PIPESTATUS[0]}"
 }
 
+cleanup_docker_artifacts() {
+  log_msg "docker cleanup"
+  docker_cmd container prune -f >/dev/null 2>&1 || true
+  docker_cmd image prune -a -f >/dev/null 2>&1 || true
+}
+
 host_port() {
   compose_optional port "\$SERVICE" 3000 2>/dev/null | tail -1 | awk -F: '{print \$NF}' || true
 }
@@ -681,6 +704,7 @@ case "\$cmd" in
     run_compose pull "\$SERVICE"
     run_compose up -d --force-recreate "\$SERVICE"
     follow_until_healthy
+    cleanup_docker_artifacts
     log_msg "\$cmd completed"
     ;;
   start)
@@ -890,6 +914,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --force-recreate
   ok "Container started"
   wait_for_canvas_startup
+  cleanup_docker_artifacts
   install_manager_config
   install_management_cli
   install_systemd_service
