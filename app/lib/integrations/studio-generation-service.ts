@@ -1188,18 +1188,26 @@ async function generateStudioVideo(
 
   const videoAspect = aspectRatio === '9:16' ? '9:16' as const : '16:9' as const;
 
+  const hasImageInput = videoMode === 'frames_to_video' || videoMode === 'references_to_video';
+  const effectivePersonGeneration: 'allow_all' | 'allow_adult' | 'dont_allow' =
+    (hasImageInput && (!personGeneration || personGeneration === 'allow_all')) ? 'allow_adult' : (personGeneration || 'allow_all');
+
+  const resolvedResolution = videoResolution === '480p' ? '720p' : videoResolution || '720p';
+  const needsMinDuration8 = resolvedResolution === '1080p' || resolvedResolution === '4k' || videoMode === 'references_to_video';
+  const effectiveDuration = needsMinDuration8 ? 8 : (videoDuration || 6);
+
   const requestBody: GenerateVideoRequestBody = {
     prompt,
     model: videoModel || 'veo-3.1-fast-generate-preview',
-    mode: (startFramePath || endFramePath) ? 'frames_to_video' : (referenceImages.length > 0 ? 'references_to_video' : 'text_to_video'),
+    mode: videoMode,
     aspectRatio: videoAspect,
-    resolution: videoResolution === '480p' ? '720p' : videoResolution || '720p',
-    durationSeconds: (videoDuration || 6) as GenerateVideoRequestBody['durationSeconds'],
+    resolution: resolvedResolution,
+    durationSeconds: effectiveDuration as GenerateVideoRequestBody['durationSeconds'],
     referenceImagePaths: [],
     startFramePath: startFramePath || undefined,
     endFramePath: isLooping ? undefined : (endFramePath || undefined),
     isLooping: isLooping || false,
-    personGeneration: personGeneration || 'allow_all',
+    personGeneration: effectivePersonGeneration,
   };
 
   if (referenceImages.length > 0) {

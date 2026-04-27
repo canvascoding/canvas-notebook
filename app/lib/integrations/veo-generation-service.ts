@@ -203,7 +203,11 @@ export async function generateVideo(
   const aspectRatio = body.aspectRatio || '16:9';
   const resolution = body.resolution || '720p';
   const durationSeconds = body.durationSeconds || 6;
-  const personGeneration = body.personGeneration || 'allow_all';
+
+  const hasImageInput = mode === 'frames_to_video' || mode === 'references_to_video';
+  const requestedPersonGeneration = body.personGeneration || 'allow_all';
+  const personGeneration: 'allow_all' | 'allow_adult' | 'dont_allow' =
+    (hasImageInput && requestedPersonGeneration === 'allow_all') ? 'allow_adult' : requestedPersonGeneration;
 
   if (!prompt && mode !== 'frames_to_video' && mode !== 'extend_video') {
     throw new IntegrationServiceError('Prompt is required.', 400);
@@ -226,19 +230,18 @@ export async function generateVideo(
       400,
     );
   }
-  const effectiveDuration = (resolution === '1080p' || resolution === '4k') ? 8 : durationSeconds;
+
+  const needsMinDuration8 = resolution === '1080p' || resolution === '4k' || mode === 'references_to_video';
+  const effectiveDuration = needsMinDuration8 ? 8 : durationSeconds;
   if (!caps.durations.includes(effectiveDuration as VideoDuration)) {
     throw new IntegrationServiceError(
       `Duration ${effectiveDuration}s is not supported by model ${model}. Supported: ${caps.durations.join(', ')}s`,
       400,
     );
   }
-  if (mode === 'references_to_video' && effectiveDuration !== 8) {
-    throw new IntegrationServiceError('Reference images mode requires 8-second duration.', 400);
-  }
-  if (personGeneration && !caps.personGeneration.includes(personGeneration)) {
+  if (!caps.personGeneration.includes(personGeneration)) {
     throw new IntegrationServiceError(
-      `personGeneration "${personGeneration}" is not supported by model ${model}. Supported: ${caps.personGeneration.join(', ')}`,
+      `personGeneration "${personGeneration}" is not supported by model ${model} in ${mode} mode. Supported: ${caps.personGeneration.join(', ')}`,
       400,
     );
   }
@@ -286,6 +289,22 @@ export async function generateVideo(
     if (endFramePath) {
       const endFrame = await loadImageBytes(endFramePath);
       config.lastFrame = endFrame;
+    }
+
+    const sourcePaths = (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES);
+    if (sourcePaths.length > 0 && caps.references) {
+      const referenceImages: VideoGenerationReferenceImage[] = [];
+      for (const sourcePath of sourcePaths) {
+        const image = await loadImageBytes(sourcePath);
+        referenceImages.push({
+          image,
+          referenceType: VideoGenerationReferenceType.ASSET,
+        });
+      }
+      config.referenceImages = referenceImages;
+      if (effectiveDuration !== 8) {
+        throw new IntegrationServiceError('Reference images require 8-second duration.', 400);
+      }
     }
   }
 

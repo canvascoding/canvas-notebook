@@ -179,7 +179,6 @@ export function CreateView() {
   const [videoWebSearch, setVideoWebSearch] = useState(false);
   const [videoNsfwChecker, setVideoNsfwChecker] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
-  const personGeneration = 'allow_all';
   const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
   const [rawPrompt, setRawPrompt] = useState(initialPrompt);
   const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
@@ -189,6 +188,9 @@ export function CreateView() {
   const [fileRefs, setFileRefs] = useState<Array<{ id: string; name: string; thumbnailPath?: string; status?: 'loading' | string }>>([]);
   const [startFramePath, setStartFramePath] = useState<string | null>(null);
   const [endFramePath, setEndFramePath] = useState<string | null>(null);
+
+  const hasVideoImageInput = mode === 'video' && (!!startFramePath || productRefs.length > 0 || personaRefs.length > 0 || styleRefs.length > 0 || fileRefs.length > 0);
+  const personGeneration = hasVideoImageInput ? 'allow_adult' as const : 'allow_all' as const;
   const [picker, setPicker] = useState<{
     open: boolean;
     target: 'start' | 'end' | 'references';
