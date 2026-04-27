@@ -40,9 +40,13 @@ class FileWatcherService {
   private pendingEvents: FileEvent[] = [];
   private readonly debounceDelay: number = 500;
   private initialized: boolean = false;
+  private clientLastActive: Map<string, number> = new Map();
+  private staleCheckInterval: NodeJS.Timeout | null = null;
+  private readonly STALE_TIMEOUT_MS = 90_000;
 
   constructor() {
     this.ensureInitialized();
+    this.startStaleCheck();
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -57,6 +61,7 @@ class FileWatcherService {
 
   public subscribe(client: Client): () => void {
     this.clients.set(client.id, client);
+    this.clientLastActive.set(client.id, Date.now());
     console.log(`[FileWatcher] Client subscribed: ${client.id} (${this.clients.size} total)`);
 
     this.subscribeDir(client.id, '.');
@@ -64,6 +69,7 @@ class FileWatcherService {
     return () => {
       this.unsubscribeAll(client.id);
       this.clients.delete(client.id);
+      this.clientLastActive.delete(client.id);
       console.log(`[FileWatcher] Client unsubscribed: ${client.id} (${this.clients.size} remaining)`);
     };
   }
@@ -114,6 +120,7 @@ class FileWatcherService {
 
   public syncDirs(clientId: string, dirPaths: string[]): void {
     if (!this.clients.has(clientId)) return;
+    this.clientLastActive.set(clientId, Date.now());
 
     const current = new Set<string>();
     for (const [dirPath, subs] of this.subscriptions) {
@@ -290,6 +297,7 @@ class FileWatcherService {
         console.warn(`[FileWatcher] Failed to send to client ${clientId}:`, error);
         this.unsubscribeAll(clientId);
         this.clients.delete(clientId);
+        this.clientLastActive.delete(clientId);
       }
     }
   }
@@ -313,13 +321,37 @@ class FileWatcherService {
     return path.join(WORKSPACE_BASE_DIR, relativePath);
   }
 
+  private startStaleCheck(): void {
+    if (this.staleCheckInterval) return;
+    this.staleCheckInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [clientId, lastActive] of this.clientLastActive) {
+        if (now - lastActive > this.STALE_TIMEOUT_MS) {
+          console.warn(`[FileWatcher] Evicting stale client ${clientId} (inactive ${Math.round((now - lastActive) / 1000)}s)`);
+          this.unsubscribeAll(clientId);
+          this.clients.delete(clientId);
+          this.clientLastActive.delete(clientId);
+        }
+      }
+    }, 60_000);
+  }
+
+  private stopStaleCheck(): void {
+    if (this.staleCheckInterval) {
+      clearInterval(this.staleCheckInterval);
+      this.staleCheckInterval = null;
+    }
+  }
+
   public stop(): void {
     for (const [, watcher] of this.watchers) {
       watcher.close();
     }
     this.watchers.clear();
     this.clients.clear();
+    this.clientLastActive.clear();
     this.subscriptions.clear();
+    this.stopStaleCheck();
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);

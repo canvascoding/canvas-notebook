@@ -43,6 +43,7 @@ import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat'
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 
 import { useFileStore } from '@/app/store/file-store';
+import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 
 
@@ -395,6 +396,7 @@ export function DashboardShell() {
       : undefined;
 
   return (
+    <FileWatcherProvider>
     <HintProvider page="notebook">
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
       <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
@@ -701,5 +703,6 @@ export function DashboardShell() {
         )}
     </div>
     </HintProvider>
+    </FileWatcherProvider>
   );
 }
