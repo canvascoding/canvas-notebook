@@ -235,9 +235,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   currentDirectory: initialExplorerState.currentDirectory ?? '.',
   setExpandedDirs: (dirs: Set<string>) => {
     set((state) => {
-      const nextState = { ...state, expandedDirs: new Set(dirs) };
+      if (state.expandedDirs.size === dirs.size && [...state.expandedDirs].every(d => dirs.has(d))) {
+        return {};
+      }
+      const next = new Set(dirs);
+      const nextState = { ...state, expandedDirs: next };
       persistExplorerState(nextState);
-      return { expandedDirs: nextState.expandedDirs };
+      return { expandedDirs: next };
     });
   },
   uploadProgress: null,
