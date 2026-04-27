@@ -89,7 +89,7 @@ else
     echo
     ask "Set up Caddy for public HTTPS access? [y/N]: " CADDY_ANSWER "n"
     SETUP_CADDY=false
-    if [[ "${CADDY_ANSWER,,}" == "y" || "${CADDY_ANSWER,,}" == "yes" ]]; then
+    if [[ "${CADDY_ANSWER,,}" == "y" || "${CADDY_ANSWER,,}" == "yes" || "${CADDY_ANSWER}" == "1" ]]; then
       SETUP_CADDY=true
     fi
   fi
@@ -404,10 +404,15 @@ wait_for_canvas_startup() {
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --tail=80 canvas-notebook &
   log_pid=$!
 
+  stop_log_stream() {
+    pkill -P "$log_pid" >/dev/null 2>&1 || true
+    kill "$log_pid" >/dev/null 2>&1 || true
+    wait "$log_pid" >/dev/null 2>&1 || true
+  }
+
   for ((attempt=1; attempt<=max_attempts; attempt++)); do
     if curl -fsS "$health_url" >/dev/null 2>&1; then
-      kill "$log_pid" >/dev/null 2>&1 || true
-      wait "$log_pid" >/dev/null 2>&1 || true
+      stop_log_stream
       ok "Canvas Notebook health check passed (${health_url})"
       return 0
     fi
@@ -419,8 +424,7 @@ wait_for_canvas_startup() {
     sleep 1
   done
 
-  kill "$log_pid" >/dev/null 2>&1 || true
-  wait "$log_pid" >/dev/null 2>&1 || true
+  stop_log_stream
   fail "Canvas Notebook did not become healthy within ${max_attempts}s. Run: $DOCKER_COMPOSE -f ${COMPOSE_FILE} logs canvas-notebook"
 }
 
@@ -519,8 +523,14 @@ Commands:
   down       Stop and remove the container
   status     Show compose status; use --json for machine-readable output
   logs       Follow container logs
+  container-logs
+             Alias for logs
   manager-log
              Show the host-side CLI management log
+  env        Edit the Compose environment, sync Caddy, and restart
+  caddy      Check Caddy status and current Caddyfile
+  caddy-reload
+             Sync Caddy from BETTER_AUTH_BASE_URL and reload it
   diagnose   Show host, Docker, memory, OOM, and container diagnostics
   health     Check the local health endpoint; use --json for machine-readable output
   config     Show the compose file path
@@ -552,6 +562,16 @@ docker_cmd() {
     docker "\$@"
   elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
     sudo docker "\$@"
+  else
+    return 1
+  fi
+}
+
+run_root() {
+  if [[ "\${EUID:-\$(id -u)}" -eq 0 ]]; then
+    "\$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "\$@"
   else
     return 1
   fi
@@ -604,6 +624,65 @@ health_url() {
   printf 'http://127.0.0.1:%s/api/health\n' "\$port"
 }
 
+configured_base_url() {
+  awk -F: '/^[[:space:]]*BETTER_AUTH_BASE_URL:/ {gsub(/[ "]/, "", \$2); print \$2; exit}' "\$COMPOSE_FILE"
+}
+
+configured_domain() {
+  configured_base_url | sed 's|^https\?://||' | cut -d/ -f1 | cut -d: -f1
+}
+
+is_real_domain() {
+  local domain="\$1"
+  [[ -n "\$domain" ]] && [[ "\$domain" != "localhost" ]] && ! [[ "\$domain" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+\$ ]]
+}
+
+sync_caddy_from_compose() {
+  local domain caddyfile
+  domain="\$(configured_domain)"
+  caddyfile="/etc/caddy/Caddyfile"
+
+  if ! is_real_domain "\$domain"; then
+    info "No public domain configured in BETTER_AUTH_BASE_URL; skipping Caddy sync."
+    return 0
+  fi
+
+  if ! command -v caddy >/dev/null 2>&1 && ! command -v systemctl >/dev/null 2>&1; then
+    info "Caddy is not installed; skipping Caddy sync."
+    return 0
+  fi
+
+  printf '%s {\n    reverse_proxy localhost:3456\n}\n' "\$domain" | run_root tee "\$caddyfile" >/dev/null
+  if command -v caddy >/dev/null 2>&1; then
+    run_root caddy validate --config "\$caddyfile" >/dev/null 2>&1 || fail "Caddyfile validation failed."
+  fi
+  run_root systemctl reload caddy >/dev/null 2>&1 || run_root systemctl restart caddy >/dev/null 2>&1 || warn "Could not reload Caddy."
+  ok "Caddy synced for https://\${domain}"
+}
+
+show_caddy_status() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --no-pager status caddy || true
+  else
+    warn "systemctl is not available."
+  fi
+
+  if [[ -f /etc/caddy/Caddyfile ]]; then
+    printf '\n== /etc/caddy/Caddyfile ==\n'
+    cat /etc/caddy/Caddyfile
+  fi
+}
+
+edit_env() {
+  local editor
+  editor="\${EDITOR:-nano}"
+  command -v "\$editor" >/dev/null 2>&1 || editor="vi"
+  "\$editor" "\$COMPOSE_FILE"
+  sync_caddy_from_compose
+  run_compose up -d --force-recreate "\$SERVICE"
+  follow_until_healthy
+}
+
 wait_until_healthy() {
   local url attempts attempt
   url="\$(health_url)"
@@ -630,10 +709,15 @@ follow_until_healthy() {
   compose logs -f --tail="\${TAIL:-120}" "\$SERVICE" &
   log_pid=\$!
 
+  stop_log_stream() {
+    pkill -P "\$log_pid" >/dev/null 2>&1 || true
+    kill "\$log_pid" >/dev/null 2>&1 || true
+    wait "\$log_pid" >/dev/null 2>&1 || true
+  }
+
   for ((attempt=1; attempt<=attempts; attempt++)); do
     if curl -fsS "\$url" >/dev/null 2>&1; then
-      kill "\$log_pid" >/dev/null 2>&1 || true
-      wait "\$log_pid" >/dev/null 2>&1 || true
+      stop_log_stream
       ok "Canvas Notebook is healthy"
       return 0
     fi
@@ -645,8 +729,7 @@ follow_until_healthy() {
     sleep 1
   done
 
-  kill "\$log_pid" >/dev/null 2>&1 || true
-  wait "\$log_pid" >/dev/null 2>&1 || true
+  stop_log_stream
   fail "Canvas Notebook did not become healthy within \${attempts}s. Run: canvas-notebook logs"
 }
 
@@ -778,7 +861,7 @@ while [[ "\$#" -gt 0 ]]; do
 done
 
 case "\$cmd" in
-  install|update|start|restart|stop|down|status|ps|logs|manager-log|diagnose|health|config)
+  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|caddy|caddy-reload|diagnose|health|config)
     if [[ "\$NO_BANNER" != "true" ]]; then
       banner
     fi
@@ -822,11 +905,20 @@ case "\$cmd" in
       compose ps
     fi
     ;;
-  logs)
+  logs|container-logs)
     compose logs -f --tail="\${TAIL:-120}" "\$SERVICE"
     ;;
   manager-log)
     show_manager_log
+    ;;
+  env)
+    edit_env
+    ;;
+  caddy)
+    show_caddy_status
+    ;;
+  caddy-reload)
+    sync_caddy_from_compose
     ;;
   diagnose)
     if [[ "\$OUTPUT_JSON" == "true" ]]; then
@@ -1014,8 +1106,12 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   echo
   info "To update to the latest version:"
   info "  canvas-notebook update"
-  info "To inspect or manage the service:"
-  info "  canvas-notebook help"
+  info "Useful management commands:"
+  info "  canvas-notebook status"
+  info "  canvas-notebook logs"
+  info "  canvas-notebook env"
+  info "  canvas-notebook caddy"
+  info "  canvas-notebook diagnose"
   echo
 
 # ── Mode 2: From source ───────────────────────────────────────────────────────
