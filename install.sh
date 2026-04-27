@@ -37,6 +37,10 @@ DEST="canvas-notebook"
 COMPOSE_FILE="canvas-notebook-compose.yaml"
 INSTALL_DIR="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}"
 SYSTEMD_SERVICE="canvas-notebook.service"
+INSTALL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
+INSTALL_USER_HOME="$(getent passwd "$INSTALL_USER" 2>/dev/null | cut -d: -f6 || true)"
+INSTALL_USER_HOME="${INSTALL_USER_HOME:-${HOME:-/opt}}"
+DATA_DIR="${CANVAS_DATA_DIR:-${INSTALL_USER_HOME}/canvas-notebook-data}"
 LEGACY_COMPOSE_PATH=""
 LEGACY_DATA_PATH=""
 
@@ -120,6 +124,9 @@ prepare_install_dir() {
   if [[ "$target_dir" != /* ]]; then
     fail "CANVAS_INSTALL_DIR must be an absolute path."
   fi
+  if [[ "$DATA_DIR" != /* ]]; then
+    fail "CANVAS_DATA_DIR must be an absolute path."
+  fi
 
   section "Install directory"
   run_root mkdir -p "$target_dir"
@@ -135,10 +142,15 @@ prepare_install_dir() {
       fi
     fi
 
-    if [[ -d "${source_dir}/data" && ! -e "${target_dir}/data" ]]; then
+    if [[ -d "${source_dir}/data" && "${source_dir}/data" != "$DATA_DIR" ]]; then
       LEGACY_DATA_PATH="${source_dir}/data"
       info "Existing data directory will be migrated after any legacy container is stopped."
     fi
+  fi
+
+  if [[ -z "$LEGACY_DATA_PATH" && -d "${target_dir}/data" && "${target_dir}/data" != "$DATA_DIR" ]]; then
+    LEGACY_DATA_PATH="${target_dir}/data"
+    info "Existing managed data directory will be migrated to ${DATA_DIR}."
   fi
 
   cd "$target_dir"
@@ -166,13 +178,27 @@ migrate_legacy_data() {
   fi
 
   section "Data migration"
-  if [[ -e "${INSTALL_DIR}/data" ]]; then
-    ok "${INSTALL_DIR}/data already exists — keeping it"
+  if [[ -e "$DATA_DIR" ]]; then
+    ok "${DATA_DIR} already exists — keeping it"
     return 0
   fi
 
-  mv "$LEGACY_DATA_PATH" "${INSTALL_DIR}/data"
-  ok "Migrated existing data directory to ${INSTALL_DIR}/data"
+  run_root mkdir -p "$(dirname "$DATA_DIR")"
+  mv "$LEGACY_DATA_PATH" "$DATA_DIR"
+  ok "Migrated existing data directory to ${DATA_DIR}"
+}
+
+configure_data_bind_mount() {
+  local escaped_data_dir
+
+  section "Data directory"
+  run_root mkdir -p "$DATA_DIR"
+  run_root chown -R 1000:1000 "$DATA_DIR"
+
+  escaped_data_dir="$(printf '%s' "$DATA_DIR" | sed 's/[&|]/\\&/g')"
+  sed -i -E "s|^([[:space:]]*-[[:space:]]*).+:/data([[:space:]]*)$|\\1${escaped_data_dir}:/data\\2|" "$COMPOSE_FILE"
+
+  ok "Persistent data bind mount: ${DATA_DIR} -> /data"
 }
 
 cleanup_docker_artifacts() {
@@ -193,12 +219,13 @@ cleanup_docker_artifacts() {
 }
 
 install_manager_config() {
-  local config_dir config_path install_dir_q compose_path_q log_dir_q
+  local config_dir config_path install_dir_q compose_path_q data_dir_q log_dir_q
   config_dir="/etc/canvas-notebook"
   config_path="${config_dir}/manager.env"
 
   printf -v install_dir_q '%q' "$INSTALL_DIR"
   printf -v compose_path_q '%q' "${INSTALL_DIR}/${COMPOSE_FILE}"
+  printf -v data_dir_q '%q' "$DATA_DIR"
   printf -v log_dir_q '%q' "/var/log/canvas-notebook"
 
   section "Manager config"
@@ -206,6 +233,7 @@ install_manager_config() {
   run_root tee "$config_path" > /dev/null <<EOF
 INSTALL_DIR=${install_dir_q}
 COMPOSE_FILE=${compose_path_q}
+DATA_DIR=${data_dir_q}
 SERVICE=canvas-notebook
 CANVAS_MANAGER_LOG_DIR=${log_dir_q}
 EOF
@@ -363,7 +391,7 @@ wait_for_canvas_startup() {
 }
 
 install_management_cli() {
-  local install_dir compose_path bin_path fallback_bin_path tmp_path install_dir_q compose_path_q
+  local install_dir compose_path bin_path fallback_bin_path tmp_path install_dir_q compose_path_q data_dir_q
 
   install_dir="$(pwd)"
   compose_path="${install_dir}/${COMPOSE_FILE}"
@@ -373,6 +401,7 @@ install_management_cli() {
 
   printf -v install_dir_q '%q' "$install_dir"
   printf -v compose_path_q '%q' "$compose_path"
+  printf -v data_dir_q '%q' "$DATA_DIR"
 
   cat > "$tmp_path" <<EOF
 #!/usr/bin/env bash
@@ -380,6 +409,7 @@ set -euo pipefail
 
 INSTALL_DIR=${install_dir_q}
 COMPOSE_FILE=${compose_path_q}
+DATA_DIR=${data_dir_q}
 SERVICE="canvas-notebook"
 CONFIG_FILE="\${CANVAS_MANAGER_CONFIG:-/etc/canvas-notebook/manager.env}"
 
@@ -624,7 +654,7 @@ json_escape() {
 }
 
 status_json() {
-  local cid url healthy service_active container_json install_dir_json compose_file_json log_file_json service_active_json
+  local cid url healthy service_active container_json install_dir_json compose_file_json data_dir_json log_file_json service_active_json
 
   ensure_log_file
   url="\$(health_url)"
@@ -646,11 +676,12 @@ status_json() {
 
   install_dir_json="\$(json_escape "\$INSTALL_DIR")"
   compose_file_json="\$(json_escape "\$COMPOSE_FILE")"
+  data_dir_json="\$(json_escape "\${DATA_DIR:-}")"
   log_file_json="\$(json_escape "\$LOG_FILE")"
   service_active_json="\$(json_escape "\$service_active")"
 
-  printf '{"healthy":%s,"serviceActive":"%s","installDir":"%s","composeFile":"%s","managerLog":"%s","container":%s}\n' \
-    "\$healthy" "\$service_active_json" "\$install_dir_json" "\$compose_file_json" "\$log_file_json" "\$container_json"
+  printf '{"healthy":%s,"serviceActive":"%s","installDir":"%s","composeFile":"%s","dataDir":"%s","managerLog":"%s","container":%s}\n' \
+    "\$healthy" "\$service_active_json" "\$install_dir_json" "\$compose_file_json" "\$data_dir_json" "\$log_file_json" "\$container_json"
 }
 
 diagnose_json() {
@@ -762,7 +793,7 @@ case "\$cmd" in
     ;;
   config)
     ensure_log_file
-    printf 'Install dir: %s\nCompose file: %s\nConfig file: %s\nManager log: %s\n' "\$INSTALL_DIR" "\$COMPOSE_FILE" "\$CONFIG_FILE" "\$LOG_FILE"
+    printf 'Install dir: %s\nCompose file: %s\nData dir: %s\nConfig file: %s\nManager log: %s\n' "\$INSTALL_DIR" "\$COMPOSE_FILE" "\${DATA_DIR:-}" "\$CONFIG_FILE" "\$LOG_FILE"
     ;;
   *)
     usage >&2
@@ -900,12 +931,8 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
 
   ok "${COMPOSE_FILE} is configured"
 
-  # Ensure data directory exists with correct permissions
-  # Container runs as node (UID 1000) — host directory must be owned by that UID
-  section "Data directory"
-  mkdir -p ./data
-  sudo chown -R 1000:1000 ./data
-  ok "./data ready (owned by container user)"
+  # Ensure /data is a persistent bind mount in the VM user's home directory.
+  configure_data_bind_mount
 
   # Pull and start
   section "Starting Canvas Notebook"
