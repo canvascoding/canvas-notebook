@@ -333,7 +333,7 @@ export function createImageGenerationTool(
       prompt: Type.Optional(Type.String({ description: 'Text description of the image to generate. Optional when reference_image_paths is provided.' })),
       count: Type.Number({ description: 'Number of images to generate (1-10, max depends on provider)' }),
       aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9, 1:1, 9:16, 4:3, 3:4. OpenAI also supports auto. Default: 1:1' })),
-      model: Type.Optional(Type.String({ description: 'Model ID. Gemini: gemini-3.1-flash-image-preview (best, 14 refs), gemini-2.5-flash-image (fast, 3 refs). OpenAI: gpt-image-1.5 (best), gpt-image-1, gpt-image-1-mini (fast).' })),
+      model: Type.Optional(Type.String({ description: 'Model ID. Gemini: gemini-3.1-flash-image-preview (best, 14 refs), gemini-2.5-flash-image (fast, 3 refs). OpenAI: gpt-image-2 (best), gpt-image-1.5.' })),
       reference_image_paths: Type.Optional(
         Type.Array(Type.String(), {
           description: 'Workspace-relative reference image paths. Optional, but at least one prompt or reference_image_paths entry is required.',
@@ -361,7 +361,7 @@ export function createImageGenerationTool(
           prompt: normalizedPrompt,
           aspectRatio: aspect_ratio || '1:1',
           imageCount: count,
-          model: model || (provider === 'openai' ? 'gpt-image-1.5' : 'gemini-3.1-flash-image-preview'),
+          model: model || (provider === 'openai' ? 'gpt-image-2' : 'gemini-3.1-flash-image-preview'),
           referenceImagePaths,
           provider: provider || 'gemini',
         };
