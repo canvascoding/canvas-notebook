@@ -45,6 +45,7 @@ import {
   resolveValidatedStudioOutputPath,
   resolveValidatedUserUploadStudioRefPath,
   resolveValidatedWorkspaceFilePath,
+  resolveValidatedWorkspaceRelativePath,
   getWorkspaceRoot,
 } from '@/app/lib/integrations/studio-paths';
 import { getFileStats, readFile, readDataFile, getDataFileStats } from '@/app/lib/filesystem/workspace-files';
@@ -485,6 +486,16 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
         contentType = mimeFromPath(localPath.absolutePath);
         sourceId = localPath.sourceId;
         fileName = localPath.absolutePath.split('/').pop() || fileName;
+      } else if (localPath?.kind === 'workspace_relative') {
+        const fullPath = resolveValidatedWorkspaceRelativePath(localPath.relativePath);
+        if (!fullPath) {
+          throw new Error('Invalid workspace reference path');
+        }
+
+        buffer = await fs.readFile(fullPath);
+        contentType = mimeFromPath(localPath.relativePath);
+        sourceId = localPath.sourceId;
+        fileName = localPath.relativePath.split('/').pop() || fileName;
       } else {
         if (!/^https?:\/\//i.test(url)) {
           throw new Error('Unsupported local reference path');
@@ -518,7 +529,8 @@ type LocalExtraReference =
   | { kind: 'studio_output'; relativePath: string; sourceId: string }
   | { kind: 'studio_asset'; relativePath: string; sourceId: string }
   | { kind: 'user_upload'; relativePath: string; sourceId: string }
-  | { kind: 'workspace_file'; absolutePath: string; sourceId: string };
+  | { kind: 'workspace_file'; absolutePath: string; sourceId: string }
+  | { kind: 'workspace_relative'; relativePath: string; sourceId: string };
 
 function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | null {
   const pathOnly = getLocalReferencePath(rawUrl);
@@ -571,6 +583,12 @@ function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | nul
       relativePath: studioMediaPath,
       sourceId: rawUrl,
     };
+  }
+
+  // Handle /api/media/ paths → resolve as workspace-relative file
+  if (pathOnly.startsWith('/api/media/')) {
+    const relativePath = decodePath(pathOnly.slice('/api/media/'.length));
+    return { kind: 'workspace_relative', relativePath, sourceId: rawUrl };
   }
 
   // Handle absolute workspace filesystem paths (e.g. /data/workspace/...)
