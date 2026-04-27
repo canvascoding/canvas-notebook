@@ -22,6 +22,16 @@ warn()    { echo -e "${YELLOW}! $*${RESET}"; }
 fail()    { echo -e "${RED}✗ $*${RESET}"; exit 1; }
 section() { echo; echo -e "${YELLOW}$*${RESET}"; }
 
+progress_bar() {
+  local current="$1" total="$2" label="${3:-}"
+  local width=25 filled=$((current * width / (total > 0 ? total : 1)))
+  local bar=""
+  for ((i=0; i<width; i++)); do
+    [[ $i -lt $filled ]] && bar+="█" || bar+="░"
+  done
+  printf "\r  [%s] %3d%% %s" "$bar" "$((current * 100 / (total > 0 ? total : 1)))" "$label"
+}
+
 # read from /dev/tty so prompts work even when piped through curl | bash
 ask() {
   local prompt="$1" var="$2" default="${3:-}"
@@ -320,12 +330,25 @@ pull_image_if_needed() {
   section "Image"
   remote_digest="$(remote_image_digest || true)"
   if [[ -n "$remote_digest" ]] && docker_image_digest | grep -Fxq "$remote_digest"; then
-    ok "Latest image already present (${IMAGE}@${remote_digest})"
+    ok "Already up to date (${IMAGE}@${remote_digest:0:19}…)"
     return 0
   fi
 
-  info "Pulling latest image..."
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" pull
+  local pull_log spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0 layers size_msg
+  pull_log="$(mktemp)"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" pull >"$pull_log" 2>&1 &
+  local pull_pid=$!
+  while kill -0 "$pull_pid" 2>/dev/null; do
+    printf "\r  ${spin:$((i % ${#spin})):1} Pulling latest image…"
+    i=$((i + 1))
+    sleep 0.08
+  done
+  wait "$pull_pid" || { cat "$pull_log"; rm -f "$pull_log"; fail "Image pull failed"; }
+  layers=$(grep -cE 'Pulling fs layer|Already exists' "$pull_log" 2>/dev/null || true)
+  size_msg=$(grep -oP '\d+\.\d+MB|\d+MB|\d+\.\d+kB|\d+kB|\d+\.\d+GB|\d+GB' "$pull_log" 2>/dev/null \
+    | awk '{sum+=$1; u=$2; if(u=="kB") sum+=$1/1024; else if(u=="GB") sum+=$1*1024} END {printf "%.0f", sum}')
+  rm -f "$pull_log"
+  printf "\r  ✓ Image pulled (%s layers, %s MB)\n" "${layers:-0}" "${size_msg:-0}"
 }
 
 install_manager_config() {
@@ -489,12 +512,28 @@ wait_for_canvas_startup() {
     fi
   }
 
-  section "Container startup logs"
-  info "Streaming container logs until Canvas Notebook is healthy..."
+  _wait_filter() {
+    local line strip_ansi
+    strip_ansi='s/\x1b\[[0-9;]*[a-zA-Z]//g'
+    while IFS= read -r line; do
+      line="$(printf '%s' "$line" | sed "$strip_ansi")"
+      line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
+      [[ -z "$line" ]] && continue
+      case "$line" in
+        *Pulling*fs*layer*|*Pulling*layer*|*Downloading*|*Download*complete*|*Extracting*|*Pull*complete*|*Already*exists*) continue ;;
+        *Recreating*|*Recreated*|*Starting*|*Started*) continue ;;
+        *canvas-notebook*" | "*) line="$(printf '%s' "$line" | sed 's/^.*canvas-notebook[[:space:]]*|[[:space:]]*//')" ;;
+      esac
+      printf '%s\n' "$line"
+    done
+  }
+
+  section "Container startup"
+  info "Streaming startup logs…"
   pkill -f "docker[- ]compose .*logs.* -f.* canvas-notebook" >/dev/null 2>&1 || true
   pkill -f "docker compose .*logs.*-f.*canvas-notebook" >/dev/null 2>&1 || true
   set -m
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --since="$since_ts" canvas-notebook &
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --since="$since_ts" canvas-notebook 2>&1 | _wait_filter &
   log_pgid=$(ps -o pgid= $! 2>/dev/null | tr -d ' ') || true
   set +m
 
@@ -503,7 +542,7 @@ wait_for_canvas_startup() {
   for ((attempt=1; attempt<=max_attempts; attempt++)); do
     if curl -fsS "$health_url" >/dev/null 2>&1; then
       stop_log_stream
-      ok "Canvas Notebook health check passed (${health_url})"
+      ok "Canvas Notebook is healthy (${health_url})"
       return 0
     fi
     sleep 1
@@ -559,6 +598,54 @@ ok()      { printf '✓ %s\n' "\$*"; }
 info()    { printf '  %s\n' "\$*"; }
 warn()    { printf '! %s\n' "\$*" >&2; }
 fail()    { printf '✗ %s\n' "\$*" >&2; exit 1; }
+
+CLI_GREEN='\033[0;32m'; CLI_CYAN='\033[0;36m'; CLI_BOLD='\033[1m'; CLI_DIM='\033[2m'; CLI_RESET='\033[0m'
+
+progress_bar() {
+  local current="\$1" total="\$2" label="\${3:-}"
+  local width=25 filled=\$((current * width / (total > 0 ? total : 1)))
+  local bar=""
+  for ((i=0; i<width; i++)); do
+    [[ \$i -lt \$filled ]] && bar+="█" || bar+="░"
+  done
+  printf "\r  \${CLI_DIM}[\${CLI_RESET}\${bar}\${CLI_DIM}]\${CLI_RESET} %3d%% %s" "\$((current * 100 / (total > 0 ? total : 1)))" "\$label"
+}
+
+run_with_spinner() {
+  local msg="\$1"; shift
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' tmp_log pid i=0 rc
+  tmp_log="\$(mktemp)"
+  "\$@" >"\$tmp_log" 2>&1 &
+  pid=\$!
+  while kill -0 "\$pid" 2>/dev/null; do
+    printf "\r  \${spin:\$((i % \${#spin})):1} %s" "\$msg"
+    i=\$((i + 1))
+    sleep 0.08
+  done
+  wait "\$pid" || rc=\$?
+  if [[ -n "\${rc:-}" ]] && [[ "\$rc" -ne 0 ]]; then
+    printf "\r  ✗ %s\n" "\$msg"
+    cat "\$tmp_log"
+    rm -f "\$tmp_log"
+    return "\$rc"
+  fi
+  printf "\r  ✓ %s\n" "\$msg"
+  cat "\$tmp_log" >> "\$LOG_FILE" 2>/dev/null || true
+  rm -f "\$tmp_log"
+}
+
+count_pull_layers() {
+  local log_file="\$1" count
+  count=\$(grep -cE 'Pulling fs layer|Already exists' "\$log_file" 2>/dev/null || true)
+  printf '%s' "\${count:-0}"
+}
+
+pull_size_mb() {
+  local log_file="\$1" total
+  total=\$(grep -oP '\d+\.\d+MB|\d+MB|\d+\.\d+kB|\d+kB|\d+\.\d+GB|\d+GB' "\$log_file" 2>/dev/null \
+    | awk '{sum+=\$1; u=\$2; if(u=="kB") sum+=\$1/1024; else if(u=="GB") sum+=\$1*1024} END {printf "%.0f", sum}')
+  printf '%s' "\${total:-0}"
+}
 
 ensure_log_file() {
   if mkdir -p "\$LOG_DIR" >/dev/null 2>&1; then
@@ -781,12 +868,29 @@ pull_image_if_needed() {
   local remote_digest
   remote_digest="\$(remote_image_digest || true)"
   if [[ -n "\$remote_digest" ]] && image_digest | grep -Fxq "\$remote_digest"; then
-    info "Latest image already present (\${IMAGE_REF}@\${remote_digest})"
+    ok "Already up to date (\${IMAGE_REF}@\${remote_digest:0:19}…)"
     log_msg "pull skipped image current \$remote_digest"
     return 0
   fi
 
-  run_compose pull "\$SERVICE"
+  local pull_log layers size_msg
+  pull_log="\$(mktemp)"
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+  compose pull "\$SERVICE" >"\$pull_log" 2>&1 &
+  local pull_pid=\$!
+  while kill -0 "\$pull_pid" 2>/dev/null; do
+    printf "\r  \${spin:\$((i % \${#spin})):1} Pulling latest image…"
+    i=\$((i + 1))
+    sleep 0.08
+  done
+  wait "\$pull_pid" || { cat "\$pull_log"; rm -f "\$pull_log"; fail "Image pull failed"; }
+
+  layers=\$(count_pull_layers "\$pull_log")
+  size_msg=\$(pull_size_mb "\$pull_log")
+  cat "\$pull_log" >> "\$LOG_FILE" 2>/dev/null || true
+  rm -f "\$pull_log"
+  printf "\r  ✓ Image pulled (%s layers, %s MB)\n" "\$layers" "\$size_msg"
+  log_msg "pull completed layers=\$layers size_mb=\$size_msg"
 }
 
 cleanup_docker_artifacts() {
@@ -888,20 +992,42 @@ edit_env() {
   follow_until_healthy
 }
 
+recreate_container() {
+  local recreate_log spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+  recreate_log="\$(mktemp)"
+  compose up -d --force-recreate "\$SERVICE" >"\$recreate_log" 2>&1 &
+  local rec_pid=\$!
+  while kill -0 "\$rec_pid" 2>/dev/null; do
+    printf "\r  \${spin:\$((i % \${#spin})):1} Recreating container…"
+    i=\$((i + 1))
+    sleep 0.08
+  done
+  wait "\$rec_pid" || { cat "\$recreate_log"; rm -f "\$recreate_log"; fail "Container recreate failed"; }
+  cat "\$recreate_log" >> "\$LOG_FILE" 2>/dev/null || true
+  rm -f "\$recreate_log"
+  printf "\r  ✓ Container recreated\n"
+  log_msg "container recreated"
+}
+
 wait_until_healthy() {
-  local url attempts attempt
+  local url attempts attempt elapsed
   url="\$(health_url)"
   attempts="\$DEFAULT_HEALTH_ATTEMPTS"
   info "Waiting for Canvas Notebook health check: \$url"
 
   for ((attempt=1; attempt<=attempts; attempt++)); do
     if curl -fsS "\$url" >/dev/null 2>&1; then
+      progress_bar "\$attempt" "\$attempts" ""
+      printf "\n"
       ok "Canvas Notebook is healthy"
       return 0
     fi
+    elapsed=\$attempt
+    progress_bar "\$elapsed" "\$attempts" "Waiting for healthy (\${elapsed}s/\${attempts}s)"
     sleep 1
   done
 
+  printf "\n"
   fail "Canvas Notebook did not become healthy within \${attempts}s. Run: canvas-notebook logs"
 }
 
@@ -918,12 +1044,29 @@ follow_until_healthy() {
     fi
   }
 
-  info "Streaming startup logs until Canvas Notebook is healthy..."
+  info "Streaming startup logs…"
+
   pkill -f "docker[- ]compose .*logs.* -f.* canvas-notebook" >/dev/null 2>&1 || true
   pkill -f "docker compose .*logs.*-f.*canvas-notebook" >/dev/null 2>&1 || true
-  # Run in its own process group so kill -PGID reliably reaches compose + tee
+
+  _follow_filter() {
+    local line strip_ansi
+    strip_ansi='s/\x1b\[[0-9;]*[a-zA-Z]//g'
+    while IFS= read -r line; do
+      line="\$(printf '%s' "\$line" | sed "\$strip_ansi")"
+      line="\$(printf '%s' "\$line" | sed 's/^[[:space:]]*//')"
+      [[ -z "\$line" ]] && continue
+      case "\$line" in
+        *Pulling*fs*layer*|*Pulling*layer*|*Downloading*|*Download*complete*|*Extracting*|*Pull*complete*|*Already*exists*) continue ;;
+        *Recreating*|*Recreated*|*Starting*|*Started*) continue ;;
+        *canvas-notebook*" | "*) line="\$(printf '%s' "\$line" | sed 's/^.*canvas-notebook[[:space:]]*|[[:space:]]*//')" ;;
+      esac
+      printf '%s\n' "\$line"
+    done
+  }
+
   set -m
-  compose logs -f --since="\$since_ts" "\$SERVICE" 2>&1 | tee -a "\$LOG_FILE" &
+  compose logs -f --since="\$since_ts" "\$SERVICE" 2>&1 | _follow_filter | tee -a "\$LOG_FILE" &
   log_pgid=\$(ps -o pgid= \$! 2>/dev/null | tr -d ' ') || true
   set +m
 
@@ -1083,8 +1226,11 @@ case "\$cmd" in
     ;;
   install|update)
     log_msg "\$cmd started"
+    info "Phase 1/3: Image"
     pull_image_if_needed
-    run_compose up -d --force-recreate "\$SERVICE"
+    info "Phase 2/3: Container"
+    recreate_container
+    info "Phase 3/3: Health check"
     follow_until_healthy
     cleanup_docker_artifacts
     log_msg "\$cmd completed"
@@ -1365,8 +1511,18 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   # Pull and start
   section "Starting Canvas Notebook"
   pull_image_if_needed
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --force-recreate
-  ok "Container started"
+  local _rec_log spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' _i=0
+  _rec_log="$(mktemp)"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --force-recreate >"$_rec_log" 2>&1 &
+  local _rec_pid=$!
+  while kill -0 "$_rec_pid" 2>/dev/null; do
+    printf "\r  ${spin:$((_i % ${#spin})):1} Creating container…"
+    _i=$((_i + 1))
+    sleep 0.08
+  done
+  wait "$_rec_pid" || { cat "$_rec_log"; rm -f "$_rec_log"; fail "Container start failed"; }
+  rm -f "$_rec_log"
+  printf "\r  ✓ Container created\n"
   wait_for_canvas_startup
   cleanup_docker_artifacts
   install_manager_config
