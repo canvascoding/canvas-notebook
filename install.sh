@@ -83,7 +83,7 @@ echo
 #   BASE_URL=...              e.g. https://canvas.example.com
 
 NONINTERACTIVE=false
-if [[ -n "${INSTALL_MODE:-}" || -n "${ADMIN_EMAIL:-}" || -n "${BASE_URL:-}" ]]; then
+if [[ -n "${INSTALL_MODE:-}" || -n "${ADMIN_EMAIL:-}" || -n "${BASE_URL:-}" || "${CLI_UPDATE_ONLY:-false}" == "true" ]]; then
   NONINTERACTIVE=true
 fi
 
@@ -474,25 +474,29 @@ EOF
 }
 
 wait_for_canvas_startup() {
-  local host_port health_url log_pid attempt max_attempts
+  local host_port health_url log_pgid attempt max_attempts since_ts
 
   host_port="$($DOCKER_COMPOSE -f "$COMPOSE_FILE" port canvas-notebook 3000 2>/dev/null | tail -1 | awk -F: '{print $NF}')"
   host_port="${host_port:-3456}"
   health_url="http://127.0.0.1:${host_port}/api/health"
   max_attempts="${INSTALL_HEALTH_MAX_ATTEMPTS:-180}"
+  since_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  stop_log_stream() {
+    if [[ -n "${log_pgid:-}" ]]; then
+      kill -- "-$log_pgid" >/dev/null 2>&1 || true
+      wait "-$log_pgid" >/dev/null 2>&1 || true
+    fi
+  }
 
   section "Container startup logs"
   info "Streaming container logs until Canvas Notebook is healthy..."
-  local since_ts
-  since_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  set -m
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --since="$since_ts" canvas-notebook &
-  log_pid=$!
+  log_pgid=$(ps -o pgid= $! 2>/dev/null | tr -d ' ') || true
+  set +m
 
-  stop_log_stream() {
-    pkill -P "$log_pid" >/dev/null 2>&1 || true
-    kill "$log_pid" >/dev/null 2>&1 || true
-    wait "$log_pid" >/dev/null 2>&1 || true
-  }
+  trap 'stop_log_stream' RETURN
 
   for ((attempt=1; attempt<=max_attempts; attempt++)); do
     if curl -fsS "$health_url" >/dev/null 2>&1; then
@@ -500,11 +504,6 @@ wait_for_canvas_startup() {
       ok "Canvas Notebook health check passed (${health_url})"
       return 0
     fi
-
-    if ! kill -0 "$log_pid" >/dev/null 2>&1; then
-      fail "Container logs stopped before the app became healthy. Run: $DOCKER_COMPOSE -f ${COMPOSE_FILE} logs canvas-notebook"
-    fi
-
     sleep 1
   done
 
@@ -540,6 +539,7 @@ CANVAS_SWAP_SIZE=${swap_size_q}
 CANVAS_SWAP_FILE=${swap_file_q}
 SERVICE="canvas-notebook"
 IMAGE_REF="${IMAGE}"
+INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh"
 CONFIG_FILE="\${CANVAS_MANAGER_CONFIG:-/etc/canvas-notebook/manager.env}"
 
 if [[ -f "\$CONFIG_FILE" ]]; then
@@ -629,6 +629,7 @@ Commands:
   diagnose   Show host, Docker, memory, OOM, and container diagnostics
   health     Check the local health endpoint; use --json for machine-readable output
   config     Show the compose file path
+  cli-update Download the latest management CLI and systemd service from GitHub
 
 Environment:
   CANVAS_HEALTH_MAX_ATTEMPTS=180   Health wait timeout in seconds
@@ -901,20 +902,26 @@ wait_until_healthy() {
 }
 
 follow_until_healthy() {
-  local log_pid attempts attempt url since_ts
+  local log_pgid attempts attempt url since_ts
   attempts="\$DEFAULT_HEALTH_ATTEMPTS"
   url="\$(health_url)"
   since_ts="\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-  info "Streaming startup logs until Canvas Notebook is healthy..."
-  compose logs -f --since="\$since_ts" "\$SERVICE" 2>&1 | tee -a "\$LOG_FILE" &
-  log_pid=\$!
-
   stop_log_stream() {
-    pkill -P "\$log_pid" >/dev/null 2>&1 || true
-    kill "\$log_pid" >/dev/null 2>&1 || true
-    wait "\$log_pid" >/dev/null 2>&1 || true
+    if [[ -n "\${log_pgid:-}" ]]; then
+      kill -- "-\$log_pgid" >/dev/null 2>&1 || true
+      wait "-\$log_pgid" >/dev/null 2>&1 || true
+    fi
   }
+
+  info "Streaming startup logs until Canvas Notebook is healthy..."
+  # Run in its own process group so kill -PGID reliably reaches compose + tee
+  set -m
+  compose logs -f --since="\$since_ts" "\$SERVICE" 2>&1 | tee -a "\$LOG_FILE" &
+  log_pgid=\$(ps -o pgid= \$! 2>/dev/null | tr -d ' ') || true
+  set +m
+
+  trap 'stop_log_stream' RETURN
 
   for ((attempt=1; attempt<=attempts; attempt++)); do
     if curl -fsS "\$url" >/dev/null 2>&1; then
@@ -922,11 +929,6 @@ follow_until_healthy() {
       ok "Canvas Notebook is healthy"
       return 0
     fi
-
-    if ! kill -0 "\$log_pid" >/dev/null 2>&1; then
-      fail "Container logs stopped before the app became healthy. Run: canvas-notebook logs"
-    fi
-
     sleep 1
   done
 
@@ -1062,7 +1064,7 @@ while [[ "\$#" -gt 0 ]]; do
 done
 
 case "\$cmd" in
-  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|diagnose|health|config)
+  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|diagnose|health|config|cli-update)
     if [[ "\$NO_BANNER" != "true" ]]; then
       banner
     fi
@@ -1156,6 +1158,26 @@ case "\$cmd" in
     ensure_log_file
     printf 'Install dir: %s\nCompose file: %s\nData dir: %s\nConfig file: %s\nManager log: %s\n' "\$INSTALL_DIR" "\$COMPOSE_FILE" "\${DATA_DIR:-}" "\$CONFIG_FILE" "\$LOG_FILE"
     ;;
+  cli-update)
+    log_msg "cli-update started"
+    local tmp_installer
+    tmp_installer="\$(mktemp /tmp/canvas-notebook-install.XXXXXX.sh)"
+    info "Downloading latest installer from GitHub..."
+    if ! curl -fsSL "\$INSTALL_SCRIPT_URL" -o "\$tmp_installer"; then
+      rm -f "\$tmp_installer"
+      fail "Failed to download installer from \$INSTALL_SCRIPT_URL"
+    fi
+    chmod +x "\$tmp_installer"
+    info "Installing updated CLI and systemd service..."
+    if CLI_UPDATE_ONLY=true bash "\$tmp_installer"; then
+      rm -f "\$tmp_installer"
+      ok "Canvas Notebook management CLI updated successfully"
+      log_msg "cli-update completed"
+    else
+      rm -f "\$tmp_installer"
+      fail "CLI update failed — previous version is still in place"
+    fi
+    ;;
   *)
     usage >&2
     exit 2
@@ -1223,6 +1245,36 @@ EOF
   ok "Installed and enabled ${SYSTEMD_SERVICE}"
   info "Service logs: journalctl -u ${SYSTEMD_SERVICE}"
 }
+
+# ── CLI-only update mode ─────────────────────────────────────────────────────
+if [[ "${CLI_UPDATE_ONLY:-false}" == "true" ]]; then
+  ensure_host_install
+
+  if [[ ! -f "$MANAGER_CONFIG_FILE" ]]; then
+    fail "Manager config not found at ${MANAGER_CONFIG_FILE}. Run the full installer first."
+  fi
+
+  section "Loading existing config"
+  set -a
+  # shellcheck disable=SC1090
+  . "$MANAGER_CONFIG_FILE"
+  set +a
+  ok "Loaded ${MANAGER_CONFIG_FILE}"
+
+  # install_management_cli uses pwd + COMPOSE_FILE basename to build the path
+  COMPOSE_FILE="$(basename "${COMPOSE_FILE:-canvas-notebook-compose.yaml}")"
+  DOCKER_COMPOSE="${DOCKER_COMPOSE:-docker compose}"
+
+  if [[ -n "${INSTALL_DIR:-}" && -d "$INSTALL_DIR" ]]; then
+    cd "$INSTALL_DIR"
+  fi
+
+  install_management_cli
+  install_systemd_service
+
+  ok "Canvas Notebook management CLI updated"
+  exit 0
+fi
 
 # ── Mode 1: Pre-built image ───────────────────────────────────────────────────
 if [[ "$MODE_CHOICE" == "1" ]]; then
