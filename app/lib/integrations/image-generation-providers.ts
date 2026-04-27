@@ -116,7 +116,7 @@ function extractUsage(usage: unknown): ProviderGenerateResult['usage'] {
 function extractInlineImage(response: unknown): { imageBytes: string; mimeType: string } {
   const candidates = (
     response as {
-      candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> } }>;
+      candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string }; text?: string }> } }>;
     }
   ).candidates;
 
@@ -136,6 +136,7 @@ function extractInlineImage(response: unknown): { imageBytes: string; mimeType: 
     return { imageBytes: fallback.data, mimeType: 'image/png' };
   }
 
+  console.error(`[Gemini Image] No image in response. Response structure:`, JSON.stringify(response, null, 2).slice(0, 2000));
   throw new Error('No image was returned by the model');
 }
 
@@ -166,6 +167,8 @@ class GeminiImageProvider implements ImageGenerationProvider {
     if (!apiKey) {
       throw new Error('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.');
     }
+
+    console.log(`[Gemini Image] Generating: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}, contextPrompt=${params.contextPrompt ? 'yes' : 'no'}, prompt="${params.prompt.slice(0, 80)}..."`);
 
     const ai = new GoogleGenAI({ apiKey });
 
@@ -206,6 +209,8 @@ class GeminiImageProvider implements ImageGenerationProvider {
       },
     });
 
+    console.log(`[Gemini Image] Response received: candidates=${(response as { candidates?: unknown[] })?.candidates?.length ?? 'N/A'}, hasInlineData=${JSON.stringify((response as { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: unknown }> } }> })?.candidates?.[0]?.content?.parts?.map(p => !!p.inlineData) ?? 'unknown')}`);
+
     const generated = extractInlineImage(response);
     return {
       imageBytes: generated.imageBytes,
@@ -235,6 +240,8 @@ class OpenAIImageProvider implements ImageGenerationProvider {
     if (!apiKey) {
       throw new Error('OpenAI API key is missing. Configure OPENAI_API_KEY in /settings.');
     }
+
+    console.log(`[OpenAI Image] Generating: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}, quality=${params.quality || 'auto'}`);
 
     const openai = new OpenAI({ apiKey });
     const size = OPENAI_SIZE_MAP[params.aspectRatio] || '1024x1024';

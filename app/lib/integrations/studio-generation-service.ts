@@ -423,6 +423,7 @@ async function loadSourceOutputReferences(userId: string, sourceGenerationId: st
 async function loadExtraReferenceImages(userId: string, urls: string[]): Promise<LoadedReferenceImage[]> {
   if (urls.length === 0) return [];
 
+  console.log(`[Studio Generation] Loading ${urls.length} extra reference images`);
   const images: LoadedReferenceImage[] = [];
 
   for (const rawUrl of urls) {
@@ -436,6 +437,7 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
       let fileName = url.split('/').pop() || 'extra-reference.png';
 
       const localPath = normalizeLocalExtraReference(url);
+      console.log(`[Studio Generation] Resolving reference: "${url.slice(0, 100)}" → kind=${localPath?.kind || 'null'}`);
       if (localPath?.kind === 'studio_reference') {
         const fileId = localPath.referenceId;
         if (!isSafeReferenceId(fileId)) {
@@ -516,6 +518,7 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
         sourceId,
         sourceName: 'Extra Reference',
       });
+      console.log(`[Studio Generation] Loaded reference: kind=${localPath?.kind || 'external'}, fileName=${fileName}, size=${buffer.length} bytes`);
     } catch (error) {
       console.warn(`[Studio Generation] Failed to load extra reference image from ${url}:`, error);
     }
@@ -775,6 +778,9 @@ export async function executeStudioGeneration(
     await db.insert(studioGenerationStyles).values({ generationId, styleId });
   }
 
+  console.log(`[Studio Generation] Starting generation: id=${generationId}, mode=${mode}, provider=${providerId}, model=${model || 'default'}, prompt="${rawPrompt.slice(0, 80)}..."`);
+  console.log(`[Studio Generation] References: products=${productIds.length}, personas=${personaIds.length}, styles=${styleIds.length}, extra_urls=${request.extra_reference_urls?.length || 0}, source_output=${request.source_output_id || 'none'}`);
+
   try {
     const allReferenceImages: LoadedReferenceImage[] = [];
 
@@ -822,6 +828,7 @@ export async function executeStudioGeneration(
 
     // Build structured context prompt for all references
     const { contextText, providerImages } = buildReferenceContextPrompt(allReferenceImages);
+    console.log(`[Studio Generation] Reference images prepared: total=${allReferenceImages.length}, forProvider=${providerImages.length}, contextLength=${contextText.length}`);
 
     // Compose the final prompt with structured Markdown sections
     let composedPrompt = rawPrompt;
@@ -871,9 +878,11 @@ export async function executeStudioGeneration(
       .set({ status: 'completed', prompt: composedPrompt, updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
 
+    console.log(`[Studio Generation] Completed: id=${generationId}, mode=${mode}, outputs=${outputs.length}`);
     return { generationId, status: 'completed', mode, prompt: composedPrompt, outputs };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[Studio Generation] Generation failed: id=${generationId}, error="${errorMessage}"`, error instanceof Error ? error.stack : error);
     const existingGeneration = await db.select({ metadata: studioGenerations.metadata })
       .from(studioGenerations)
       .where(eq(studioGenerations.id, generationId))
@@ -925,6 +934,7 @@ async function generateStudioImages(
 
   const generationJobs = Array.from({ length: count }, async (_, index): Promise<StudioGenerationOutput> => {
     try {
+      console.log(`[Studio Generation] Generating image ${index + 1}/${count}: provider=${providerId}, model=${validatedModel}, aspectRatio=${aspectRatio}, refs=${limitedReferences.length}`);
       const result = await provider.generate({
         prompt,
         model: validatedModel,
@@ -941,6 +951,7 @@ async function generateStudioImages(
       const outputPath = outputFilename;
       const outputBytes = Buffer.from(result.imageBytes, 'base64');
 
+      console.log(`[Studio Generation] Image ${index + 1}/${count} generated: mime=${result.mimeType}, size=${outputBytes.length} bytes, file=${outputFilename}, usage=${JSON.stringify(result.usage || null)}`);
       await writeOutputFile(outputPath, outputBytes);
 
       const outputId = randomUUID();
@@ -982,6 +993,7 @@ async function generateStudioImages(
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Image generation failed';
+      console.error(`[Studio Generation] Image ${index + 1}/${count} failed: ${errorMsg}`, error instanceof Error ? error.stack : error);
       const errorOutputId = randomUUID();
       const now = new Date();
       await db.insert(studioGenerationOutputs).values({
@@ -1048,6 +1060,9 @@ async function generateStudioVideo(
       'Ein Prompt ist für Video-Generierung erforderlich.',
     );
   }
+
+  const videoMode = (startFramePath || endFramePath) ? 'frames_to_video' : (referenceImages.length > 0 ? 'references_to_video' : 'text_to_video');
+  console.log(`[Studio Generation] Generating video: provider=${providerId}, model=${videoModel || 'default'}, mode=${videoMode}, aspect=${aspectRatio}, refs=${referenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}`);
 
   if (providerId === SEEDANCE_PROVIDER_ID) {
     return generateStudioSeedanceVideo(
@@ -1186,9 +1201,11 @@ async function generateStudioSeedanceVideo(
     nsfwChecker?: boolean;
   },
 ): Promise<StudioGenerationOutput[]> {
+  console.log(`[Studio Generation] Seedance video: refs=${referenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}, duration=${videoDuration || 6}s`);
   const firstFrame = startFramePath ? await loadSeedanceFrame(startFramePath) : null;
   const lastFramePath = isLooping ? startFramePath : endFramePath;
   const lastFrame = lastFramePath ? await loadSeedanceFrame(lastFramePath) : null;
+  console.log(`[Studio Generation] Seedance frames loaded: first=${firstFrame ? `${firstFrame.mimeType} ${firstFrame.fileName}` : 'none'}, last=${lastFrame ? `${lastFrame.mimeType} ${lastFrame.fileName}` : 'none'}`);
 
   const seedanceReferences: SeedanceReferenceImage[] = referenceImages.map((ref, index) => ({
     imageBytes: ref.imageBytes,
