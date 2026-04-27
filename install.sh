@@ -491,6 +491,8 @@ wait_for_canvas_startup() {
 
   section "Container startup logs"
   info "Streaming container logs until Canvas Notebook is healthy..."
+  pkill -f "docker[- ]compose .*logs.* -f.* canvas-notebook" >/dev/null 2>&1 || true
+  pkill -f "docker compose .*logs.*-f.*canvas-notebook" >/dev/null 2>&1 || true
   set -m
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --since="$since_ts" canvas-notebook &
   log_pgid=$(ps -o pgid= $! 2>/dev/null | tr -d ' ') || true
@@ -630,6 +632,8 @@ Commands:
   health     Check the local health endpoint; use --json for machine-readable output
   config     Show the compose file path
   cli-update Download the latest management CLI and systemd service from GitHub
+  cleanup-logs
+             Kill orphaned docker compose log followers
 
 Environment:
   CANVAS_HEALTH_MAX_ATTEMPTS=180   Health wait timeout in seconds
@@ -915,6 +919,8 @@ follow_until_healthy() {
   }
 
   info "Streaming startup logs until Canvas Notebook is healthy..."
+  pkill -f "docker[- ]compose .*logs.* -f.* canvas-notebook" >/dev/null 2>&1 || true
+  pkill -f "docker compose .*logs.*-f.*canvas-notebook" >/dev/null 2>&1 || true
   # Run in its own process group so kill -PGID reliably reaches compose + tee
   set -m
   compose logs -f --since="\$since_ts" "\$SERVICE" 2>&1 | tee -a "\$LOG_FILE" &
@@ -1064,7 +1070,7 @@ while [[ "\$#" -gt 0 ]]; do
 done
 
 case "\$cmd" in
-  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|diagnose|health|config|cli-update)
+  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|diagnose|health|config|cli-update|cleanup-logs)
     if [[ "\$NO_BANNER" != "true" ]]; then
       banner
     fi
@@ -1160,8 +1166,7 @@ case "\$cmd" in
     ;;
   cli-update)
     log_msg "cli-update started"
-    local tmp_installer
-    tmp_installer="\$(mktemp /tmp/canvas-notebook-install.XXXXXX.sh)"
+    tmp_installer="$(mktemp /tmp/canvas-notebook-install.XXXXXX.sh)"
     info "Downloading latest installer from GitHub..."
     if ! curl -fsSL "\$INSTALL_SCRIPT_URL" -o "\$tmp_installer"; then
       rm -f "\$tmp_installer"
@@ -1177,6 +1182,11 @@ case "\$cmd" in
       rm -f "\$tmp_installer"
       fail "CLI update failed — previous version is still in place"
     fi
+    ;;
+  cleanup-logs)
+    pkill -f "docker compose .*logs.*-f.*canvas-notebook" >/dev/null 2>&1 || true
+    pkill -f "docker-compose .*logs.* -f.* canvas-notebook" >/dev/null 2>&1 || true
+    ok "Killed any orphaned compose-log followers"
     ;;
   *)
     usage >&2
@@ -1240,10 +1250,14 @@ WantedBy=multi-user.target
 EOF
 
   run_root systemctl daemon-reload
-  run_root systemctl enable "$SYSTEMD_SERVICE" >/dev/null
-  run_root systemctl start "$SYSTEMD_SERVICE"
-  ok "Installed and enabled ${SYSTEMD_SERVICE}"
-  info "Service logs: journalctl -u ${SYSTEMD_SERVICE}"
+  if [[ "${CLI_UPDATE_ONLY:-false}" != "true" ]]; then
+    run_root systemctl enable "$SYSTEMD_SERVICE" >/dev/null
+    run_root systemctl start "$SYSTEMD_SERVICE"
+    ok "Installed and enabled ${SYSTEMD_SERVICE}"
+    info "Service logs: journalctl -u ${SYSTEMD_SERVICE}"
+  else
+    ok "Reloaded ${SYSTEMD_SERVICE} unit (no restart)"
+  fi
 }
 
 # ── CLI-only update mode ─────────────────────────────────────────────────────
