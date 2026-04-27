@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { executeStudioGeneration, type StudioGenerateRequest } from '@/app/lib/integrations/studio-generation-service';
+import { createStudioGeneration, runStudioGeneration, type StudioGenerateRequest } from '@/app/lib/integrations/studio-generation-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -23,18 +24,24 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await executeStudioGeneration(session.user.id, body);
+    const { generationId, mode, prompt } = await createStudioGeneration(session.user.id, body);
+    runStudioGeneration(generationId).catch((err) => {
+      console.error('[Studio Generate] Background generation failed:', err);
+    });
     return NextResponse.json({
       success: true,
-      generationId: result.generationId,
-      status: result.status,
-      mode: result.mode,
-      prompt: result.prompt,
-      outputs: result.outputs,
+      generationId,
+      status: 'pending',
+      mode,
+      prompt,
+      outputs: [],
     }, { status: 201 });
   } catch (error) {
     if (error instanceof StudioServiceError) {
       return NextResponse.json({ success: false, error: error.userMessage }, { status: 400 });
+    }
+    if (error instanceof IntegrationServiceError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 400 });
     }
     console.error('[Studio Generate] Error:', error);
     return NextResponse.json({ success: false, error: 'Generation failed' }, { status: 500 });
