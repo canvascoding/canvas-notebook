@@ -33,6 +33,10 @@ export function resolveValidatedWorkspaceFilePath(absolutePath: string): string 
   return null;
 }
 
+export function resolveValidatedWorkspaceRelativePath(relativePath: string): string | null {
+  return resolveWithinRoot(getWorkspacePath(), path.normalize(relativePath));
+}
+
 export function getWorkspaceRoot(): string {
   return path.resolve(getWorkspacePath());
 }
