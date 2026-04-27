@@ -801,7 +801,15 @@ health_url() {
 
 compose_env_value() {
   local key="\$1"
-  sed -n -E "s|^[[:space:]]*\${key}:[[:space:]]*[\"']?([^\"'#[:space:]]+).*|\\1|p" "\$COMPOSE_FILE" | head -1
+  sed -n -E "/^[[:space:]]*\${key}:/ {
+    s|^[^:]*:[[:space:]]*||
+    s|[[:space:]]+#.*$||
+    s|^[\"']||
+    s|[\"'][[:space:]]*$||
+    s|[[:space:]]*$||
+    p
+    q
+  }" "\$COMPOSE_FILE"
 }
 
 configured_base_url() {
