@@ -1528,16 +1528,6 @@
         "label": "🎨 Beste Qualität",
         "shortLabel": "GPT Image 1.5",
         "description": "Modernstes Modell mit überlegener Befehlsfolge, Textdarstellung und Bildbearbeitung."
-      },
-      "gptImage1": {
-        "label": "✨ Hohe Qualität",
-        "shortLabel": "GPT Image 1",
-        "description": "Hochwertige Generierung mit detaillierten Bearbeitungsmöglichkeiten."
-      },
-      "gptImage1Mini": {
-        "label": "⚡ Schnell & günstig",
-        "shortLabel": "GPT Image 1 Mini",
-        "description": "Kostengünstige Option für schnelle Iterationen, bei denen Top-Qualität nicht entscheidend ist."
       }
     },
     "notices": {
@@ -1880,7 +1870,8 @@
       "addReferences": "Referenzen hinzufügen",
       "selection": {
         "none": "Nichts ausgewählt",
-        "count": "{count} Datei(en) ausgewählt"
+        "count": "{count} Datei(en) ausgewählt",
+        "limit_one": "1 Datei ausgewählt (max)"
       },
       "upload": {
         "hint": "Lade Bilder hoch, die als Referenz für Studio-Generierungen verwendet werden.",
