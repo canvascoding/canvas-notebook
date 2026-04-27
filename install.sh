@@ -240,11 +240,12 @@ wait_for_canvas_startup() {
 }
 
 install_management_cli() {
-  local install_dir compose_path bin_path tmp_path install_dir_q compose_path_q
+  local install_dir compose_path bin_path fallback_bin_path tmp_path install_dir_q compose_path_q
 
   install_dir="$(pwd)"
   compose_path="${install_dir}/${COMPOSE_FILE}"
   bin_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
+  fallback_bin_path="/usr/bin/canvas-notebook"
   tmp_path="$(mktemp)"
 
   printf -v install_dir_q '%q' "$install_dir"
@@ -258,11 +259,35 @@ INSTALL_DIR=${install_dir_q}
 COMPOSE_FILE=${compose_path_q}
 SERVICE="canvas-notebook"
 DEFAULT_HEALTH_ATTEMPTS="\${CANVAS_HEALTH_MAX_ATTEMPTS:-180}"
+LOG_DIR="\${CANVAS_MANAGER_LOG_DIR:-/var/log/canvas-notebook}"
+LOG_FILE="\${LOG_DIR}/manager.log"
 
 ok()      { printf '✓ %s\n' "\$*"; }
 info()    { printf '  %s\n' "\$*"; }
 warn()    { printf '! %s\n' "\$*" >&2; }
 fail()    { printf '✗ %s\n' "\$*" >&2; exit 1; }
+
+ensure_log_file() {
+  if mkdir -p "\$LOG_DIR" >/dev/null 2>&1; then
+    :
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo mkdir -p "\$LOG_DIR" >/dev/null 2>&1 || true
+    sudo touch "\$LOG_FILE" >/dev/null 2>&1 || true
+    sudo chown -R "\$(id -u):\$(id -g)" "\$LOG_DIR" >/dev/null 2>&1 || true
+  fi
+
+  if ! touch "\$LOG_FILE" >/dev/null 2>&1; then
+    LOG_DIR="\${HOME}/.local/state/canvas-notebook"
+    LOG_FILE="\${LOG_DIR}/manager.log"
+    mkdir -p "\$LOG_DIR" >/dev/null 2>&1 || true
+    touch "\$LOG_FILE" >/dev/null 2>&1 || true
+  fi
+}
+
+log_msg() {
+  ensure_log_file
+  printf '%s %s\n' "\$(date -Is)" "\$*" >> "\$LOG_FILE" 2>/dev/null || true
+}
 
 banner() {
   cat <<'BANNER'
@@ -295,11 +320,15 @@ Commands:
   down       Stop and remove the container
   status     Show compose status
   logs       Follow container logs
+  manager-log
+             Show the host-side CLI management log
+  diagnose   Show host, Docker, memory, OOM, and container diagnostics
   health     Check the local health endpoint
   config     Show the compose file path
 
 Environment:
   CANVAS_HEALTH_MAX_ATTEMPTS=180   Health wait timeout in seconds
+  CANVAS_MANAGER_LOG_DIR=/var/log/canvas-notebook
   TAIL=120                         Number of log lines shown before following
 HELP
 }
@@ -313,6 +342,12 @@ compose() {
   else
     fail "Docker is not reachable. Try logging out/in for docker group changes, or run with a user that can access Docker."
   fi
+}
+
+run_compose() {
+  log_msg "compose \$*"
+  compose "\$@" 2>&1 | tee -a "\$LOG_FILE"
+  return "\${PIPESTATUS[0]}"
 }
 
 host_port() {
@@ -372,9 +407,67 @@ follow_until_healthy() {
   fail "Canvas Notebook did not become healthy within \${attempts}s. Run: canvas-notebook logs"
 }
 
+container_id() {
+  compose ps -q "\$SERVICE" 2>/dev/null || true
+}
+
+show_manager_log() {
+  ensure_log_file
+  tail -n "\${TAIL:-200}" "\$LOG_FILE"
+}
+
+diagnose() {
+  local cid url
+  ensure_log_file
+  log_msg "diagnose"
+  url="\$(health_url)"
+  cid="\$(container_id)"
+
+  printf '\n== Canvas Notebook ==\n'
+  printf 'Install dir: %s\n' "\$INSTALL_DIR"
+  printf 'Compose file: %s\n' "\$COMPOSE_FILE"
+  printf 'Manager log: %s\n' "\$LOG_FILE"
+  printf 'Health URL: %s\n' "\$url"
+  if curl -fsS "\$url" >/dev/null 2>&1; then
+    printf 'Health: ok\n'
+  else
+    printf 'Health: failed\n'
+  fi
+
+  printf '\n== VM resources ==\n'
+  uptime || true
+  free -h || true
+  df -h / "\$INSTALL_DIR" 2>/dev/null || df -h / || true
+
+  printf '\n== Docker compose ==\n'
+  compose ps || true
+
+  if [[ -n "\$cid" ]]; then
+    printf '\n== Container state ==\n'
+    docker inspect --format 'Name={{.Name}} Status={{.State.Status}} Running={{.State.Running}} Restarting={{.State.Restarting}} OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}} Started={{.State.StartedAt}} Finished={{.State.FinishedAt}}' "\$cid" 2>/dev/null || sudo docker inspect --format 'Name={{.Name}} Status={{.State.Status}} Running={{.State.Running}} Restarting={{.State.Restarting}} OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}} Started={{.State.StartedAt}} Finished={{.State.FinishedAt}}' "\$cid" 2>/dev/null || true
+
+    printf '\n== Container resource snapshot ==\n'
+    docker stats --no-stream "\$cid" 2>/dev/null || sudo docker stats --no-stream "\$cid" 2>/dev/null || true
+  fi
+
+  printf '\n== Recent container logs ==\n'
+  compose logs --tail="\${TAIL:-120}" "\$SERVICE" || true
+
+  printf '\n== Possible OOM / kernel crash evidence ==\n'
+  if command -v journalctl >/dev/null 2>&1; then
+    journalctl -k -b --no-pager 2>/dev/null | grep -Ei 'out of memory|oom|killed process|segfault|panic|watchdog' | tail -80 || true
+    if journalctl --list-boots >/dev/null 2>&1; then
+      printf '\n== Previous boot crash evidence ==\n'
+      journalctl -k -b -1 --no-pager 2>/dev/null | grep -Ei 'out of memory|oom|killed process|segfault|panic|watchdog' | tail -80 || true
+    fi
+  else
+    dmesg 2>/dev/null | grep -Ei 'out of memory|oom|killed process|segfault|panic|watchdog' | tail -80 || true
+  fi
+}
+
 cmd="\${1:-help}"
 case "\$cmd" in
-  install|update|start|restart|stop|down|status|ps|logs|health|config)
+  install|update|start|restart|stop|down|status|ps|logs|manager-log|diagnose|health|config)
     banner
     ;;
 esac
@@ -384,23 +477,29 @@ case "\$cmd" in
     usage
     ;;
   install|update)
-    compose pull "\$SERVICE"
-    compose up -d --force-recreate "\$SERVICE"
+    log_msg "\$cmd started"
+    run_compose pull "\$SERVICE"
+    run_compose up -d --force-recreate "\$SERVICE"
     follow_until_healthy
+    log_msg "\$cmd completed"
     ;;
   start)
-    compose up -d "\$SERVICE"
+    log_msg "start"
+    run_compose up -d "\$SERVICE"
     wait_until_healthy
     ;;
   restart)
-    compose restart "\$SERVICE"
+    log_msg "restart"
+    run_compose restart "\$SERVICE"
     wait_until_healthy
     ;;
   stop)
-    compose stop "\$SERVICE"
+    log_msg "stop"
+    run_compose stop "\$SERVICE"
     ;;
   down)
-    compose down
+    log_msg "down"
+    run_compose down
     ;;
   status|ps)
     compose ps
@@ -408,11 +507,19 @@ case "\$cmd" in
   logs)
     compose logs -f --tail="\${TAIL:-120}" "\$SERVICE"
     ;;
+  manager-log)
+    show_manager_log
+    ;;
+  diagnose)
+    diagnose
+    ;;
   health)
+    log_msg "health"
     curl -fsS "\$(health_url)" && printf '\n'
     ;;
   config)
-    printf 'Install dir: %s\nCompose file: %s\n' "\$INSTALL_DIR" "\$COMPOSE_FILE"
+    ensure_log_file
+    printf 'Install dir: %s\nCompose file: %s\nManager log: %s\n' "\$INSTALL_DIR" "\$COMPOSE_FILE" "\$LOG_FILE"
     ;;
   *)
     usage >&2
@@ -428,7 +535,16 @@ EOF
     sudo mv "$tmp_path" "$bin_path"
   fi
 
+  if [[ "$bin_path" != "$fallback_bin_path" ]]; then
+    if [[ -w "$(dirname "$fallback_bin_path")" ]]; then
+      ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
+    else
+      sudo ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
+    fi
+  fi
+
   ok "Installed management CLI: ${bin_path}"
+  [[ -x "$fallback_bin_path" ]] && info "Also available as: ${fallback_bin_path}"
   info "Run: canvas-notebook help"
 }
 
