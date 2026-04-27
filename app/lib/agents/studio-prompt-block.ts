@@ -24,6 +24,8 @@ Accepted local reference examples:
 - "/api/studio/references/reference-image.png"
 - "studio/assets/references/reference-image.png"
 - "products/product-image.png", "personas/person-image.png", "styles/style-image.png"
+- "09_asset-library/product-photos/shoes/terra-detailshots/terra-detail-01.jpeg"
+- "/api/media/09_asset-library/product-photos/shoes/terra-detailshots/terra-detail-01.jpeg"
 
 For a previous Studio output, prefer **source_output_id** when you have the output ID. If you only have a file path, use **extra_reference_urls**.
 
