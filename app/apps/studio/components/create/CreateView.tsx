@@ -274,6 +274,48 @@ export function CreateView() {
     setShowSaveDialog(true);
   };
 
+  const visibleOutputList = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+    const startOfLast7 = startOfToday - 6 * 24 * 60 * 60 * 1000;
+    const startOfLast30 = startOfToday - 29 * 24 * 60 * 60 * 1000;
+
+    const matchesDateFilter = (value: string) => {
+      if (dateFilter === 'all') return true;
+      const time = new Date(value).getTime();
+      if (Number.isNaN(time)) return dateFilter === 'older';
+      if (dateFilter === 'today') return time >= startOfToday;
+      if (dateFilter === 'yesterday') return time >= startOfYesterday && time < startOfToday;
+      if (dateFilter === 'last7') return time >= startOfLast7;
+      if (dateFilter === 'last30') return time >= startOfLast30;
+      return time < startOfLast30;
+    };
+
+    const flattened = generations.flatMap((gen) =>
+      gen.outputs.map((out) => ({ generation: gen, output: out })),
+    );
+
+    return flattened
+      .filter((entry) => {
+        if (mediaFilter === 'all') return true;
+        if (mediaFilter === 'favorites') return entry.output.isFavorite;
+        if (mediaFilter === 'image' || mediaFilter === 'video') return entry.output.type === mediaFilter;
+        return false;
+      })
+      .filter((entry) => matchesDateFilter(entry.generation.createdAt))
+      .sort((a, b) => {
+        const left = new Date(a.generation.createdAt).getTime();
+        const right = new Date(b.generation.createdAt).getTime();
+        return sortOrder === 'newest' ? right - left : left - right;
+      });
+  }, [generations, mediaFilter, dateFilter, sortOrder]);
+
+  const handlePreviewNavigate = (generationId: string, outputId: string) => {
+    setSelectedGenerationId(generationId);
+    setSelectedOutputId(outputId);
+  };
+
   useEffect(() => {
     void fetchGenerations();
     void fetchProducts();
@@ -721,6 +763,7 @@ export function CreateView() {
         styles={styles}
         presets={presets}
         open={resolvedSelectedGeneration !== null && resolvedSelectedOutput !== null}
+        allVisibleOutputs={visibleOutputList}
         onToggleFavorite={(generation, output) => {
           void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
         }}
@@ -765,6 +808,8 @@ export function CreateView() {
         onDelete={(generation) => {
           void generationHook.deleteGeneration(generation.id);
         }}
+        onSaveToWorkspace={handleSaveSingleToWorkspace}
+        onNavigate={handlePreviewNavigate}
         onClose={() => {
           setSelectedGenerationId(null);
           setSelectedOutputId(null);

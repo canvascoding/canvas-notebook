@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Download, Film, ImageIcon, RefreshCcw, Star, Trash2, User, Box } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Download, Film, ImageIcon, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import type { StudioPreset } from '../../types/presets';
@@ -21,6 +21,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
+interface VisibleOutputEntry {
+  generation: StudioGeneration;
+  output: StudioGenerationOutput;
+}
+
 interface StudioPreviewProps {
   generation: StudioGeneration | null;
   output: StudioGenerationOutput | null;
@@ -29,11 +34,14 @@ interface StudioPreviewProps {
   styles: StudioStyle[];
   presets: StudioPreset[];
   open: boolean;
+  allVisibleOutputs: VisibleOutputEntry[];
   onClose: () => void;
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onNavigate?: (generationId: string, outputId: string) => void;
 }
 
 function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioGeneration) {
@@ -52,13 +60,32 @@ export function StudioPreview({
   styles,
   presets,
   open,
+  allVisibleOutputs,
   onClose,
   onToggleFavorite,
   onCreateVariation,
   onCreateVideo,
   onDelete,
+  onSaveToWorkspace,
+  onNavigate,
 }: StudioPreviewProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  const currentIndex = allVisibleOutputs.findIndex(
+    (entry) => entry.generation.id === generation?.id && entry.output.id === output?.id,
+  );
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex < allVisibleOutputs.length - 1;
+
+  const navigateToIndex = useCallback(
+    (index: number) => {
+      const entry = allVisibleOutputs[index];
+      if (entry && onNavigate) {
+        onNavigate(entry.generation.id, entry.output.id);
+      }
+    },
+    [allVisibleOutputs, onNavigate],
+  );
 
   const handleClose = useCallback(() => {
     if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
@@ -75,11 +102,19 @@ export function StudioPreview({
         event.preventDefault();
         handleClose();
       }
+      if (event.key === 'ArrowLeft' && hasPrev) {
+        event.preventDefault();
+        navigateToIndex(currentIndex - 1);
+      }
+      if (event.key === 'ArrowRight' && hasNext) {
+        event.preventDefault();
+        navigateToIndex(currentIndex + 1);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleClose, open]);
+  }, [handleClose, open, hasPrev, hasNext, currentIndex, navigateToIndex]);
 
   if (!open || !generation || !output) {
     return null;
@@ -145,30 +180,58 @@ export function StudioPreview({
 
       <div className="grid min-h-0 flex-1 grid-cols-1 bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)]">
         <div className="flex min-h-0 flex-col">
-              <div className="flex min-h-0 flex-1 items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
-                <div className="flex h-full max-h-full w-full items-center justify-center overflow-hidden rounded-[28px] border border-border/60 bg-card/70 p-3 shadow-sm">
-                  {output.mediaUrl ? (
-                    output.type === 'video' ? (
-                      <video
-                        className="max-h-full max-w-full rounded-2xl object-contain"
-                        src={output.mediaUrl}
-                        controls
-                        playsInline
-                      />
+              <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
+                  {hasPrev && (
+                    <button
+                      type="button"
+                      className="absolute left-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/60 sm:left-4 sm:h-12 sm:w-12"
+                      onClick={() => navigateToIndex(currentIndex - 1)}
+                      aria-label="Vorheriges Bild"
+                    >
+                      <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
+                    </button>
+                  )}
+
+                  <div className="flex h-full max-h-full w-full items-center justify-center overflow-hidden rounded-[28px] border border-border/60 bg-card/70 p-3 shadow-sm">
+                    {output.mediaUrl ? (
+                      output.type === 'video' ? (
+                        <video
+                          className="max-h-full max-w-full rounded-2xl object-contain"
+                          src={output.mediaUrl}
+                          controls
+                          playsInline
+                        />
+                      ) : (
+                        <img
+                          className="max-h-full max-w-full rounded-2xl object-contain"
+                          src={output.mediaUrl}
+                          alt={output.filePath}
+                        />
+                      )
                     ) : (
-                      <img
-                        className="max-h-full max-w-full rounded-2xl object-contain"
-                        src={output.mediaUrl}
-                        alt={output.filePath}
-                      />
-                    )
-                  ) : (
-                    <div className="flex h-full min-h-[320px] w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground">
-                      <ImageIcon className="h-10 w-10" />
-                    </div>
+                      <div className="flex h-full min-h-[320px] w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+                        <ImageIcon className="h-10 w-10" />
+                      </div>
+                    )}
+                  </div>
+
+                  {hasNext && (
+                    <button
+                      type="button"
+                      className="absolute right-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/60 sm:right-4 sm:h-12 sm:w-12"
+                      onClick={() => navigateToIndex(currentIndex + 1)}
+                      aria-label="Nächstes Bild"
+                    >
+                      <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6" />
+                    </button>
                   )}
                 </div>
-              </div>
+
+                {allVisibleOutputs.length > 1 && currentIndex >= 0 && (
+                  <div className="flex items-center justify-center py-1 text-xs font-medium text-muted-foreground">
+                    {currentIndex + 1} / {allVisibleOutputs.length}
+                  </div>
+                )}
 
               <div className="space-y-4 border-t border-border/70 bg-background/92 px-4 py-4 backdrop-blur sm:px-6">
                 <div className="flex flex-wrap gap-2">
@@ -354,6 +417,12 @@ export function StudioPreview({
                     <Film className="h-4 w-4" />
                     Video
                   </Button>
+                  {onSaveToWorkspace && (
+                    <Button variant="outline" className="gap-2 rounded-full" onClick={() => onSaveToWorkspace(generation, output)}>
+                      <Save className="h-4 w-4" />
+                      In Workspace
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="gap-2 rounded-full text-red-600 hover:bg-red-500/10 hover:text-red-700"
