@@ -37,6 +37,8 @@ DEST="canvas-notebook"
 COMPOSE_FILE="canvas-notebook-compose.yaml"
 INSTALL_DIR="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}"
 SYSTEMD_SERVICE="canvas-notebook.service"
+LEGACY_COMPOSE_PATH=""
+LEGACY_DATA_PATH=""
 
 # ── Linux only ────────────────────────────────────────────────────────────────
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -111,10 +113,9 @@ ensure_host_install() {
 }
 
 prepare_install_dir() {
-  local source_dir target_dir has_existing_compose
+  local source_dir target_dir
   source_dir="$(pwd)"
   target_dir="$INSTALL_DIR"
-  has_existing_compose=false
 
   if [[ "$target_dir" != /* ]]; then
     fail "CANVAS_INSTALL_DIR must be an absolute path."
@@ -125,20 +126,53 @@ prepare_install_dir() {
   run_root chown "$(id -u):$(id -g)" "$target_dir"
 
   if [[ "$source_dir" != "$target_dir" ]]; then
-    if [[ -f "${source_dir}/${COMPOSE_FILE}" && ! -f "${target_dir}/${COMPOSE_FILE}" ]]; then
-      cp "${source_dir}/${COMPOSE_FILE}" "${target_dir}/${COMPOSE_FILE}"
-      has_existing_compose=true
-      ok "Migrated existing ${COMPOSE_FILE} to ${target_dir}"
+    if [[ -f "${source_dir}/${COMPOSE_FILE}" ]]; then
+      LEGACY_COMPOSE_PATH="${source_dir}/${COMPOSE_FILE}"
+
+      if [[ ! -f "${target_dir}/${COMPOSE_FILE}" ]]; then
+        cp "${LEGACY_COMPOSE_PATH}" "${target_dir}/${COMPOSE_FILE}"
+        ok "Migrated existing ${COMPOSE_FILE} to ${target_dir}"
+      fi
     fi
 
-    if [[ "$has_existing_compose" == "true" && -d "${source_dir}/data" && ! -e "${target_dir}/data" ]]; then
-      mv "${source_dir}/data" "${target_dir}/data"
-      ok "Migrated existing data directory to ${target_dir}/data"
+    if [[ -d "${source_dir}/data" && ! -e "${target_dir}/data" ]]; then
+      LEGACY_DATA_PATH="${source_dir}/data"
+      info "Existing data directory will be migrated after any legacy container is stopped."
     fi
   fi
 
   cd "$target_dir"
   ok "Using ${target_dir}"
+}
+
+stop_legacy_install() {
+  if [[ -z "$LEGACY_COMPOSE_PATH" ]]; then
+    return 0
+  fi
+
+  section "Legacy install"
+  info "Stopping previous Compose project before starting the managed install..."
+  if $DOCKER_COMPOSE -f "$LEGACY_COMPOSE_PATH" down --remove-orphans; then
+    ok "Stopped previous Compose project"
+  else
+    warn "Could not stop previous Compose project automatically."
+    warn "If port 3456 is still allocated, run: $DOCKER_COMPOSE -f ${LEGACY_COMPOSE_PATH} down --remove-orphans"
+  fi
+}
+
+migrate_legacy_data() {
+  if [[ -z "$LEGACY_DATA_PATH" ]]; then
+    return 0
+  fi
+
+  section "Data migration"
+  if [[ -e "${INSTALL_DIR}/data" ]]; then
+    ok "${INSTALL_DIR}/data already exists — keeping it"
+    return 0
+  fi
+
+  mv "$LEGACY_DATA_PATH" "${INSTALL_DIR}/data"
+  ok "Migrated existing data directory to ${INSTALL_DIR}/data"
 }
 
 install_manager_config() {
@@ -780,6 +814,8 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   ensure_host_install
   prepare_install_dir
   install_docker
+  stop_legacy_install
+  migrate_legacy_data
   install_caddy
 
   # Download compose file
