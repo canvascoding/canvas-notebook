@@ -17,7 +17,7 @@ const CACHE_ROOT = '/tmp/canvas-media-cache';
 const FFMPEG_BIN = 'ffmpeg';
 const MAX_WIDTH = 1920;
 const MIN_WIDTH = 64;
-const SUPPORTED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif']);
+const SUPPORTED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'mp4', 'webm', 'mov', 'avi', 'mkv']);
 const SHARP_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp']);
 
 type PreviewFormat = 'jpg' | 'png' | 'webp';
@@ -239,8 +239,13 @@ export async function GET(request: NextRequest) {
       filePath.startsWith('presets/') ||
       filePath.startsWith('references/')
     ) {
-      // Studio asset paths stored without full prefix
       const resolved = resolveValidatedStudioAssetPath(filePath);
+      if (!resolved) {
+        return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+      }
+      fullPath = resolved;
+    } else if (filePath.startsWith('studio-gen-')) {
+      const resolved = resolveValidatedStudioOutputPath(filePath);
       if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }

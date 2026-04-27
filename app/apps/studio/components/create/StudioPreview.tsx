@@ -178,62 +178,62 @@ export function StudioPreview({
         </Badge>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)]">
-        <div className="flex min-h-0 flex-col">
-              <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
-                  {hasPrev && (
-                    <button
-                      type="button"
-                      className="absolute left-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/60 sm:left-4 sm:h-12 sm:w-12"
-                      onClick={() => navigateToIndex(currentIndex - 1)}
-                      aria-label="Vorheriges Bild"
-                    >
-                      <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
-                    </button>
-                  )}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)]">
+        <div className="relative flex min-h-[40vh] sm:min-h-0 flex-1 items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
+          {hasPrev && (
+            <button
+              type="button"
+              className="absolute left-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/60 sm:left-4 sm:h-12 sm:w-12"
+              onClick={() => navigateToIndex(currentIndex - 1)}
+              aria-label="Vorheriges Bild"
+            >
+              <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
+            </button>
+          )}
 
-                  <div className="flex h-full max-h-full w-full items-center justify-center overflow-hidden rounded-[28px] border border-border/60 bg-card/70 p-3 shadow-sm">
-                    {output.mediaUrl ? (
-                      output.type === 'video' ? (
-                        <video
-                          className="max-h-full max-w-full rounded-2xl object-contain"
-                          src={output.mediaUrl}
-                          controls
-                          playsInline
-                        />
-                      ) : (
-                        <img
-                          className="max-h-full max-w-full rounded-2xl object-contain"
-                          src={output.mediaUrl}
-                          alt={output.filePath}
-                        />
-                      )
-                    ) : (
-                      <div className="flex h-full min-h-[320px] w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground">
-                        <ImageIcon className="h-10 w-10" />
-                      </div>
-                    )}
-                  </div>
+          <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[28px] border border-border/60 bg-card/70 p-3 shadow-sm">
+            {output.mediaUrl ? (
+              output.type === 'video' ? (
+                <video
+                  className="max-h-full max-w-full rounded-2xl object-contain"
+                  src={output.mediaUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                />
+              ) : (
+                <img
+                  className="max-h-full max-w-full rounded-2xl object-contain"
+                  src={output.mediaUrl}
+                  alt={output.filePath}
+                />
+              )
+            ) : (
+              <div className="flex min-h-[40vh] sm:min-h-[320px] w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+                <ImageIcon className="h-10 w-10" />
+              </div>
+            )}
+          </div>
 
-                  {hasNext && (
-                    <button
-                      type="button"
-                      className="absolute right-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/60 sm:right-4 sm:h-12 sm:w-12"
-                      onClick={() => navigateToIndex(currentIndex + 1)}
-                      aria-label="Nächstes Bild"
-                    >
-                      <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6" />
-                    </button>
-                  )}
-                </div>
+          {hasNext && (
+            <button
+              type="button"
+              className="absolute right-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/60 sm:right-4 sm:h-12 sm:w-12"
+              onClick={() => navigateToIndex(currentIndex + 1)}
+              aria-label="Nächstes Bild"
+            >
+              <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6" />
+            </button>
+          )}
+        </div>
 
-                {allVisibleOutputs.length > 1 && currentIndex >= 0 && (
-                  <div className="flex items-center justify-center py-1 text-xs font-medium text-muted-foreground">
-                    {currentIndex + 1} / {allVisibleOutputs.length}
-                  </div>
-                )}
+        {allVisibleOutputs.length > 1 && currentIndex >= 0 && (
+          <div className="flex items-center justify-center py-1 text-xs font-medium text-muted-foreground">
+            {currentIndex + 1} / {allVisibleOutputs.length}
+          </div>
+        )}
 
-              <div className="space-y-4 border-t border-border/70 bg-background/92 px-4 py-4 backdrop-blur sm:px-6">
+        <div className="flex-shrink-0 overflow-y-auto border-t border-border/70 bg-background/92 px-4 py-4 backdrop-blur sm:px-6" style={{ maxHeight: '45vh' }}>
                 <div className="flex flex-wrap gap-2">
                   {resolvedPreset ? (
                     <Badge variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
@@ -453,7 +453,6 @@ export function StudioPreview({
                   </AlertDialogContent>
                 </AlertDialog>
               </div>
-            </div>
       </div>
     </section>
   );
