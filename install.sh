@@ -799,12 +799,24 @@ health_url() {
   printf 'http://127.0.0.1:%s/api/health\n' "\$port"
 }
 
+compose_env_value() {
+  local key="\$1"
+  sed -n -E "s|^[[:space:]]*\${key}:[[:space:]]*[\"']?([^\"'#[:space:]]+).*|\\1|p" "\$COMPOSE_FILE" | head -1
+}
+
 configured_base_url() {
-  awk -F: '/^[[:space:]]*BETTER_AUTH_BASE_URL:/ {gsub(/[ "]/, "", \$2); print \$2; exit}' "\$COMPOSE_FILE"
+  local url
+  url="\$(compose_env_value BETTER_AUTH_BASE_URL)"
+  if [[ -z "\$url" ]]; then
+    url="\$(compose_env_value BASE_URL)"
+  fi
+  printf '%s\n' "\$url"
 }
 
 configured_domain() {
-  configured_base_url | sed 's|^https\?://||' | cut -d/ -f1 | cut -d: -f1
+  local url
+  url="\$(configured_base_url)"
+  printf '%s\n' "\$url" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1
 }
 
 is_real_domain() {
@@ -818,7 +830,7 @@ sync_caddy_from_compose() {
   caddyfile="/etc/caddy/Caddyfile"
 
   if ! is_real_domain "\$domain"; then
-    info "No public domain configured in BETTER_AUTH_BASE_URL; skipping Caddy sync."
+    info "No public domain configured in BETTER_AUTH_BASE_URL or BASE_URL; skipping Caddy sync."
     return 0
   fi
 
@@ -836,6 +848,9 @@ sync_caddy_from_compose() {
 }
 
 show_caddy_status() {
+  printf 'Configured base URL: %s\n' "\$(configured_base_url)"
+  printf 'Configured Caddy domain: %s\n\n' "\$(configured_domain)"
+
   if command -v systemctl >/dev/null 2>&1; then
     systemctl --no-pager status caddy || true
   else
