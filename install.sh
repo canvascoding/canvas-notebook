@@ -218,6 +218,40 @@ cleanup_docker_artifacts() {
   fi
 }
 
+docker_image_digest() {
+  if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    docker image inspect "$IMAGE" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | awk -F@ 'NF == 2 {print $2}'
+  elif sudo docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    sudo docker image inspect "$IMAGE" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | awk -F@ 'NF == 2 {print $2}'
+  fi
+}
+
+remote_image_digest() {
+  if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+    docker buildx imagetools inspect "$IMAGE" 2>/dev/null | awk '/^Digest:/ {print $2; exit}'
+  elif sudo docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+    sudo docker buildx imagetools inspect "$IMAGE" 2>/dev/null | awk '/^Digest:/ {print $2; exit}'
+  elif docker manifest inspect -v "$IMAGE" >/dev/null 2>&1; then
+    docker manifest inspect -v "$IMAGE" 2>/dev/null | sed -n 's/.*"Descriptor":{.*"digest":"\([^"]*\)".*/\1/p' | head -1
+  elif sudo docker manifest inspect -v "$IMAGE" >/dev/null 2>&1; then
+    sudo docker manifest inspect -v "$IMAGE" 2>/dev/null | sed -n 's/.*"Descriptor":{.*"digest":"\([^"]*\)".*/\1/p' | head -1
+  fi
+}
+
+pull_image_if_needed() {
+  local remote_digest
+
+  section "Image"
+  remote_digest="$(remote_image_digest || true)"
+  if [[ -n "$remote_digest" ]] && docker_image_digest | grep -Fxq "$remote_digest"; then
+    ok "Latest image already present (${IMAGE}@${remote_digest})"
+    return 0
+  fi
+
+  info "Pulling latest image..."
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" pull
+}
+
 install_manager_config() {
   local config_dir config_path install_dir_q compose_path_q data_dir_q log_dir_q
   config_dir="/etc/canvas-notebook"
@@ -411,6 +445,7 @@ INSTALL_DIR=${install_dir_q}
 COMPOSE_FILE=${compose_path_q}
 DATA_DIR=${data_dir_q}
 SERVICE="canvas-notebook"
+IMAGE_REF="${IMAGE}"
 CONFIG_FILE="\${CANVAS_MANAGER_CONFIG:-/etc/canvas-notebook/manager.env}"
 
 if [[ -f "\$CONFIG_FILE" ]]; then
@@ -526,6 +561,30 @@ run_compose() {
   log_msg "compose \$*"
   compose "\$@" 2>&1 | tee -a "\$LOG_FILE"
   return "\${PIPESTATUS[0]}"
+}
+
+image_digest() {
+  docker_cmd image inspect "\$IMAGE_REF" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | awk -F@ 'NF == 2 {print \$2}' || true
+}
+
+remote_image_digest() {
+  if docker_cmd buildx imagetools inspect "\$IMAGE_REF" >/dev/null 2>&1; then
+    docker_cmd buildx imagetools inspect "\$IMAGE_REF" 2>/dev/null | awk '/^Digest:/ {print \$2; exit}'
+  elif docker_cmd manifest inspect -v "\$IMAGE_REF" >/dev/null 2>&1; then
+    docker_cmd manifest inspect -v "\$IMAGE_REF" 2>/dev/null | sed -n 's/.*"Descriptor":{.*"digest":"\([^"]*\)".*/\1/p' | head -1
+  fi
+}
+
+pull_image_if_needed() {
+  local remote_digest
+  remote_digest="\$(remote_image_digest || true)"
+  if [[ -n "\$remote_digest" ]] && image_digest | grep -Fxq "\$remote_digest"; then
+    info "Latest image already present (\${IMAGE_REF}@\${remote_digest})"
+    log_msg "pull skipped image current \$remote_digest"
+    return 0
+  fi
+
+  run_compose pull "\$SERVICE"
 }
 
 cleanup_docker_artifacts() {
@@ -732,7 +791,7 @@ case "\$cmd" in
     ;;
   install|update)
     log_msg "\$cmd started"
-    run_compose pull "\$SERVICE"
+    pull_image_if_needed
     run_compose up -d --force-recreate "\$SERVICE"
     follow_until_healthy
     cleanup_docker_artifacts
@@ -936,8 +995,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
 
   # Pull and start
   section "Starting Canvas Notebook"
-  info "Pulling latest image..."
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" pull
+  pull_image_if_needed
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --force-recreate
   ok "Container started"
   wait_for_canvas_startup
