@@ -35,6 +35,8 @@ IMAGE="ghcr.io/canvascoding/canvas-notebook:latest"
 COMPOSE_URL="https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/compose.hub.yaml"
 DEST="canvas-notebook"
 COMPOSE_FILE="canvas-notebook-compose.yaml"
+INSTALL_DIR="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}"
+SYSTEMD_SERVICE="canvas-notebook.service"
 
 # ── Linux only ────────────────────────────────────────────────────────────────
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -88,6 +90,76 @@ else
 fi
 
 export SETUP_CADDY MODE_CHOICE
+
+run_root() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+is_inside_container() {
+  [[ -f /.dockerenv ]] && return 0
+  grep -qaE '(docker|kubepods|containerd|lxc)' /proc/1/cgroup 2>/dev/null
+}
+
+ensure_host_install() {
+  if is_inside_container; then
+    fail "This installer must run on the VM host, not inside a container. The management CLI and systemd service need host-level access."
+  fi
+}
+
+prepare_install_dir() {
+  local source_dir target_dir has_existing_compose
+  source_dir="$(pwd)"
+  target_dir="$INSTALL_DIR"
+  has_existing_compose=false
+
+  if [[ "$target_dir" != /* ]]; then
+    fail "CANVAS_INSTALL_DIR must be an absolute path."
+  fi
+
+  section "Install directory"
+  run_root mkdir -p "$target_dir"
+  run_root chown "$(id -u):$(id -g)" "$target_dir"
+
+  if [[ "$source_dir" != "$target_dir" ]]; then
+    if [[ -f "${source_dir}/${COMPOSE_FILE}" && ! -f "${target_dir}/${COMPOSE_FILE}" ]]; then
+      cp "${source_dir}/${COMPOSE_FILE}" "${target_dir}/${COMPOSE_FILE}"
+      has_existing_compose=true
+      ok "Migrated existing ${COMPOSE_FILE} to ${target_dir}"
+    fi
+
+    if [[ "$has_existing_compose" == "true" && -d "${source_dir}/data" && ! -e "${target_dir}/data" ]]; then
+      mv "${source_dir}/data" "${target_dir}/data"
+      ok "Migrated existing data directory to ${target_dir}/data"
+    fi
+  fi
+
+  cd "$target_dir"
+  ok "Using ${target_dir}"
+}
+
+install_manager_config() {
+  local config_dir config_path install_dir_q compose_path_q log_dir_q
+  config_dir="/etc/canvas-notebook"
+  config_path="${config_dir}/manager.env"
+
+  printf -v install_dir_q '%q' "$INSTALL_DIR"
+  printf -v compose_path_q '%q' "${INSTALL_DIR}/${COMPOSE_FILE}"
+  printf -v log_dir_q '%q' "/var/log/canvas-notebook"
+
+  section "Manager config"
+  run_root mkdir -p "$config_dir" /var/log/canvas-notebook
+  run_root tee "$config_path" > /dev/null <<EOF
+INSTALL_DIR=${install_dir_q}
+COMPOSE_FILE=${compose_path_q}
+SERVICE=canvas-notebook
+CANVAS_MANAGER_LOG_DIR=${log_dir_q}
+EOF
+  ok "Wrote ${config_path}"
+}
 
 # ── Shared: install Docker ────────────────────────────────────────────────────
 install_docker() {
@@ -258,6 +330,15 @@ set -euo pipefail
 INSTALL_DIR=${install_dir_q}
 COMPOSE_FILE=${compose_path_q}
 SERVICE="canvas-notebook"
+CONFIG_FILE="\${CANVAS_MANAGER_CONFIG:-/etc/canvas-notebook/manager.env}"
+
+if [[ -f "\$CONFIG_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "\$CONFIG_FILE"
+  set +a
+fi
+
 DEFAULT_HEALTH_ATTEMPTS="\${CANVAS_HEALTH_MAX_ATTEMPTS:-180}"
 LOG_DIR="\${CANVAS_MANAGER_LOG_DIR:-/var/log/canvas-notebook}"
 LOG_FILE="\${LOG_DIR}/manager.log"
@@ -305,10 +386,12 @@ BANNER
 }
 
 usage() {
-  banner
+  if [[ "\${NO_BANNER:-false}" != "true" ]]; then
+    banner
+  fi
   cat <<'HELP'
 Usage:
-  canvas-notebook <command>
+  canvas-notebook <command> [--json] [--no-banner]
 
 Commands:
   help       Show this help
@@ -318,12 +401,12 @@ Commands:
   restart    Restart the container and wait until healthy
   stop       Stop the container
   down       Stop and remove the container
-  status     Show compose status
+  status     Show compose status; use --json for machine-readable output
   logs       Follow container logs
   manager-log
              Show the host-side CLI management log
   diagnose   Show host, Docker, memory, OOM, and container diagnostics
-  health     Check the local health endpoint
+  health     Check the local health endpoint; use --json for machine-readable output
   config     Show the compose file path
 
 Environment:
@@ -333,14 +416,28 @@ Environment:
 HELP
 }
 
-compose() {
+compose_optional() {
   cd "\$INSTALL_DIR"
   if docker info >/dev/null 2>&1; then
     docker compose -f "\$COMPOSE_FILE" "\$@"
   elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
     sudo docker compose -f "\$COMPOSE_FILE" "\$@"
   else
-    fail "Docker is not reachable. Try logging out/in for docker group changes, or run with a user that can access Docker."
+    return 1
+  fi
+}
+
+compose() {
+  compose_optional "\$@" || fail "Docker is not reachable. Try logging out/in for docker group changes, or run with a user that can access Docker."
+}
+
+docker_cmd() {
+  if docker info >/dev/null 2>&1; then
+    docker "\$@"
+  elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+    sudo docker "\$@"
+  else
+    return 1
   fi
 }
 
@@ -351,7 +448,7 @@ run_compose() {
 }
 
 host_port() {
-  compose port "\$SERVICE" 3000 2>/dev/null | tail -1 | awk -F: '{print \$NF}'
+  compose_optional port "\$SERVICE" 3000 2>/dev/null | tail -1 | awk -F: '{print \$NF}' || true
 }
 
 health_url() {
@@ -408,7 +505,7 @@ follow_until_healthy() {
 }
 
 container_id() {
-  compose ps -q "\$SERVICE" 2>/dev/null || true
+  compose_optional ps -q "\$SERVICE" 2>/dev/null || true
 }
 
 show_manager_log() {
@@ -440,18 +537,18 @@ diagnose() {
   df -h / "\$INSTALL_DIR" 2>/dev/null || df -h / || true
 
   printf '\n== Docker compose ==\n'
-  compose ps || true
+  compose_optional ps || true
 
   if [[ -n "\$cid" ]]; then
     printf '\n== Container state ==\n'
-    docker inspect --format 'Name={{.Name}} Status={{.State.Status}} Running={{.State.Running}} Restarting={{.State.Restarting}} OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}} Started={{.State.StartedAt}} Finished={{.State.FinishedAt}}' "\$cid" 2>/dev/null || sudo docker inspect --format 'Name={{.Name}} Status={{.State.Status}} Running={{.State.Running}} Restarting={{.State.Restarting}} OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}} Started={{.State.StartedAt}} Finished={{.State.FinishedAt}}' "\$cid" 2>/dev/null || true
+    docker_cmd inspect --format 'Name={{.Name}} Status={{.State.Status}} Running={{.State.Running}} Restarting={{.State.Restarting}} OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}} Started={{.State.StartedAt}} Finished={{.State.FinishedAt}} RestartCount={{.RestartCount}}' "\$cid" 2>/dev/null || true
 
     printf '\n== Container resource snapshot ==\n'
-    docker stats --no-stream "\$cid" 2>/dev/null || sudo docker stats --no-stream "\$cid" 2>/dev/null || true
+    docker_cmd stats --no-stream "\$cid" 2>/dev/null || true
   fi
 
   printf '\n== Recent container logs ==\n'
-  compose logs --tail="\${TAIL:-120}" "\$SERVICE" || true
+  compose_optional logs --tail="\${TAIL:-120}" "\$SERVICE" || true
 
   printf '\n== Possible OOM / kernel crash evidence ==\n'
   if command -v journalctl >/dev/null 2>&1; then
@@ -465,10 +562,79 @@ diagnose() {
   fi
 }
 
+json_escape() {
+  printf '%s' "\$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+status_json() {
+  local cid url healthy service_active container_json install_dir_json compose_file_json log_file_json service_active_json
+
+  ensure_log_file
+  url="\$(health_url)"
+  healthy=false
+  if curl -fsS "\$url" >/dev/null 2>&1; then
+    healthy=true
+  fi
+
+  cid="\$(container_id)"
+  container_json="null"
+  if [[ -n "\$cid" ]]; then
+    container_json="\$(docker_cmd inspect --format '{"id":"{{.Id}}","name":"{{.Name}}","status":"{{.State.Status}}","running":{{.State.Running}},"restarting":{{.State.Restarting}},"oomKilled":{{.State.OOMKilled}},"exitCode":{{.State.ExitCode}},"restartCount":{{.RestartCount}}}' "\$cid" 2>/dev/null || printf 'null')"
+  fi
+
+  service_active="unknown"
+  if command -v systemctl >/dev/null 2>&1; then
+    service_active="\$(systemctl is-active canvas-notebook.service 2>/dev/null || true)"
+  fi
+
+  install_dir_json="\$(json_escape "\$INSTALL_DIR")"
+  compose_file_json="\$(json_escape "\$COMPOSE_FILE")"
+  log_file_json="\$(json_escape "\$LOG_FILE")"
+  service_active_json="\$(json_escape "\$service_active")"
+
+  printf '{"healthy":%s,"serviceActive":"%s","installDir":"%s","composeFile":"%s","managerLog":"%s","container":%s}\n' \
+    "\$healthy" "\$service_active_json" "\$install_dir_json" "\$compose_file_json" "\$log_file_json" "\$container_json"
+}
+
+diagnose_json() {
+  local status mem_total mem_available disk_total disk_available
+  mem_total="\$(awk '/MemTotal/ {print \$2 * 1024}' /proc/meminfo 2>/dev/null || printf 0)"
+  mem_available="\$(awk '/MemAvailable/ {print \$2 * 1024}' /proc/meminfo 2>/dev/null || printf 0)"
+  disk_total="\$(df -P / 2>/dev/null | awk 'NR==2 {print \$2 * 1024}' || printf 0)"
+  disk_available="\$(df -P / 2>/dev/null | awk 'NR==2 {print \$4 * 1024}' || printf 0)"
+  status="\$(status_json)"
+  printf '{"status":%s,"vm":{"memoryTotalBytes":%s,"memoryAvailableBytes":%s,"diskTotalBytes":%s,"diskAvailableBytes":%s}}\n' \
+    "\$status" "\${mem_total:-0}" "\${mem_available:-0}" "\${disk_total:-0}" "\${disk_available:-0}"
+}
+
 cmd="\${1:-help}"
+if [[ "\$#" -gt 0 ]]; then
+  shift
+fi
+
+OUTPUT_JSON=false
+NO_BANNER=false
+while [[ "\$#" -gt 0 ]]; do
+  case "\$1" in
+    --json)
+      OUTPUT_JSON=true
+      NO_BANNER=true
+      ;;
+    --no-banner)
+      NO_BANNER=true
+      ;;
+    *)
+      fail "Unknown option: \$1"
+      ;;
+  esac
+  shift
+done
+
 case "\$cmd" in
   install|update|start|restart|stop|down|status|ps|logs|manager-log|diagnose|health|config)
-    banner
+    if [[ "\$NO_BANNER" != "true" ]]; then
+      banner
+    fi
     ;;
 esac
 
@@ -502,7 +668,11 @@ case "\$cmd" in
     run_compose down
     ;;
   status|ps)
-    compose ps
+    if [[ "\$OUTPUT_JSON" == "true" ]]; then
+      status_json
+    else
+      compose ps
+    fi
     ;;
   logs)
     compose logs -f --tail="\${TAIL:-120}" "\$SERVICE"
@@ -511,15 +681,30 @@ case "\$cmd" in
     show_manager_log
     ;;
   diagnose)
-    diagnose
+    if [[ "\$OUTPUT_JSON" == "true" ]]; then
+      diagnose_json
+    else
+      diagnose
+    fi
     ;;
   health)
     log_msg "health"
-    curl -fsS "\$(health_url)" && printf '\n'
+    if curl -fsS "\$(health_url)" >/dev/null 2>&1; then
+      if [[ "\$OUTPUT_JSON" == "true" ]]; then
+        printf '{"healthy":true}\n'
+      else
+        curl -fsS "\$(health_url)" && printf '\n'
+      fi
+    else
+      if [[ "\$OUTPUT_JSON" == "true" ]]; then
+        printf '{"healthy":false}\n'
+      fi
+      exit 1
+    fi
     ;;
   config)
     ensure_log_file
-    printf 'Install dir: %s\nCompose file: %s\nManager log: %s\n' "\$INSTALL_DIR" "\$COMPOSE_FILE" "\$LOG_FILE"
+    printf 'Install dir: %s\nCompose file: %s\nConfig file: %s\nManager log: %s\n' "\$INSTALL_DIR" "\$COMPOSE_FILE" "\$CONFIG_FILE" "\$LOG_FILE"
     ;;
   *)
     usage >&2
@@ -548,9 +733,52 @@ EOF
   info "Run: canvas-notebook help"
 }
 
+install_systemd_service() {
+  local service_path cli_path
+  service_path="/etc/systemd/system/${SYSTEMD_SERVICE}"
+  cli_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    warn "systemd not found — skipping host service installation."
+    return 0
+  fi
+
+  section "System service"
+  run_root tee "$service_path" > /dev/null <<EOF
+[Unit]
+Description=Canvas Notebook
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=${INSTALL_DIR}
+EnvironmentFile=-/etc/canvas-notebook/manager.env
+Environment=CANVAS_MANAGER_LOG_DIR=/var/log/canvas-notebook
+ExecStart=${cli_path} start --no-banner
+ExecStop=${cli_path} stop --no-banner
+ExecReload=${cli_path} restart --no-banner
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  run_root systemctl daemon-reload
+  run_root systemctl enable "$SYSTEMD_SERVICE" >/dev/null
+  run_root systemctl start "$SYSTEMD_SERVICE"
+  ok "Installed and enabled ${SYSTEMD_SERVICE}"
+  info "Service logs: journalctl -u ${SYSTEMD_SERVICE}"
+}
+
 # ── Mode 1: Pre-built image ───────────────────────────────────────────────────
 if [[ "$MODE_CHOICE" == "1" ]]; then
 
+  ensure_host_install
+  prepare_install_dir
   install_docker
   install_caddy
 
@@ -626,7 +854,9 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --force-recreate
   ok "Container started"
   wait_for_canvas_startup
+  install_manager_config
   install_management_cli
+  install_systemd_service
 
   # Configure Caddy
   CONFIGURED_BASE_URL="$(grep 'BETTER_AUTH_BASE_URL:' "$COMPOSE_FILE" | head -1 | sed 's/.*"\(.*\)"/\1/' | tr -d '[:space:]')"
