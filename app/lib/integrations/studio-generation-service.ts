@@ -1468,9 +1468,11 @@ export async function deleteStudioGeneration(generationId: string, userId: strin
   for (const output of outputs) {
     if (output.filePath) {
       try {
-        const { deleteFile } = await import('@/app/lib/filesystem/workspace-files');
-        await deleteFile(output.filePath);
-      } catch {}
+        const { deleteOutputFile } = await import('@/app/lib/integrations/studio-workspace');
+        await deleteOutputFile(output.filePath);
+      } catch (err) {
+        console.warn(`Failed to delete output file ${output.filePath}:`, err);
+      }
     }
   }
 

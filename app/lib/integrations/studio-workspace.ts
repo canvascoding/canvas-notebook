@@ -121,6 +121,11 @@ export async function deleteAssetDir(relativePath: string): Promise<void> {
   await fs.rm(fullPath, { recursive: true, force: true });
 }
 
+export async function deleteOutputFile(filePath: string): Promise<void> {
+  const fullPath = path.join(getStudioOutputsRoot(), filePath);
+  await fs.rm(fullPath, { force: true });
+}
+
 export async function readOutputFile(filePath: string): Promise<Buffer> {
   const fullPath = path.join(getStudioOutputsRoot(), filePath);
   return fs.readFile(fullPath);
