@@ -41,6 +41,21 @@ INSTALL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
 INSTALL_USER_HOME="$(getent passwd "$INSTALL_USER" 2>/dev/null | cut -d: -f6 || true)"
 INSTALL_USER_HOME="${INSTALL_USER_HOME:-${HOME:-/opt}}"
 DATA_DIR="${CANVAS_DATA_DIR:-${INSTALL_USER_HOME}/canvas-notebook-data}"
+MANAGER_CONFIG_FILE="/etc/canvas-notebook/manager.env"
+if [[ -f "$MANAGER_CONFIG_FILE" ]]; then
+  if [[ -z "${CANVAS_SWAP_ENABLED+x}" ]]; then
+    CANVAS_SWAP_ENABLED="$(awk -F= '/^CANVAS_SWAP_ENABLED=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+  fi
+  if [[ -z "${CANVAS_SWAP_SIZE+x}" ]]; then
+    CANVAS_SWAP_SIZE="$(awk -F= '/^CANVAS_SWAP_SIZE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+  fi
+  if [[ -z "${CANVAS_SWAP_FILE+x}" ]]; then
+    CANVAS_SWAP_FILE="$(awk -F= '/^CANVAS_SWAP_FILE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+  fi
+fi
+CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-true}"
+CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
+CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
 LEGACY_COMPOSE_PATH=""
 LEGACY_DATA_PATH=""
 
@@ -201,6 +216,67 @@ configure_data_bind_mount() {
   ok "Persistent data bind mount: ${DATA_DIR} -> /data"
 }
 
+is_false() {
+  case "${1,,}" in
+    false|0|no|off|disabled) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+swap_is_active() {
+  swapon --show=NAME --noheadings 2>/dev/null | awk '{print $1}' | grep -Fxq "$CANVAS_SWAP_FILE"
+}
+
+remove_swap_fstab_entry() {
+  run_root sed -i '\|[[:space:]]# canvas-notebook swap$|d' /etc/fstab
+  run_root sed -i "\|^${CANVAS_SWAP_FILE}[[:space:]]|d" /etc/fstab
+}
+
+disable_canvas_swap() {
+  section "Swap"
+  if swap_is_active; then
+    run_root swapoff "$CANVAS_SWAP_FILE"
+    ok "Disabled swap at ${CANVAS_SWAP_FILE}"
+  else
+    ok "Swap already disabled at ${CANVAS_SWAP_FILE}"
+  fi
+
+  remove_swap_fstab_entry
+  if [[ -f "$CANVAS_SWAP_FILE" ]]; then
+    run_root rm -f "$CANVAS_SWAP_FILE"
+    ok "Removed ${CANVAS_SWAP_FILE}"
+  fi
+}
+
+enable_canvas_swap() {
+  section "Swap"
+  if swap_is_active; then
+    ok "Swap already enabled at ${CANVAS_SWAP_FILE}"
+  else
+    if [[ ! -f "$CANVAS_SWAP_FILE" ]]; then
+      run_root fallocate -l "$CANVAS_SWAP_SIZE" "$CANVAS_SWAP_FILE"
+      ok "Created ${CANVAS_SWAP_SIZE} swapfile at ${CANVAS_SWAP_FILE}"
+    fi
+
+    run_root chmod 600 "$CANVAS_SWAP_FILE"
+    run_root mkswap "$CANVAS_SWAP_FILE" >/dev/null
+    run_root swapon "$CANVAS_SWAP_FILE"
+    ok "Enabled swap at ${CANVAS_SWAP_FILE}"
+  fi
+
+  remove_swap_fstab_entry
+  printf '%s none swap sw 0 0 # canvas-notebook swap\n' "$CANVAS_SWAP_FILE" | run_root tee -a /etc/fstab >/dev/null
+  ok "Swap will be enabled after reboot"
+}
+
+configure_swap() {
+  if is_false "$CANVAS_SWAP_ENABLED"; then
+    disable_canvas_swap
+  else
+    enable_canvas_swap
+  fi
+}
+
 cleanup_docker_artifacts() {
   section "Docker cleanup"
   info "Removing stopped containers and unused images..."
@@ -253,13 +329,16 @@ pull_image_if_needed() {
 }
 
 install_manager_config() {
-  local config_dir config_path install_dir_q compose_path_q data_dir_q log_dir_q
+  local config_dir config_path install_dir_q compose_path_q data_dir_q swap_enabled_q swap_size_q swap_file_q log_dir_q
   config_dir="/etc/canvas-notebook"
   config_path="${config_dir}/manager.env"
 
   printf -v install_dir_q '%q' "$INSTALL_DIR"
   printf -v compose_path_q '%q' "${INSTALL_DIR}/${COMPOSE_FILE}"
   printf -v data_dir_q '%q' "$DATA_DIR"
+  printf -v swap_enabled_q '%q' "$CANVAS_SWAP_ENABLED"
+  printf -v swap_size_q '%q' "$CANVAS_SWAP_SIZE"
+  printf -v swap_file_q '%q' "$CANVAS_SWAP_FILE"
   printf -v log_dir_q '%q' "/var/log/canvas-notebook"
 
   section "Manager config"
@@ -268,6 +347,9 @@ install_manager_config() {
 INSTALL_DIR=${install_dir_q}
 COMPOSE_FILE=${compose_path_q}
 DATA_DIR=${data_dir_q}
+CANVAS_SWAP_ENABLED=${swap_enabled_q}
+CANVAS_SWAP_SIZE=${swap_size_q}
+CANVAS_SWAP_FILE=${swap_file_q}
 SERVICE=canvas-notebook
 CANVAS_MANAGER_LOG_DIR=${log_dir_q}
 EOF
@@ -429,7 +511,7 @@ wait_for_canvas_startup() {
 }
 
 install_management_cli() {
-  local install_dir compose_path bin_path fallback_bin_path tmp_path install_dir_q compose_path_q data_dir_q
+  local install_dir compose_path bin_path fallback_bin_path tmp_path install_dir_q compose_path_q data_dir_q swap_enabled_q swap_size_q swap_file_q
 
   install_dir="$(pwd)"
   compose_path="${install_dir}/${COMPOSE_FILE}"
@@ -440,6 +522,9 @@ install_management_cli() {
   printf -v install_dir_q '%q' "$install_dir"
   printf -v compose_path_q '%q' "$compose_path"
   printf -v data_dir_q '%q' "$DATA_DIR"
+  printf -v swap_enabled_q '%q' "$CANVAS_SWAP_ENABLED"
+  printf -v swap_size_q '%q' "$CANVAS_SWAP_SIZE"
+  printf -v swap_file_q '%q' "$CANVAS_SWAP_FILE"
 
   cat > "$tmp_path" <<EOF
 #!/usr/bin/env bash
@@ -448,6 +533,9 @@ set -euo pipefail
 INSTALL_DIR=${install_dir_q}
 COMPOSE_FILE=${compose_path_q}
 DATA_DIR=${data_dir_q}
+CANVAS_SWAP_ENABLED=${swap_enabled_q}
+CANVAS_SWAP_SIZE=${swap_size_q}
+CANVAS_SWAP_FILE=${swap_file_q}
 SERVICE="canvas-notebook"
 IMAGE_REF="${IMAGE}"
 CONFIG_FILE="\${CANVAS_MANAGER_CONFIG:-/etc/canvas-notebook/manager.env}"
@@ -528,6 +616,11 @@ Commands:
   manager-log
              Show the host-side CLI management log
   env        Edit the Compose environment, sync Caddy, and restart
+  swap       Show swap status
+  swap-enable
+             Enable Canvas-managed swap and persist it
+  swap-disable
+             Disable Canvas-managed swap and persist it
   caddy      Check Caddy status and current Caddyfile
   caddy-reload
              Sync Caddy from BETTER_AUTH_BASE_URL and reload it
@@ -538,6 +631,9 @@ Commands:
 Environment:
   CANVAS_HEALTH_MAX_ATTEMPTS=180   Health wait timeout in seconds
   CANVAS_MANAGER_LOG_DIR=/var/log/canvas-notebook
+  CANVAS_SWAP_ENABLED=true         Enable Canvas-managed swap by default
+  CANVAS_SWAP_SIZE=2G              Canvas-managed swapfile size
+  CANVAS_SWAP_FILE=/swapfile       Canvas-managed swapfile path
   TAIL=120                         Number of log lines shown before following
 HELP
 }
@@ -575,6 +671,85 @@ run_root() {
   else
     return 1
   fi
+}
+
+is_false() {
+  case "\${1,,}" in
+    false|0|no|off|disabled) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+set_manager_env() {
+  local key="\$1" value="\$2" escaped
+  run_root mkdir -p "\$(dirname "\$CONFIG_FILE")"
+  run_root touch "\$CONFIG_FILE"
+  escaped="\$(printf '%s' "\$value" | sed 's/[&|]/\\&/g')"
+  if grep -q "^\${key}=" "\$CONFIG_FILE" 2>/dev/null; then
+    run_root sed -i "s|^\${key}=.*|\${key}=\${escaped}|" "\$CONFIG_FILE"
+  else
+    printf '%s=%s\n' "\$key" "\$value" | run_root tee -a "\$CONFIG_FILE" >/dev/null
+  fi
+}
+
+swap_is_active() {
+  swapon --show=NAME --noheadings 2>/dev/null | awk '{print \$1}' | grep -Fxq "\$CANVAS_SWAP_FILE"
+}
+
+remove_swap_fstab_entry() {
+  run_root sed -i '\|[[:space:]]# canvas-notebook swap$|d' /etc/fstab
+  run_root sed -i "\|^\${CANVAS_SWAP_FILE}[[:space:]]|d" /etc/fstab
+}
+
+show_swap_status() {
+  printf 'Canvas swap enabled setting: %s\n' "\$CANVAS_SWAP_ENABLED"
+  printf 'Canvas swap file: %s\n' "\$CANVAS_SWAP_FILE"
+  printf 'Canvas swap size: %s\n' "\$CANVAS_SWAP_SIZE"
+  printf '\n== swapon ==\n'
+  swapon --show || true
+  printf '\n== memory ==\n'
+  free -h || true
+}
+
+enable_canvas_swap() {
+  if swap_is_active; then
+    ok "Swap already enabled at \${CANVAS_SWAP_FILE}"
+  else
+    if [[ ! -f "\$CANVAS_SWAP_FILE" ]]; then
+      run_root fallocate -l "\$CANVAS_SWAP_SIZE" "\$CANVAS_SWAP_FILE"
+      ok "Created \${CANVAS_SWAP_SIZE} swapfile at \${CANVAS_SWAP_FILE}"
+    fi
+    run_root chmod 600 "\$CANVAS_SWAP_FILE"
+    run_root mkswap "\$CANVAS_SWAP_FILE" >/dev/null
+    run_root swapon "\$CANVAS_SWAP_FILE"
+    ok "Enabled swap at \${CANVAS_SWAP_FILE}"
+  fi
+
+  remove_swap_fstab_entry
+  printf '%s none swap sw 0 0 # canvas-notebook swap\n' "\$CANVAS_SWAP_FILE" | run_root tee -a /etc/fstab >/dev/null
+  set_manager_env CANVAS_SWAP_ENABLED true
+  set_manager_env CANVAS_SWAP_SIZE "\$CANVAS_SWAP_SIZE"
+  set_manager_env CANVAS_SWAP_FILE "\$CANVAS_SWAP_FILE"
+  ok "Swap setting saved to \${CONFIG_FILE}"
+}
+
+disable_canvas_swap() {
+  if swap_is_active; then
+    run_root swapoff "\$CANVAS_SWAP_FILE"
+    ok "Disabled swap at \${CANVAS_SWAP_FILE}"
+  else
+    ok "Swap already disabled at \${CANVAS_SWAP_FILE}"
+  fi
+
+  remove_swap_fstab_entry
+  if [[ -f "\$CANVAS_SWAP_FILE" ]]; then
+    run_root rm -f "\$CANVAS_SWAP_FILE"
+    ok "Removed \${CANVAS_SWAP_FILE}"
+  fi
+  set_manager_env CANVAS_SWAP_ENABLED false
+  set_manager_env CANVAS_SWAP_SIZE "\$CANVAS_SWAP_SIZE"
+  set_manager_env CANVAS_SWAP_FILE "\$CANVAS_SWAP_FILE"
+  ok "Swap setting saved to \${CONFIG_FILE}"
 }
 
 run_compose() {
@@ -861,7 +1036,7 @@ while [[ "\$#" -gt 0 ]]; do
 done
 
 case "\$cmd" in
-  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|caddy|caddy-reload|diagnose|health|config)
+  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|diagnose|health|config)
     if [[ "\$NO_BANNER" != "true" ]]; then
       banner
     fi
@@ -913,6 +1088,15 @@ case "\$cmd" in
     ;;
   env)
     edit_env
+    ;;
+  swap)
+    show_swap_status
+    ;;
+  swap-enable)
+    enable_canvas_swap
+    ;;
+  swap-disable)
+    disable_canvas_swap
     ;;
   caddy)
     show_caddy_status
@@ -1019,6 +1203,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
 
   ensure_host_install
   prepare_install_dir
+  configure_swap
   install_docker
   stop_legacy_install
   migrate_legacy_data
@@ -1110,6 +1295,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   info "  canvas-notebook status"
   info "  canvas-notebook logs"
   info "  canvas-notebook env"
+  info "  canvas-notebook swap"
   info "  canvas-notebook caddy"
   info "  canvas-notebook diagnose"
   echo
