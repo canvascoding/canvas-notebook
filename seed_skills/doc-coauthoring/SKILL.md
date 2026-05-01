@@ -1,9 +1,6 @@
 ---
 name: doc-coauthoring
-description: "Structured workflow for co-authoring documentation with an AI partner. Use when the user wants to write documentation, proposals, technical specs, decision docs, or similar structured content. Triggers: write docs, create proposal, draft spec, co-author, collaborate on document, write RFC, write design doc, write how-to guide, help me write documentation."
-metadata:
-  version: "1.0"
-  author: canvas-studios
+description: Guide users through a structured workflow for co-authoring documentation. Use when user wants to write documentation, proposals, technical specs, decision docs, or similar structured content. This workflow helps users efficiently transfer context, refine content through iteration, and verify the doc works for readers. Trigger when user mentions writing docs, creating proposals, drafting specs, or similar documentation tasks.
 ---
 
 # Doc Co-Authoring Workflow

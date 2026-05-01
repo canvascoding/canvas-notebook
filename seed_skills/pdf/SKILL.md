@@ -1,11 +1,7 @@
 ---
 name: pdf
-description: "Read, create, merge, split, and transform PDF files. Triggers: PDF, extract text from PDF, merge PDFs, split PDF, rotate pages, add watermark, fill PDF form, encrypt PDF, decrypt PDF, extract images from PDF, OCR PDF, convert PDF, create PDF, compress PDF, sign PDF. Use whenever a .pdf file is involved."
-compatibility: Requires LibreOffice (soffice) for conversions, poppler (pdftotext, pdftoppm, pdfimages), qpdf, and pytesseract for OCR
+description: Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs apart, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting PDFs, extracting images, and OCR on scanned PDFs to make them searchable. If the user mentions a .pdf file or asks to produce one, use this skill.
 license: Proprietary. LICENSE.txt has complete terms
-metadata:
-  version: "1.0"
-  author: canvas-studios
 ---
 
 # PDF Processing Guide
