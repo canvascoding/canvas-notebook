@@ -133,7 +133,7 @@ export function SkillsPanel() {
     setPreviewLoading(true);
     setPreviewError(null);
     try {
-      const res = await fetch(`/api/skills/${encodeURIComponent(filePath)}/readme`);
+      const res = await fetch(`/api/skills/file?path=${encodeURIComponent(filePath)}`);
       const data = await res.json();
       if (data.success) {
         setPreviewContent(data.content || '');
@@ -397,6 +397,10 @@ export function SkillsPanel() {
               </div>
             ) : rightView === 'preview' && selectedPath ? (
               <div className="p-4">
+                <div className="flex items-center gap-2 mb-3 text-sm font-mono text-muted-foreground">
+                  <FileText className="h-4 w-4" />
+                  {selectedPath.split('/').pop()}
+                </div>
                 {previewLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -406,7 +410,7 @@ export function SkillsPanel() {
                     {previewError}
                   </div>
                 ) : (
-                  <pre className="text-sm font-mono whitespace-pre-wrap break-words bg-muted/30 p-4 rounded-lg overflow-x-auto">
+                  <pre className="text-sm font-mono whitespace-pre-wrap break-words bg-muted/30 p-4 rounded-lg overflow-x-auto max-h-[500px] overflow-y-auto">
                     {previewContent}
                   </pre>
                 )}
