@@ -29,8 +29,10 @@ import type {
 } from '@/app/lib/pi/config';
 import {
   getProviderHelp,
-  requiresCliAuth,
   supportsBothAuthMethods,
+  getProvidersForAuthMethod,
+  getAuthMethodForProvider,
+  type AuthMethodCategory,
   type ProviderHelpInfo,
 } from '@/app/lib/pi/provider-help';
 import { ProviderEnvEditor } from './ProviderEnvEditor';
@@ -96,10 +98,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   }
 
   return (payload.data as T) ?? (payload as unknown as T);
-}
-
-function requiresOAuthAuth(providerId: string): boolean {
-  return requiresCliAuth(providerId);
 }
 
 function translateProviderHelpText(text: string, locale: string): string {
@@ -262,6 +260,7 @@ export function PiProviderSetupCard({
   const [isOllamaConfigOpen, setIsOllamaConfigOpen] = useState(false);
   const [selectedProviderStatus, setSelectedProviderStatus] = useState<ProviderStatus | null>(null);
   const [selectedProviderLoading, setSelectedProviderLoading] = useState(false);
+  const [authMethodSelection, setAuthMethodSelection] = useState<AuthMethodCategory | null>(null);
   const resolvedTitle = title ?? t('provider.cardTitle');
   const resolvedDescription = description ?? t('provider.cardDescription');
   const resolvedSaveButtonLabel = saveButtonLabel ?? t('provider.saveButton');
@@ -329,6 +328,21 @@ export function PiProviderSetupCard({
     setIsHelpOpen(false);
     setIsOllamaConfigOpen(false);
     setConfigSuccess(null);
+  }, [piConfigDraft?.activeProvider]);
+
+  useEffect(() => {
+    if (!piConfigDraft?.activeProvider) {
+      return;
+    }
+    const method = getAuthMethodForProvider(piConfigDraft.activeProvider);
+    if (method === 'both') {
+      if (!authMethodSelection) {
+        setAuthMethodSelection(piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' ? 'oauth' : 'api-key');
+      }
+    } else {
+      setAuthMethodSelection(method);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync auth method on provider change
   }, [piConfigDraft?.activeProvider]);
 
   const setPiProviderField = <K extends keyof PiProviderConfig>(
@@ -467,6 +481,47 @@ export function PiProviderSetupCard({
 
   const activeProviderConfig = piConfigDraft.providers[piConfigDraft.activeProvider];
 
+  const filteredProviders = authMethodSelection
+    ? getProvidersForAuthMethod(authMethodSelection).filter(
+        (id) => id in discovery || id in piConfigDraft.providers,
+      )
+    : Object.keys(discovery).length > 0
+      ? Object.keys(discovery).sort()
+      : Object.keys(piConfigDraft.providers);
+
+  const handleAuthMethodChange = (method: AuthMethodCategory) => {
+    const previousMethod = authMethodSelection;
+    setAuthMethodSelection(method);
+
+    const newProviders = getProvidersForAuthMethod(method);
+    const currentProvider = piConfigDraft.activeProvider;
+
+    if (method === 'api-key') {
+      setPiProviderField(currentProvider, 'authMethod', 'api-key');
+    } else if (method === 'oauth') {
+      const authMethod = getAuthMethodForProvider(currentProvider);
+      if (authMethod === 'oauth' || authMethod === 'both') {
+        setPiProviderField(currentProvider, 'authMethod', 'oauth');
+      }
+    }
+
+    if (previousMethod !== null && method !== previousMethod) {
+      if (!newProviders.includes(currentProvider)) {
+        const firstProvider = newProviders[0];
+        if (firstProvider) {
+          setActivePiProvider(firstProvider);
+        }
+      }
+    }
+  };
+
+  const effectiveAuthMethod = (() => {
+    if (!piConfigDraft?.activeProvider) return 'api-key' as const;
+    const method = getAuthMethodForProvider(piConfigDraft.activeProvider);
+    if (method === 'both') return activeProviderConfig?.authMethod === 'oauth' ? 'oauth' : 'api-key';
+    return method;
+  })();
+
   return (
     <Card className="border-primary shadow-sm">
       <CardHeader>
@@ -474,6 +529,44 @@ export function PiProviderSetupCard({
         <CardDescription>{resolvedDescription}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <label className="text-sm font-semibold">{t('provider.authMethod.title')}</label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              data-testid="auth-method-api-key"
+              className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-4 text-center transition-colors ${
+                authMethodSelection === 'api-key'
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-muted/50'
+              }`}
+              onClick={() => handleAuthMethodChange('api-key')}
+              disabled={configSaving}
+            >
+              <span className="text-2xl">🔑</span>
+              <span className="text-sm font-semibold">{t('provider.authMethod.apiKey.title')}</span>
+              <span className="text-xs text-muted-foreground">{t('provider.authMethod.apiKey.description')}</span>
+              <span className="text-xs text-muted-foreground">{t('provider.authMethod.apiKey.providers')}</span>
+            </button>
+            <button
+              type="button"
+              data-testid="auth-method-oauth"
+              className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-4 text-center transition-colors ${
+                authMethodSelection === 'oauth'
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-muted/50'
+              }`}
+              onClick={() => handleAuthMethodChange('oauth')}
+              disabled={configSaving}
+            >
+              <span className="text-2xl">🔐</span>
+              <span className="text-sm font-semibold">{t('provider.authMethod.oauth.title')}</span>
+              <span className="text-xs text-muted-foreground">{t('provider.authMethod.oauth.description')}</span>
+              <span className="text-xs text-muted-foreground">{t('provider.authMethod.oauth.providers')}</span>
+            </button>
+          </div>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2 text-sm">
             <span className="font-semibold">{t('provider.activeProvider')}</span>
@@ -481,13 +574,18 @@ export function PiProviderSetupCard({
               data-testid="provider-select"
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={piConfigDraft.activeProvider}
-              onChange={(event) => setActivePiProvider(event.target.value)}
+              onChange={(event) => {
+                const newProvider = event.target.value;
+                setActivePiProvider(newProvider);
+                if (authMethodSelection === 'oauth') {
+                  setPiProviderField(newProvider, 'authMethod', 'oauth');
+                } else {
+                  setPiProviderField(newProvider, 'authMethod', 'api-key');
+                }
+              }}
               disabled={configSaving}
             >
-              {(Object.keys(discovery).length > 0
-                ? Object.keys(discovery).sort()
-                : Object.keys(piConfigDraft.providers)
-              ).map((providerId) => (
+              {filteredProviders.map((providerId) => (
                 <option key={providerId} value={providerId}>
                   {providerId}
                 </option>
@@ -696,82 +794,34 @@ export function PiProviderSetupCard({
           </div>
         </div>
 
-        {piConfigDraft.activeProvider && supportsBothAuthMethods(piConfigDraft.activeProvider) && (
+        {piConfigDraft.activeProvider && effectiveAuthMethod === 'oauth' && (
           <div className="space-y-3 rounded border border-border bg-card p-4">
-            <h4 className="text-sm font-semibold">{t('provider.authenticationMethod')}</h4>
-            <p className="text-xs text-muted-foreground">
-              {t('provider.authenticationMethodDescription')}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant={activeProviderConfig?.authMethod === 'api-key' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setPiProviderField(piConfigDraft.activeProvider, 'authMethod', 'api-key')}
-                className="flex-1"
-              >
-                {t('provider.apiKey')}
-              </Button>
-              <Button
-                variant={activeProviderConfig?.authMethod === 'oauth' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setPiProviderField(piConfigDraft.activeProvider, 'authMethod', 'oauth')}
-                className="flex-1"
-              >
-                {t('provider.oauthCli')}
-              </Button>
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold">{t('provider.oauthAuthentication')}</h4>
+              {selectedProviderStatus?.hasOAuth ? (
+                <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                  <Check className="h-3 w-3" />
+                  {t('provider.connected')}
+                </span>
+              ) : (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                  {t('provider.notConnected')}
+                </span>
+              )}
             </div>
-
-            {activeProviderConfig?.authMethod === 'api-key' && (
-              <div className="mt-3 rounded bg-muted/50 p-3 text-xs text-muted-foreground">
-                <p className="mb-1 font-medium">{t('provider.apiKeySetupTitle')}</p>
-                <p>{t('provider.apiKeySetupDescription')}</p>
-              </div>
-            )}
-
-            {activeProviderConfig?.authMethod === 'oauth' && (
-              <div className="mt-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{t('provider.oauthStatus')}</span>
-                  {selectedProviderStatus?.hasOAuth ? (
-                    <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
-                      <Check className="h-3 w-3" />
-                      {t('provider.connected')}
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
-                      {t('provider.notConnected')}
-                    </span>
-                  )}
-                </div>
-                <PiOAuthButton onStatusChange={() => void loadProviderStatus(piConfigDraft.activeProvider)} />
-              </div>
-            )}
+            <p className="text-xs text-muted-foreground">
+              {t('provider.oauthAuthenticationDescription')}
+            </p>
+            <PiOAuthButton onStatusChange={() => void loadProviderStatus(piConfigDraft.activeProvider)} hiddenProviderIds={['google-gemini-cli', 'google-antigravity']} />
           </div>
         )}
 
-        {piConfigDraft.activeProvider &&
-          requiresOAuthAuth(piConfigDraft.activeProvider) &&
-          !supportsBothAuthMethods(piConfigDraft.activeProvider) && (
-            <div className="space-y-3 rounded border border-border bg-card p-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold">{t('provider.oauthAuthentication')}</h4>
-                {selectedProviderStatus?.hasOAuth ? (
-                  <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
-                    <Check className="h-3 w-3" />
-                    {t('provider.connected')}
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
-                    {t('provider.notConnected')}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t('provider.oauthAuthenticationDescription')}
-              </p>
-              <PiOAuthButton onStatusChange={() => void loadProviderStatus(piConfigDraft.activeProvider)} />
-            </div>
-          )}
+        {piConfigDraft.activeProvider && effectiveAuthMethod === 'api-key' && activeProviderConfig?.authMethod === 'api-key' && supportsBothAuthMethods(piConfigDraft.activeProvider) && (
+          <div className="rounded bg-muted/50 p-3 text-xs text-muted-foreground">
+            <p className="mb-1 font-medium">{t('provider.apiKeySetupTitle')}</p>
+            <p>{t('provider.apiKeySetupDescription')}</p>
+          </div>
+        )}
 
         <div className="rounded border border-border bg-muted/20 p-3">
           <p className="mb-1 text-xs font-semibold uppercase tracking-tight text-muted-foreground">{t('provider.systemInfo')}</p>

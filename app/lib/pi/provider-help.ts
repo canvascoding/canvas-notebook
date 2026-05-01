@@ -556,3 +556,51 @@ export function supportsBothAuthMethods(providerId: string): boolean {
   const help = getProviderHelp(providerId);
   return help?.supportsBothAuthMethods === true;
 }
+
+export type AuthMethodCategory = 'api-key' | 'oauth';
+
+const HIDDEN_OAUTH_PROVIDERS = new Set(['google-gemini-cli', 'google-antigravity']);
+
+export function getVisibleOAuthProviders(): string[] {
+  return Object.keys(PROVIDER_HELP).filter(
+    (id) => !HIDDEN_OAUTH_PROVIDERS.has(id) && requiresCliAuth(id),
+  );
+}
+
+export function getApiKeyProviders(): string[] {
+  return Object.keys(PROVIDER_HELP).filter((id) => {
+    const help = PROVIDER_HELP[id];
+    return (
+      help.category === 'api-key' ||
+      help.category === 'adc' ||
+      help.category === 'aws' ||
+      help.category === 'azure' ||
+      help.category === 'ollama'
+    );
+  });
+}
+
+export function getProvidersForAuthMethod(method: AuthMethodCategory): string[] {
+  if (method === 'oauth') {
+    return getVisibleOAuthProviders();
+  }
+  return getApiKeyProviders();
+}
+
+export function getAuthMethodForProvider(providerId: string): AuthMethodCategory | 'both' {
+  const help = getProviderHelp(providerId);
+  if (!help) {
+    return 'api-key';
+  }
+  if (help.supportsBothAuthMethods) {
+    return 'both';
+  }
+  if (help.category === 'oauth-cli') {
+    return 'oauth';
+  }
+  return 'api-key';
+}
+
+export function isHiddenOAuthProvider(providerId: string): boolean {
+  return HIDDEN_OAUTH_PROVIDERS.has(providerId);
+}
