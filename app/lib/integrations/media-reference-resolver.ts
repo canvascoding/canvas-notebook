@@ -282,6 +282,9 @@ async function readFilesystemReference(ref: ResolvedMediaReference, maxBytes: nu
       }
       return { buffer: await fs.readFile(candidate), absolutePath: candidate };
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
       lastError = error;
     }
   }
