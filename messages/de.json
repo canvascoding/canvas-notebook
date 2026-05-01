@@ -1036,7 +1036,8 @@
         "customModelName": "Bitte trage einen Namen für das Custom Ollama Model ein.",
         "remoteUrl": "Bitte trage eine Remote Server URL für Ollama ein.",
         "failedToLoadConfig": "Agent-Konfiguration konnte nicht geladen werden.",
-        "failedToSaveConfig": "Agent-Konfiguration konnte nicht gespeichert werden."
+        "failedToSaveConfig": "Agent-Konfiguration konnte nicht gespeichert werden.",
+        "openaiCompatibleBaseUrl": "Bitte gib eine Base-URL für den OpenAI-Compatible-Server ein."
       },
       "authMethod": {
         "title": "Authentifizierungsmethode",
@@ -1049,8 +1050,27 @@
           "title": "OAuth Login",
           "description": "Melde dich mit deinem bestehenden Konto oder Abo an.",
           "providers": "OpenAI Codex, GitHub Copilot, Anthropic"
+        },
+        "selfHosted": {
+          "title": "Self-Hosted",
+          "description": "Betreibe dein eigenes LLM lokal oder auf deiner eigenen Infrastruktur.",
+          "providers": "Ollama, OpenAI-kompatibel"
+        },
+        "cloudInfra": {
+          "title": "Cloud-Infrastruktur",
+          "description": "Nutze Cloud-Provider-Infrastruktur mit erweiterter Authentifizierung.",
+          "providers": "Google Vertex, Amazon Bedrock, Azure OpenAI"
         }
-      }
+      },
+      "openaiCompatibleConfig": "OpenAI-Compatible Konfiguration",
+      "openaiCompatibleBaseUrl": "Server Base-URL",
+      "openaiCompatibleBaseUrlPlaceholder": "http://localhost:8080/v1 oder https://mein-llm.beispiel.de/v1",
+      "openaiCompatibleBaseUrlHelp": "Trage die Base-URL deines OpenAI-kompatiblen Servers ein. Muss mit http:// oder https:// beginnen und endet üblicherweise mit /v1.",
+      "openaiCompatibleModelSource": "Modellauswahl",
+      "openaiCompatibleCustomModelOption": "Benutzerdefiniertes Modell",
+      "openaiCompatibleCustomModel": "Benutzerdefinierter Modellname",
+      "openaiCompatibleCustomModelPlaceholder": "z.B. my-model, llama3.1, gpt-4",
+      "openaiCompatibleCustomModelHelp": "Trage den Modellnamen ein, den dein Server erkennt. Dies ist die Modell-ID, die in der OpenAI-API-Anfrage verwendet wird."
     },
     "providerHelp": {
       "configurationTitle": "{icon} {title} - Konfiguration",
@@ -1067,7 +1087,9 @@
         "aws": "AWS Credentials",
         "azure": "Azure Credentials",
         "ollama": "Lokale Installation",
-        "unknown": "Unbekannt"
+        "unknown": "Unbekannt",
+        "selfHosted": "Self-Hosted",
+        "cloudInfra": "Cloud-Infrastruktur"
       }
     },
     "providerEnv": {

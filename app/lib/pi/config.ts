@@ -17,6 +17,10 @@ export interface PiProviderConfig {
   // Ollama custom model support
   ollamaModelSource?: 'predefined' | 'custom'; // Whether to use dropdown or custom input
   ollamaCustomModel?: string; // Custom model name when ollamaModelSource is 'custom'
+  // OpenAI-Compatible-specific settings
+  openaiCompatibleBaseUrl?: string; // Custom base URL for OpenAI-compatible server
+  openaiCompatibleModelSource?: 'predefined' | 'custom'; // Whether to use dropdown or custom input
+  openaiCompatibleCustomModel?: string; // Custom model name when openaiCompatibleModelSource is 'custom'
   // Auth method preference for providers supporting both API key and OAuth
   authMethod?: 'api-key' | 'oauth';
 }
@@ -121,6 +125,14 @@ export function validatePiConfig(config: unknown): string | null {
     (!activeProvider.ollamaCustomModel || !activeProvider.ollamaCustomModel.trim())
   ) {
     return 'Custom Ollama model must be a non-empty string.';
+  }
+
+  if (
+    candidate.activeProvider === 'openai-compatible' &&
+    activeProvider.openaiCompatibleModelSource === 'custom' &&
+    (!activeProvider.openaiCompatibleCustomModel || !activeProvider.openaiCompatibleCustomModel.trim())
+  ) {
+    return 'Custom OpenAI-Compatible model must be a non-empty string.';
   }
 
   if (

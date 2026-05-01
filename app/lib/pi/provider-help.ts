@@ -3,7 +3,7 @@
  * Maps providers to their configuration requirements and setup instructions.
  */
 
-export type ProviderCategory = 'api-key' | 'oauth-cli' | 'adc' | 'aws' | 'ollama' | 'azure';
+export type ProviderCategory = 'api-key' | 'oauth-cli' | 'adc' | 'aws' | 'ollama' | 'azure' | 'self-hosted' | 'cloud-infra';
 export type OllamaProviderMode = 'local' | 'cloud';
 
 export interface OllamaModeConfig {
@@ -507,6 +507,28 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       },
     ],
   },
+
+  'openai-compatible': {
+    category: 'self-hosted',
+    title: 'OpenAI-Compatible',
+    shortDescription: 'Connect to any OpenAI-compatible API server with a custom base URL',
+    setupSteps: [
+      'Enter the base URL of your OpenAI-compatible server (e.g., http://localhost:8080/v1)',
+      'Add the API key (if required) to Agent Environment settings',
+      'Select or enter a custom model name',
+      'Save and verify the provider status',
+    ],
+    envVars: [
+      { name: 'OPENAI_COMPATIBLE_BASE_URL', description: 'Your server base URL (e.g., http://localhost:8080/v1)', scope: 'agents', required: true },
+      { name: 'OPENAI_COMPATIBLE_API_KEY', description: 'Your API key (optional, leave empty if not required)', scope: 'agents', required: false },
+    ],
+    notes: [
+      'The base URL must include the API path, typically ending in /v1',
+      'Works with any server implementing the OpenAI Chat Completions API',
+      'Examples: LM Studio, LocalAI, vLLM, text-generation-webui, etc.',
+      'API key is optional — leave empty if your server does not require authentication',
+    ],
+  },
 };
 
 /**
@@ -557,7 +579,7 @@ export function supportsBothAuthMethods(providerId: string): boolean {
   return help?.supportsBothAuthMethods === true;
 }
 
-export type AuthMethodCategory = 'api-key' | 'oauth';
+export type AuthMethodCategory = 'api-key' | 'oauth' | 'self-hosted' | 'cloud-infra';
 
 const HIDDEN_OAUTH_PROVIDERS = new Set(['google-gemini-cli', 'google-antigravity']);
 
@@ -570,21 +592,36 @@ export function getVisibleOAuthProviders(): string[] {
 export function getApiKeyProviders(): string[] {
   return Object.keys(PROVIDER_HELP).filter((id) => {
     const help = PROVIDER_HELP[id];
-    return (
-      help.category === 'api-key' ||
-      help.category === 'adc' ||
-      help.category === 'aws' ||
-      help.category === 'azure' ||
-      help.category === 'ollama'
-    );
+    return help.category === 'api-key';
+  });
+}
+
+export function getSelfHostedProviders(): string[] {
+  return Object.keys(PROVIDER_HELP).filter((id) => {
+    const help = PROVIDER_HELP[id];
+    return help.category === 'ollama' || help.category === 'self-hosted';
+  });
+}
+
+export function getCloudInfraProviders(): string[] {
+  return Object.keys(PROVIDER_HELP).filter((id) => {
+    const help = PROVIDER_HELP[id];
+    return help.category === 'adc' || help.category === 'aws' || help.category === 'azure';
   });
 }
 
 export function getProvidersForAuthMethod(method: AuthMethodCategory): string[] {
-  if (method === 'oauth') {
-    return getVisibleOAuthProviders();
+  switch (method) {
+    case 'oauth':
+      return getVisibleOAuthProviders();
+    case 'self-hosted':
+      return getSelfHostedProviders();
+    case 'cloud-infra':
+      return getCloudInfraProviders();
+    case 'api-key':
+    default:
+      return getApiKeyProviders();
   }
-  return getApiKeyProviders();
 }
 
 export function getAuthMethodForProvider(providerId: string): AuthMethodCategory | 'both' {
@@ -595,10 +632,19 @@ export function getAuthMethodForProvider(providerId: string): AuthMethodCategory
   if (help.supportsBothAuthMethods) {
     return 'both';
   }
-  if (help.category === 'oauth-cli') {
-    return 'oauth';
+  switch (help.category) {
+    case 'oauth-cli':
+      return 'oauth';
+    case 'ollama':
+    case 'self-hosted':
+      return 'self-hosted';
+    case 'adc':
+    case 'aws':
+    case 'azure':
+      return 'cloud-infra';
+    default:
+      return 'api-key';
   }
-  return 'api-key';
 }
 
 export function isHiddenOAuthProvider(providerId: string): boolean {

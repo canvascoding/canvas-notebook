@@ -258,6 +258,7 @@ export function PiProviderSetupCard({
   const [configSuccess, setConfigSuccess] = useState<string | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isOllamaConfigOpen, setIsOllamaConfigOpen] = useState(false);
+  const [isOpenAiCompatibleConfigOpen, setIsOpenAiCompatibleConfigOpen] = useState(false);
   const [selectedProviderStatus, setSelectedProviderStatus] = useState<ProviderStatus | null>(null);
   const [selectedProviderLoading, setSelectedProviderLoading] = useState(false);
   const [authMethodSelection, setAuthMethodSelection] = useState<AuthMethodCategory | null>(null);
@@ -327,6 +328,7 @@ export function PiProviderSetupCard({
   useEffect(() => {
     setIsHelpOpen(false);
     setIsOllamaConfigOpen(false);
+    setIsOpenAiCompatibleConfigOpen(false);
     setConfigSuccess(null);
   }, [piConfigDraft?.activeProvider]);
 
@@ -413,6 +415,20 @@ export function PiProviderSetupCard({
 
       if ((activeProviderConfig.ollamaMode || 'local') === 'cloud' && !activeProviderConfig.ollamaHost?.trim()) {
         setConfigError(t('provider.errors.remoteUrl'));
+        setConfigSuccess(null);
+        return;
+      }
+    }
+
+    if (piConfigDraft.activeProvider === 'openai-compatible') {
+      if (!piConfigDraft.providers['openai-compatible']?.openaiCompatibleBaseUrl?.trim()) {
+        setConfigError(t('provider.errors.openaiCompatibleBaseUrl'));
+        setConfigSuccess(null);
+        return;
+      }
+
+      if ((piConfigDraft.providers['openai-compatible']?.openaiCompatibleModelSource || 'custom') === 'custom' && !piConfigDraft.providers['openai-compatible']?.openaiCompatibleCustomModel?.trim()) {
+        setConfigError(t('provider.errors.customModelName'));
         setConfigSuccess(null);
         return;
       }
@@ -564,6 +580,38 @@ export function PiProviderSetupCard({
               <span className="text-xs text-muted-foreground">{t('provider.authMethod.oauth.description')}</span>
               <span className="text-xs text-muted-foreground">{t('provider.authMethod.oauth.providers')}</span>
             </button>
+            <button
+              type="button"
+              data-testid="auth-method-self-hosted"
+              className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-4 text-center transition-colors ${
+                authMethodSelection === 'self-hosted'
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-muted/50'
+              }`}
+              onClick={() => handleAuthMethodChange('self-hosted')}
+              disabled={configSaving}
+            >
+              <span className="text-2xl">🏠</span>
+              <span className="text-sm font-semibold">{t('provider.authMethod.selfHosted.title')}</span>
+              <span className="text-xs text-muted-foreground">{t('provider.authMethod.selfHosted.description')}</span>
+              <span className="text-xs text-muted-foreground">{t('provider.authMethod.selfHosted.providers')}</span>
+            </button>
+            <button
+              type="button"
+              data-testid="auth-method-cloud-infra"
+              className={`flex flex-col items-center gap-1.5 rounded-lg border-2 p-4 text-center transition-colors ${
+                authMethodSelection === 'cloud-infra'
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-muted/50'
+              }`}
+              onClick={() => handleAuthMethodChange('cloud-infra')}
+              disabled={configSaving}
+            >
+              <span className="text-2xl">☁️</span>
+              <span className="text-sm font-semibold">{t('provider.authMethod.cloudInfra.title')}</span>
+              <span className="text-xs text-muted-foreground">{t('provider.authMethod.cloudInfra.description')}</span>
+              <span className="text-xs text-muted-foreground">{t('provider.authMethod.cloudInfra.providers')}</span>
+            </button>
           </div>
         </div>
 
@@ -579,8 +627,6 @@ export function PiProviderSetupCard({
                 setActivePiProvider(newProvider);
                 if (authMethodSelection === 'oauth') {
                   setPiProviderField(newProvider, 'authMethod', 'oauth');
-                } else {
-                  setPiProviderField(newProvider, 'authMethod', 'api-key');
                 }
               }}
               disabled={configSaving}
@@ -650,6 +696,24 @@ export function PiProviderSetupCard({
                       </p>
                     </div>
                   )}
+                </>
+              ) : piConfigDraft.activeProvider === 'openai-compatible' ? (
+                <>
+                  <Input
+                    data-testid="model-select"
+                    placeholder={t('provider.openaiCompatibleCustomModelPlaceholder')}
+                    value={piConfigDraft.providers['openai-compatible']?.openaiCompatibleCustomModel || activeProviderConfig.model || ''}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setPiProviderField('openai-compatible', 'openaiCompatibleCustomModel', value);
+                      setPiProviderField('openai-compatible', 'openaiCompatibleModelSource', 'custom');
+                      setPiProviderField('openai-compatible', 'model', value);
+                    }}
+                    disabled={configSaving}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('provider.openaiCompatibleCustomModelHelp')}
+                  </p>
                 </>
               ) : (
                 <>
@@ -751,6 +815,77 @@ export function PiProviderSetupCard({
                     {t('provider.openTerminal')}
                   </Button>
                 </div>
+              </div>
+            </CollapsibleContent>
+           </Collapsible>
+         )}
+
+        {piConfigDraft.activeProvider === 'openai-compatible' && (
+          <Collapsible open={isOpenAiCompatibleConfigOpen} onOpenChange={setIsOpenAiCompatibleConfigOpen}>
+            <CollapsibleTrigger
+              data-testid="openai-compatible-config-toggle"
+              className="flex w-full items-center justify-between rounded border border-border bg-muted/30 p-3 text-sm transition-colors hover:bg-muted/50"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{t('provider.openaiCompatibleConfig')}</span>
+              </div>
+              {isOpenAiCompatibleConfigOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-4 rounded-b border-x border-b border-border bg-muted/20 p-4 text-sm">
+                <div className="space-y-2">
+                  <span className="font-semibold">{t('provider.openaiCompatibleBaseUrl')}</span>
+                  <Input
+                    data-testid="openai-compatible-base-url"
+                    placeholder={t('provider.openaiCompatibleBaseUrlPlaceholder')}
+                    value={piConfigDraft.providers['openai-compatible']?.openaiCompatibleBaseUrl || ''}
+                    onChange={(event) => setPiProviderField('openai-compatible', 'openaiCompatibleBaseUrl', event.target.value)}
+                    disabled={configSaving}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('provider.openaiCompatibleBaseUrlHelp')}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="font-semibold">{t('provider.openaiCompatibleModelSource')}</span>
+                  <select
+                    data-testid="openai-compatible-model-source"
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={piConfigDraft.providers['openai-compatible']?.openaiCompatibleModelSource || 'custom'}
+                    onChange={(event) => {
+                      const value = event.target.value as 'predefined' | 'custom';
+                      setPiProviderField('openai-compatible', 'openaiCompatibleModelSource', value);
+                      if (value === 'custom') {
+                        const currentModel = piConfigDraft.providers['openai-compatible']?.model || '';
+                        setPiProviderField('openai-compatible', 'openaiCompatibleCustomModel', currentModel);
+                      }
+                    }}
+                    disabled={configSaving}
+                  >
+                    <option value="custom">{t('provider.openaiCompatibleCustomModelOption')}</option>
+                  </select>
+                </div>
+
+                {piConfigDraft.providers['openai-compatible']?.openaiCompatibleModelSource !== 'predefined' && (
+                  <div className="space-y-2">
+                    <span className="font-semibold">{t('provider.openaiCompatibleCustomModel')}</span>
+                    <Input
+                      data-testid="openai-compatible-custom-model-input"
+                      placeholder={t('provider.openaiCompatibleCustomModelPlaceholder')}
+                      value={piConfigDraft.providers['openai-compatible']?.openaiCompatibleCustomModel || ''}
+                      onChange={(event) => {
+                        const customModel = event.target.value;
+                        setPiProviderField('openai-compatible', 'openaiCompatibleCustomModel', customModel);
+                        setPiProviderField('openai-compatible', 'model', customModel);
+                      }}
+                      disabled={configSaving}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t('provider.openaiCompatibleCustomModelHelp')}
+                    </p>
+                  </div>
+                )}
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -900,6 +1035,10 @@ function ProviderHelpSection({
         return '🔷';
       case 'ollama':
         return '🖥️';
+      case 'self-hosted':
+        return '🏠';
+      case 'cloud-infra':
+        return '☁️';
       default:
         return '❓';
     }
@@ -919,6 +1058,10 @@ function ProviderHelpSection({
         return t('providerHelp.categoryLabels.azure');
       case 'ollama':
         return t('providerHelp.categoryLabels.ollama');
+      case 'self-hosted':
+        return t('providerHelp.categoryLabels.selfHosted');
+      case 'cloud-infra':
+        return t('providerHelp.categoryLabels.cloudInfra');
       default:
         return t('providerHelp.categoryLabels.unknown');
     }

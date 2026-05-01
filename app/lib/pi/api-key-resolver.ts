@@ -72,6 +72,8 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
       return allEntries.get('MISTRAL_API_KEY');
     case 'ollama':
       return allEntries.get('OLLAMA_API_KEY') || await ensureGeneratedScopedEnvEntry('agents', 'OLLAMA_API_KEY');
+    case 'openai-compatible':
+      return allEntries.get('OPENAI_COMPATIBLE_API_KEY') || undefined;
     default:
       return undefined;
   }
