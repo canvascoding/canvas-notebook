@@ -114,7 +114,7 @@ Claude reads only the relevant reference file.
 
 #### Secrets and Environment Variables
 
-- If a skill needs API keys or other environment variables, tell the user to store them in `/data/secrets/Canvas-Integrations.env` via Settings -> Integrations.
+- If a skill needs API keys or other environment variables, tell the user to store them in `/data/secrets/Canvas-Integrations.env` via Settings → Integrations.
 - New skills must read integration secrets from `/data/secrets/Canvas-Integrations.env`.
 - Do not create per-skill secret files inside `/data/skills`, `/data/workspace`, or other ad-hoc locations.
 - Do not hand-write wrapper scripts in `/data/skills/bin`; define commands in `manifest.json` and let the runtime regenerate wrappers.
