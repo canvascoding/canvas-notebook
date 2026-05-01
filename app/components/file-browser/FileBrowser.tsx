@@ -191,8 +191,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   }, [isFullscreen, onFileSelect]);
 
   const handleRefresh = useCallback(() => {
-    void refreshDirectory(currentDirectory, true);
-  }, [currentDirectory, refreshDirectory]);
+    void refreshRootTree(true);
+  }, [refreshRootTree]);
 
   const toolbarHandlers: FileToolbarHandlers = {
     onToggleMultiSelect: toggleMultiSelectMode,
