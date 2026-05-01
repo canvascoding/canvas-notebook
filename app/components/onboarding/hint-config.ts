@@ -31,33 +31,6 @@ export const ONBOARDING_PAGES: Record<string, PageDefinition> = {
       { hintKey: 'notebook.chat', page: 'notebook', targetSelector: '#onboarding-notebook-chat' },
     ],
   },
-  imageGen: {
-    page: 'imageGen',
-    version: 1,
-    hints: [
-      { hintKey: 'imageGen.config', page: 'imageGen', targetSelector: '#onboarding-imageGen-config' },
-      { hintKey: 'imageGen.references', page: 'imageGen', targetSelector: '#onboarding-imageGen-references' },
-      { hintKey: 'imageGen.results', page: 'imageGen', targetSelector: '#onboarding-imageGen-results' },
-    ],
-  },
-  veo: {
-    page: 'veo',
-    version: 1,
-    hints: [
-      { hintKey: 'veo.mode', page: 'veo', targetSelector: '#onboarding-veo-mode' },
-      { hintKey: 'veo.config', page: 'veo', targetSelector: '#onboarding-veo-config' },
-      { hintKey: 'veo.results', page: 'veo', targetSelector: '#onboarding-veo-results' },
-    ],
-  },
-  localizer: {
-    page: 'localizer',
-    version: 1,
-    hints: [
-      { hintKey: 'localizer.reference', page: 'localizer', targetSelector: '#onboarding-localizer-reference' },
-      { hintKey: 'localizer.markets', page: 'localizer', targetSelector: '#onboarding-localizer-markets' },
-      { hintKey: 'localizer.results', page: 'localizer', targetSelector: '#onboarding-localizer-results' },
-    ],
-  },
   settings: {
     page: 'settings',
     version: 1,

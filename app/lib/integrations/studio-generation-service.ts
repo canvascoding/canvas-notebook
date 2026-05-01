@@ -1,7 +1,6 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { db } from '@/app/lib/db';
 import {
@@ -114,24 +113,12 @@ const MIME_EXTENSION: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-const EXTENSION_MIME: Record<string, string> = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-};
-
 function sanitizePrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT_LENGTH);
 }
 
 function extensionFromMime(mimeType: string): string {
   return MIME_EXTENSION[mimeType] || 'png';
-}
-
-function mimeFromPath(filePath: string) {
-  return EXTENSION_MIME[path.posix.extname(filePath).toLowerCase()] || 'image/png';
 }
 
 async function loadProductImages(userId: string, productIds: string[]): Promise<LoadedReferenceImage[]> {

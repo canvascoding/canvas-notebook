@@ -148,48 +148,6 @@
           "description": "Chat with the agent, reference files with @, or start with a prompt suggestion."
         }
       },
-      "imageGen": {
-        "config": {
-          "title": "Configuration",
-          "description": "Choose provider and model, set aspect ratio and count — then prompt."
-        },
-        "references": {
-          "title": "Reference images",
-          "description": "Upload reference images to visually guide the output."
-        },
-        "results": {
-          "title": "Results",
-          "description": "Generated images appear here. Click for full view or download."
-        }
-      },
-      "veo": {
-        "mode": {
-          "title": "Video mode",
-          "description": "Choose the mode: Text-to-Video, Frames-to-Video, References-to-Video, or Extend Video."
-        },
-        "config": {
-          "title": "Settings",
-          "description": "Set aspect ratio and resolution before generating."
-        },
-        "results": {
-          "title": "Results",
-          "description": "Your video appears here. Saved outputs are also in this section."
-        }
-      },
-      "localizer": {
-        "reference": {
-          "title": "Reference ad",
-          "description": "Upload the ad image you want to localize."
-        },
-        "markets": {
-          "title": "Target markets",
-          "description": "Add target markets (e.g. US, FR, ES). A localized variant is created per market."
-        },
-        "results": {
-          "title": "Results",
-          "description": "Localized ads appear here, one per target market."
-        }
-      },
       "studio": {
         "models": {
           "title": "Model Library",
@@ -757,18 +715,6 @@
         "title": "Usage Analytics",
         "description": "Analyze token and cost usage by time range, model, session, and user."
       },
-      "imageGeneration": {
-        "title": "Image Generation",
-        "description": "Generate campaign images and visuals from a prompt."
-      },
-      "veo": {
-        "title": "Video Studio",
-        "description": "Generate short marketing and product videos."
-      },
-      "nanoBanana": {
-        "title": "Nano Banana Localizer",
-        "description": "Localize ads for every target market."
-      },
       "automations": {
         "title": "Automations",
         "description": "Plan recurring agent jobs for the workspace."
@@ -1256,9 +1202,9 @@
       "description": "Keep it non-technical. The agent will execute the task in the workspace later.",
       "fields": {
         "name": "Name",
-         "status": "Status",
-         "prompt": "What should be done?",
-         "timeZone": "Time zone",
+        "status": "Status",
+        "prompt": "What should be done?",
+        "timeZone": "Time zone",
         "workspaceContext": "Relevant files or folders"
       },
       "placeholders": {
@@ -1375,9 +1321,9 @@
       "thu": "Thu",
       "fri": "Fri",
       "sat": "Sat",
-       "sun": "Sun"
-     },
-     "directoryPicker": {
+      "sun": "Sun"
+    },
+    "directoryPicker": {
       "title": "Choose folder in workspace",
       "description": "Choose an existing base folder in the workspace inspector. The tree starts collapsed by default.",
       "searchPlaceholder": "Search folders",
@@ -1411,334 +1357,6 @@
     },
     "confirmDelete": "Delete this automation?",
     "noneYet": "None yet."
-  },
-  "imageGeneration": {
-    "title": "Image Generation",
-    "cardTitle": "AI Studio Image Generator",
-    "cardDescription": "Generate up to {count} image variations with a prompt and optional reference images. Output is saved under",
-    "providerField": "Provider",
-    "providerOptions": {
-      "gemini": {
-        "label": "Google Gemini"
-      },
-      "openai": {
-        "label": "OpenAI GPT Image"
-      }
-    },
-    "fields": {
-      "model": "Model",
-      "aspectRatio": "Aspect Ratio",
-      "imageCount": "Number of Variations",
-      "referenceImages": "Reference Images",
-      "prompt": "Prompt",
-      "quality": "Quality",
-      "outputFormat": "Output Format",
-      "background": "Background"
-    },
-    "qualityOptions": {
-      "auto": {
-        "label": "Auto",
-        "description": "Model selects optimal quality"
-      },
-      "low": {
-        "label": "Low",
-        "description": "Fastest, lowest cost"
-      },
-      "medium": {
-        "label": "Medium",
-        "description": "Balanced quality and cost"
-      },
-      "high": {
-        "label": "High",
-        "description": "Best quality, higher cost"
-      }
-    },
-    "outputFormatOptions": {
-      "png": {
-        "label": "PNG"
-      },
-      "jpeg": {
-        "label": "JPEG"
-      },
-      "webp": {
-        "label": "WebP"
-      }
-    },
-    "backgroundOptions": {
-      "auto": {
-        "label": "Auto"
-      },
-      "opaque": {
-        "label": "Opaque"
-      },
-      "transparent": {
-        "label": "Transparent"
-      }
-    },
-    "promptPlaceholder": "Describe the image you want to generate...",
-    "promptIdeas": "Prompt Ideas",
-    "referenceSection": {
-      "title": "Reference Images",
-      "empty": "No reference images selected yet.",
-      "removeReference": "Remove reference"
-    },
-    "actions": {
-      "selectReferences": "Select references",
-      "generating": "Generating...",
-      "generateWithCount": "Generate ({count})",
-      "refresh": "Refresh",
-      "download": "Download"
-    },
-    "currentResults": {
-      "title": "Current Results",
-      "description": "Results from the latest generation run.",
-      "empty": "No generation in this session yet.",
-      "variation": "Variation {index}",
-      "noImage": "No image returned."
-    },
-    "savedOutputs": {
-      "title": "generations",
-      "description": "Most recently saved images from the workspace.",
-      "empty": "No images found in the output folder yet."
-    },
-    "errors": {
-      "loadOutputs": "Failed to load saved images.",
-      "generate": "Image generation failed.",
-      "partialFailure": "{count, plural, one {# variation could not be generated.} other {# variations could not be generated.}}"
-    },
-    "modelOptions": {
-      "bestQuality": {
-        "label": "🎨 Best Quality & Features",
-        "shortLabel": "Gemini 3.1 Flash Image",
-        "description": "Latest model with the highest quality and more capabilities. Supports up to 14 reference images and advanced features like grounding. Best for professional results."
-      },
-      "fastAffordable": {
-        "label": "⚡ Fast & Affordable",
-        "shortLabel": "Gemini 2.5 Flash Image",
-        "description": "Faster generation at lower cost. Supports up to 3 reference images. Great for quick drafts, simple visuals, and faster iteration."
-      },
-      "gptImage2": {
-        "label": "🎨 Best Quality",
-        "shortLabel": "GPT Image 2",
-        "description": "Latest state-of-the-art model with superior instruction following, text rendering and editing."
-      },
-      "gptImage15": {
-        "label": "🎨 Best Quality",
-        "shortLabel": "GPT Image 1.5",
-        "description": "State of the art model with superior instruction following, text rendering and editing."
-      },
-      "gptImage1": {
-        "label": "✨ High Quality",
-        "shortLabel": "GPT Image 1",
-        "description": "High quality generation with detailed editing capabilities."
-      },
-      "gptImage1Mini": {
-        "label": "⚡ Fast & Affordable",
-        "shortLabel": "GPT Image 1 Mini",
-        "description": "Cost-effective option for fast iterations where top quality isn't critical."
-      }
-    },
-    "notices": {
-      "openIntegrations": "Open Integrations",
-      "noProvider": {
-        "title": "No image provider is configured yet",
-        "description": "Add at least one API key in the Integrations tab so image generation can be used here. As soon as a provider is connected, the matching models and options will appear automatically."
-      },
-      "geminiOnly": {
-        "title": "Google Gemini is ready",
-        "description": "You can already generate images with Gemini. If you also want to generate with OpenAI, add an OPENAI_API_KEY in the Integrations tab."
-      },
-      "openaiOnly": {
-        "title": "OpenAI is ready",
-        "description": "You can already generate images with OpenAI. If you also want to use Gemini, add a GEMINI_API_KEY in the Integrations tab."
-      }
-    },
-    "samplePrompts": {
-      "skincareProductShot": {
-        "label": "Skincare Product Shot",
-        "prompt": "Premium product shot of a minimalist skincare bottle on a marble pedestal, soft studio lighting, clean luxury branding"
-      },
-      "travelCampaign": {
-        "label": "Travel Campaign",
-        "prompt": "Instagram ad creative for a summer travel campaign, bold typography, vibrant tropical colors, modern marketing style"
-      },
-      "techHeroBanner": {
-        "label": "Tech Hero Banner",
-        "prompt": "Hero banner scene for a SaaS landing page, abstract 3D shapes, professional corporate palette, high-end tech aesthetic"
-      },
-      "foodCampaign": {
-        "label": "Food Campaign",
-        "prompt": "Food campaign visual with dramatic lighting, gourmet burger and fries, high-contrast commercial photography look"
-      },
-      "fashionEditorial": {
-        "label": "Fashion Editorial",
-        "prompt": "Fashion e-commerce editorial: streetwear model in an urban setting, cinematic lighting, high-detail fabric textures"
-      },
-      "beforeAfter": {
-        "label": "Before & After",
-        "prompt": "Before-and-after style concept image for a home cleaning brand, split composition, bright and trustworthy tone"
-      }
-    }
-  },
-  "veo": {
-    "title": "VEO Studio",
-    "cardTitle": "VEO Studio",
-    "cardDescription": "Workspace-based video generation with local references and output saved to",
-    "fields": {
-      "mode": "Mode",
-      "model": "Model",
-      "aspectRatio": "Aspect Ratio",
-      "resolution": "Resolution",
-      "duration": "Duration",
-      "personGeneration": "Person Generation",
-      "prompt": "Prompt"
-    },
-    "promptPlaceholder": "Describe the video you want to generate...",
-    "sections": {
-      "frames": {
-        "title": "Frames",
-        "startFrame": "Start Frame",
-        "endFrame": "End Frame",
-        "loopVideo": "Loop video"
-      },
-      "references": {
-        "title": "Reference Images",
-        "select": "Select references",
-        "empty": "No references selected yet."
-      },
-      "inputVideo": {
-        "title": "Input Video",
-        "select": "Select input video",
-        "empty": "No input video selected yet."
-      }
-    },
-    "actions": {
-      "generate": "Generate",
-      "generating": "Generating...",
-      "refresh": "Refresh"
-    },
-    "currentResult": {
-      "title": "Current Result",
-      "description": "Latest generation and saved workspace path.",
-      "videoLabel": "Video:",
-      "metadataLabel": "Metadata:",
-      "empty": "No generation in this session yet."
-    },
-    "savedOutputs": {
-      "title": "video-generation",
-      "description": "Most recently saved videos from the workspace.",
-      "empty": "No videos found in the output folder yet."
-    },
-    "modes": {
-      "textToVideo": "Text to Video",
-      "framesToVideo": "Frames to Video",
-      "referencesToVideo": "References to Video",
-      "extendVideo": "Extend Video"
-    },
-    "models": {
-      "highQuality": "Veo 3.1 — Best Quality",
-      "fast": "Veo 3.1 Fast — Fast & Affordable",
-      "lite": "Veo 3.1 Lite — Budget",
-      "veo3": "Veo 3 — Stable",
-      "veo3Fast": "Veo 3 Fast — Stable",
-      "veo2": "Veo 2 — Legacy (No Audio)"
-    },
-    "personGeneration": {
-      "allow_all": "Allow All",
-      "allow_adult": "Allow Adult Only",
-      "dont_allow": "Don't Allow"
-    },
-    "hints": {
-      "durationLocked": "1080p / 4k requires 8s duration",
-      "noAudio": "This model does not generate audio"
-    },
-    "errors": {
-      "loadOutputs": "Failed to load saved videos.",
-      "generate": "Video generation failed."
-    }
-  },
-  "nanoBanana": {
-    "title": "Nano Banana Localizer",
-    "cardTitle": "Nano Banana Ad Localizer",
-    "cardDescription": "Reference an existing ad, localize the text for target markets, and save the results under",
-    "fields": {
-      "model": "Model",
-      "aspectRatio": "Aspect Ratio",
-      "referenceAd": "Reference Ad",
-      "targetMarkets": "Target Markets",
-      "customInstructions": "Additional Instructions (Optional)"
-    },
-    "selectedReference": "Selected Reference Image",
-    "referenceEmpty": "No reference image selected yet.",
-    "targetMarketsPlaceholder": "Add market/country (for example {example})",
-    "targetMarketsEmpty": "No target markets selected yet.",
-    "customInstructionsPlaceholder": "Optional: tone of voice, terminology, or brand guidelines...",
-    "actions": {
-      "selectReference": "Select reference image",
-      "addMarket": "Add",
-      "localize": "Localize",
-      "localizing": "Localizing...",
-      "refresh": "Refresh",
-      "download": "Download"
-    },
-    "currentResults": {
-      "title": "Current Results",
-      "description": "Results from the latest run for each target market.",
-      "empty": "No localization in this session yet.",
-      "noImage": "No image returned."
-    },
-    "savedOutputs": {
-      "title": "localizations",
-      "description": "Most recently saved images from the workspace.",
-      "empty": "No localized ads found in the output folder yet."
-    },
-    "errors": {
-      "loadOutputs": "Failed to load saved localizations.",
-      "localize": "Localization failed.",
-      "partialFailure": "{count, plural, one {# market could not be localized.} other {# markets could not be localized.}}"
-    },
-    "modelOptions": {
-      "bestQuality": {
-        "label": "🎨 Best Quality & Features",
-        "shortLabel": "Gemini 3.1 Flash Image",
-        "description": "Latest model with the highest quality and more capabilities. Supports up to 14 reference images and advanced features like grounding. Best for professional results."
-      },
-      "fastAffordable": {
-        "label": "⚡ Fast & Affordable",
-        "shortLabel": "Gemini 2.5 Flash Image",
-        "description": "Faster generation at lower cost. Supports up to 3 reference images. Great for quick drafts, simple visuals, and faster iteration."
-      }
-    },
-    "markets": {
-      "unitedStates": "United States",
-      "unitedKingdom": "United Kingdom",
-      "germany": "Germany",
-      "france": "France",
-      "spain": "Spain",
-      "italy": "Italy",
-      "portugal": "Portugal",
-      "netherlands": "Netherlands",
-      "belgium": "Belgium",
-      "poland": "Poland",
-      "sweden": "Sweden",
-      "norway": "Norway",
-      "denmark": "Denmark",
-      "czechRepublic": "Czech Republic",
-      "turkey": "Turkey",
-      "unitedArabEmirates": "United Arab Emirates",
-      "saudiArabia": "Saudi Arabia",
-      "india": "India",
-      "japan": "Japan",
-      "southKorea": "South Korea",
-      "thailand": "Thailand",
-      "vietnam": "Vietnam",
-      "indonesia": "Indonesia",
-      "mexico": "Mexico",
-      "brazil": "Brazil",
-      "argentina": "Argentina",
-      "canada": "Canada",
-      "australia": "Australia"
-    }
   },
   "studio": {
     "title": "Studio",
@@ -1924,12 +1542,12 @@
     },
     "sections": {
       "frames": {
-       "title": "Video Frames",
-       "startFrame": "Start Frame",
-       "endFrame": "End Frame",
-       "loopVideo": "Loop video"
-     }
-   }
+        "title": "Video Frames",
+        "startFrame": "Start Frame",
+        "endFrame": "End Frame",
+        "loopVideo": "Loop video"
+      }
+    }
   },
   "usage": {
     "title": "Usage",

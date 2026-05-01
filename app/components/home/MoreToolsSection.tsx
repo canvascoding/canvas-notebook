@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { ChevronDown, Terminal, Settings, MessageSquare, FolderOpen, ImageIcon, Clapperboard, Globe } from 'lucide-react';
+import { ChevronDown, Terminal, Settings, MessageSquare, FolderOpen } from 'lucide-react';
 
 interface MoreToolsLink {
   labelKey: string;
@@ -12,11 +12,8 @@ interface MoreToolsLink {
 }
 
 const MORE_TOOLS_LINKS: MoreToolsLink[] = [
-  { labelKey: 'nanoBanana', href: '/nano-banana-localizer', icon: Globe },
   { labelKey: 'chat', href: '/chat', icon: MessageSquare },
   { labelKey: 'files', href: '/files', icon: FolderOpen },
-  { labelKey: 'imageGeneration', href: '/image-generation', icon: ImageIcon },
-  { labelKey: 'veo', href: '/veo', icon: Clapperboard },
   { labelKey: 'terminal', href: '/terminal', icon: Terminal },
   { labelKey: 'settings', href: '/settings', icon: Settings },
 ];
