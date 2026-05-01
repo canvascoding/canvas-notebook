@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
 // Use container data root (/data) or fallback to relative path for local dev
-const DATA_ROOT = resolveCanvasDataRoot(process.cwd());
+const DATA_ROOT = resolveCanvasDataRoot();
 const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(DATA_ROOT, 'canvas-agent', 'auth.json');
 const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
 
@@ -89,12 +89,12 @@ export async function POST(request: NextRequest) {
     const scriptContent = generateOAuthScript(provider, flowId, stateFile, tempAuthPath);
     await writeFile(tempScriptPath, scriptContent);
 
-    // Spawn the OAuth process in the temp script directory (where node_modules symlink exists)
-    // Use a dynamic array so Turbopack doesn't try to resolve the literal strings as modules
-    const args = ['--experimental-vm-modules', tempScriptPath];
-    const child = spawn('node', args, {
+    // Spawn the OAuth process in the temp script directory (where node_modules symlink exists).
+    // Put the VM flag in NODE_OPTIONS so Turbopack does not trace it as a script path.
+    const child = spawn(process.execPath, [tempScriptPath], {
       env: { 
         ...process.env,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--experimental-vm-modules'].filter(Boolean).join(' '),
         // No NODE_PATH needed - ES modules resolve via node_modules symlink in cwd
       },
       cwd: tempScriptDir,
