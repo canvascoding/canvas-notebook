@@ -305,6 +305,7 @@
     "move": "Move",
     "download": "Download",
     "share": "Share",
+    "openInStudio": "Open as reference in Studio",
     "protectedFolderRename": "This app output folder cannot be renamed.",
     "protectedFolderMove": "This app output folder cannot be moved.",
     "renameTitle": "Rename \"{name}\"",
@@ -1088,7 +1089,8 @@
         "unknown": "Unknown",
         "selfHosted": "Self-Hosted",
         "cloudInfra": "Cloud Infrastructure"
-      }
+      },
+      "notConfigured": "Not configured"
     },
     "providerEnv": {
       "placeholderOllama": "Enter any value or leave empty...",

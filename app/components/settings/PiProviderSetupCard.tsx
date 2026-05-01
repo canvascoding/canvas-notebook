@@ -126,7 +126,6 @@ function translateProviderHelpText(text: string, locale: string): string {
     'Moonshot AI Kimi models': 'Moonshot-AI-Kimi-Modelle',
     'OpenAI Codex via PI OAuth (requires ChatGPT Plus/Pro)': 'OpenAI Codex über PI OAuth (benötigt ChatGPT Plus/Pro)',
     'Login with your OpenAI account (ChatGPT Plus/Pro required)': 'Melde dich mit deinem OpenAI-Konto an (ChatGPT Plus/Pro erforderlich)',
-    'GitHub Copilot via PI OAuth': 'GitHub Copilot über PI OAuth',
     'Google Cloud Code Assist via PI OAuth': 'Google Cloud Code Assist über PI OAuth',
     'Free tier Gemini/Claude via Google Cloud': 'Kostenlose Gemini/Claude-Stufe über Google Cloud',
     'Google Vertex AI with Application Default Credentials': 'Google Vertex AI mit Application Default Credentials',
@@ -141,13 +140,11 @@ function translateProviderHelpText(text: string, locale: string): string {
     'Open the authorization URL in your browser': 'Oeffne die Autorisierungs-URL in deinem Browser',
     'Copy the authorization code and paste it in the dialog': 'Kopiere den Autorisierungscode und fuege ihn in den Dialog ein',
     'Click "Complete Connection" to finish': 'Klicke auf "Verbindung abschliessen", um den Vorgang zu beenden',
-    'Authorize the application on GitHub': 'Autorisiere die Anwendung bei GitHub',
     'Allow Google Cloud Code Assist access': 'Erlaube den Zugriff für Google Cloud Code Assist',
     'OAuth authentication is handled securely via PI': 'Die OAuth-Authentifizierung wird sicher über PI abgewickelt',
     'Credentials are stored encrypted in /data/canvas-agent/': 'Zugangsdaten werden verschlüsselt in /data/canvas-agent/ gespeichert',
     'Token refresh is automatic': 'Die Token-Aktualisierung erfolgt automatisch',
     'Requires active ChatGPT Plus or Pro subscription': 'Benötigt ein aktives ChatGPT-Plus- oder Pro-Abo',
-    'Requires GitHub Copilot subscription': 'Benötigt ein GitHub-Copilot-Abo',
     'Requires Google Cloud project': 'Benötigt ein Google-Cloud-Projekt',
     'Free tier available through Google Cloud': 'Kostenlose Stufe über Google Cloud verfügbar',
     'OAuth authentication required': 'OAuth-Authentifizierung erforderlich',
@@ -251,7 +248,7 @@ export function PiProviderSetupCard({
   const t = useTranslations('settings');
   const [piConfigDraft, setPiConfigDraft] = useState<PiRuntimeConfig | null>(null);
   const [discovery, setDiscovery] = useState<DiscoveryMetadata>({});
-  const [readiness, setReadiness] = useState<AgentConfigReadiness | null>(null);
+  const [_readiness, setReadiness] = useState<AgentConfigReadiness | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -947,7 +944,7 @@ export function PiProviderSetupCard({
             <p className="text-xs text-muted-foreground">
               {t('provider.oauthAuthenticationDescription')}
             </p>
-            <PiOAuthButton onStatusChange={() => void loadProviderStatus(piConfigDraft.activeProvider)} hiddenProviderIds={['google-gemini-cli', 'google-antigravity']} />
+            <PiOAuthButton onStatusChange={() => void loadProviderStatus(piConfigDraft.activeProvider)} activeProviderId={piConfigDraft.activeProvider} />
           </div>
         )}
 
@@ -967,7 +964,7 @@ export function PiProviderSetupCard({
 
         <ProviderHelpSection
           providerId={piConfigDraft.activeProvider}
-          isProviderReady={readiness?.pi?.ready || false}
+          isProviderReady={selectedProviderStatus?.isReady ?? false}
           isOpen={isHelpOpen}
           onOpenChange={setIsHelpOpen}
           onProviderActivate={activateProvider}
@@ -1075,9 +1072,13 @@ function ProviderHelpSection({
           <span className="font-medium">
             {t('providerHelp.configurationTitle', { icon: getCategoryIcon(help.category), title: help.title })}
           </span>
-          {isProviderReady && (
+          {isProviderReady ? (
             <span className="ml-2 rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
               {t('providerHelp.configured')}
+            </span>
+          ) : (
+            <span className="ml-2 rounded bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+              {t('providerHelp.notConfigured')}
             </span>
           )}
         </div>

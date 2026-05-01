@@ -159,10 +159,9 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   // Different providers have different signatures:
   // - anthropic: loginAnthropic(onAuthUrl, onPromptCode)
   // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress })
-  // - github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress })
   // - google-gemini-cli: loginGeminiCli(onAuth, onProgress?, onManualCodeInput?)
   // - google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?)
-  const isOptionsBased = ['openai-codex', 'github-copilot'].includes(provider);
+  const isOptionsBased = provider === 'openai-codex';
   const isSimpleCallback = provider === 'anthropic';
   const usesManualCodeInputOption = provider === 'openai-codex';
   
@@ -315,7 +314,6 @@ function getLoginFunctionName(provider: string): string {
   const map: Record<string, string> = {
     'anthropic': 'loginAnthropic',
     'openai-codex': 'loginOpenAICodex',
-    'github-copilot': 'loginGitHubCopilot',
     'google-gemini-cli': 'loginGeminiCli',
     'google-antigravity': 'loginAntigravity',
   };

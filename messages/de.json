@@ -307,6 +307,7 @@
     "move": "Verschieben",
     "download": "Herunterladen",
     "share": "Teilen",
+    "openInStudio": "Als Referenz in Studio öffnen",
     "protectedFolderRename": "Dieser App-Output-Ordner kann nicht umbenannt werden.",
     "protectedFolderMove": "Dieser App-Output-Ordner kann nicht verschoben werden.",
     "renameTitle": "\"{name}\" umbenennen",
@@ -1090,7 +1091,8 @@
         "unknown": "Unbekannt",
         "selfHosted": "Self-Hosted",
         "cloudInfra": "Cloud-Infrastruktur"
-      }
+      },
+      "notConfigured": "Nicht konfiguriert"
     },
     "providerEnv": {
       "placeholderOllama": "Beliebigen Wert eingeben oder leer lassen...",
