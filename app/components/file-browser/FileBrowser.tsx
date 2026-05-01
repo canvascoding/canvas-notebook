@@ -50,6 +50,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
   const {
     refreshDirectory,
+    refreshRootTree,
     selectedNode,
     createPath,
     deletePath,
@@ -189,6 +190,10 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     onFileSelect?.(path);
   }, [isFullscreen, onFileSelect]);
 
+  const handleRefresh = useCallback(() => {
+    void refreshDirectory(currentDirectory, true);
+  }, [currentDirectory, refreshDirectory]);
+
   const toolbarHandlers: FileToolbarHandlers = {
     onToggleMultiSelect: toggleMultiSelectMode,
     onNewFile: handleNewFile,
@@ -196,6 +201,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     onUpload: handleUploadClick,
     onDelete: handleDeleteClick,
     onCollapseAll: collapseAllDirectories,
+    onRefresh: handleRefresh,
   };
 
   const toolbarVariant = isFullscreen ? 'fullscreen' : isMobileSheet ? 'mobile-sheet' : 'sidebar';
