@@ -6,8 +6,9 @@ import { useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { Trash2, Pencil, Plus, Loader2 } from 'lucide-react';
+import { Trash2, Pencil, Plus, Loader2, Expand } from 'lucide-react';
 import { ReferencePickerDialog } from '../create/ReferencePickerDialog';
+import { ModelImagePreviewDialog } from './ModelImagePreviewDialog';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import type { StudioProduct, StudioProductImage, StudioPersona, StudioPersonaImage, StudioStyle, StudioStyleImage } from '../../types/models';
 
@@ -28,6 +29,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   const fetchEntity = useCallback(async () => {
     setLoading(true);
@@ -237,12 +239,19 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
           )}
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {images.map((img: StudioProductImage | StudioPersonaImage | StudioStyleImage) => (
-            <div key={img.id} className="group relative aspect-square overflow-hidden rounded-md border border-border">
+          {images.map((img: StudioProductImage | StudioPersonaImage | StudioStyleImage, index: number) => (
+            <div
+              key={img.id}
+              className="group relative aspect-square cursor-pointer overflow-hidden rounded-md border border-border"
+              onClick={() => setPreviewIndex(index)}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={getImageUrl(img.id)} alt={img.fileName} className="h-full w-full object-cover" />
-              <div className="absolute inset-0 flex items-end justify-center gap-1 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 pb-2">
-                <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => handleDeleteImage(img.id)}>
+              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={(e) => { e.stopPropagation(); setPreviewIndex(index); }}>
+                  <Expand className="h-3 w-3" />
+                </Button>
+                <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={(e) => { e.stopPropagation(); handleDeleteImage(img.id); }}>
                   <Trash2 className="h-3 w-3" />
                 </Button>
               </div>
@@ -277,6 +286,16 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         onConfirm={handlePickerConfirm}
         onUrlAdd={handlePickerUrlAdd}
       />
+
+      {previewIndex !== null && (
+        <ModelImagePreviewDialog
+          images={images}
+          initialIndex={previewIndex}
+          entityId={entityId}
+          entityType={entityType}
+          onClose={() => setPreviewIndex(null)}
+        />
+      )}
     </div>
   );
 }

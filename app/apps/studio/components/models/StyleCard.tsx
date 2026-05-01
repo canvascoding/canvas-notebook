@@ -4,6 +4,7 @@ import { Link } from '@/i18n/navigation';
 import { Card } from '@/components/ui/card';
 import { ImageOff } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { StudioStyle } from '../../types/models';
 
 interface StyleCardProps {
@@ -11,6 +12,7 @@ interface StyleCardProps {
 }
 
 export function StyleCard({ style }: StyleCardProps) {
+  const t = useTranslations('studio');
   const [imgError, setImgError] = useState(false);
 
   const thumbnailUrl = style.images?.[0]
@@ -37,7 +39,7 @@ export function StyleCard({ style }: StyleCardProps) {
         </div>
         <div className="p-3">
           <p className="truncate text-sm font-semibold text-foreground">{style.name}</p>
-          <p className="text-xs text-muted-foreground">{style.imageCount} {style.imageCount === 1 ? 'Bild' : 'Bilder'}</p>
+          <p className="text-xs text-muted-foreground">{t('modelLibrary.imageCount', { count: style.imageCount })}</p>
         </div>
       </Card>
     </Link>

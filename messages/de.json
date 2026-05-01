@@ -1438,7 +1438,8 @@
       "emptyPersonaTitle": "Noch keine Personas",
       "emptyPersonaDescription": "Erstelle deine erste Persona, um konsistente Charaktere in Generierungen zu nutzen.",
       "emptyStyleTitle": "Noch keine Styles",
-      "emptyStyleDescription": "Erstelle deinen ersten Style, um konsistente visuelle Stile für Generierungen zu nutzen."
+      "emptyStyleDescription": "Erstelle deinen ersten Style, um konsistente visuelle Stile für Generierungen zu nutzen.",
+      "imageCount": "{count, plural, one {# Bild} other {# Bilder}}"
     },
     "modelCreate": {
       "name": "Name",
@@ -1446,6 +1447,8 @@
       "images": "Bilder",
       "dropzone": "Bilder hier ablegen oder klicken zum Auswählen",
       "maxImages": "Maximal {max} Bilder",
+      "addImages": "Bilder hinzufügen",
+      "noImages": "Noch keine Bilder ausgewählt. Klicke auf »Bilder hinzufügen«, um aus Studio, Workspace, Upload oder URLs zu wählen.",
       "urlImport": "Von URL importieren",
       "urlPlaceholder": "https://example.com/image.jpg",
       "addUrl": "Hinzufügen",
@@ -1466,8 +1469,12 @@
       "noDescription": "Keine Beschreibung",
       "deleteProduct": "Produkt löschen",
       "deletePersona": "Persona löschen",
+      "deleteStyle": "Style löschen",
       "deleteConfirmMessage": "Dieses Modell wird möglicherweise in Generierungen referenziert. Die Referenz wird als [Gelöscht] markiert. Fortfahren?",
-      "confirmDelete": "Löschen"
+      "confirmDelete": "Löschen",
+      "previousImage": "Vorheriges Bild",
+      "nextImage": "Nächstes Bild",
+      "imagePreviewDescription": "Bildvorschau"
     },
     "bulk": {
       "title": "Bulk-Generierung",

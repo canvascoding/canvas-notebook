@@ -208,6 +208,8 @@
             "images": "Images",
             "dropzone": "Drop images here or click to select",
             "maxImages": "Up to {max} images",
+            "addImages": "Add images",
+            "noImages": "No images selected yet. Click \"Add images\" to choose from Studio, Workspace, Upload, or URLs.",
             "urlImport": "Import from URL",
             "urlPlaceholder": "https://example.com/image.jpg",
             "addUrl": "Add",
@@ -1436,7 +1438,8 @@
       "emptyPersonaTitle": "No personas yet",
       "emptyPersonaDescription": "Create your first persona to use consistent characters in generations.",
       "emptyStyleTitle": "No styles yet",
-      "emptyStyleDescription": "Create your first style to reference visual styles in AI generations."
+      "emptyStyleDescription": "Create your first style to reference visual styles in AI generations.",
+      "imageCount": "{count, plural, one {# image} other {# images}}"
     },
     "modelCreate": {
       "name": "Name",
@@ -1466,8 +1469,12 @@
       "noDescription": "No description",
       "deleteProduct": "Delete product",
       "deletePersona": "Delete persona",
+      "deleteStyle": "Delete style",
       "deleteConfirmMessage": "This model may be referenced in generations. The reference will be marked as [Deleted]. Continue?",
-      "confirmDelete": "Delete"
+      "confirmDelete": "Delete",
+      "previousImage": "Previous image",
+      "nextImage": "Next image",
+      "imagePreviewDescription": "Image preview"
     },
     "bulk": {
       "title": "Bulk Generate",

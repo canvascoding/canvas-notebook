@@ -10,7 +10,7 @@ export default async function StudioModelDetailPage({ params, searchParams }: St
   await requirePageSession();
   const { id } = await params;
   const sp = await searchParams;
-  const entityType = sp.type === 'persona' ? 'persona' : 'product';
+  const entityType = (sp.type === 'persona' ? 'persona' : sp.type === 'style' ? 'style' : 'product') as 'product' | 'persona' | 'style';
 
   return (
     <div className="p-4 md:p-6">

@@ -4,6 +4,7 @@ import { Link } from '@/i18n/navigation';
 import { Card } from '@/components/ui/card';
 import { ImageOff } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { StudioProduct } from '../../types/models';
 
 interface ProductCardProps {
@@ -11,6 +12,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
+  const t = useTranslations('studio');
   const [imgError, setImgError] = useState(false);
 
   const thumbnailUrl = product.images?.[0]
@@ -37,7 +39,7 @@ export function ProductCard({ product }: ProductCardProps) {
         </div>
         <div className="p-3">
           <p className="truncate text-sm font-semibold text-foreground">{product.name}</p>
-          <p className="text-xs text-muted-foreground">{product.imageCount} {product.imageCount === 1 ? 'Bild' : 'Bilder'}</p>
+          <p className="text-xs text-muted-foreground">{t('modelLibrary.imageCount', { count: product.imageCount })}</p>
         </div>
       </Card>
     </Link>
