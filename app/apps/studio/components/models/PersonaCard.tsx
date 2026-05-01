@@ -4,6 +4,7 @@ import { Link } from '@/i18n/navigation';
 import { Card } from '@/components/ui/card';
 import { ImageOff } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import type { StudioPersona } from '../../types/models';
 
 interface PersonaCardProps {
@@ -11,6 +12,7 @@ interface PersonaCardProps {
 }
 
 export function PersonaCard({ persona }: PersonaCardProps) {
+  const t = useTranslations('studio');
   const [imgError, setImgError] = useState(false);
 
   const thumbnailUrl = persona.images?.[0]
@@ -37,7 +39,7 @@ export function PersonaCard({ persona }: PersonaCardProps) {
         </div>
         <div className="p-3">
           <p className="truncate text-sm font-semibold text-foreground">{persona.name}</p>
-          <p className="text-xs text-muted-foreground">{persona.imageCount} {persona.imageCount === 1 ? 'Bild' : 'Bilder'}</p>
+          <p className="text-xs text-muted-foreground">{t('modelLibrary.imageCount', { count: persona.imageCount })}</p>
         </div>
       </Card>
     </Link>
