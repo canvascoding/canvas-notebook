@@ -7,13 +7,13 @@ import { BulkGenerateView } from './bulk/BulkGenerateView';
 import { StudioDashboard } from './StudioDashboard';
 import { CreateView } from './create/CreateView';
 import { ModelLibrary } from './models/ModelLibrary';
+import { ImagePlus, Play, Layers, LayoutGrid, Sparkles } from 'lucide-react';
 
 const tabs = [
-  { key: 'dashboard', path: '/studio' },
-  { key: 'create', path: '/studio/create' },
-  { key: 'bulk', path: '/studio/bulk' },
-  { key: 'models', path: '/studio/models' },
-  { key: 'presets', path: '/studio/presets' },
+  { key: 'dashboard', path: '/studio', icon: Sparkles },
+  { key: 'create', path: '/studio/create', icon: ImagePlus },
+  { key: 'bulk', path: '/studio/bulk', icon: Layers },
+  { key: 'models', path: '/studio/models', icon: LayoutGrid },
 ] as const;
 
 export function StudioClient() {
@@ -37,12 +37,13 @@ export function StudioClient() {
               aria-selected={activeTab === tab.key}
               onClick={() => router.push(tab.path)}
               className={cn(
-                'relative px-4 py-2.5 text-sm font-medium transition-colors hover:text-foreground',
+                'relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors hover:text-foreground',
                 activeTab === tab.key
                   ? 'text-foreground'
                   : 'text-muted-foreground',
               )}
             >
+              <tab.icon className="h-3.5 w-3.5" />
               {tab.key === 'dashboard' ? t('dashboard.tabLabel') : t(`tabs.${tab.key}`)}
               {activeTab === tab.key && (
                 <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
@@ -56,17 +57,6 @@ export function StudioClient() {
         {activeTab === 'create' && <CreateView />}
         {activeTab === 'bulk' && <BulkGenerateView />}
         {activeTab === 'models' && <ModelLibrary />}
-        {activeTab === 'presets' && (
-          <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
-            <p className="text-muted-foreground">Studio Presets are now available on a dedicated page.</p>
-            <button
-              onClick={() => router.push('/studio/presets')}
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Go to Studio Presets
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
