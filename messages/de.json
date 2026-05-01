@@ -1173,16 +1173,18 @@
     "docsButton": "Doku",
     "upload": {
       "button": "Skill hochladen",
-      "title": "Neuen Skill hochladen",
-      "description": "Lade eine SKILL.md Datei hoch oder füge den Inhalt ein. Der Skill wird automatisch aktiviert.",
-      "fileLabel": "SKILL.md Datei auswählen",
+      "title": "Skill hochladen",
+      "dropzone": "SKILL.md hierher ziehen oder klicken zum Auswählen",
+      "requirementsTitle": "Dateianforderungen",
+      "requirement1": ".md Datei muss Skill-Name und Description im YAML-Format enthalten",
+      "requirement2": ".zip oder .skill Datei muss eine SKILL.md Datei enthalten",
+      "readMore": "Mehr zum Erstellen von Skills erfahren",
       "pasteLabel": "Oder Inhalt einfügen:",
       "validating": "Validiere...",
       "uploading": "Lade hoch...",
       "success": "Skill \"{name}\" erfolgreich hochgeladen und aktiviert!",
       "error": "Upload fehlgeschlagen: {error}",
       "validationErrors": "Validierungsfehler:",
-      "dropzone": "SKILL.md hierher ziehen oder klicken zum Auswählen",
       "alreadyExists": "Skill \"{name}\" existiert bereits. Bearbeite ihn stattdessen im Skill-Editor."
     },
     "emptyState": {
