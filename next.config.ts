@@ -37,6 +37,18 @@ const nextConfig: NextConfig = {
     return config;
   },
   serverExternalPackages: externalPackages,
+  outputFileTracingExcludes: {
+    '/api/files/download': ['./data/**/*', './next.config.ts'],
+  },
+  turbopack: {
+    ignoreIssue: [
+      {
+        path: /next\.config\.ts$/,
+        title: /Encountered unexpected file in NFT list/,
+        description: /whole project was traced unintentionally/,
+      },
+    ],
+  },
   poweredByHeader: false,
   compress: true,
 

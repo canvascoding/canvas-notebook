@@ -12,8 +12,21 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+function getRuntimeCwd(): string {
+  return Reflect.apply(process.cwd, process, []) as string;
+}
+
 function getDataDir(): string {
-  return process.env.DATA || path.join(/*turbopackIgnore: true*/ process.cwd(), 'data');
+  const configuredDataDir = process.env.DATA?.trim();
+  if (!configuredDataDir || configuredDataDir === './data' || configuredDataDir === 'data') {
+    return path.join(getRuntimeCwd(), 'data');
+  }
+
+  if (path.isAbsolute(configuredDataDir)) {
+    return configuredDataDir;
+  }
+
+  return path.join(getRuntimeCwd(), 'data');
 }
 
 function getWorkspaceBaseDir(): string {
