@@ -29,9 +29,25 @@ const MEDIA_TYPES: Record<string, string> = {
   mjs: 'text/javascript',
 };
 
+const ACTIVE_CONTENT_EXTENSIONS = new Set(['html', 'htm', 'js', 'mjs', 'svg']);
+
 function getContentType(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  if (ACTIVE_CONTENT_EXTENSIONS.has(ext)) {
+    return 'application/octet-stream';
+  }
   return MEDIA_TYPES[ext] || 'application/octet-stream';
+}
+
+function createSecurityHeaders(filePath: string): Headers {
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  const headers = new Headers({
+    'X-Content-Type-Options': 'nosniff',
+  });
+  if (ACTIVE_CONTENT_EXTENSIONS.has(ext)) {
+    headers.set('Content-Disposition', `attachment; filename="${filePath.split('/').pop() || 'file'}"`);
+  }
+  return headers;
 }
 
 export async function GET(
@@ -67,6 +83,8 @@ export async function GET(
         'Content-Length': chunksize.toString(),
         'Content-Type': contentType,
       });
+      const securityHeaders = createSecurityHeaders(filePath);
+      securityHeaders.forEach((value, key) => headers.set(key, value));
 
       return new NextResponse(webStream, { status: 206, headers });
     } else {
@@ -77,6 +95,8 @@ export async function GET(
         'Content-Length': fileSize.toString(),
         'Content-Type': contentType,
       });
+      const securityHeaders = createSecurityHeaders(filePath);
+      securityHeaders.forEach((value, key) => headers.set(key, value));
       return new NextResponse(webStream, { status: 200, headers });
     }
   } catch {
