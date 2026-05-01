@@ -27,7 +27,6 @@ import {
   generateOutputFilename,
   writeOutputFile,
   readOutputFile,
-  readStudioReferenceFile,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateVideo, type GenerateVideoRequestBody } from '@/app/lib/integrations/veo-generation-service';
@@ -39,15 +38,7 @@ import {
   type SeedanceReferenceImage,
   type SeedanceResolution,
 } from '@/app/lib/integrations/seedance-generation-service';
-import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
-import {
-  resolveValidatedStudioAssetPath,
-  resolveValidatedStudioOutputPath,
-  resolveValidatedUserUploadStudioRefPath,
-  resolveValidatedWorkspaceFilePath,
-  resolveValidatedWorkspaceRelativePath,
-  getWorkspaceRoot,
-} from '@/app/lib/integrations/studio-paths';
+import { loadMediaReferences } from '@/app/lib/integrations/media-reference-resolver';
 import { getFileStats, readFile, readDataFile, getDataFileStats } from '@/app/lib/filesystem/workspace-files';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
@@ -424,212 +415,18 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
   if (urls.length === 0) return [];
 
   console.log(`[Studio Generation] Loading ${urls.length} extra reference images`);
-  const images: LoadedReferenceImage[] = [];
+  const files = await loadMediaReferences(urls, { userId, allowedTypes: ['image'] });
 
-  for (const rawUrl of urls) {
-    const url = rawUrl.trim();
-    if (!url) continue;
-
-    try {
-      let buffer: Buffer;
-      let contentType: string;
-      let sourceId = url;
-      let fileName = url.split('/').pop() || 'extra-reference.png';
-
-      const localPath = normalizeLocalExtraReference(url);
-      console.log(`[Studio Generation] Resolving reference: "${url.slice(0, 100)}" → kind=${localPath?.kind || 'null'}`);
-      if (localPath?.kind === 'studio_reference') {
-        const fileId = localPath.referenceId;
-        if (!isSafeReferenceId(fileId)) {
-          throw new Error('Invalid local reference URL');
-        }
-
-        buffer = await readStudioReferenceFile(userId, fileId);
-        contentType = mimeFromPath(fileId);
-        sourceId = localPath.sourceId;
-        fileName = fileId;
-      } else if (localPath?.kind === 'studio_output') {
-        const fullPath = resolveValidatedStudioOutputPath(localPath.relativePath);
-        if (!fullPath) {
-          throw new Error('Invalid studio output reference path');
-        }
-
-        buffer = await fs.readFile(fullPath);
-        contentType = mimeFromPath(localPath.relativePath);
-        sourceId = localPath.sourceId;
-        fileName = localPath.relativePath.split('/').pop() || fileName;
-      } else if (localPath?.kind === 'studio_asset') {
-        const fullPath = resolveValidatedStudioAssetPath(localPath.relativePath);
-        if (!fullPath) {
-          throw new Error('Invalid studio asset reference path');
-        }
-
-        buffer = await fs.readFile(fullPath);
-        contentType = mimeFromPath(localPath.relativePath);
-        sourceId = localPath.sourceId;
-        fileName = localPath.relativePath.split('/').pop() || fileName;
-      } else if (localPath?.kind === 'user_upload') {
-        const fullPath = resolveValidatedUserUploadStudioRefPath(localPath.relativePath);
-        if (!fullPath) {
-          throw new Error('Invalid user upload reference path');
-        }
-
-        buffer = await fs.readFile(fullPath);
-        contentType = mimeFromPath(localPath.relativePath);
-        sourceId = localPath.sourceId;
-        fileName = localPath.relativePath.split('/').pop() || fileName;
-      } else if (localPath?.kind === 'workspace_file') {
-        const fullPath = resolveValidatedWorkspaceFilePath(localPath.absolutePath);
-        if (!fullPath) {
-          throw new Error('Invalid workspace file reference path');
-        }
-
-        buffer = await fs.readFile(fullPath);
-        contentType = mimeFromPath(localPath.absolutePath);
-        sourceId = localPath.sourceId;
-        fileName = localPath.absolutePath.split('/').pop() || fileName;
-      } else if (localPath?.kind === 'workspace_relative') {
-        const fullPath = resolveValidatedWorkspaceRelativePath(localPath.relativePath);
-        if (!fullPath) {
-          throw new Error('Invalid workspace reference path');
-        }
-
-        buffer = await fs.readFile(fullPath);
-        contentType = mimeFromPath(localPath.relativePath);
-        sourceId = localPath.sourceId;
-        fileName = localPath.relativePath.split('/').pop() || fileName;
-      } else {
-        if (!/^https?:\/\//i.test(url)) {
-          throw new Error('Unsupported local reference path');
-        }
-
-        const response = await fetchExternalResourceSafely(url, { maxBytes: 10 * 1024 * 1024, timeoutMs: 30000 });
-        buffer = response.buffer;
-        contentType = response.contentType || 'image/png';
-      }
-      
-      images.push({
-        imageBytes: buffer.toString('base64'),
-        mimeType: contentType.startsWith('image/') ? contentType : 'image/png',
-        width: null,
-        height: null,
-        fileName,
-        source: 'extra_url',
-        sourceId,
-        sourceName: 'Extra Reference',
-      });
-      console.log(`[Studio Generation] Loaded reference: kind=${localPath?.kind || 'external'}, fileName=${fileName}, size=${buffer.length} bytes`);
-    } catch (error) {
-      console.warn(`[Studio Generation] Failed to load extra reference image from ${url}:`, error);
-    }
-  }
-
-  return images;
-}
-
-type LocalExtraReference =
-  | { kind: 'studio_reference'; referenceId: string; sourceId: string }
-  | { kind: 'studio_output'; relativePath: string; sourceId: string }
-  | { kind: 'studio_asset'; relativePath: string; sourceId: string }
-  | { kind: 'user_upload'; relativePath: string; sourceId: string }
-  | { kind: 'workspace_file'; absolutePath: string; sourceId: string }
-  | { kind: 'workspace_relative'; relativePath: string; sourceId: string };
-
-function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | null {
-  const pathOnly = getLocalReferencePath(rawUrl);
-  if (!pathOnly) return null;
-
-  if (pathOnly.startsWith('/api/studio/references/')) {
-    const referenceId = decodePath(pathOnly.slice('/api/studio/references/'.length));
-    return referenceId ? { kind: 'studio_reference', referenceId, sourceId: rawUrl } : null;
-  }
-
-  const studioMediaPath = pathOnly.startsWith('/api/studio/media/')
-    ? decodePath(pathOnly.slice('/api/studio/media/'.length))
-    : decodePath(pathOnly.replace(/^\/+/, ''));
-
-  if (studioMediaPath.startsWith('studio/outputs/')) {
-    return {
-      kind: 'studio_output',
-      relativePath: studioMediaPath.slice('studio/outputs/'.length),
-      sourceId: rawUrl,
-    };
-  }
-
-  if (studioMediaPath.startsWith('studio/assets/')) {
-    return {
-      kind: 'studio_asset',
-      relativePath: studioMediaPath.slice('studio/assets/'.length),
-      sourceId: rawUrl,
-    };
-  }
-
-  if (studioMediaPath.startsWith('user-uploads/studio-references/')) {
-    return {
-      kind: 'user_upload',
-      relativePath: studioMediaPath.slice('user-uploads/studio-references/'.length),
-      sourceId: rawUrl,
-    };
-  }
-
-  if (studioMediaPath.startsWith('products/') || studioMediaPath.startsWith('personas/') || studioMediaPath.startsWith('styles/') || studioMediaPath.startsWith('presets/') || studioMediaPath.startsWith('references/')) {
-    return {
-      kind: 'studio_asset',
-      relativePath: studioMediaPath,
-      sourceId: rawUrl,
-    };
-  }
-
-  if (studioMediaPath.startsWith('studio-gen-')) {
-    return {
-      kind: 'studio_output',
-      relativePath: studioMediaPath,
-      sourceId: rawUrl,
-    };
-  }
-
-  // Handle /api/media/ paths → resolve as workspace-relative file
-  if (pathOnly.startsWith('/api/media/')) {
-    const relativePath = decodePath(pathOnly.slice('/api/media/'.length));
-    return { kind: 'workspace_relative', relativePath, sourceId: rawUrl };
-  }
-
-  // Handle absolute workspace filesystem paths (e.g. /data/workspace/...)
-  const workspaceRoot = getWorkspaceRoot();
-  if (pathOnly.startsWith(workspaceRoot + '/') || pathOnly.startsWith(workspaceRoot + path.sep)) {
-    return { kind: 'workspace_file', absolutePath: pathOnly, sourceId: rawUrl };
-  }
-
-  return null;
-}
-
-function getLocalReferencePath(rawUrl: string): string | null {
-  try {
-    const parsed = new URL(rawUrl);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null;
-    }
-    return parsed.pathname;
-  } catch {
-    return rawUrl.split(/[?#]/, 1)[0] || null;
-  }
-}
-
-function decodePath(filePath: string) {
-  return filePath
-    .split('/')
-    .map((segment) => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    })
-    .join('/');
-}
-
-function isSafeReferenceId(referenceId: string) {
-  return referenceId.length > 0 && !referenceId.includes('/') && !referenceId.includes('\\') && !referenceId.includes('..');
+  return files.map((file) => ({
+    imageBytes: file.imageBytes,
+    mimeType: file.mimeType.startsWith('image/') ? file.mimeType : 'image/png',
+    width: file.width,
+    height: file.height,
+    fileName: file.fileName,
+    source: 'extra_url',
+    sourceId: file.sourceId,
+    sourceName: 'Extra Reference',
+  }));
 }
 
 function buildReferenceContextPrompt(referenceImages: LoadedReferenceImage[]): { contextText: string; providerImages: ProviderReferenceImage[] } {
