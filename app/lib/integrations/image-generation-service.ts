@@ -1,8 +1,6 @@
 import 'server-only';
 
-import path from 'path';
-
-import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
+import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { getGeminiApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
@@ -14,13 +12,7 @@ import { IntegrationServiceError } from '@/app/lib/integrations/integration-serv
 import {
   getImageGenerationProvider,
 } from '@/app/lib/integrations/image-generation-providers';
-
-const IMAGE_MIME: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-};
+import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 
 const MIME_EXTENSION: Record<string, string> = {
   'image/png': 'png',
@@ -67,20 +59,6 @@ export interface ImageGenerationResultData {
   results: GeneratedImageResult[];
 }
 
-function extensionFromPath(filePath: string): string {
-  const ext = filePath.split('.').pop();
-  return ext ? ext.toLowerCase() : '';
-}
-
-function resolveImageMime(filePath: string): string {
-  const ext = extensionFromPath(filePath);
-  const mime = IMAGE_MIME[ext];
-  if (!mime) {
-    throw new IntegrationServiceError(`Unsupported reference image format: ${ext || 'unknown'}`, 400);
-  }
-  return mime;
-}
-
 function sanitizePrompt(prompt: string, maxPromptLength: number): string {
   return prompt.replace(/\s+/g, ' ').trim().slice(0, maxPromptLength);
 }
@@ -100,27 +78,11 @@ function normalizeReferencePaths(input: string[], maxReferences: number): string
       continue;
     }
 
-    const normalizedPath = path.posix.normalize(filePath).replace(/^\.?\//, '');
-    if (
-      !normalizedPath ||
-      normalizedPath === '.' ||
-      normalizedPath.startsWith('/') ||
-      normalizedPath.startsWith('../') ||
-      normalizedPath.includes('/../')
-    ) {
+    if (seen.has(filePath)) {
       continue;
     }
-
-    const extension = extensionFromPath(normalizedPath);
-    if (!IMAGE_MIME[extension]) {
-      continue;
-    }
-
-    if (seen.has(normalizedPath)) {
-      continue;
-    }
-    seen.add(normalizedPath);
-    list.push(normalizedPath);
+    seen.add(filePath);
+    list.push(filePath);
     if (list.length >= maxReferences) {
       break;
     }
@@ -130,23 +92,18 @@ function normalizeReferencePaths(input: string[], maxReferences: number): string
 }
 
 async function loadImageBytes(filePath: string): Promise<{ imageBytes: string; mimeType: string }> {
-  const mimeType = resolveImageMime(filePath);
-  const stats = await getFileStats(filePath);
-  if (!stats.isFile) {
-    throw new IntegrationServiceError(`Not a file: ${filePath}`, 400);
+  try {
+    const file = await loadMediaReference(filePath, {
+      allowedTypes: ['image'],
+      maxBytes: MAX_REFERENCE_IMAGE_BYTES,
+    });
+    return {
+      imageBytes: file.imageBytes,
+      mimeType: file.mimeType,
+    };
+  } catch (error) {
+    throw new IntegrationServiceError(error instanceof Error ? error.message : `Reference image could not be loaded: ${filePath}`, 400);
   }
-  if (stats.size <= 0) {
-    throw new IntegrationServiceError(`Reference image is empty: ${filePath}`, 400);
-  }
-  if (stats.size > MAX_REFERENCE_IMAGE_BYTES) {
-    throw new IntegrationServiceError(`Reference image too large: ${filePath}`, 400);
-  }
-
-  const content = await readFile(filePath);
-  return {
-    imageBytes: content.toString('base64'),
-    mimeType,
-  };
 }
 
 function extensionFromMime(mimeType: string): string {

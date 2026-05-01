@@ -2,23 +2,16 @@ import 'server-only';
 
 import { GoogleGenAI } from '@google/genai';
 
-import { getFileStats, readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
+import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
-  NANO_BANANA_ROOT_DIR,
   NANO_BANANA_OUTPUT_DIR,
   createNanoBananaOutputFilename,
   ensureNanoBananaWorkspace,
 } from '@/app/lib/integrations/nano-banana-workspace';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
-
-const IMAGE_MIME: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-};
+import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 
 const MIME_EXTENSION: Record<string, string> = {
   'image/png': 'png',
@@ -62,20 +55,6 @@ export interface AdLocalizationResultData {
   results: LocalizedImageResult[];
 }
 
-function extensionFromPath(filePath: string): string {
-  const ext = filePath.split('.').pop();
-  return ext ? ext.toLowerCase() : '';
-}
-
-function resolveImageMime(filePath: string): string {
-  const ext = extensionFromPath(filePath);
-  const mime = IMAGE_MIME[ext];
-  if (!mime) {
-    throw new IntegrationServiceError(`Unsupported reference image format: ${ext || 'unknown'}`, 400);
-  }
-  return mime;
-}
-
 function normalizeMarkets(input: string[]): string[] {
   const seen = new Set<string>();
   const list: string[] = [];
@@ -108,10 +87,6 @@ function sanitizeErrorMessage(error: unknown): string {
   return message.slice(0, MAX_ERROR_MESSAGE_LENGTH);
 }
 
-function validateReferencePath(referenceImagePath: string): boolean {
-  return referenceImagePath.startsWith(`${NANO_BANANA_ROOT_DIR}/`);
-}
-
 function localizerPrompt(market: string, customInstructions: string): string {
   const basePrompt =
     `Translate all text in this advertisement image to the primary language used in ${market}. ` +
@@ -128,26 +103,18 @@ function localizerPrompt(market: string, customInstructions: string): string {
 }
 
 async function loadImageBytes(filePath: string): Promise<{ imageBytes: string; mimeType: string }> {
-  const mimeType = resolveImageMime(filePath);
-  const stats = await getFileStats(filePath);
-  if (!stats.isFile) {
-    throw new IntegrationServiceError(`Not a file: ${filePath}`, 400);
+  try {
+    const file = await loadMediaReference(filePath, {
+      allowedTypes: ['image'],
+      maxBytes: MAX_REFERENCE_IMAGE_BYTES,
+    });
+    return {
+      imageBytes: file.imageBytes,
+      mimeType: file.mimeType,
+    };
+  } catch (error) {
+    throw new IntegrationServiceError(error instanceof Error ? error.message : `Reference image could not be loaded: ${filePath}`, 400);
   }
-  if (stats.size <= 0) {
-    throw new IntegrationServiceError('Reference image is empty', 400);
-  }
-  if (stats.size > MAX_REFERENCE_IMAGE_BYTES) {
-    throw new IntegrationServiceError(
-      `Reference image is too large (max ${Math.floor(MAX_REFERENCE_IMAGE_BYTES / (1024 * 1024))}MB)`,
-      400,
-    );
-  }
-
-  const content = await readFile(filePath);
-  return {
-    imageBytes: content.toString('base64'),
-    mimeType,
-  };
 }
 
 function extractInlineImage(response: unknown): { imageBytes: string; mimeType: string } {
@@ -198,9 +165,6 @@ export async function localizeAd(
 
   if (!referenceImagePath) {
     throw new IntegrationServiceError('Reference image path is required.', 400);
-  }
-  if (!validateReferencePath(referenceImagePath)) {
-    throw new IntegrationServiceError(`Reference image must be in ${NANO_BANANA_ROOT_DIR}.`, 400);
   }
   if (targetMarkets.length === 0) {
     throw new IntegrationServiceError('At least one target market is required.', 400);
