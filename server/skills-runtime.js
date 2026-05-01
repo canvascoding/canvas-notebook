@@ -333,7 +333,7 @@ function canWriteDirectory(targetDir) {
 
 function prepareSkillsRuntime(options = {}) {
   const cwd = options.cwd || process.cwd();
-  const repoSkillsDir = options.repoSkillsDir || path.resolve(cwd, 'skills');
+  const repoSkillsDir = options.repoSkillsDir || path.resolve(cwd, 'seed_skills');
   const skillsDir = options.skillsDir || resolveSkillsDataDir(cwd);
   const globalWrapperDir = options.globalWrapperDir || process.env.CANVAS_SKILLS_GLOBAL_WRAPPER_DIR || DEFAULT_GLOBAL_WRAPPER_DIR;
   const installGlobalWrappers =
