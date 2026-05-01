@@ -57,7 +57,8 @@
     "closeExplorer": "Explorer schließen",
     "closeChat": "Chat schließen",
     "canvasNotebook": "CANVAS NOTEBOOK",
-    "notebook": "Notebook"
+    "notebook": "Notebook",
+    "openAppLauncher": "Apps öffnen"
   },
   "login": {
     "title": "Canvas Notebook",
@@ -745,6 +746,10 @@
       "settings": {
         "title": "Einstellungen",
         "description": "Workspace-Einstellungen und Konfiguration verwalten."
+      },
+      "help": {
+        "title": "Hilfe",
+        "description": "Tutorials, Anleitungen und Hilfe zur Einrichtung der Canvas Software Suite."
       }
     },
     "footer": {

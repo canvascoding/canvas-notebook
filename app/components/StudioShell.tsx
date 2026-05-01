@@ -9,6 +9,7 @@ import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat'
 import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { LogoutButton } from '@/app/components/LogoutButton';
+import { AppLauncher } from '@/app/components/AppLauncher';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { useStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
@@ -284,6 +285,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
             </div>
 
             <div className="ml-auto flex min-w-0 items-center gap-1.5 md:gap-3">
+              <AppLauncher />
               {chatModeControl}
               <HelpDropdown page="studio" />
               <ThemeToggle />

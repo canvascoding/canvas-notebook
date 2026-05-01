@@ -6,6 +6,7 @@ import packageJson from '../../../package.json';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { HomeWorkspaceView } from '@/app/components/home/HomeWorkspaceView';
 import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
+import { AppLauncher } from '@/app/components/AppLauncher';
 import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -39,6 +40,7 @@ export default async function Home() {
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
               <HelpDropdown page="home" />
+              <AppLauncher />
 
               <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2" title="Settings">
                 <Link href="/settings">

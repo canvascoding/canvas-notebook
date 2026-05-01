@@ -33,6 +33,7 @@ import {
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { LogoutButton } from '@/app/components/LogoutButton';
+import { AppLauncher } from '@/app/components/AppLauncher';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
@@ -522,6 +523,7 @@ export function DashboardShell() {
 
           {/* Right side: help, theme, logout */}
           <div className="flex items-center gap-1.5 md:gap-4">
+            <AppLauncher />
             <HelpDropdown page="notebook" />
             <ThemeToggle />
             <LogoutButton />
