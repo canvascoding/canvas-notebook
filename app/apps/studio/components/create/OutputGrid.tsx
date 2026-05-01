@@ -12,6 +12,7 @@ export type OutputSortOrder = 'newest' | 'oldest';
 
 interface OutputGridProps {
   generations: StudioGeneration[];
+  recentlyCompletedIds?: Set<string>;
   emptyState: ReactNode;
   mediaFilter?: OutputMediaFilter;
   dateFilter?: OutputDateFilter;
@@ -29,6 +30,7 @@ interface OutputGridProps {
 
 export function OutputGrid({
   generations,
+  recentlyCompletedIds,
   emptyState,
   mediaFilter = 'all',
   dateFilter = 'all',
@@ -232,6 +234,7 @@ export function OutputGrid({
                 selectionMode={selectionEnabled}
                 onSelectToggle={onToggleSelectOutput}
                 title={output.type === 'video' ? 'Video output' : 'Image output'}
+                recentlyCompleted={recentlyCompletedIds?.has(output.generationId) ?? false}
                 onOpen={() => onOutputOpen({ generation: output.generation, output })}
                 onToggleFavorite={onToggleFavorite}
                 onCreateVariation={onCreateVariation}

@@ -160,7 +160,7 @@ export function CreateView() {
   const personasHook = useStudioPersonas();
   const stylesHook = useStudioStyles();
   const presetsHook = useStudioPresets();
-  const { fetchGenerations, generations } = generationHook;
+  const { fetchGenerations, generations, recentlyCompletedIds } = generationHook;
   const { fetchProducts, products } = productsHook;
   const { fetchPersonas, personas } = personasHook;
   const { fetchStyles, styles } = stylesHook;
@@ -422,6 +422,7 @@ export function CreateView() {
             />
             <OutputGrid
               generations={generations}
+              recentlyCompletedIds={recentlyCompletedIds}
               emptyState={<EmptyState />}
               mediaFilter={mediaFilter}
               dateFilter={dateFilter}

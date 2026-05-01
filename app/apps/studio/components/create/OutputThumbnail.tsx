@@ -1,9 +1,12 @@
 'use client';
 
+import { memo } from 'react';
+
 /* eslint-disable @next/next/no-img-element */
 
 import { Film, ImageIcon, Play } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
+import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { OutputHoverOverlay } from './OutputHoverOverlay';
 
@@ -18,6 +21,7 @@ interface OutputThumbnailProps {
   output: StudioGenerationOutput;
   selected?: boolean;
   selectionMode?: boolean;
+  recentlyCompleted?: boolean;
   onSelectToggle?: (outputId: string, selected: boolean) => void;
   onOpen: (outputId: string) => void;
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
@@ -27,7 +31,7 @@ interface OutputThumbnailProps {
   onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
-export function OutputThumbnail({
+export const OutputThumbnail = memo(function OutputThumbnail({
   id,
   mediaUrl,
   filePath,
@@ -38,6 +42,7 @@ export function OutputThumbnail({
   output,
   selected,
   selectionMode,
+  recentlyCompleted,
   onSelectToggle,
   onOpen,
   onToggleFavorite,
@@ -47,7 +52,11 @@ export function OutputThumbnail({
   onSaveToWorkspace,
 }: OutputThumbnailProps) {
   return (
-    <div className={`group relative aspect-square overflow-hidden rounded-3xl border text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${selected ? 'border-primary ring-2 ring-primary' : 'border-border/70 bg-card'}`}>
+    <div className={cn(
+      'group relative aspect-square overflow-hidden rounded-3xl border text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md',
+      selected ? 'border-primary ring-2 ring-primary' : 'border-border/70 bg-card',
+      recentlyCompleted && 'animate-[studioOutputFadeIn_500ms_ease-out_forwards]',
+    )}>
       {selectionMode && (
         <div className="absolute top-2 left-2 z-10">
           <button
@@ -115,4 +124,4 @@ export function OutputThumbnail({
       </div>
     </div>
   );
-}
+});
