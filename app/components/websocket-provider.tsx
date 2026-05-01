@@ -12,6 +12,8 @@ import { WebSocketClient, getWebSocketClient } from '@/app/lib/websocket/client'
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
 import { usePathname, useRouter } from '@/i18n/navigation';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface WebSocketProviderProps {
   children: React.ReactNode;
@@ -44,6 +46,44 @@ function truncateText(value: string | null | undefined, maxLength: number): stri
   }
 
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function ToastMarkdown({ content }: { content: string }) {
+  if (!content) return null;
+
+  const components = {
+    p: ({ children }: { children?: React.ReactNode }) => <span className="inline">{children}</span>,
+    h1: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
+    h2: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
+    h3: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
+    h4: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
+    h5: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
+    h6: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
+    code: ({ children, className, ...props }: { children?: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLElement>) => {
+      const isBlock = className?.includes('language-');
+      if (isBlock) {
+        return <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono" {...props}>{children}</code>;
+      }
+      return <code className="rounded bg-muted px-0.5 text-xs font-mono" {...props}>{children}</code>;
+    },
+    pre: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+    a: ({ children }: { children?: React.ReactNode }) => <span className="underline">{children}</span>,
+    img: ({ alt }: { alt?: string }) => alt ? <span>{alt}</span> : null,
+    table: () => null,
+    ul: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+    ol: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+    li: ({ children, ...props }: { children?: React.ReactNode } & React.HTMLAttributes<HTMLElement>) => <span {...props}>• {children} </span>,
+    blockquote: ({ children }: { children?: React.ReactNode }) => <span className="opacity-70">{children}</span>,
+    hr: () => <span className="mx-1">—</span>,
+  };
+
+  return (
+    <div className="line-clamp-3 overflow-hidden break-words [&>*:first-child]:inline">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 export function WebSocketProvider({ children }: WebSocketProviderProps) {
@@ -187,7 +227,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       }
 
       const toastTitle = truncateText(sessionTitle, 60) || t('newChatTitle');
-      const toastDescription = truncateText(messagePreview, 140) || t('newResponseReady');
+      const toastDescription = messagePreview || t('newResponseReady');
       rememberDeliveredNotification(sessionId, lastMessageAt);
       clearFallbackNotificationTimer(sessionId);
 
@@ -196,7 +236,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
       switch (notificationType) {
         case 'new_response':
           toast.info(toastTitle, {
-            description: toastDescription,
+            description: <ToastMarkdown content={toastDescription} />,
             action: {
               label: t('openSession'),
               onClick: () => {
@@ -218,7 +258,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
         case 'error':
           toast.error('Error in session', {
-            description: toastDescription || toastTitle,
+            description: <ToastMarkdown content={toastDescription || toastTitle} />,
             duration: 5000,
             position: 'top-right',
           });

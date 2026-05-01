@@ -1559,6 +1559,7 @@
       "loadingWorkspace": "Lade Workspace...",
       "empty": "Keine Bilder gefunden.",
       "emptyWorkspace": "Workspace ist leer.",
+      "noSearchResults": "Keine passenden Bilder gefunden.",
       "cancel": "Abbrechen",
       "addReferences": "Referenzen hinzufügen",
       "selection": {
@@ -1568,7 +1569,9 @@
       },
       "upload": {
         "hint": "Lade Bilder hoch, die als Referenz für Studio-Generierungen verwendet werden.",
-        "selectFiles": "Dateien wählen"
+        "selectFiles": "Dateien wählen",
+        "dragHint": "Oder ziehe Dateien per Drag & Drop in diesen Dialog.",
+        "dropHere": "Dateien hier ablegen"
       },
       "urlTabTitle": "Bild von URL laden",
       "urlTabDescription": "Gib eine Bild-URL ein. Das Bild wird heruntergeladen und als Referenz gespeichert.",

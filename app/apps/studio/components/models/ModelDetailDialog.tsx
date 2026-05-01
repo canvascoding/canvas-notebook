@@ -156,26 +156,6 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     }
   }, [entityId, entityType, imageCount, fetchEntity]);
 
-  const handlePickerUrlAdd = useCallback(async (url: string) => {
-    if (imageCount >= 10) return;
-    setSaving(true);
-    try {
-      const endpoint = entityType === 'product'
-        ? `/api/studio/products/${entityId}/images`
-        : entityType === 'persona'
-        ? `/api/studio/personas/${entityId}/images`
-        : `/api/studio/styles/${entityId}/images`;
-      await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      await fetchEntity();
-    } finally {
-      setSaving(false);
-    }
-  }, [entityId, entityType, imageCount, fetchEntity]);
-
   const getImageUrl = (imageId: string) => {
     return entityType === 'product'
       ? `/api/studio/products/${entityId}/images/${imageId}`
@@ -284,7 +264,6 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         open={showPicker}
         onOpenChange={setShowPicker}
         onConfirm={handlePickerConfirm}
-        onUrlAdd={handlePickerUrlAdd}
       />
 
       {previewIndex !== null && (

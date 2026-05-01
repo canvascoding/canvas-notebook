@@ -1559,6 +1559,7 @@
       "loadingWorkspace": "Loading workspace...",
       "empty": "No images found.",
       "emptyWorkspace": "Workspace is empty.",
+      "noSearchResults": "No matching images found.",
       "cancel": "Cancel",
       "addReferences": "Add references",
       "selection": {
@@ -1568,7 +1569,9 @@
       },
       "upload": {
         "hint": "Upload images to use as references for studio generations.",
-        "selectFiles": "Select files"
+        "selectFiles": "Select files",
+        "dragHint": "Or drag & drop files anywhere on this dialog.",
+        "dropHere": "Drop files to upload"
       },
       "urlTabTitle": "Load image from URL",
       "urlTabDescription": "Enter an image URL. The image will be downloaded and saved as a reference.",
