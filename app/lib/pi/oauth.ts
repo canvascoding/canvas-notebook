@@ -9,7 +9,6 @@ import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
 import {
   loginAnthropic,
   loginOpenAICodex,
-  loginGitHubCopilot,
   loginGeminiCli,
   loginAntigravity,
   refreshOAuthToken,
@@ -28,7 +27,6 @@ const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(resolveAgentStorag
 export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
   'anthropic',
   'openai-codex',
-  'github-copilot',
   'google-gemini-cli',
   'google-antigravity',
 ];
@@ -37,7 +35,6 @@ export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
 export const PROVIDER_DISPLAY_NAMES: Record<OAuthProviderId, string> = {
   'anthropic': 'Anthropic (Claude)',
   'openai-codex': 'OpenAI Codex',
-  'github-copilot': 'GitHub Copilot',
   'google-gemini-cli': 'Google Gemini CLI',
   'google-antigravity': 'Google Antigravity',
 };
@@ -171,19 +168,6 @@ export async function initiateOAuthLogin(
       });
     }
     
-    case 'github-copilot': {
-      // GitHub Copilot: loginGitHubCopilot({ onAuth(url, instructions), onPrompt(prompt) })
-      return await loginGitHubCopilot({
-        onAuth: (url: string, instructions?: string) => {
-          onAuthUrl(url, instructions);
-        },
-        onPrompt: async (prompt: OAuthPrompt) => {
-          return await onPrompt(prompt.message);
-        },
-        onProgress: onProgress || (() => {}),
-      });
-    }
-    
     case 'google-gemini-cli': {
       // Google Gemini CLI: loginGeminiCli(onAuth(info), onProgress?, onManualCodeInput?)
       return await loginGeminiCli(
@@ -288,8 +272,6 @@ export function getProviderApiType(provider: OAuthProviderId): string {
       return 'anthropic';
     case 'openai-codex':
       return 'openai-codex';
-    case 'github-copilot':
-      return 'github-copilot';
     case 'google-gemini-cli':
     case 'google-antigravity':
       return 'google-gemini-cli';

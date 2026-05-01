@@ -274,27 +274,6 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     documentationUrl: 'https://github.com/openai/codex',
   },
 
-  'github-copilot': {
-    category: 'oauth-cli',
-    title: 'GitHub Copilot',
-    shortDescription: 'GitHub Copilot via PI OAuth',
-    setupSteps: [
-      'Click "Connect Account" in the OAuth section',
-      'Select GitHub Copilot from the dropdown',
-      'Open the authorization URL in your browser',
-      'Authorize the application on GitHub',
-      'Copy the authorization code and paste it in the dialog',
-      'Click "Complete Connection" to finish',
-    ],
-    notes: [
-      'Requires GitHub Copilot subscription',
-      'OAuth authentication is handled securely via PI',
-      'Credentials are stored encrypted in /data/canvas-agent/',
-      'Token refresh is automatic',
-    ],
-    documentationUrl: 'https://github.com/features/copilot',
-  },
-
   'google-gemini-cli': {
     category: 'oauth-cli',
     title: 'Google Gemini CLI',
@@ -581,12 +560,8 @@ export function supportsBothAuthMethods(providerId: string): boolean {
 
 export type AuthMethodCategory = 'api-key' | 'oauth' | 'self-hosted' | 'cloud-infra';
 
-const HIDDEN_OAUTH_PROVIDERS = new Set(['google-gemini-cli', 'google-antigravity']);
-
 export function getVisibleOAuthProviders(): string[] {
-  return Object.keys(PROVIDER_HELP).filter(
-    (id) => !HIDDEN_OAUTH_PROVIDERS.has(id) && requiresCliAuth(id),
-  );
+  return ['anthropic', 'openai-codex'];
 }
 
 export function getApiKeyProviders(): string[] {
@@ -645,8 +620,4 @@ export function getAuthMethodForProvider(providerId: string): AuthMethodCategory
     default:
       return 'api-key';
   }
-}
-
-export function isHiddenOAuthProvider(providerId: string): boolean {
-  return HIDDEN_OAUTH_PROVIDERS.has(providerId);
 }

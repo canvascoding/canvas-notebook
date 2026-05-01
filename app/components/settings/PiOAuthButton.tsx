@@ -28,10 +28,10 @@ interface OAuthStatus {
 
 interface PiOAuthButtonProps {
   onStatusChange?: () => void;
-  hiddenProviderIds?: string[];
+  activeProviderId?: string;
 }
 
-export function PiOAuthButton({ onStatusChange, hiddenProviderIds }: PiOAuthButtonProps) {
+export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButtonProps) {
   const t = useTranslations('settings');
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -53,6 +53,16 @@ export function PiOAuthButton({ onStatusChange, hiddenProviderIds }: PiOAuthButt
   useEffect(() => {
     void loadStatus();
   }, []);
+
+  // Auto-select active provider when providers are loaded
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-select once when providers load
+  useEffect(() => {
+    if (!activeProviderId || !providers.length) return;
+    const match = providers.find(p => p.provider === activeProviderId);
+    if (match && !match.connected && !selectedProvider) {
+      setSelectedProvider(match);
+    }
+  }, [activeProviderId, providers]);
 
   const resetDialogState = () => {
     setCode('');
@@ -343,8 +353,12 @@ export function PiOAuthButton({ onStatusChange, hiddenProviderIds }: PiOAuthButt
     }
   };
 
-  const hiddenSet = new Set(hiddenProviderIds ?? []);
-  const visibleProviders = providers.filter(p => !hiddenSet.has(p.provider));
+  const activeProvider = activeProviderId
+    ? providers.find(p => p.provider === activeProviderId) || null
+    : null;
+  const visibleProviders = activeProvider
+    ? providers.filter(p => p.provider === activeProvider.provider)
+    : providers;
   const availableProviders = visibleProviders.filter(p => !p.connected);
   const connectedProviders = visibleProviders.filter(p => p.connected);
 
@@ -420,38 +434,40 @@ export function PiOAuthButton({ onStatusChange, hiddenProviderIds }: PiOAuthButt
         <div className="space-y-3">
           <h4 className="text-sm font-semibold text-foreground">{t('oauth.sections.connectAccount')}</h4>
           <div className="flex gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  className="flex-1 justify-between h-10"
-                  disabled={isLoading}
-                  data-testid="pi-oauth-provider-select"
-                >
-                  {selectedProvider ? (
-                    <span className="font-medium">{selectedProvider.displayName}</span>
-                  ) : (
-                    <span className="text-muted-foreground">{t('oauth.sections.selectProvider')}</span>
-                  )}
-                  <ChevronDown className="h-4 w-4 ml-2 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-[300px]" align="start">
-                {availableProviders.map((provider) => (
-                  <DropdownMenuItem 
-                    key={provider.provider}
-                    onClick={() => setSelectedProvider(provider)}
-                    className="cursor-pointer"
+            {!activeProviderId && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="flex-1 justify-between h-10"
+                    disabled={isLoading}
+                    data-testid="pi-oauth-provider-select"
                   >
-                    {provider.displayName}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    {selectedProvider ? (
+                      <span className="font-medium">{selectedProvider.displayName}</span>
+                    ) : (
+                      <span className="text-muted-foreground">{t('oauth.sections.selectProvider')}</span>
+                    )}
+                    <ChevronDown className="h-4 w-4 ml-2 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[300px]" align="start">
+                  {availableProviders.map((provider) => (
+                    <DropdownMenuItem 
+                      key={provider.provider}
+                      onClick={() => setSelectedProvider(provider)}
+                      className="cursor-pointer"
+                    >
+                      {provider.displayName}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
               <Button
                 onClick={() => void initiateAuth()}
                 disabled={isLoading || !selectedProvider}
-                className="h-10"
+                className={activeProviderId ? 'w-full' : 'h-10'}
                 data-testid="pi-oauth-connect-button"
               >
               {isLoading ? (
