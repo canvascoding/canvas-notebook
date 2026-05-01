@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ArrowDownUp, CheckSquare, Filter, Sparkles, X } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -17,6 +17,7 @@ import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
 import { OutputGrid, type OutputDateFilter, type OutputMediaFilter, type OutputSortOrder } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
+import { FilterBar } from './FilterBar';
 import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
@@ -181,6 +182,7 @@ export function CreateView() {
   const [isLooping, setIsLooping] = useState(false);
   const initialPrompt = useMemo(() => searchParams.get('prompt') ?? '', [searchParams]);
   const [rawPrompt, setRawPrompt] = useState(initialPrompt);
+  const initialRefPath = useMemo(() => searchParams.get('ref'), [searchParams]);
   const [productRefs, setProductRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [personaRefs, setPersonaRefs] = useState<Array<{ id: string; name: string }>>([]);
   const [styleRefs, setStyleRefs] = useState<Array<{ id: string; name: string }>>([]);
@@ -327,6 +329,15 @@ export function CreateView() {
   }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets, fetchStyles]);
 
   useEffect(() => {
+    if (!initialRefPath) return;
+    addFileReference(setFileRefs, {
+      id: initialRefPath,
+      name: initialRefPath.split('/').pop() || initialRefPath,
+      thumbnailPath: initialRefPath,
+    });
+  }, [initialRefPath]);
+
+  useEffect(() => {
     const node = promptOverlayRef.current;
     if (!node) return;
 
@@ -387,109 +398,28 @@ export function CreateView() {
             className="flex-1 min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.12),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.12),_transparent_32%)]"
             style={{ paddingBottom: promptOverlayHeight + 32 }}
           >
-            <div className="sticky top-0 z-30 border-b border-border/70 bg-background/90 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  {([
-                    ['all', 'All'],
-                    ['image', 'Images'],
-                    ['video', 'Videos'],
-                    ['favorites', 'Favorites'],
-                    ['generating', 'Generating'],
-                    ['failed', 'Failed'],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setMediaFilter(value)}
-                      className={`rounded-full border px-3 py-1.5 text-sm transition ${mediaFilter === value ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card/80 text-foreground hover:bg-accent'}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      <Filter className="h-3.5 w-3.5" />
-                      Date
-                    </span>
-                    {([
-                      ['all', 'All dates'],
-                      ['today', 'Today'],
-                      ['yesterday', 'Yesterday'],
-                      ['last7', 'Last 7 days'],
-                      ['last30', 'Last 30 days'],
-                      ['older', 'Older'],
-                    ] as const).map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setDateFilter(value)}
-                        className={`rounded-full border px-3 py-1.5 text-sm transition ${dateFilter === value ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card/80 text-foreground hover:bg-accent'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSortOrder((current) => (current === 'newest' ? 'oldest' : 'newest'))}
-                      className="inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-3 py-1.5 text-sm text-foreground transition hover:bg-accent"
-                    >
-                      <ArrowDownUp className="h-4 w-4" />
-                      {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectionEnabled((current) => {
-                          const next = !current;
-                          if (!next) setSelectedOutputIds([]);
-                          return next;
-                        });
-                      }}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${selectionEnabled ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card/80 text-foreground hover:bg-accent'}`}
-                    >
-                      <CheckSquare className="h-4 w-4" />
-                      Select
-                    </button>
-                  </div>
-                </div>
-
-                {selectionEnabled && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card/80 px-3 py-2">
-                    <div className="text-sm font-medium">
-                      {selectedOutputIds.length} selected
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent"
-                        onClick={() => {
-                          setSelectedOutputIds([]);
-                          setSelectionEnabled(false);
-                        }}
-                      >
-                        <X className="h-4 w-4" />
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-full bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                        onClick={handleSaveToWorkspace}
-                        disabled={selectedOutputIds.length === 0}
-                      >
-                        Import to workspace
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <FilterBar
+              mediaFilter={mediaFilter}
+              onMediaFilterChange={setMediaFilter}
+              dateFilter={dateFilter}
+              onDateFilterChange={setDateFilter}
+              sortOrder={sortOrder}
+              onSortOrderChange={setSortOrder}
+              selectionEnabled={selectionEnabled}
+              onToggleSelection={() => {
+                setSelectionEnabled((current) => {
+                  const next = !current;
+                  if (!next) setSelectedOutputIds([]);
+                  return next;
+                });
+              }}
+              selectedCount={selectedOutputIds.length}
+              onCancelSelection={() => {
+                setSelectedOutputIds([]);
+                setSelectionEnabled(false);
+              }}
+              onImportToWorkspace={handleSaveToWorkspace}
+            />
             <OutputGrid
               generations={generations}
               emptyState={<EmptyState />}
