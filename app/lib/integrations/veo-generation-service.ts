@@ -7,7 +7,7 @@ import {
   type VideoGenerationReferenceImage,
 } from '@google/genai';
 
-import { getFileStats, readFile, writeFile, readDataFile, getDataFileStats } from '@/app/lib/filesystem/workspace-files';
+import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import {
@@ -21,18 +21,7 @@ import {
   type VideoResolution,
   type VideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
-
-const IMAGE_MIME: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-};
-
-const VIDEO_MIME: Record<string, string> = {
-  mp4: 'video/mp4',
-  mov: 'video/quicktime',
-};
+import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 
 const MAX_REFERENCE_IMAGES = 3;
 
@@ -63,11 +52,6 @@ export interface VideoGenerationResultData {
   mediaUrl: string;
 }
 
-function extensionFromPath(filePath: string): string {
-  const ext = filePath.split('.').pop();
-  return ext ? ext.toLowerCase() : '';
-}
-
 function sanitizePrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim();
 }
@@ -81,62 +65,28 @@ function promptToSlug(prompt: string): string {
   return slug || 'video';
 }
 
-function resolveImageMime(filePath: string): string {
-  const ext = extensionFromPath(filePath);
-  const mime = IMAGE_MIME[ext];
-  if (!mime) {
-    throw new IntegrationServiceError(`Unsupported image format: ${ext || 'unknown'}`, 400);
-  }
-  return mime;
-}
-
-function resolveVideoMime(filePath: string): string {
-  const ext = extensionFromPath(filePath);
-  const mime = VIDEO_MIME[ext];
-  if (!mime) {
-    throw new IntegrationServiceError(`Unsupported video format: ${ext || 'unknown'}`, 400);
-  }
-  return mime;
-}
-
 async function loadImageBytes(filePath: string): Promise<{ imageBytes: string; mimeType: string }> {
-  const mimeType = resolveImageMime(filePath);
-  let stats;
-  let content;
   try {
-    stats = await getFileStats(filePath);
-    content = await readFile(filePath);
-  } catch {
-    stats = await getDataFileStats(filePath);
-    content = await readDataFile(filePath);
+    const file = await loadMediaReference(filePath, { allowedTypes: ['image'] });
+    return {
+      imageBytes: file.imageBytes,
+      mimeType: file.mimeType,
+    };
+  } catch (error) {
+    throw new IntegrationServiceError(error instanceof Error ? error.message : `Image reference could not be loaded: ${filePath}`, 400);
   }
-  if (!stats.isFile) {
-    throw new IntegrationServiceError(`Not a file: ${filePath}`, 400);
-  }
-  return {
-    imageBytes: content.toString('base64'),
-    mimeType,
-  };
 }
 
 async function loadVideoBytes(filePath: string): Promise<{ videoBytes: string; mimeType: string }> {
-  const mimeType = resolveVideoMime(filePath);
-  let stats;
-  let content;
   try {
-    stats = await getFileStats(filePath);
-    content = await readFile(filePath);
-  } catch {
-    stats = await getDataFileStats(filePath);
-    content = await readDataFile(filePath);
+    const file = await loadMediaReference(filePath, { allowedTypes: ['video'] });
+    return {
+      videoBytes: file.videoBytes,
+      mimeType: file.mimeType,
+    };
+  } catch (error) {
+    throw new IntegrationServiceError(error instanceof Error ? error.message : `Video reference could not be loaded: ${filePath}`, 400);
   }
-  if (!stats.isFile) {
-    throw new IntegrationServiceError(`Not a file: ${filePath}`, 400);
-  }
-  return {
-    videoBytes: content.toString('base64'),
-    mimeType,
-  };
 }
 
 function withApiKeyInUri(uri: string, apiKey: string): string {

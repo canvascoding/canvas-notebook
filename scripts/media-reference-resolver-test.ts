@@ -28,6 +28,7 @@ async function main(): Promise<void> {
     await writeFixture('studio/assets/references/user-1/ref-abc.png');
     await writeFixture('user-uploads/studio-references/upload.png');
     await writeFixture('workspace/video/input.mp4');
+    await writeFixture('workspace/docs/readme.txt');
 
     const workspaceRelative = classifyMediaReference('09_asset_library/photo.jpeg');
     assert.equal(workspaceRelative?.kind, 'workspace_relative');
@@ -83,6 +84,11 @@ async function main(): Promise<void> {
     await assert.rejects(
       () => loadMediaReference('video/input.mp4', { allowedTypes: ['image'] }),
       /Unsupported video reference/,
+    );
+
+    await assert.rejects(
+      () => loadMediaReference('docs/readme.txt', { allowedTypes: ['image'] }),
+      /Unsupported media reference format/,
     );
 
     await assert.rejects(
