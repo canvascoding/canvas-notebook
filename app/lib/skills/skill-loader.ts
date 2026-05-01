@@ -4,11 +4,13 @@ import { AnthropicSkill, parseSkillFile, getSkillsDir, createDefaultSkillMd } fr
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { enableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
 // Re-export types and functions from the new anthropic module
-export type { AnthropicSkill, SkillCommand } from './skill-manifest-anthropic';
+export type { AnthropicSkill, SkillCommand, ValidationResult } from './skill-manifest-anthropic';
 export {
   parseSkillFile,
   getSkillsDir,
   createDefaultSkillMd,
+  parseFrontmatter,
+  validateFrontmatter,
 } from './skill-manifest-anthropic';
 export { getSkillsContext } from './skill-context';
 

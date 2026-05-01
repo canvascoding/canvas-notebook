@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { Wrench, BookOpen, Power, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Wrench, BookOpen, Power, CheckCircle2, XCircle, Loader2, Upload } from 'lucide-react';
 
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
+import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -18,42 +19,44 @@ export function SkillsPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSkill, setSelectedSkill] = useState<AnthropicSkill | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+
+  async function loadSkills() {
+    try {
+      setIsLoading(true);
+      const [skillsRes, statusRes] = await Promise.all([
+        fetch('/api/skills'),
+        fetch('/api/skills/status'),
+      ]);
+      const skillsData = await skillsRes.json();
+      const statusData = await statusRes.json();
+
+      if (skillsData.success) {
+        const allSkills: AnthropicSkill[] = skillsData.skills;
+        const enabledNames: string[] = statusData.success ? (statusData.enabledSkills || []) : [];
+        const allEnabled = statusData.success && statusData.allEnabled === true;
+
+        const merged = allSkills.map((skill: AnthropicSkill) => ({
+          ...skill,
+          enabled: allEnabled || enabledNames.includes(skill.name),
+        }));
+
+        const enabledCount = merged.filter((s: AnthropicSkill) => s.enabled).length;
+        setSkills(merged);
+        setStats({
+          total: merged.length,
+          enabled: enabledCount,
+          disabled: merged.length - enabledCount,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load skills:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function loadSkills() {
-      try {
-        const [skillsRes, statusRes] = await Promise.all([
-          fetch('/api/skills'),
-          fetch('/api/skills/status'),
-        ]);
-        const skillsData = await skillsRes.json();
-        const statusData = await statusRes.json();
-
-        if (skillsData.success) {
-          const allSkills: AnthropicSkill[] = skillsData.skills;
-          const enabledNames: string[] = statusData.success ? (statusData.enabledSkills || []) : [];
-          const allEnabled = statusData.success && statusData.allEnabled === true;
-
-          const merged = allSkills.map((skill: AnthropicSkill) => ({
-            ...skill,
-            enabled: allEnabled || enabledNames.includes(skill.name),
-          }));
-
-          const enabledCount = merged.filter((s: AnthropicSkill) => s.enabled).length;
-          setSkills(merged);
-          setStats({
-            total: merged.length,
-            enabled: enabledCount,
-            disabled: merged.length - enabledCount,
-          });
-        }
-      } catch (error) {
-        console.error('Failed to load skills:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
     loadSkills();
   }, []);
 
@@ -172,6 +175,15 @@ export function SkillsPanel() {
             <XCircle className="h-4 w-4 text-muted-foreground" />
             {t('actions.disableAll')}
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setUploadOpen(true)}
+            className="w-full gap-2 sm:w-auto"
+          >
+            <Upload className="h-4 w-4" />
+            {t('upload.button')}
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -261,6 +273,12 @@ export function SkillsPanel() {
         skill={selectedSkill}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+      />
+
+      <SkillUploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        onUploaded={loadSkills}
       />
     </>
   );

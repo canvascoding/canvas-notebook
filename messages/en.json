@@ -1169,6 +1169,20 @@
     "toggleSkill": "Toggle {name}",
     "licenseLabel": "License:",
     "docsButton": "Docs",
+    "upload": {
+      "button": "Upload Skill",
+      "title": "Upload New Skill",
+      "description": "Upload a SKILL.md file or paste its content. The skill will be automatically enabled.",
+      "fileLabel": "Select SKILL.md file",
+      "pasteLabel": "Or paste content:",
+      "validating": "Validating...",
+      "uploading": "Uploading...",
+      "success": "Skill \"{name}\" uploaded and enabled successfully!",
+      "error": "Upload failed: {error}",
+      "validationErrors": "Validation errors:",
+      "dropzone": "Drop SKILL.md here or click to select",
+      "alreadyExists": "Skill \"{name}\" already exists. Edit it in the skill editor instead."
+    },
     "emptyState": {
       "title": "No Skills Found",
       "description": "Skills will appear here once they are added to the /data/skills/ directory."
