@@ -1,8 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Download, FilePlus, FolderPlus, Pencil, Trash2, Copy, Move, Share2, ClipboardCopy, ClipboardPaste, CopyPlus } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { Download, FilePlus, FolderPlus, Pencil, Trash2, Copy, Move, Share2, ClipboardCopy, ClipboardPaste, CopyPlus, ImagePlus } from 'lucide-react';
+import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
@@ -40,8 +40,11 @@ function joinPath(parent: string, name: string) {
   return `${normalizedParent}/${normalizedName}`;
 }
 
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|gif|svg|bmp|tiff?)$/i;
+
 export function FileContextMenu() {
   const t = useTranslations('notebook');
+  const locale = useLocale();
   const contextMenuNode = useFileStore((s) => s.contextMenuNode);
   const contextMenuPosition = useFileStore((s) => s.contextMenuPosition);
   const isContextMenuOpen = useFileStore((s) => s.isContextMenuOpen);
@@ -91,6 +94,17 @@ export function FileContextMenu() {
   const isMarkdown = node
     ? node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name)
     : false;
+
+  const isImageFile = node
+    ? node.type === 'file' && IMAGE_EXTENSIONS.test(node.name)
+    : false;
+
+  const handleOpenInStudio = () => {
+    if (!node) return;
+    closeContextMenu();
+    const url = `/${locale}/studio/create?ref=${encodeURIComponent(node.path)}`;
+    window.open(url, '_blank');
+  };
 
   const handleNewFile = () => {
     closeContextMenu();
@@ -358,6 +372,12 @@ export function FileContextMenu() {
             <DropdownMenuItem onSelect={handleShare}>
               <Share2 className="h-4 w-4" />
               {t('share')}
+            </DropdownMenuItem>
+          )}
+          {isImageFile && (
+            <DropdownMenuItem onSelect={handleOpenInStudio}>
+              <ImagePlus className="h-4 w-4" />
+              {t('openInStudio')}
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
