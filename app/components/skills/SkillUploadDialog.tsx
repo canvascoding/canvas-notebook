@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { Upload, X, CheckCircle2, AlertCircle, FileText } from 'lucide-react';
+import { Upload, X, CheckCircle2, AlertCircle, FileText, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ValidationResult } from '@/app/lib/skills/skill-manifest-anthropic';
 
@@ -21,6 +21,7 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [uploadSuccess, setUploadSuccess] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
     setContent('');
@@ -40,6 +41,7 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
     setFileName(file.name);
     setUploadError('');
     setUploadSuccess('');
+    setValidationResult(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
@@ -49,6 +51,7 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
@@ -62,7 +65,8 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
     setIsDragging(true);
   }, []);
 
-  const handleDragLeave = useCallback(() => {
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
     setIsDragging(false);
   }, []);
 
@@ -124,51 +128,69 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={handleClose}>
       <div
-        className="bg-background border border-border rounded-lg shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+        className="bg-background border border-border rounded-lg shadow-lg max-w-xl w-full max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            {t('title')}
-          </h2>
-          <Button variant="ghost" size="sm" onClick={handleClose}>
+          <h2 className="text-lg font-semibold">{t('title')}</h2>
+          <Button variant="ghost" size="icon" onClick={handleClose} className="h-8 w-8">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="p-4 space-y-4">
-          <p className="text-sm text-muted-foreground">{t('description')}</p>
-
+        <div className="p-5 space-y-5">
           <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
               isDragging ? 'border-primary bg-primary/10' : 'border-muted-foreground/30 hover:border-primary/50'
             }`}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
+            onClick={() => fileInputRef.current?.click()}
           >
-            <FileText className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground mb-3">
-              {fileName ? fileName : t('dropzone')}
+            <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              {t('dropzone')}
             </p>
-            <label>
-              <input
-                type="file"
-                accept=".md,.txt"
-                onChange={handleFileInput}
-                className="hidden"
-              />
-              <Button variant="outline" size="sm" asChild>
-                <span>{t('fileLabel')}</span>
-              </Button>
-            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".md,.txt,.skill,.zip"
+              onChange={handleFileInput}
+              className="hidden"
+            />
           </div>
 
+          <div className="rounded-md bg-muted/50 border border-border p-3 space-y-1.5">
+            <div className="flex items-start gap-2">
+              <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <p className="text-xs font-medium text-foreground">{t('requirementsTitle')}</p>
+            </div>
+            <ul className="text-xs text-muted-foreground list-disc list-inside space-y-1 ml-6">
+              <li>{t('requirement1')}</li>
+              <li>{t('requirement2')}</li>
+            </ul>
+            <a
+              href="https://agentskills.io/skill-creation/quickstart"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline ml-6"
+            >
+              {t('readMore')}
+            </a>
+          </div>
+
+          {fileName && (
+            <div className="flex items-center gap-2 text-sm">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              <span className="truncate">{fileName}</span>
+            </div>
+          )}
+
           <div>
-            <label className="text-sm font-medium mb-1 block">{t('pasteLabel')}</label>
+            <label className="text-sm font-medium mb-1.5 block">{t('pasteLabel')}</label>
             <textarea
-              className="w-full min-h-[200px] rounded-md border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full min-h-[180px] rounded-md border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-y"
               value={content}
               onChange={(e) => {
                 setContent(e.target.value);
@@ -215,16 +237,9 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
             </div>
           )}
 
-          <div className="flex gap-2 justify-end">
+          <div className="flex gap-2 justify-end pt-2">
             <Button variant="outline" onClick={handleClose}>
               Cancel
-            </Button>
-            <Button
-              variant="outline"
-              onClick={validate}
-              disabled={!content.trim() || isUploading}
-            >
-              {isUploading ? t('validating') : 'Validate'}
             </Button>
             <Button
               onClick={upload}
