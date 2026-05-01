@@ -7,10 +7,6 @@ import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import {
   getDefaultModelForProvider,
   getAspectRatiosForProvider,
-  getVideoResolutionsForModel,
-  getVideoDurationsForModel,
-  type VideoResolution,
-  type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 import { useStudioGeneration } from '../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../hooks/useStudioPersonas';
@@ -18,7 +14,7 @@ import { useStudioPresets } from '../hooks/useStudioPresets';
 import { useStudioProducts } from '../hooks/useStudioProducts';
 import { useStudioStyles } from '../hooks/useStudioStyles';
 import type { StudioGeneration, StudioGenerationOutput } from '../types/generation';
-import type { StudioPreset } from '../types/presets';
+
 import { PromptBar } from './create/PromptBar';
 import { SaveToWorkspaceDialog } from './create/SaveToWorkspaceDialog';
 import { StudioPreview } from './create/StudioPreview';
@@ -27,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Sparkles, ImagePlus, Play, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, Package } from 'lucide-react';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
+import Image from 'next/image';
 
 interface StartingPoint {
   id: string;
@@ -88,7 +85,7 @@ export function StudioDashboard() {
   const personasHook = useStudioPersonas();
   const stylesHook = useStudioStyles();
   const presetsHook = useStudioPresets();
-  const { fetchGenerations, generations, recentlyCompletedIds } = generationHook;
+  const { fetchGenerations, generations } = generationHook;
   const { fetchProducts, products } = productsHook;
   const { fetchPersonas, personas } = personasHook;
   const { fetchStyles, styles } = stylesHook;
@@ -101,7 +98,7 @@ export function StudioDashboard() {
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
   const [selectedOutputIds, setSelectedOutputIds] = useState<string[]>([]);
-  const [selectionEnabled, setSelectionEnabled] = useState(false);
+  const [_selectionEnabled, setSelectionEnabled] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<'start' | 'end' | 'references'>('references');
@@ -203,7 +200,7 @@ export function StudioDashboard() {
     .filter((g) => g.status === 'completed' && g.outputs.some((o) => o.mediaUrl))
     .slice(0, 8);
 
-  const handleToggleOutputSelect = (outputId: string, selected: boolean) => {
+  const _handleToggleOutputSelect = (outputId: string, selected: boolean) => {
     if (selected) {
       setSelectedOutputIds((prev) => (prev.includes(outputId) ? prev : [...prev, outputId]));
     } else {
@@ -211,7 +208,7 @@ export function StudioDashboard() {
     }
   };
 
-  const handleSaveToWorkspace = () => {
+  const _handleSaveToWorkspace = () => {
     if (selectedOutputIds.length === 0) return;
     setShowSaveDialog(true);
   };
@@ -495,11 +492,14 @@ export function StudioDashboard() {
                       className="h-full w-full object-cover transition-transform group-hover:scale-105"
                     />
                   ) : (
-                    <img
+                    <Image
                       src={toPreviewUrl(output.filePath!, 400, { preset: 'mini' })}
                       alt={generation.prompt || 'Studio output'}
                       className="h-full w-full object-cover transition-transform group-hover:scale-105"
                       loading="lazy"
+                      width={400}
+                      height={400}
+                      unoptimized
                     />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />

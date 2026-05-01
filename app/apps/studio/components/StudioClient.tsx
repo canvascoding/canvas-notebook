@@ -7,7 +7,7 @@ import { BulkGenerateView } from './bulk/BulkGenerateView';
 import { StudioDashboard } from './StudioDashboard';
 import { CreateView } from './create/CreateView';
 import { ModelLibrary } from './models/ModelLibrary';
-import { ImagePlus, Play, Layers, LayoutGrid, Sparkles } from 'lucide-react';
+import { ImagePlus, Layers, LayoutGrid, Sparkles } from 'lucide-react';
 
 const tabs = [
   { key: 'dashboard', path: '/studio', icon: Sparkles },

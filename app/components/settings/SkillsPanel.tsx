@@ -5,7 +5,6 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import {
   Wrench,
-  Power,
   CheckCircle2,
   XCircle,
   Loader2,

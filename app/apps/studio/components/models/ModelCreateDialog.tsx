@@ -119,7 +119,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
 
   const totalImageCount = pendingImages.length + pendingReferenceUrls.filter((r) => r.status === 'success').length;
 
-  const handleAddReferenceUrl = useCallback(async (url: string) => {
+  const _handleAddReferenceUrl = useCallback(async (url: string) => {
     const id = crypto.randomUUID();
     const tempItem: PendingReferenceUrl = {
       id,
@@ -183,12 +183,6 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
 
     setPendingImages((prev) => [...prev, ...newImages].slice(0, 10));
   }, [totalImageCount]);
-
-  const handlePickerUrlAdd = useCallback((url: string) => {
-    if (totalImageCount >= 10) return;
-    if (pendingReferenceUrls.some((ref) => ref.originalUrl === url)) return;
-    handleAddReferenceUrl(url);
-  }, [totalImageCount, pendingReferenceUrls, handleAddReferenceUrl]);
 
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
@@ -327,7 +321,6 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
         open={showPicker}
         onOpenChange={setShowPicker}
         onConfirm={handlePickerConfirm}
-        onUrlAdd={handlePickerUrlAdd}
       />
     </div>
   );

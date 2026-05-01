@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Dialog,
@@ -13,12 +13,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckSquare2, CircleDot, X } from 'lucide-react';
+import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckSquare2, CircleDot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import { ReferenceHoverCard } from './ReferenceHoverCard';
 
 type Source = 'workspace' | 'studio' | 'upload' | 'urls';
 
@@ -34,7 +35,6 @@ interface ReferencePickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (paths: string[]) => void;
-  onUrlAdd?: (url: string) => void;
   multiple?: boolean;
   maxSelection?: number;
 }
@@ -44,12 +44,74 @@ function isImage(name: string) {
   const ext = name.split('.').pop()?.toLowerCase();
   return IMAGE_EXTS.has(ext || '');
 }
+
 function walkImages(nodes: FileNode[], list: FileNode[] = []) {
   for (const node of nodes) {
     if (node.type === 'file' && isImage(node.name)) list.push(node);
     if (node.children?.length) walkImages(node.children, list);
   }
   return list;
+}
+
+function pruneEmptyImageDirs(nodes: FileNode[]): FileNode[] {
+  return nodes
+    .map((node) => {
+      if (node.type === 'file') return node;
+      const prunedChildren = node.children ? pruneEmptyImageDirs(node.children) : [];
+      return { ...node, children: prunedChildren };
+    })
+    .filter((node) => {
+      if (node.type === 'file') return true;
+      return (node.children?.length ?? 0) > 0;
+    });
+}
+
+function filterTreeBySearch(nodes: FileNode[], query: string): FileNode[] {
+  const lowerQuery = query.toLowerCase();
+  return nodes
+    .map((node) => {
+      if (node.type === 'file') {
+        return isImage(node.name) && node.name.toLowerCase().includes(lowerQuery) ? node : null;
+      }
+      const filteredChildren = node.children ? filterTreeBySearch(node.children, query) : [];
+      return { ...node, children: filteredChildren };
+    })
+    .filter((node): node is FileNode => {
+      if (node === null) return false;
+      if (node.type === 'file') return true;
+      return (node.children?.length ?? 0) > 0;
+    });
+}
+
+function SelectionChip({
+  asset,
+  onRemove,
+}: {
+  asset: ImageAsset;
+  onRemove: () => void;
+}) {
+  return (
+    <ReferenceHoverCard
+      name={asset.name}
+      type="file"
+      thumbnailPath={asset.path}
+      fallbackIcon={<ImageIcon className="h-4 w-4 text-rose-600" />}
+      bgColor="bg-rose-50"
+      onRemove={onRemove}
+    >
+      <div className="h-9 w-9 rounded-md border-2 border-rose-400 bg-rose-50 flex items-center justify-center overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={toPreviewUrl(asset.path, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+      </div>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
+      >
+        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+      </button>
+    </ReferenceHoverCard>
+  );
 }
 
 function TreeNode({
@@ -153,7 +215,17 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   >(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
 
-  const loadStudioAssets = async () => {
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const displayTree = useMemo(() => {
+    let result = pruneEmptyImageDirs(tree);
+    if (search.trim()) {
+      result = filterTreeBySearch(result, search.trim());
+    }
+    return result;
+  }, [tree, search]);
+
+  const loadStudioAssets = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -169,7 +241,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [search]);
 
   const loadWorkspaceTree = async () => {
     setIsTreeLoading(true);
@@ -258,7 +330,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       .filter(Boolean) as ImageAsset[];
   }, [assets, selectedPaths, tree]);
 
-  const handleUploadFiles = async (files: FileList | null, convertParams?: (ConvertParams | null)[]) => {
+  const handleUploadFiles = useCallback(async (files: FileList | null, convertParams?: (ConvertParams | null)[]) => {
     if (!files || files.length === 0) return;
     setIsUploading(true);
     setError(null);
@@ -295,7 +367,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     } finally {
       setIsUploading(false);
     }
-  };
+  }, [multiple, maxSelection, loadStudioAssets]);
 
   const handleImagePreprocessConfirm = async (convertParams: (ConvertParams | null)[]) => {
     if (imagePreprocessPendingFiles.length === 0) return;
@@ -354,7 +426,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     setImagePreprocessPendingFiles([]);
   };
 
-  const preprocessFileSelection = async (files: FileList) => {
+  const preprocessFileSelection = useCallback(async (files: FileList) => {
     const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
     const HEIC_EXTS = new Set(['heic', 'heif']);
     const SIZE_THRESHOLD = 1_500_000;
@@ -378,12 +450,62 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       setImagePreprocessPendingFiles(preprocessList.map((f) => f.file));
       setImagePreprocessFiles(preprocessList);
     }
-  };
+  }, [handleUploadFiles]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const relatedTarget = e.relatedTarget as Node | null;
+    const currentTarget = e.currentTarget as Node;
+    if (!relatedTarget || !currentTarget.contains(relatedTarget)) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      void preprocessFileSelection(files);
+    }
+  }, [preprocessFileSelection]);
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex flex-col w-[95vw] max-w-4xl max-h-[90vh] overflow-hidden border border-border bg-card">
+        <DialogContent
+          className={cn(
+            'flex flex-col w-[95vw] max-w-4xl max-h-[90vh] overflow-hidden border bg-card relative',
+            isDragOver ? 'border-primary ring-2 ring-primary/30' : 'border-border'
+          )}
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {isDragOver && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm pointer-events-none">
+              <div className="flex flex-col items-center gap-2 text-primary">
+                <Upload className="h-8 w-8" />
+                <p className="text-sm font-medium">{t('upload.dropHere')}</p>
+              </div>
+            </div>
+          )}
           <DialogHeader>
             <DialogTitle>{t('title')}</DialogTitle>
             <DialogDescription>{t('description')}</DialogDescription>
@@ -463,11 +585,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {t('loadingWorkspace')}
                   </div>
-                ) : tree.length === 0 ? (
-                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">{t('emptyWorkspace')}</div>
+                ) : displayTree.length === 0 ? (
+                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">{search.trim() ? t('noSearchResults') : t('emptyWorkspace')}</div>
                 ) : (
                   <div className="space-y-0.5">
-                    {tree.map((node) => (
+                    {displayTree.map((node) => (
                       <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} multiple={multiple} />
                     ))}
                   </div>
@@ -477,9 +599,15 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
 
             {/* Upload tab */}
             <TabsContent value="upload" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex overflow-hidden">
-              <div className="flex flex-col flex-1 items-center justify-center border border-dashed border-border bg-background rounded-md p-6 gap-4">
+              <div
+                className={cn(
+                  'flex flex-col flex-1 items-center justify-center border border-dashed bg-background rounded-md p-6 gap-4 transition-colors',
+                  isDragOver ? 'border-primary bg-primary/5' : 'border-border'
+                )}
+              >
                 <div className="text-center space-y-1">
                   <p className="text-sm text-muted-foreground">{t('upload.hint')}</p>
+                  <p className="text-xs text-muted-foreground">{t('upload.dragHint')}</p>
                 </div>
                 <Button type="button" variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
                   {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -552,19 +680,14 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
             </TabsContent>
           </Tabs>
 
-          {/* Selection preview - bounded height, scrollable */}
+          {/* Selection preview with hover card chips */}
           {currentSelectionDisplay.length > 0 && (
             <div className="shrink-0 pt-4 border-t border-border max-h-32 overflow-y-auto">
               <div className="flex flex-wrap gap-2">
                 {currentSelectionDisplay.map((asset) => (
-                  <button key={asset.path} type="button" onClick={() => toggleSelect(asset.path)}
-                    className="relative group overflow-hidden border rounded-md transition hover:border-destructive" title={asset.name}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={asset.previewUrl} alt={asset.name} className="h-10 w-10 object-cover" />
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-50 bg-black/30">
-                      <X className="h-4 w-4 text-white" />
-                    </div>
-                  </button>
+                  <div key={asset.path} className="relative inline-flex">
+                    <SelectionChip asset={asset} onRemove={() => toggleSelect(asset.path)} />
+                  </div>
                 ))}
               </div>
             </div>

@@ -77,7 +77,7 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
     }
   }, [handleFile]);
 
-  const validate = useCallback(async () => {
+  const _validate = useCallback(async () => {
     if (!content.trim()) return;
     setUploadError('');
     setIsUploading(true);
