@@ -1162,7 +1162,7 @@ export default function CanvasAgentChat({
     }
 
     previousMessageCountRef.current = messages.length;
-  }, [messages, scrollToBottom]);
+  }, [messages.length, scrollToBottom]);
 
   const fetchHistory = useCallback(async () => {
     setIsLoadingHistory(true);
