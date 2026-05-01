@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
+import { ReferenceHoverCard } from './ReferenceHoverCard';
 import type { StudioPreset } from '../../types/presets';
 import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/models';
 
@@ -221,63 +222,116 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
       {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0) ? (
         <div className="mb-3 flex flex-wrap gap-2">
           {value.productRefs.map((product) => (
-            <ReferenceChip
+            <ReferenceHoverCard
               key={product.id}
-              label={`@product ${product.name}`}
+              name={product.name}
+              type="product"
+              thumbnailPath={productMap.get(product.id)?.thumbnailPath}
+              fallbackIcon={<Package2 className="h-4 w-4 text-amber-600" />}
               borderColor="border-amber-400"
               bgColor="bg-amber-50"
-              thumbnailUrl={productMap.get(product.id)?.thumbnailPath ? toPreviewUrl(productMap.get(product.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
-              icon={<Package2 className="h-4 w-4 text-amber-600" />}
               onRemove={() => onReferenceRemove('product', product.id)}
-            />
+            >
+              <ReferenceChip
+                label={`@product ${product.name}`}
+                borderColor="border-amber-400"
+                bgColor="bg-amber-50"
+                thumbnailUrl={productMap.get(product.id)?.thumbnailPath ? toPreviewUrl(productMap.get(product.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
+                icon={<Package2 className="h-4 w-4 text-amber-600" />}
+                onRemove={() => onReferenceRemove('product', product.id)}
+              />
+            </ReferenceHoverCard>
           ))}
           {value.personaRefs.map((persona) => (
-            <ReferenceChip
+            <ReferenceHoverCard
               key={persona.id}
-              label={`@persona ${persona.name}`}
+              name={persona.name}
+              type="persona"
+              thumbnailPath={personaMap.get(persona.id)?.thumbnailPath}
+              fallbackIcon={<UserRound className="h-4 w-4 text-sky-600" />}
               borderColor="border-sky-400"
               bgColor="bg-sky-50"
-              thumbnailUrl={personaMap.get(persona.id)?.thumbnailPath ? toPreviewUrl(personaMap.get(persona.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
-              icon={<UserRound className="h-4 w-4 text-sky-600" />}
               onRemove={() => onReferenceRemove('persona', persona.id)}
-            />
+            >
+              <ReferenceChip
+                label={`@persona ${persona.name}`}
+                borderColor="border-sky-400"
+                bgColor="bg-sky-50"
+                thumbnailUrl={personaMap.get(persona.id)?.thumbnailPath ? toPreviewUrl(personaMap.get(persona.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
+                icon={<UserRound className="h-4 w-4 text-sky-600" />}
+                onRemove={() => onReferenceRemove('persona', persona.id)}
+              />
+            </ReferenceHoverCard>
           ))}
           {value.styleRefs.map((style) => (
-            <ReferenceChip
+            <ReferenceHoverCard
               key={style.id}
-              label={`@style ${style.name}`}
+              name={style.name}
+              type="style"
+              thumbnailPath={styleMap.get(style.id)?.thumbnailPath}
+              fallbackIcon={<LayoutTemplate className="h-4 w-4 text-emerald-600" />}
               borderColor="border-emerald-400"
               bgColor="bg-emerald-50"
-              thumbnailUrl={styleMap.get(style.id)?.thumbnailPath ? toPreviewUrl(styleMap.get(style.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
-              icon={<LayoutTemplate className="h-4 w-4 text-emerald-600" />}
               onRemove={() => onReferenceRemove('style', style.id)}
-            />
+            >
+              <ReferenceChip
+                label={`@style ${style.name}`}
+                borderColor="border-emerald-400"
+                bgColor="bg-emerald-50"
+                thumbnailUrl={styleMap.get(style.id)?.thumbnailPath ? toPreviewUrl(styleMap.get(style.id)!.thumbnailPath!, 64, { preset: 'mini' }) : undefined}
+                icon={<LayoutTemplate className="h-4 w-4 text-emerald-600" />}
+                onRemove={() => onReferenceRemove('style', style.id)}
+              />
+            </ReferenceHoverCard>
           ))}
           {value.presetRef ? (
-            <ReferenceChip
+            <ReferenceHoverCard
               key={value.presetRef.id}
-              label={`@studio ${value.presetRef.name}`}
-              borderColor="border-violet-400"
-              bgColor="bg-violet-50"
-              thumbnailUrl={value.presetRef.previewImagePath ? toPreviewUrl(value.presetRef.previewImagePath, 64, { preset: 'mini' }) : undefined}
-              icon={(() => {
+              name={value.presetRef.name}
+              type="preset"
+              thumbnailPath={value.presetRef.previewImagePath ?? undefined}
+              fallbackIcon={(() => {
                 const CategoryIcon = PRESET_CATEGORY_ICONS[value.presetRef.category ?? ''] ?? Layers;
                 return <CategoryIcon className="h-4 w-4 text-violet-600" />;
               })()}
+              borderColor="border-violet-400"
+              bgColor="bg-violet-50"
               onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')}
-            />
+            >
+              <ReferenceChip
+                label={`@studio ${value.presetRef.name}`}
+                borderColor="border-violet-400"
+                bgColor="bg-violet-50"
+                thumbnailUrl={value.presetRef.previewImagePath ? toPreviewUrl(value.presetRef.previewImagePath, 64, { preset: 'mini' }) : undefined}
+                icon={(() => {
+                  const CategoryIcon = PRESET_CATEGORY_ICONS[value.presetRef.category ?? ''] ?? Layers;
+                  return <CategoryIcon className="h-4 w-4 text-violet-600" />;
+                })()}
+                onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')}
+              />
+            </ReferenceHoverCard>
           ) : null}
           {value.fileRefs.map((file) => (
-            <ReferenceChip
+            <ReferenceHoverCard
               key={file.id}
-              label={`@file ${file.name}`}
+              name={file.name}
+              type="file"
+              thumbnailPath={file.thumbnailPath}
+              fallbackIcon={<ImageIcon className="h-4 w-4 text-rose-600" />}
               borderColor="border-rose-400"
               bgColor="bg-rose-50"
-              thumbnailUrl={file.thumbnailPath ? toPreviewUrl(file.thumbnailPath, 64, { preset: 'mini' }) : undefined}
-              icon={<ImageIcon className="h-4 w-4 text-rose-600" />}
               onRemove={() => onReferenceRemove('file', file.id)}
-              isLoading={file.status === 'loading'}
-            />
+            >
+              <ReferenceChip
+                label={`@file ${file.name}`}
+                borderColor="border-rose-400"
+                bgColor="bg-rose-50"
+                thumbnailUrl={file.thumbnailPath ? toPreviewUrl(file.thumbnailPath, 64, { preset: 'mini' }) : undefined}
+                icon={<ImageIcon className="h-4 w-4 text-rose-600" />}
+                onRemove={() => onReferenceRemove('file', file.id)}
+                isLoading={file.status === 'loading'}
+              />
+            </ReferenceHoverCard>
           ))}
 
         </div>
