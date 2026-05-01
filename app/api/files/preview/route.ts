@@ -50,6 +50,10 @@ function buildMediaUrl(filePath: string) {
   return `/media/${encodedPath}`;
 }
 
+function buildSameOriginRedirect(request: NextRequest, relativePath: string): URL {
+  return new URL(relativePath, request.url);
+}
+
 function getPreviewPreset(rawPreset: string | null): PreviewPreset {
   return rawPreset === 'mini' ? 'mini' : 'default';
 }
@@ -205,11 +209,7 @@ export async function GET(request: NextRequest) {
     const extension = path.posix.extname(filePath).slice(1).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(extension)) {
       const mediaPath = buildMediaUrl(filePath);
-      // Use X-Forwarded headers to get the actual frontend URL
-      const proto = request.headers.get('x-forwarded-proto') || 'https';
-      const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'chat.canvasstudios.store';
-      const redirectUrl = new URL(mediaPath, `${proto}://${host}`);
-      return NextResponse.redirect(redirectUrl);
+      return NextResponse.redirect(buildSameOriginRedirect(request, mediaPath));
     }
 
     // Resolve the full filesystem path based on the virtual path prefix
@@ -288,12 +288,8 @@ export async function GET(request: NextRequest) {
       } catch (error) {
         await fs.rm(tmpFile, { force: true }).catch(() => {});
         const mediaPath = buildMediaUrl(filePath);
-        // Use X-Forwarded headers to get the actual frontend URL
-        const proto = request.headers.get('x-forwarded-proto') || 'https';
-        const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'chat.canvasstudios.store';
-        const redirectUrl = new URL(mediaPath, `${proto}://${host}`);
         console.error('[API] Preview error:', error);
-        return NextResponse.redirect(redirectUrl);
+        return NextResponse.redirect(buildSameOriginRedirect(request, mediaPath));
       }
     }
 
