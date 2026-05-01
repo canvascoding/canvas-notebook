@@ -253,6 +253,10 @@ function assertAllowedType(ref: ResolvedMediaReference, allowedTypes: MediaRefer
     return;
   }
 
+  if (ref.kind !== 'external_url' && ref.mimeType === 'application/octet-stream') {
+    throw new Error(`Unsupported media reference format: ${ref.sourceId}`);
+  }
+
   if (!allowedTypes.includes(ref.mediaType)) {
     throw new Error(`Unsupported ${ref.mediaType} reference: ${ref.sourceId}`);
   }
@@ -295,9 +299,12 @@ async function readFilesystemReference(ref: ResolvedMediaReference, maxBytes: nu
   throw new Error(`Reference file not found: ${ref.sourceId}`);
 }
 
-async function fetchExternalReference(ref: ResolvedMediaReference, maxBytes: number, timeoutMs: number): Promise<Buffer> {
+async function fetchExternalReference(ref: ResolvedMediaReference, maxBytes: number, timeoutMs: number): Promise<{ buffer: Buffer; mimeType: string }> {
   const response = await fetchExternalResourceSafely(ref.sourceId, { maxBytes, timeoutMs });
-  return response.buffer;
+  return {
+    buffer: response.buffer,
+    mimeType: response.contentType.split(';', 1)[0]?.trim() || 'application/octet-stream',
+  };
 }
 
 export async function loadMediaReference(input: string, options: LoadMediaReferenceOptions = {}): Promise<LoadedMediaFile> {
@@ -309,9 +316,18 @@ export async function loadMediaReference(input: string, options: LoadMediaRefere
   assertAllowedType(ref, options.allowedTypes);
 
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
-  const buffer = ref.kind === 'external_url'
+  const loaded = ref.kind === 'external_url'
     ? await fetchExternalReference(ref, maxBytes, options.timeoutMs ?? DEFAULT_EXTERNAL_TIMEOUT_MS)
-    : (await readFilesystemReference(ref, maxBytes)).buffer;
+    : { buffer: (await readFilesystemReference(ref, maxBytes)).buffer, mimeType: ref.mimeType };
+  const buffer = loaded.buffer;
+  const mimeType = loaded.mimeType === 'application/octet-stream' ? ref.mimeType : loaded.mimeType;
+  if (options.allowedTypes?.length) {
+    const matchesAllowedType = (options.allowedTypes.includes('image') && mimeType.startsWith('image/')) ||
+      (options.allowedTypes.includes('video') && mimeType.startsWith('video/'));
+    if (!matchesAllowedType) {
+      throw new Error(`Unsupported media reference format: ${ref.sourceId}`);
+    }
+  }
 
   if (buffer.length <= 0) {
     throw new Error(`Reference file is empty: ${ref.sourceId}`);
@@ -324,7 +340,7 @@ export async function loadMediaReference(input: string, options: LoadMediaRefere
     bytes: buffer,
     imageBytes: buffer.toString('base64'),
     videoBytes: buffer.toString('base64'),
-    mimeType: ref.mimeType === 'application/octet-stream' ? (ref.mediaType === 'video' ? 'video/mp4' : 'image/png') : ref.mimeType,
+    mimeType: mimeType === 'application/octet-stream' ? (ref.mediaType === 'video' ? 'video/mp4' : 'image/png') : mimeType,
     fileName: ref.fileName,
     sourceKind: ref.kind,
     sourceId: ref.sourceId,

@@ -38,8 +38,7 @@ import {
   type SeedanceReferenceImage,
   type SeedanceResolution,
 } from '@/app/lib/integrations/seedance-generation-service';
-import { loadMediaReferences } from '@/app/lib/integrations/media-reference-resolver';
-import { getFileStats, readFile, readDataFile, getDataFileStats } from '@/app/lib/filesystem/workspace-files';
+import { loadMediaReference, loadMediaReferences } from '@/app/lib/integrations/media-reference-resolver';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 
@@ -1061,28 +1060,19 @@ async function generateStudioVideo(
 }
 
 async function loadSeedanceFrame(filePath: string): Promise<SeedanceReferenceImage> {
-  let stats;
-  let content;
   try {
-    stats = await getFileStats(filePath);
-    content = await readFile(filePath);
-  } catch {
-    stats = await getDataFileStats(filePath);
-    content = await readDataFile(filePath);
-  }
-
-  if (!stats.isFile) {
+    const file = await loadMediaReference(filePath, { allowedTypes: ['image'] });
+    return {
+      imageBytes: file.imageBytes,
+      mimeType: file.mimeType,
+      fileName: file.fileName,
+    };
+  } catch (error) {
     throw new StudioServiceError(
-      `Not a file: ${filePath}`,
+      error instanceof Error ? error.message : `Frame file could not be loaded: ${filePath}`,
       `Frame-Datei '${filePath}' wurde nicht gefunden oder ist keine Datei.`,
     );
   }
-
-  return {
-    imageBytes: content.toString('base64'),
-    mimeType: mimeFromPath(filePath),
-    fileName: filePath.split('/').pop() || 'frame.png',
-  };
 }
 
 function toSeedanceAspectRatio(aspectRatio: string): SeedanceAspectRatio {
