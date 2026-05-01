@@ -228,7 +228,6 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
               type="product"
               thumbnailPath={productMap.get(product.id)?.thumbnailPath}
               fallbackIcon={<Package2 className="h-4 w-4 text-amber-600" />}
-              borderColor="border-amber-400"
               bgColor="bg-amber-50"
               onRemove={() => onReferenceRemove('product', product.id)}
             >
@@ -249,7 +248,6 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
               type="persona"
               thumbnailPath={personaMap.get(persona.id)?.thumbnailPath}
               fallbackIcon={<UserRound className="h-4 w-4 text-sky-600" />}
-              borderColor="border-sky-400"
               bgColor="bg-sky-50"
               onRemove={() => onReferenceRemove('persona', persona.id)}
             >
@@ -270,7 +268,6 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
               type="style"
               thumbnailPath={styleMap.get(style.id)?.thumbnailPath}
               fallbackIcon={<LayoutTemplate className="h-4 w-4 text-emerald-600" />}
-              borderColor="border-emerald-400"
               bgColor="bg-emerald-50"
               onRemove={() => onReferenceRemove('style', style.id)}
             >
@@ -294,7 +291,6 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
                 const CategoryIcon = PRESET_CATEGORY_ICONS[value.presetRef.category ?? ''] ?? Layers;
                 return <CategoryIcon className="h-4 w-4 text-violet-600" />;
               })()}
-              borderColor="border-violet-400"
               bgColor="bg-violet-50"
               onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')}
             >
@@ -318,7 +314,6 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
               type="file"
               thumbnailPath={file.thumbnailPath}
               fallbackIcon={<ImageIcon className="h-4 w-4 text-rose-600" />}
-              borderColor="border-rose-400"
               bgColor="bg-rose-50"
               onRemove={() => onReferenceRemove('file', file.id)}
             >

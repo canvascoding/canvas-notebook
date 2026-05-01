@@ -3,14 +3,13 @@
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
-import { Trash2, X } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import {
   Dialog,
   DialogContent,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -23,7 +22,6 @@ interface ReferenceHoverCardProps {
   type: ReferenceType;
   thumbnailPath?: string;
   fallbackIcon: React.ReactNode;
-  borderColor: string;
   bgColor: string;
   onRemove: () => void;
 }
@@ -117,7 +115,6 @@ export function ReferenceHoverCard({
   type,
   thumbnailPath,
   fallbackIcon,
-  borderColor,
   bgColor,
   onRemove,
 }: ReferenceHoverCardProps) {
