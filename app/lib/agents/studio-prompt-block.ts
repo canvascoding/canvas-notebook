@@ -37,7 +37,7 @@ When the user asks you to modify or refine an existing image:
 4. The generation will create a new output while preserving the original.
 
 ### How to use references for video
-For videos, use **start_frame_path** and **end_frame_path** only when the user asks for a start/end frame animation. For general visual references or images that the video should follow, put the image file path(s) in **extra_reference_urls**.
+For videos, use **start_frame_path** and **end_frame_path** only when the user asks for a start/end frame animation. These frame fields accept the same local Studio/workspace image path formats listed above. For general visual references or images that the video should follow, put the image file path(s) in **extra_reference_urls**.
 
 ### Guidelines
 - When the user mentions a product, character, or style, use the appropriate list tool to find the correct ID before generating.

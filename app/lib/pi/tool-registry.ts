@@ -278,27 +278,16 @@ function normalizeAutomationWorkspacePaths(paths: string[] | undefined): string[
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function normalizeWorkspaceRelativePath(value: string | undefined, fieldName: string): string | undefined {
+function normalizeMediaReferenceValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) {
     return undefined;
   }
 
-  const normalizedPath = path.posix.normalize(trimmed).replace(/^\.?\//, '');
-  if (
-    !normalizedPath ||
-    normalizedPath === '.' ||
-    normalizedPath.startsWith('/') ||
-    normalizedPath.startsWith('../') ||
-    normalizedPath.includes('/../')
-  ) {
-    throw new Error(`${fieldName} must be a workspace-relative path.`);
-  }
-
-  return normalizedPath;
+  return trimmed.replace(/^\.\/+/, '');
 }
 
-function normalizeWorkspaceRelativePathList(values: string[] | undefined, fieldName: string): string[] {
+function normalizeMediaReferenceList(values: string[] | undefined): string[] {
   if (!Array.isArray(values)) {
     return [];
   }
@@ -307,7 +296,7 @@ function normalizeWorkspaceRelativePathList(values: string[] | undefined, fieldN
   const seen = new Set<string>();
 
   for (const value of values) {
-    const normalizedPath = normalizeWorkspaceRelativePath(value, fieldName);
+    const normalizedPath = normalizeMediaReferenceValue(value);
     if (!normalizedPath || seen.has(normalizedPath)) {
       continue;
     }
@@ -328,7 +317,7 @@ export function createImageGenerationTool(
     name: 'image_generation',
     label: 'Generating images',
     description:
-      'Generates images using the local Canvas image-generation service. Use this direct PI tool for image creation, image variations from workspace-relative reference images, and style-guided image generation. Supports both Google Gemini and OpenAI GPT Image providers. Output: workspace/image-generation/generations/. After a successful result with mediaUrl, the assistant should also embed the generated image in the normal chat reply as Markdown `![generated image](URL)` and still include the URL or path in text.',
+      'Generates images using the local Canvas image-generation service. Use this direct PI tool for image creation, image variations from reference images, and style-guided image generation. Reference images accept workspace paths, /api/media/... URLs, Studio media paths, and https image URLs. Supports both Google Gemini and OpenAI GPT Image providers. Output: workspace/image-generation/generations/. After a successful result with mediaUrl, the assistant should also embed the generated image in the normal chat reply as Markdown `![generated image](URL)` and still include the URL or path in text.',
     parameters: Type.Object({
       prompt: Type.Optional(Type.String({ description: 'Text description of the image to generate. Optional when reference_image_paths is provided.' })),
       count: Type.Number({ description: 'Number of images to generate (1-10, max depends on provider)' }),
@@ -336,7 +325,7 @@ export function createImageGenerationTool(
       model: Type.Optional(Type.String({ description: 'Model ID. Gemini: gemini-3.1-flash-image-preview (best, 14 refs), gemini-2.5-flash-image (fast, 3 refs). OpenAI: gpt-image-2 (best), gpt-image-1.5.' })),
       reference_image_paths: Type.Optional(
         Type.Array(Type.String(), {
-          description: 'Workspace-relative reference image paths. Optional, but at least one prompt or reference_image_paths entry is required.',
+          description: 'Reference image paths or URLs. Accepts workspace-relative paths, /api/media/... URLs, Studio media paths, and https image URLs. Optional, but at least one prompt or reference_image_paths entry is required.',
         }),
       ),
       provider: Type.Optional(Type.String({ description: 'Provider: gemini or openai. Default: gemini' })),
@@ -348,10 +337,7 @@ export function createImageGenerationTool(
       const { prompt, aspect_ratio, count, model, reference_image_paths, provider, quality, output_format, background } = params as ImageGenerationToolParams;
       try {
         const normalizedPrompt = normalizeOptionalString(prompt);
-        const referenceImagePaths = normalizeWorkspaceRelativePathList(
-          reference_image_paths,
-          'reference_image_paths',
-        );
+        const referenceImagePaths = normalizeMediaReferenceList(reference_image_paths);
 
         if (!normalizedPrompt && referenceImagePaths.length === 0) {
           throw new Error('Either prompt or reference_image_paths is required.');
@@ -406,7 +392,7 @@ export function createVideoGenerationTool(
     name: 'video_generation',
     label: 'Generating videos',
     description:
-      'Generates videos using the local Canvas video-generation service. Use this direct PI tool for text-to-video, frames-to-video with workspace-relative start/end frames, references-to-video with workspace-relative image references, and extend-video with a workspace-relative input video. Output: workspace/veo-studio/video-generation/. Note: Takes 3-10 minutes. Models: veo-3.1-generate-preview, veo-3.1-fast-generate-preview (default), veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001.',
+      'Generates videos using the local Canvas video-generation service. Use this direct PI tool for text-to-video, frames-to-video with start/end frames, references-to-video with image references, and extend-video with an input video. Media references accept workspace paths, /api/media/... URLs, Studio media paths, and https image URLs where supported. Output: workspace/veo-studio/video-generation/. Note: Takes 3-10 minutes. Models: veo-3.1-generate-preview, veo-3.1-fast-generate-preview (default), veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001.',
     parameters: Type.Object({
       prompt: Type.Optional(Type.String({ description: 'Text description of the video to generate. Required for text_to_video and references_to_video.' })),
       mode: Type.Optional(
@@ -444,18 +430,18 @@ export function createVideoGenerationTool(
         }),
       ),
       start_frame_path: Type.Optional(
-        Type.String({ description: 'Workspace-relative path to the start frame. Required for frames_to_video.' }),
+        Type.String({ description: 'Path or URL to the start frame. Accepts workspace-relative paths, /api/media/... URLs, and Studio media paths. Required for frames_to_video.' }),
       ),
       end_frame_path: Type.Optional(
-        Type.String({ description: 'Workspace-relative path to the end frame. Optional for frames_to_video.' }),
+        Type.String({ description: 'Path or URL to the end frame. Accepts workspace-relative paths, /api/media/... URLs, and Studio media paths. Optional for frames_to_video.' }),
       ),
       reference_image_paths: Type.Optional(
         Type.Array(Type.String(), {
-          description: 'Workspace-relative reference image paths for references_to_video mode.',
+          description: 'Reference image paths or URLs for references_to_video mode. Accepts workspace-relative paths, /api/media/... URLs, Studio media paths, and https image URLs.',
         }),
       ),
       input_video_path: Type.Optional(
-        Type.String({ description: 'Workspace-relative path to the input video. Required for extend_video.' }),
+        Type.String({ description: 'Path or URL to the input video. Accepts workspace-relative paths and /api/media/... URLs. Required for extend_video.' }),
       ),
       is_looping: Type.Optional(
         Type.Boolean({ description: 'When true in frames_to_video mode, reuse start_frame_path as the last frame.' }),
@@ -518,13 +504,10 @@ export function createVideoGenerationTool(
 
         const normalizedPrompt = normalizeOptionalString(prompt);
         const selectedMode = mode ?? 'text_to_video';
-        const startFramePath = normalizeWorkspaceRelativePath(start_frame_path, 'start_frame_path');
-        const endFramePath = normalizeWorkspaceRelativePath(end_frame_path, 'end_frame_path');
-        const referenceImagePaths = normalizeWorkspaceRelativePathList(
-          reference_image_paths,
-          'reference_image_paths',
-        );
-        const inputVideoPath = normalizeWorkspaceRelativePath(input_video_path, 'input_video_path');
+        const startFramePath = normalizeMediaReferenceValue(start_frame_path);
+        const endFramePath = normalizeMediaReferenceValue(end_frame_path);
+        const referenceImagePaths = normalizeMediaReferenceList(reference_image_paths);
+        const inputVideoPath = normalizeMediaReferenceValue(input_video_path);
 
         if (selectedMode === 'text_to_video' && !normalizedPrompt) {
           throw new Error('prompt is required for text_to_video mode.');
@@ -679,8 +662,8 @@ export function createStudioGenerateVideoTool(
       model: Type.Optional(Type.String({ description: 'Model ID. Veo: veo-3.1-fast-generate-preview (default), veo-3.1-generate-preview, veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001. Bytedance: bytedance/seedance-2.' })),
       resolution: Type.Optional(Type.Union([Type.Literal('480p'), Type.Literal('720p'), Type.Literal('1080p'), Type.Literal('4k')], { description: 'Resolution. Veo: 720p, 1080p, 4k. Bytedance: 480p, 720p, 1080p. Default: 720p.' })),
       duration: Type.Optional(Type.Number({ description: 'Duration in seconds. Veo: 4, 5, 6, or 8. Bytedance: 4–15. Default: 6.', minimum: 4, maximum: 15 })),
-      start_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the start frame. Use this only when the video should animate from a specific first frame; it enables frames_to_video mode.' })),
-      end_frame_path: Type.Optional(Type.String({ description: 'Workspace-relative path to the end frame. Optional for frames_to_video when the video should animate toward a specific final frame.' })),
+      start_frame_path: Type.Optional(Type.String({ description: 'Path or URL to the start frame. Accepts workspace-relative paths, /api/media/... URLs, Studio media paths, and /api/studio/media/... URLs. Use this only when the video should animate from a specific first frame; it enables frames_to_video mode.' })),
+      end_frame_path: Type.Optional(Type.String({ description: 'Path or URL to the end frame. Accepts workspace-relative paths, /api/media/... URLs, Studio media paths, and /api/studio/media/... URLs. Optional for frames_to_video when the video should animate toward a specific final frame.' })),
       is_looping: Type.Optional(Type.Boolean({ description: 'Loop the video back to the start frame. Only for frames_to_video. Default: false.' })),
       person_generation: Type.Optional(Type.Union([Type.Literal('allow_all'), Type.Literal('allow_adult'), Type.Literal('dont_allow')], { description: 'Person generation policy. Veo only. Default: allow_all.' })),
       generate_audio: Type.Optional(Type.Boolean({ description: 'Generate audio. Bytedance only. Default: true.' })),
