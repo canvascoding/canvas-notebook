@@ -501,7 +501,7 @@ export async function createStudioGeneration(
   const now = new Date();
   let sourceGenerationId: string | null = null;
 
-  const defaultModel = providerId === 'openai' ? 'gpt-image-1.5' : 'gemini-3.1-flash-image-preview';
+  const defaultModel = providerId === 'openai' ? 'gpt-image-2' : 'gemini-3.1-flash-image-preview';
   const videoDefaultModel = providerId === SEEDANCE_PROVIDER_ID ? SEEDANCE_MODEL_ID : 'veo-3.1-fast-generate-preview';
   const model = request.mode === 'video'
     ? (request.model || videoDefaultModel)
