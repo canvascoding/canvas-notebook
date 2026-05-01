@@ -15,7 +15,7 @@ interface SkillFileNode {
   children?: SkillFileNode[];
 }
 
-const IGNORED_ENTRIES = new Set(['bin', '_shared', 'node_modules', '.cache']);
+const IGNORED_ENTRIES = new Set(['bin', 'node_modules', '.cache']);
 
 async function buildSkillTree(dirPath: string, depth: number, maxDepth: number, isRoot: boolean = false): Promise<SkillFileNode[]> {
   if (depth > maxDepth) return [];
