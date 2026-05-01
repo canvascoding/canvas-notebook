@@ -22,11 +22,6 @@ const MEDIA_TYPES: Record<string, string> = {
   ogg: 'audio/ogg',
   opus: 'audio/opus',
   flac: 'audio/flac',
-  html: 'text/html',
-  htm: 'text/html',
-  css: 'text/css',
-  js: 'text/javascript',
-  mjs: 'text/javascript',
 };
 
 const ACTIVE_CONTENT_EXTENSIONS = new Set(['html', 'htm', 'js', 'mjs', 'svg']);
@@ -72,6 +67,18 @@ export async function GET(
       const parts = range.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      if (
+        Number.isNaN(start) ||
+        Number.isNaN(end) ||
+        start < 0 ||
+        end < start ||
+        end >= fileSize
+      ) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid range request' },
+          { status: 416 }
+        );
+      }
       const chunksize = end - start + 1;
       
       const { stream } = await createReadStream(filePath, { start, end });
@@ -82,6 +89,8 @@ export async function GET(
         'Accept-Ranges': 'bytes',
         'Content-Length': chunksize.toString(),
         'Content-Type': contentType,
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'none'; script-src 'none'; frame-ancestors 'none'; sandbox",
       });
       const securityHeaders = createSecurityHeaders(filePath);
       securityHeaders.forEach((value, key) => headers.set(key, value));
@@ -94,6 +103,8 @@ export async function GET(
       const headers = new Headers({
         'Content-Length': fileSize.toString(),
         'Content-Type': contentType,
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'none'; script-src 'none'; frame-ancestors 'none'; sandbox",
       });
       const securityHeaders = createSecurityHeaders(filePath);
       securityHeaders.forEach((value, key) => headers.set(key, value));
