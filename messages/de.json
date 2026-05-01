@@ -1171,6 +1171,20 @@
     "toggleSkill": "{name} umschalten",
     "licenseLabel": "Lizenz:",
     "docsButton": "Doku",
+    "upload": {
+      "button": "Skill hochladen",
+      "title": "Neuen Skill hochladen",
+      "description": "Lade eine SKILL.md Datei hoch oder füge den Inhalt ein. Der Skill wird automatisch aktiviert.",
+      "fileLabel": "SKILL.md Datei auswählen",
+      "pasteLabel": "Oder Inhalt einfügen:",
+      "validating": "Validiere...",
+      "uploading": "Lade hoch...",
+      "success": "Skill \"{name}\" erfolgreich hochgeladen und aktiviert!",
+      "error": "Upload fehlgeschlagen: {error}",
+      "validationErrors": "Validierungsfehler:",
+      "dropzone": "SKILL.md hierher ziehen oder klicken zum Auswählen",
+      "alreadyExists": "Skill \"{name}\" existiert bereits. Bearbeite ihn stattdessen im Skill-Editor."
+    },
     "emptyState": {
       "title": "Keine Skills gefunden",
       "description": "Skills erscheinen hier, sobald sie dem Verzeichnis /data/skills/ hinzugefügt wurden."

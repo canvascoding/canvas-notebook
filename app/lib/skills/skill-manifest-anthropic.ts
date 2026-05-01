@@ -22,12 +22,14 @@ import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/stor
 import { enableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
 export { getSkillsContext } from './skill-context';
 
-// Skill metadata from YAML frontmatter
+// Skill metadata from YAML frontmatter (Agent Skills spec compliant)
 export interface SkillFrontmatter {
   name: string;
   description: string;
   license?: string;
   compatibility?: string;
+  'allowed-tools'?: string;
+  metadata?: Record<string, string>;
 }
 
 export type SkillCommandEnvScope = 'integrations' | 'agents' | 'none';
@@ -81,6 +83,7 @@ export interface AnthropicSkill {
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
+  warnings?: string[];
 }
 
 function parseSkillCommandManifest(rawManifest: unknown, skillName: string): SkillCommand[] {
@@ -259,6 +262,7 @@ function parseSkillCommandInputs(
 /**
  * Parse YAML frontmatter from markdown content
  * Returns the parsed frontmatter and the remaining content
+ * Supports multiline values (quoted), allowed-tools, and metadata
  */
 export function parseFrontmatter(content: string): {
   frontmatter: SkillFrontmatter | null;
@@ -274,26 +278,58 @@ export function parseFrontmatter(content: string): {
   const yamlContent = match[1];
   const body = match[2].trim();
 
-  // Simple YAML parser for basic key-value pairs
   const frontmatter: Partial<SkillFrontmatter> = {};
-  const lines = yamlContent.split('\n');
+  let inMetadata = false;
 
-  for (const line of lines) {
+  for (const rawLine of yamlContent.split('\n')) {
+    const line = rawLine.trimEnd();
+
+    if (line === '') continue;
+
+    if (/^\s{2,}/.test(rawLine) && inMetadata) {
+      continue;
+    }
+
+    inMetadata = false;
+
     const colonIndex = line.indexOf(':');
-    if (colonIndex > 0) {
-      const key = line.substring(0, colonIndex).trim();
-      let value = line.substring(colonIndex + 1).trim();
-      
-      // Remove quotes if present
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
-      
-      if (key === 'name') frontmatter.name = value;
-      if (key === 'description') frontmatter.description = value;
-      if (key === 'license') frontmatter.license = value;
-      if (key === 'compatibility') frontmatter.compatibility = value;
+    if (colonIndex <= 0) continue;
+
+    const key = line.substring(0, colonIndex).trim();
+    let value = line.substring(colonIndex + 1).trim();
+
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+
+    switch (key) {
+      case 'name':
+        frontmatter.name = value;
+        break;
+      case 'description':
+        frontmatter.description = value;
+        break;
+      case 'license':
+        frontmatter.license = value;
+        break;
+      case 'compatibility':
+        frontmatter.compatibility = value;
+        break;
+      case 'allowed-tools':
+        frontmatter['allowed-tools'] = value;
+        break;
+      case 'metadata':
+        inMetadata = true;
+        if (!frontmatter.metadata) {
+          frontmatter.metadata = {};
+        }
+        break;
+      default:
+        if (/^\s{2,}/.test(rawLine) && frontmatter.metadata && key) {
+          frontmatter.metadata[key] = value;
+        }
+        break;
     }
   }
 
@@ -316,29 +352,80 @@ export function extractTitle(skillName: string): string {
 }
 
 /**
- * Validate a skill frontmatter
+ * Validate skill frontmatter against the Agent Skills specification
+ * Returns all errors found (does not short-circuit)
  */
 export function validateFrontmatter(frontmatter: SkillFrontmatter | null): ValidationResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   if (!frontmatter) {
     errors.push('Missing YAML frontmatter');
-    return { valid: false, errors };
+    return { valid: false, errors, warnings };
   }
 
+  // name (required, 1-64 chars, lowercase alphanumeric + hyphens, no leading/trailing/consecutive hyphens)
   if (!frontmatter.name) {
     errors.push('Missing required field: name');
-  } else if (!/^[a-z][a-z0-9-]*$/.test(frontmatter.name)) {
-    errors.push('name: Must be kebab-case (lowercase letters, numbers, hyphens), starting with a letter');
+  } else {
+    if (frontmatter.name.length > 64) {
+      errors.push(`name: Too long (${frontmatter.name.length} chars). Maximum is 64 characters.`);
+    }
+    if (!/^[a-z0-9]+([a-z0-9-]*[a-z0-9]+)?$/.test(frontmatter.name)) {
+      errors.push('name: Must be lowercase letters, numbers, and hyphens only. Cannot start or end with a hyphen or contain consecutive hyphens.');
+    }
   }
 
+  // description (required, 1-1024 chars, no angle brackets)
   if (!frontmatter.description) {
     errors.push('Missing required field: description');
-  } else if (frontmatter.description.length < 10) {
-    errors.push('description: Must be at least 10 characters');
+  } else {
+    if (frontmatter.description.trim().length === 0) {
+      errors.push('description: Must not be empty.');
+    }
+    if (frontmatter.description.length > 1024) {
+      errors.push(`description: Too long (${frontmatter.description.length} chars). Maximum is 1024 characters.`);
+    }
+    if (/<|>/.test(frontmatter.description)) {
+      errors.push('description: Cannot contain angle brackets (< or >).');
+    }
   }
 
-  return { valid: errors.length === 0, errors };
+  // license (optional)
+  if (frontmatter.license !== undefined && typeof frontmatter.license !== 'string') {
+    errors.push('license: Must be a string if provided.');
+  }
+
+  // compatibility (optional, max 500 chars)
+  if (frontmatter.compatibility !== undefined) {
+    if (typeof frontmatter.compatibility !== 'string') {
+      errors.push('compatibility: Must be a string if provided.');
+    } else if (frontmatter.compatibility.length > 500) {
+      errors.push(`compatibility: Too long (${frontmatter.compatibility.length} chars). Maximum is 500 characters.`);
+    }
+  }
+
+  // allowed-tools (optional, space-separated string)
+  if (frontmatter['allowed-tools'] !== undefined) {
+    if (typeof frontmatter['allowed-tools'] !== 'string') {
+      errors.push('allowed-tools: Must be a string if provided.');
+    }
+  }
+
+  // metadata (optional, key-value mapping with string values)
+  if (frontmatter.metadata !== undefined) {
+    if (typeof frontmatter.metadata !== 'object' || frontmatter.metadata === null) {
+      errors.push('metadata: Must be a key-value mapping if provided.');
+    } else {
+      for (const [key, val] of Object.entries(frontmatter.metadata)) {
+        if (typeof val !== 'string') {
+          errors.push(`metadata: Value for key "${key}" must be a string, got ${typeof val}.`);
+        }
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors, warnings };
 }
 
 /**
