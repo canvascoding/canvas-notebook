@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { frontmatter, body: skillBody } = parseFrontmatter(content);
+    const { frontmatter, body: _skillBody } = parseFrontmatter(content);
 
     if (!frontmatter) {
       return NextResponse.json(

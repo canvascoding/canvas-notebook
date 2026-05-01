@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Sparkles, X } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -286,7 +286,7 @@ export function CreateView() {
       name: initialRefPath.split('/').pop() || initialRefPath,
       thumbnailPath: initialRefPath,
     });
-  }, [initialRefPath]);
+  }, [initialRefPath, store]);
 
   useEffect(() => {
     const node = promptOverlayRef.current;

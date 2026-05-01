@@ -202,7 +202,7 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
 };
 
 const DEFAULT_MODEL_ID = 'pi';
-const BOTTOM_LOCK_THRESHOLD_PX = 16;
+const BOTTOM_LOCK_THRESHOLD_PX = 80;
 const MOBILE_TEXTAREA_BASE_HEIGHT_PX = 56;
 const DESKTOP_TEXTAREA_BASE_HEIGHT_PX = 72;
 const MOBILE_TEXTAREA_MAX_HEIGHT_PX = 192;
@@ -1102,9 +1102,14 @@ export default function CanvasAgentChat({
   }, [isSurfaceVisible, sessionId]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
     isAtBottomRef.current = true;
-    setIsAtBottom(true);
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    if (behavior === 'auto') {
+      container.scrollTop = container.scrollHeight - container.clientHeight;
+    } else {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    }
   }, []);
 
   const syncBottomLockState = useCallback(() => {
@@ -1116,7 +1121,10 @@ export default function CanvasAgentChat({
     const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
     const nextIsAtBottom = scrollHeight - scrollTop - clientHeight <= BOTTOM_LOCK_THRESHOLD_PX;
     isAtBottomRef.current = nextIsAtBottom;
-    setIsAtBottom((current) => (current === nextIsAtBottom ? current : nextIsAtBottom));
+    setIsAtBottom((current) => {
+      if (current === nextIsAtBottom) return current;
+      return nextIsAtBottom;
+    });
     return nextIsAtBottom;
   }, []);
 
@@ -1140,10 +1148,16 @@ export default function CanvasAgentChat({
       return;
     }
 
-    const lastMessage = messages[messages.length - 1];
     const messageCountIncreased = messages.length > previousMessageCountRef.current;
 
-    if (isAtBottomRef.current || (messageCountIncreased && lastMessage.role === 'user')) {
+    if (!messageCountIncreased) {
+      previousMessageCountRef.current = messages.length;
+      return;
+    }
+
+    const lastMessage = messages[messages.length - 1];
+
+    if (isAtBottomRef.current || lastMessage.role === 'user') {
       scrollToBottom(lastMessage.role === 'user' ? 'smooth' : 'auto');
     }
 
@@ -1597,7 +1611,6 @@ export default function CanvasAgentChat({
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
       if (event.assistantMessageEvent?.type === 'text_delta') {
         streamingContentRef.current += event.assistantMessageEvent.delta || '';
-        // Start a RAF flush loop if none is running — batches all deltas to max ~1 setMessages per frame.
         if (streamingRafRef.current === null) {
           const flush = () => {
             const content = streamingContentRef.current;
@@ -1608,6 +1621,12 @@ export default function CanvasAgentChat({
                   : msg
               )
             );
+            if (isAtBottomRef.current) {
+              const container = scrollContainerRef.current;
+              if (container) {
+                container.scrollTop = container.scrollHeight - container.clientHeight;
+              }
+            }
             streamingRafRef.current = requestAnimationFrame(flush);
           };
           streamingRafRef.current = requestAnimationFrame(flush);

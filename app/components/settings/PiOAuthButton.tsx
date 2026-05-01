@@ -55,14 +55,13 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   }, []);
 
   // Auto-select active provider when providers are loaded
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-select once when providers load
   useEffect(() => {
     if (!activeProviderId || !providers.length) return;
     const match = providers.find(p => p.provider === activeProviderId);
     if (match && !match.connected && !selectedProvider) {
       setSelectedProvider(match);
     }
-  }, [activeProviderId, providers]);
+  }, [activeProviderId, providers, selectedProvider]);
 
   const resetDialogState = () => {
     setCode('');

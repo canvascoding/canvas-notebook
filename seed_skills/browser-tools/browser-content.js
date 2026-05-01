@@ -8,7 +8,7 @@ import { gfm } from "turndown-plugin-gfm";
 
 // Global timeout - exit if script takes too long
 const TIMEOUT = 30000;
-const timeoutId = setTimeout(() => {
+setTimeout(() => {
 	console.error("✗ Timeout after 30s");
 	process.exit(1);
 }, TIMEOUT).unref();
