@@ -1037,6 +1037,19 @@
         "remoteUrl": "Bitte trage eine Remote Server URL für Ollama ein.",
         "failedToLoadConfig": "Agent-Konfiguration konnte nicht geladen werden.",
         "failedToSaveConfig": "Agent-Konfiguration konnte nicht gespeichert werden."
+      },
+      "authMethod": {
+        "title": "Authentifizierungsmethode",
+        "apiKey": {
+          "title": "API Key",
+          "description": "Nutze deinen eigenen API-Key von einem beliebigen Provider.",
+          "providers": "OpenAI, Anthropic, Google, Groq, usw."
+        },
+        "oauth": {
+          "title": "OAuth Login",
+          "description": "Melde dich mit deinem bestehenden Konto oder Abo an.",
+          "providers": "OpenAI Codex, GitHub Copilot, Anthropic"
+        }
       }
     },
     "providerHelp": {

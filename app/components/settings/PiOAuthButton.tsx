@@ -28,9 +28,10 @@ interface OAuthStatus {
 
 interface PiOAuthButtonProps {
   onStatusChange?: () => void;
+  hiddenProviderIds?: string[];
 }
 
-export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
+export function PiOAuthButton({ onStatusChange, hiddenProviderIds }: PiOAuthButtonProps) {
   const t = useTranslations('settings');
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -342,8 +343,10 @@ export function PiOAuthButton({ onStatusChange }: PiOAuthButtonProps) {
     }
   };
 
-  const availableProviders = providers.filter(p => !p.connected);
-  const connectedProviders = providers.filter(p => p.connected);
+  const hiddenSet = new Set(hiddenProviderIds ?? []);
+  const visibleProviders = providers.filter(p => !hiddenSet.has(p.provider));
+  const availableProviders = visibleProviders.filter(p => !p.connected);
+  const connectedProviders = visibleProviders.filter(p => p.connected);
 
   return (
     <div className="space-y-4">
