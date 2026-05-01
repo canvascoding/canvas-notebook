@@ -15,7 +15,9 @@ interface SkillFileNode {
   children?: SkillFileNode[];
 }
 
-async function buildSkillTree(dirPath: string, depth: number, maxDepth: number): Promise<SkillFileNode[]> {
+const IGNORED_ENTRIES = new Set(['bin', '_shared', 'node_modules', '.cache']);
+
+async function buildSkillTree(dirPath: string, depth: number, maxDepth: number, isRoot: boolean = false): Promise<SkillFileNode[]> {
   if (depth > maxDepth) return [];
 
   let entries;
@@ -29,12 +31,14 @@ async function buildSkillTree(dirPath: string, depth: number, maxDepth: number):
 
   for (const entry of entries) {
     if (entry.name.startsWith('.') && entry.name !== '.agents') continue;
+    if (IGNORED_ENTRIES.has(entry.name)) continue;
+    if (isRoot && entry.name === 'README.md') continue;
 
     const fullPath = path.join(dirPath, entry.name);
     const relativePath = path.relative(SKILLS_DIR, fullPath);
 
     if (entry.isDirectory()) {
-      const children = await buildSkillTree(fullPath, depth + 1, maxDepth);
+      const children = await buildSkillTree(fullPath, depth + 1, maxDepth, false);
       const stat = await fs.stat(fullPath).catch(() => null);
       nodes.push({
         name: entry.name,
@@ -81,7 +85,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    const tree = await buildSkillTree(resolvedSkillsDir, 0, depth);
+    const tree = await buildSkillTree(resolvedSkillsDir, 0, depth, true);
 
     return NextResponse.json({ success: true, data: tree });
   } catch (error) {
