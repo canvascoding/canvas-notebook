@@ -298,7 +298,7 @@ test.describe('PI Chat E2E', () => {
     expect(messageOrder.indexOf('chat-message-toolResult')).toBeLessThan(messageOrder.indexOf('chat-message-assistant'));
   });
 
-  test('should show direct PI media tool inputs for image and video generation calls', async ({ page }) => {
+  test('should show studio media tool inputs for image and video generation calls', async ({ page }) => {
     const imageReferencePath = 'public/images/examples/aura_serum_produktfoto.png';
     const videoStartFramePath = 'public/images/examples/tech_banner_future_of_innovation.png';
     const videoEndFramePath = 'public/images/examples/reise_banner_find_your_paradise.png';
@@ -308,22 +308,22 @@ test.describe('PI Chat E2E', () => {
         JSON.stringify({
           type: 'tool_execution_start',
           toolCallId: 'tool-call-image-1',
-          toolName: 'image_generation',
+          toolName: 'studio_generate_image',
           args: {
             count: 1,
             prompt: 'Use the same composition with a colder blue palette.',
-            reference_image_paths: [imageReferencePath],
+            extra_reference_urls: [imageReferencePath],
           },
         }),
         JSON.stringify({
           type: 'tool_execution_end',
           toolCallId: 'tool-call-image-1',
-          toolName: 'image_generation',
+          toolName: 'studio_generate_image',
           result: {
             content: [
               {
                 type: 'text',
-                text: `Image generation complete: 1 successful, 0 failed\n\nImage 1: image-generation/generations/generated.png\nURL: /api/media/image-generation/generations/generated.png\n`,
+                text: 'Studio image generation completed (1 output(s))\n\nOutput 1:\n  File: /data/studio/outputs/generated.png\n  URL:  /api/studio/media/studio/outputs/generated.png\n  ![studio-0](/api/studio/media/studio/outputs/generated.png)\n',
               },
             ],
           },
@@ -331,9 +331,8 @@ test.describe('PI Chat E2E', () => {
         JSON.stringify({
           type: 'tool_execution_start',
           toolCallId: 'tool-call-video-1',
-          toolName: 'video_generation',
+          toolName: 'studio_generate_video',
           args: {
-            mode: 'frames_to_video',
             prompt: 'Animate a slow camera move from the first frame into the second.',
             start_frame_path: videoStartFramePath,
             end_frame_path: videoEndFramePath,
@@ -344,12 +343,12 @@ test.describe('PI Chat E2E', () => {
         JSON.stringify({
           type: 'tool_execution_end',
           toolCallId: 'tool-call-video-1',
-          toolName: 'video_generation',
+          toolName: 'studio_generate_video',
           result: {
             content: [
               {
                 type: 'text',
-                text: 'Video generation started! This may take 3-10 minutes.\n\nVideo will be saved to: veo-studio/video-generation/generated.mp4\nMedia URL: /api/media/veo-studio/video-generation/generated.mp4\n',
+                text: 'Studio video generation completed (1 output(s))\n\nOutput:\n  File: /data/studio/outputs/generated.mp4\n  URL:  /api/studio/media/studio/outputs/generated.mp4\n',
               },
             ],
           },
@@ -364,7 +363,7 @@ test.describe('PI Chat E2E', () => {
             },
             {
               role: 'assistant',
-              content: [{ type: 'text', text: 'I used the direct PI media tools with workspace-relative asset paths.' }],
+              content: [{ type: 'text', text: 'I used the Studio media tools with workspace-relative asset paths.' }],
               api: 'mock',
               provider: 'mock',
               model: 'mock-model',
@@ -386,7 +385,7 @@ test.describe('PI Chat E2E', () => {
     await page.goto('/chat');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
-    await input.fill('Use the direct PI media tools with workspace assets.');
+    await input.fill('Use the Studio media tools with workspace assets.');
     const streamResponse = page.waitForResponse((response) => response.url().includes('/api/stream'));
     await page.getByTestId('chat-send').click();
     await expect((await streamResponse).ok()).toBeTruthy();
@@ -394,15 +393,15 @@ test.describe('PI Chat E2E', () => {
     const toolMessages = page.getByTestId('chat-message-toolResult');
     await expect(toolMessages).toHaveCount(2);
 
-    const imageToolMessage = toolMessages.filter({ hasText: 'image_generation' }).first();
-    await expect(imageToolMessage).toContainText('image_generation');
+    const imageToolMessage = toolMessages.filter({ hasText: 'studio_generate_image' }).first();
+    await expect(imageToolMessage).toContainText('studio_generate_image');
     await imageToolMessage.getByTestId('chat-tool-toggle').click();
-    await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText('reference_image_paths');
+    await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText('extra_reference_urls');
     await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText(imageReferencePath);
     await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText('Use the same composition with a colder blue palette.');
 
-    const videoToolMessage = toolMessages.filter({ hasText: 'video_generation' }).first();
-    await expect(videoToolMessage).toContainText('video_generation');
+    const videoToolMessage = toolMessages.filter({ hasText: 'studio_generate_video' }).first();
+    await expect(videoToolMessage).toContainText('studio_generate_video');
     await videoToolMessage.getByTestId('chat-tool-toggle').click();
     await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText('start_frame_path');
     await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText(videoStartFramePath);
