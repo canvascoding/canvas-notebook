@@ -19,6 +19,7 @@ interface UseStudioGenerationReturn {
   error: string | null;
   isPolling: boolean;
   activeGenerationId: string | null;
+  recentlyCompletedIds: Set<string>;
   fetchGenerations: () => Promise<void>;
   fetchGeneration: (id: string, options?: { silent?: boolean }) => Promise<StudioGeneration | null>;
   generate: (payload: StudioGeneratePayload) => Promise<StudioGeneration | null>;
@@ -105,12 +106,15 @@ function createPendingGeneration(
   };
 }
 
+const COMPLETED_ANIMATION_MS = 1500;
+
 export function useStudioGeneration(): UseStudioGenerationReturn {
   const [generations, setGenerations] = useState<StudioGeneration[]>([]);
   const [currentGeneration, setCurrentGeneration] = useState<StudioGeneration | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeGenerationId, setActiveGenerationId] = useState<string | null>(null);
+  const [recentlyCompletedIds, setRecentlyCompletedIds] = useState<Set<string>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -133,11 +137,38 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       const generation = (data.generation ?? null) as StudioGeneration | null;
 
       if (generation) {
-        setCurrentGeneration(generation);
-        setGenerations((current) => mergeGenerationLists(current, generation));
+        const isTerminal = generation.status === 'completed' || generation.status === 'failed';
 
-        if (generation.status === 'completed' || generation.status === 'failed') {
+        setGenerations((current) => {
+          const existing = current.find((g) => g.id === generation.id);
+          if (existing && existing.status === generation.status && existing.outputs.length === generation.outputs.length) {
+            return current;
+          }
+          return mergeGenerationLists(current, generation);
+        });
+
+        setCurrentGeneration((current) => {
+          if (current?.id === generation.id && current.status === generation.status && current.outputs.length === generation.outputs.length) {
+            return current;
+          }
+          return generation;
+        });
+
+        if (isTerminal) {
           stopPolling();
+          const genId = generation.id;
+          setRecentlyCompletedIds((prev) => {
+            const next = new Set(prev);
+            next.add(genId);
+            return next;
+          });
+          setTimeout(() => {
+            setRecentlyCompletedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(genId);
+              return next;
+            });
+          }, COMPLETED_ANIMATION_MS);
         }
       }
 
@@ -366,6 +397,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     error,
     isPolling: activeGenerationId !== null,
     activeGenerationId,
+    recentlyCompletedIds,
     fetchGenerations,
     fetchGeneration,
     generate,
