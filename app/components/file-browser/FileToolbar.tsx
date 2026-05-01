@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, Trash2, Upload } from 'lucide-react';
+import { ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +26,7 @@ export interface FileToolbarHandlers {
   onUpload: () => void;
   onDelete: () => void;
   onCollapseAll: () => void;
+  onRefresh: () => void;
 }
 
 interface FileToolbarProps {
@@ -109,6 +110,10 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={handlers.onRefresh}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              {t('refresh')}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={handlers.onCollapseAll}>
               <ChevronsDownUp className="mr-2 h-4 w-4" />
               {t('collapseAllFolders')}
@@ -171,6 +176,10 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
             <ChevronsDownUp className="h-4 w-4" />
           </Button>
         )}
+
+        <Button variant="ghost" size="icon-sm" onClick={handlers.onRefresh} aria-label={t('refresh')}>
+          <RefreshCw className="h-4 w-4" />
+        </Button>
       </div>
     );
   }
@@ -249,6 +258,15 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
               <TooltipContent>{t('collapseAll')}</TooltipContent>
             </Tooltip>
           )}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={handlers.onRefresh} aria-label={t('refresh')}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('refresh')}</TooltipContent>
+          </Tooltip>
         </div>
       </TooltipProvider>
     </div>
