@@ -1034,7 +1034,8 @@
         "customModelName": "Please enter a name for the custom Ollama model.",
         "remoteUrl": "Please enter a remote server URL for Ollama.",
         "failedToLoadConfig": "Failed to load agent configuration.",
-        "failedToSaveConfig": "Failed to save agent configuration."
+        "failedToSaveConfig": "Failed to save agent configuration.",
+        "openaiCompatibleBaseUrl": "Please enter a base URL for the OpenAI-Compatible server."
       },
       "authMethod": {
         "title": "Authentication Method",
@@ -1047,8 +1048,27 @@
           "title": "OAuth Login",
           "description": "Sign in with your existing account or subscription.",
           "providers": "OpenAI Codex, GitHub Copilot, Anthropic"
+        },
+        "selfHosted": {
+          "title": "Self-Hosted",
+          "description": "Run your own LLM locally or on your own infrastructure.",
+          "providers": "Ollama, OpenAI-Compatible"
+        },
+        "cloudInfra": {
+          "title": "Cloud Infrastructure",
+          "description": "Use cloud provider infrastructure with advanced authentication.",
+          "providers": "Google Vertex, Amazon Bedrock, Azure OpenAI"
         }
-      }
+      },
+      "openaiCompatibleConfig": "OpenAI-Compatible configuration",
+      "openaiCompatibleBaseUrl": "Server base URL",
+      "openaiCompatibleBaseUrlPlaceholder": "http://localhost:8080/v1 or https://my-llm.example.com/v1",
+      "openaiCompatibleBaseUrlHelp": "Enter the base URL of your OpenAI-compatible server. Must start with http:// or https:// and typically end with /v1.",
+      "openaiCompatibleModelSource": "Model selection",
+      "openaiCompatibleCustomModelOption": "Custom model",
+      "openaiCompatibleCustomModel": "Custom model name",
+      "openaiCompatibleCustomModelPlaceholder": "e.g. my-model, llama3.1, gpt-4",
+      "openaiCompatibleCustomModelHelp": "Enter the model name as recognized by your server. This is the model ID used in the OpenAI API request."
     },
     "providerHelp": {
       "configurationTitle": "{icon} {title} configuration",
@@ -1065,7 +1085,9 @@
         "aws": "AWS Credentials",
         "azure": "Azure Credentials",
         "ollama": "Local installation",
-        "unknown": "Unknown"
+        "unknown": "Unknown",
+        "selfHosted": "Self-Hosted",
+        "cloudInfra": "Cloud Infrastructure"
       }
     },
     "providerEnv": {

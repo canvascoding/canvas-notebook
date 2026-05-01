@@ -10,6 +10,8 @@ registerBuiltInApiProviders();
 
 // Ollama provider ID - used for custom provider discovery
 export const OLLAMA_PROVIDER_ID = 'ollama';
+// OpenAI-Compatible provider ID - used for custom OpenAI-compatible servers
+export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
 
   // Recommended Ollama models with metadata
 // Using 'openai-completions' api type for OpenAI-compatible Ollama API
@@ -69,10 +71,12 @@ export const OLLAMA_MODELS: Model<'openai-completions'>[] = [
 
 export function getPiProviders(): string[] {
   const providers = getProviders();
-  // Add Ollama if not already present (it's not a built-in PI-AI provider)
-  // TypeScript workaround: cast to string array for includes check
+  // Add Ollama and OpenAI-Compatible if not already present (they are not built-in PI-AI providers)
   if (!(providers as string[]).includes(OLLAMA_PROVIDER_ID)) {
     (providers as string[]).push(OLLAMA_PROVIDER_ID);
+  }
+  if (!(providers as string[]).includes(OPENAI_COMPATIBLE_PROVIDER_ID)) {
+    (providers as string[]).push(OPENAI_COMPATIBLE_PROVIDER_ID);
   }
   return providers as string[];
 }
@@ -99,6 +103,26 @@ export function getPiModels(provider: string, customModel?: string) {
     }
     return OLLAMA_MODELS;
   }
+
+  // OpenAI-Compatible provider - returns empty list, user enters custom model
+  if (provider === OPENAI_COMPATIBLE_PROVIDER_ID) {
+    if (customModel) {
+      const customModelEntry: Model<'openai-completions'> = {
+        id: customModel,
+        name: `${customModel} (Custom)`,
+        api: 'openai-completions',
+        provider: 'openai-compatible',
+        baseUrl: '',
+        reasoning: false,
+        input: ['text', 'image'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 8192,
+      };
+      return [customModelEntry];
+    }
+    return [];
+  }
   
   try {
     return getModels(provider as KnownProvider);
@@ -118,7 +142,9 @@ export async function resolvePiModel(provider: string, modelName: string) {
   // For Ollama, pass custom model to getPiModels if configured
   const customModel = provider === OLLAMA_PROVIDER_ID && providerConfig?.ollamaModelSource === 'custom' 
     ? providerConfig.ollamaCustomModel 
-    : undefined;
+    : provider === OPENAI_COMPATIBLE_PROVIDER_ID && providerConfig?.openaiCompatibleModelSource === 'custom'
+      ? providerConfig.openaiCompatibleCustomModel
+      : undefined;
   
   const models = getPiModels(provider, customModel);
   let model = models.find(m => m.id === modelName);
@@ -137,6 +163,32 @@ export async function resolvePiModel(provider: string, modelName: string) {
       contextWindow: 128000,
       maxTokens: 8192,
     };
+  }
+
+  // For OpenAI-Compatible custom models, create model entry
+  if (provider === OPENAI_COMPATIBLE_PROVIDER_ID) {
+    const baseUrl = providerConfig?.openaiCompatibleBaseUrl?.trim() || '';
+    const normalizedBaseUrl = baseUrl && !baseUrl.endsWith('/v1')
+      ? `${baseUrl.replace(/\/+$/, '')}/v1`
+      : baseUrl;
+
+    if (!model) {
+      const customEntry: Model<'openai-completions'> = {
+        id: modelName,
+        name: `${modelName} (Custom)`,
+        api: 'openai-completions',
+        provider: 'openai-compatible',
+        baseUrl: normalizedBaseUrl || '',
+        reasoning: false,
+        input: ['text', 'image'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 8192,
+      };
+      model = customEntry;
+    } else {
+      model = { ...model, baseUrl: normalizedBaseUrl || model.baseUrl };
+    }
   }
   
   if (!model) {
