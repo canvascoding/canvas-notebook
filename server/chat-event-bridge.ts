@@ -13,7 +13,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { getCanvasInternalToken } from '@/app/lib/internal-auth';
 
-function normalizeNotificationPreview(value: string, maxLength = 140): string {
+function normalizeNotificationPreview(value: string, maxLength = 500): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (!normalized) {
     return '';
