@@ -101,9 +101,9 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
   const upgradedSockets = new WeakSet<net.Socket>();
 
   server.on('upgrade', (request: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
-    const url = new URL(request.url || '', `http://${request.headers.host}`);
+    const requestPath = request.url?.split('?', 1)[0] || '';
 
-    if (url.pathname === '/ws/chat') {
+    if (requestPath === '/ws/chat') {
       if (upgradedSockets.has(socket)) {
         console.warn('[WebSocket] Duplicate upgrade on same socket — skipping');
         return;
