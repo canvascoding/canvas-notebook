@@ -1,10 +1,7 @@
 ---
 name: internal-comms
-description: "Resources for writing internal communications using company-specific formats and templates. Use when asked to write status reports, leadership updates, third-party updates, company newsletters, FAQs, incident reports, project updates, or any internal communication. Triggers: internal comms, status report, team update, newsletter, incident report, project update, leadership update, company announcement, all-hands memo."
+description: A set of resources to help me write all kinds of internal communications, using the formats that my company likes to use. Claude should use this skill whenever asked to write some sort of internal communications (status reports, leadership updates, 3P updates, company newsletters, FAQs, incident reports, project updates, etc.).
 license: Complete terms in LICENSE.txt
-metadata:
-  version: "1.0"
-  author: canvas-studios
 ---
 
 ## When to use this skill
