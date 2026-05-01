@@ -219,9 +219,11 @@ export function SkillsPanel() {
 
       return (
         <div key={node.path}>
-          <button
+          <div
+            role="button"
+            tabIndex={0}
             className={cn(
-              'w-full flex items-center gap-1.5 px-2 py-1 text-sm rounded-md transition-colors text-left',
+              'w-full flex items-center gap-1.5 px-2 py-1 text-sm rounded-md transition-colors text-left cursor-pointer',
               isSelected
                 ? 'bg-primary/10 text-primary'
                 : 'hover:bg-muted text-foreground',
@@ -236,6 +238,17 @@ export function SkillsPanel() {
                 toggleDirectory(node.path);
               } else {
                 handleFileClick(node.path);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (node.type === 'directory') {
+                  if (isSkillDir && skill) handleSkillClick(skill.name);
+                  toggleDirectory(node.path);
+                } else {
+                  handleFileClick(node.path);
+                }
               }
             }}
           >
@@ -255,11 +268,12 @@ export function SkillsPanel() {
                   toggleSkill(skill.name, checked);
                 }}
                 onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
                 className="scale-75 shrink-0"
                 aria-label={t('toggleSkill', { name: skill.name })}
               />
             )}
-          </button>
+          </div>
           {node.type === 'directory' && isExpanded && node.children && (
             <div>{renderTree(node.children, depth + 1)}</div>
           )}
