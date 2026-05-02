@@ -123,16 +123,18 @@ function PresetHoverPreview({ preset }: { preset: StudioPreset }) {
 function PresetMenuItem({
   preset,
   isSelected,
+  isActive,
   onSelect,
+  onActivate,
 }: {
   preset: StudioPreset;
   isSelected: boolean;
+  isActive: boolean;
   onSelect: () => void;
+  onActivate: (active: boolean) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
-
   return (
-    <HoverCard openDelay={400} closeDelay={100} open={hovered} onOpenChange={setHovered}>
+    <HoverCard openDelay={300} closeDelay={100} open={isActive} onOpenChange={onActivate}>
       <HoverCardTrigger asChild>
         <DropdownMenuItem onSelect={onSelect}>
           <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -162,6 +164,8 @@ function PresetMenuItem({
 }
 
 export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+
   if (presets.length === 0) {
     return null;
   }
@@ -192,7 +196,9 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
                 key={preset.id}
                 preset={preset}
                 isSelected={value?.id === preset.id}
+                isActive={activePresetId === preset.id}
                 onSelect={() => onChange(preset)}
+                onActivate={(active) => setActivePresetId(active ? preset.id : null)}
               />
             ))}
             {groupIndex < groups.length - 1 ? <DropdownMenuSeparator /> : null}
