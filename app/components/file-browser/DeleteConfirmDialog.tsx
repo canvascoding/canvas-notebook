@@ -29,6 +29,7 @@ export function DeleteConfirmDialog({ open, onOpenChange, paths, skippedCount, o
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsDeleting(false);
     }
   }, [open]);

@@ -45,6 +45,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import Image from 'next/image';
 import type { LucideIcon } from 'lucide-react';
 import type { StudioBlock, StudioPresetBlockCatalog, StudioPreset } from '../../types/presets';
 
@@ -206,6 +207,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
   // When Live toggle is turned ON and preset exists, generate preview immediately
   useEffect(() => {
     if (previewEnabled && !prevPreviewEnabled.current && presetId && selectedBlocks.length > 0) {
+      // eslint-disable-next-line react-hooks/immutability
       handleGeneratePreview();
     }
     prevPreviewEnabled.current = previewEnabled;
@@ -511,10 +513,12 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
               {!previewCollapsed && (
                 <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center relative max-w-[280px] mx-auto">
                   {previewImageUrl && previewEnabled ? (
-                    <img
+                    <Image
                       src={previewImageUrl}
                       alt="Preview"
                       className="h-full w-full object-cover"
+                      width={280}
+                      height={280}
                     />
                   ) : (
                     <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', PREVIEW_CATEGORY_GRADIENTS[category ?? ''] ?? 'from-muted to-muted/50')}>
@@ -587,10 +591,12 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
 
             <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center relative">
               {previewImageUrl && previewEnabled ? (
-                <img
+                <Image
                   src={previewImageUrl}
                   alt="Preview"
                   className="h-full w-full object-cover"
+                  width={320}
+                  height={320}
                 />
               ) : (
                 <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', PREVIEW_CATEGORY_GRADIENTS[category ?? ''] ?? 'from-muted to-muted/50')}>

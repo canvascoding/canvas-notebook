@@ -75,6 +75,7 @@ export function BulkProgressTracker({ job, onCancel }: BulkProgressTrackerProps)
         {job.lineItems.map((item, i) => {
           const isNewProduct = item.productName !== lastProductName;
           if (isNewProduct) {
+            // eslint-disable-next-line react-hooks/immutability
             versionIndex = 0;
             lastProductName = item.productName ?? 'Unknown';
           }

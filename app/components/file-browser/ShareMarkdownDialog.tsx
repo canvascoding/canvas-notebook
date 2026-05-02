@@ -71,6 +71,7 @@ export function ShareMarkdownDialog({
 
   useEffect(() => {
     if (open && filePath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       loadHtmlExport();
     } else {
       setHtmlContent('');
