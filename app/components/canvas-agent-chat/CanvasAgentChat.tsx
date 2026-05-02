@@ -1169,6 +1169,7 @@ export default function CanvasAgentChat({
     }
 
     previousMessageCountRef.current = messages.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on count change, not on every message mutation
   }, [messages.length, scrollToBottom]);
 
   const fetchHistory = useCallback(async () => {

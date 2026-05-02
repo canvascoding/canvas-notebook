@@ -116,7 +116,7 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
 }
 
 
-export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onFileAdd, onPasteImage }: PromptBarProps) {
+export function PromptBar({ value, products, personas, styles, presets: _presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect: _onPresetSelect, onReferenceRemove, onFileAdd, onPasteImage }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
   const [pickerOpen, setPickerOpen] = useState(false);
 
