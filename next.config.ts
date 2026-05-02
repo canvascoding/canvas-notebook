@@ -27,13 +27,6 @@ const nextConfig: NextConfig = {
     if (isServer) {
       config.externals.push(...externalPackages);
     }
-    config.ignoreWarnings = [
-      ...(config.ignoreWarnings ?? []),
-      {
-        module: /@eigenpal\/docx-js-editor\/dist\/chunk-PCJ5ACUV\.cjs$/,
-        message: /require function is used in a way in which dependencies cannot be statically extracted/,
-      },
-    ];
     return config;
   },
   serverExternalPackages: externalPackages,
