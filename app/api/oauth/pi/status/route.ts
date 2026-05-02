@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     // Return status for all providers
     const allStatus = getAllProviderStatus();
-    
+    console.log(`[oauth/status] GET all: providers=${JSON.stringify(allStatus.map(p => ({ provider: p.provider, connected: p.connected })))}`);
     return NextResponse.json({
       success: true,
       providers: allStatus,
