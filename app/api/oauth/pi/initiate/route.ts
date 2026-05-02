@@ -210,11 +210,9 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   
   // Different providers have different signatures:
   // - anthropic: loginAnthropic({ onAuth, onPrompt, onProgress, onManualCodeInput })
-  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress, onManualCodeInput })
-  // - google-gemini-cli: loginGeminiCli(onAuth, onProgress?, onManualCodeInput?)
-  // - google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?)
-  const isOptionsBased = provider === 'openai-codex' || provider === 'anthropic';
-  const usesManualCodeInputOption = provider === 'openai-codex' || provider === 'anthropic';
+  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress })
+  // - github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress })
+  // All use options-based API now
   
   return `
 import fs from 'fs';
@@ -259,20 +257,23 @@ async function run() {
     updateState({ status: 'waiting_for_auth', startedAt: Date.now() });
 
     // Common callback functions
-    const handleAuthUrl = (url, instructions) => {
+    const handleAuthUrl = (urlOrInfo, instructions) => {
+      const url = typeof urlOrInfo === 'string' ? urlOrInfo : urlOrInfo.url;
+      const instr = typeof urlOrInfo === 'string' ? instructions : urlOrInfo.instructions;
       console.log('AUTH_URL:', url);
-      if (instructions) console.log('INSTRUCTIONS:', instructions);
+      if (instr) console.log('INSTRUCTIONS:', instr);
       
       updateState({ 
         status: 'auth_url_received', 
         authUrl: url, 
-        instructions: instructions || '',
+        instructions: instr || '',
         updatedAt: Date.now()
       });
     };
 
-    const handlePromptCode = async () => {
-      console.log('WAITING_FOR_CODE');
+    const handlePromptCode = async (prompt) => {
+      const message = typeof prompt === 'string' ? prompt : prompt?.message || '';
+      console.log('WAITING_FOR_CODE', message);
       updateState({ status: 'waiting_for_code', updatedAt: Date.now() });
       
       // Wait for the code file to be created by the exchange endpoint
@@ -305,30 +306,13 @@ async function run() {
     };
 
     let credentials;
-    ${isOptionsBased ? `
     // ${provider} uses options object
     credentials = await ${loginFn}({
-      onAuth: (info) => {
-        const url = typeof info === 'string' ? info : info.url;
-        const instructions = typeof info === 'string' ? undefined : info.instructions;
-        handleAuthUrl(url, instructions);
-      },
+      onAuth: handleAuthUrl,
       onPrompt: handlePromptCode,
-      ${usesManualCodeInputOption ? 'onManualCodeInput: handlePromptCode,' : ''}
+      ${provider === 'anthropic' ? 'onManualCodeInput: handlePromptCode,' : ''}
       onProgress: handleProgress
     });
-    ` : `
-    // ${provider} uses callback signature
-    credentials = await ${loginFn}(
-      (info) => {
-        const url = typeof info === 'string' ? info : info.url;
-        const instructions = typeof info === 'string' ? undefined : info.instructions;
-        handleAuthUrl(url, instructions);
-      },
-      handleProgress,
-      handlePromptCode
-    );
-    `}
 
     // Save credentials
     fs.writeFileSync('${tempAuthPath}', JSON.stringify(credentials, null, 2));
@@ -362,8 +346,7 @@ function getLoginFunctionName(provider: string): string {
   const map: Record<string, string> = {
     'anthropic': 'loginAnthropic',
     'openai-codex': 'loginOpenAICodex',
-    'google-gemini-cli': 'loginGeminiCli',
-    'google-antigravity': 'loginAntigravity',
+    'github-copilot': 'loginGitHubCopilot',
   };
   return map[provider] || 'loginAnthropic';
 }

@@ -9,8 +9,7 @@ import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
 import {
   loginAnthropic,
   loginOpenAICodex,
-  loginGeminiCli,
-  loginAntigravity,
+  loginGitHubCopilot,
   refreshOAuthToken,
   getOAuthApiKey,
   type OAuthProviderId,
@@ -23,20 +22,18 @@ export type { OAuthCredentials, OAuthProviderId, OAuthPrompt };
 // Credentials storage path - use env var or fall back to local dev path
 const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(resolveAgentStorageDir(), 'auth.json');
 
-// All supported OAuth providers
+// Built-in OAuth providers (Google Gemini CLI and Antigravity removed in pi-ai 0.71.0)
 export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
   'anthropic',
   'openai-codex',
-  'google-gemini-cli',
-  'google-antigravity',
+  'github-copilot',
 ];
 
-// Provider display names
-export const PROVIDER_DISPLAY_NAMES: Record<OAuthProviderId, string> = {
+// Provider display names – dynamic lookup for providers registered at runtime
+export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   'anthropic': 'Anthropic (Claude)',
   'openai-codex': 'OpenAI Codex',
-  'google-gemini-cli': 'Google Gemini CLI',
-  'google-antigravity': 'Google Antigravity',
+  'github-copilot': 'GitHub Copilot',
 };
 
 // Auth file structure
@@ -158,8 +155,7 @@ export async function initiateOAuthLogin(
       });
     }
     
-    case 'openai-codex': {
-      // OpenAI Codex: loginOpenAICodex({ onAuth(info), onPrompt(prompt) })
+     case 'openai-codex': {
       return await loginOpenAICodex({
         onAuth: (info: { url: string; instructions?: string }) => {
           onAuthUrl(info.url, info.instructions);
@@ -171,33 +167,16 @@ export async function initiateOAuthLogin(
       });
     }
     
-    case 'google-gemini-cli': {
-      // Google Gemini CLI: loginGeminiCli(onAuth(info), onProgress?, onManualCodeInput?)
-      return await loginGeminiCli(
-        (info: { url: string; instructions?: string }) => {
-          onAuthUrl(info.url, info.instructions);
+    case 'github-copilot': {
+      return await loginGitHubCopilot({
+        onAuth: (url: string, instructions?: string) => {
+          onAuthUrl(url, instructions);
         },
-        onProgress || (() => {}),
-        async () => {
-          // For manual code input, we return an empty string
-          // The actual code exchange happens via callback URL
-          return await onPrompt('If automatic callback failed, paste the redirect URL here');
-        }
-      );
-    }
-    
-    case 'google-antigravity': {
-      // Google Antigravity: loginAntigravity(onAuth(info), onProgress?, onManualCodeInput?)
-      return await loginAntigravity(
-        (info: { url: string; instructions?: string }) => {
-          onAuthUrl(info.url, info.instructions);
+        onPrompt: async (prompt) => {
+          return await onPrompt(prompt.message);
         },
-        onProgress || (() => {}),
-        async () => {
-          // For manual code input, we return an empty string
-          return await onPrompt('If automatic callback failed, paste the redirect URL here');
-        }
-      );
+        onProgress: onProgress || (() => {}),
+      });
     }
     
     default:
@@ -275,9 +254,8 @@ export function getProviderApiType(provider: OAuthProviderId): string {
       return 'anthropic';
     case 'openai-codex':
       return 'openai-codex';
-    case 'google-gemini-cli':
-    case 'google-antigravity':
-      return 'google-gemini-cli';
+    case 'github-copilot':
+      return 'github-copilot';
     default:
       return 'unknown';
   }
