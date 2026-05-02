@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
@@ -67,6 +67,7 @@ interface PromptBarProps {
   onPresetSelect: (preset: StudioPreset) => void;
   onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file', id: string) => void;
   onFileAdd: (paths: string[]) => void;
+  onPasteImage?: (file: File) => void;
 }
 
 const PRESET_CATEGORY_ICONS: Record<string, typeof Camera> = {
@@ -115,10 +116,26 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
 }
 
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onFileAdd }: PromptBarProps) {
+export function PromptBar({ value, products, personas, styles, presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect, onReferenceRemove, onFileAdd, onPasteImage }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  const handlePaste = useCallback((event: React.ClipboardEvent) => {
+    if (!onPasteImage) return;
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i += 1) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        if (file) {
+          event.preventDefault();
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const renamedFile = new File([file], `screenshot-${timestamp}.png`, { type: file.type });
+          onPasteImage(renamedFile);
+        }
+      }
+    }
+  }, [onPasteImage]);
 
   const productMap = useMemo(() => new Map((products ?? []).map((p) => [p.id, p])), [products]);
   const personaMap = useMemo(() => new Map((personas ?? []).map((p) => [p.id, p])), [personas]);
@@ -332,7 +349,7 @@ export function PromptBar({ value, products, personas, styles, presets, onRawPro
         </div>
       ) : null}
 
-      <textarea value={value.rawPrompt} onChange={(event) => onRawPromptChange(event.target.value)} placeholder={t('placeholder')} className="min-h-24 w-full resize-y rounded-3xl border border-border/80 bg-background/95 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15" />
+      <textarea value={value.rawPrompt} onChange={(event) => onRawPromptChange(event.target.value)} onPaste={handlePaste} placeholder={t('placeholder')} className="min-h-24 w-full resize-y rounded-3xl border border-border/80 bg-background/95 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15" />
 
       <ReferencePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onConfirm={(paths) => { onFileAdd(paths); setPickerOpen(false); }} />
     </div>

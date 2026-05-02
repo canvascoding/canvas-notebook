@@ -272,6 +272,22 @@ export function StudioDashboard() {
               store.addFileRef({ id: path, name: path.split('/').pop() || path, thumbnailPath: path });
             }
           }}
+          onPasteImage={async (file) => {
+            try {
+              const formData = new FormData();
+              formData.append('files', file, file.name);
+              const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
+              const payload = await res.json();
+              if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
+              if (payload.files?.length) {
+                for (const f of payload.files) {
+                  store.addFileRef({ id: f.path, name: f.path.split('/').pop() || f.path, thumbnailPath: f.path });
+                }
+              }
+            } catch (err) {
+              console.error('Failed to upload pasted image', err);
+            }
+          }}
         />
 
         {store.mode === 'video' && (
