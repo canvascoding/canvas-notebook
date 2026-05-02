@@ -43,6 +43,14 @@ function extractMermaidCode(props: Record<string, any>): string | null {
   return null;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractColorCode(props: Record<string, any>): string | null {
+  if (props['data-color-code']) return String(props['data-color-code']);
+  if (props['dataColorCode']) return String(props['dataColorCode']);
+  if (props['datacolorcode']) return String(props['datacolorcode']);
+  return null;
+}
+
 export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
   const { resolvedTheme } = useTheme();
   const colorMode = resolvedTheme === 'light' ? 'light' : 'dark';
@@ -53,8 +61,9 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
     components: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       span: (props: any) => {
-        if (props.dataColorCode) {
-          return <ColorSwatch color={props.dataColorCode} />;
+        const colorCode = extractColorCode(props);
+        if (colorCode) {
+          return <ColorSwatch color={colorCode} />;
         }
         return <span {...props} />;
       },

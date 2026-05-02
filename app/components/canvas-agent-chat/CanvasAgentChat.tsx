@@ -643,10 +643,16 @@ function MarkdownMessage({
       ? '[&_blockquote]:border-primary-foreground/40 [&_pre]:border-primary-foreground/20 [&_pre]:bg-primary-foreground/10 [&_code]:bg-primary-foreground/15 [&_th]:border-primary-foreground/20 [&_td]:border-primary-foreground/20'
       : '[&_blockquote]:border-border/80 [&_pre]:border-border [&_pre]:bg-background/80 [&_code]:bg-background/80 [&_th]:border-border [&_td]:border-border';
 
+  const extractColorCode = (props: Record<string, unknown>): string | null => {
+    const colorCode = props['data-color-code'] ?? props.dataColorCode ?? props.datacolorcode;
+    return typeof colorCode === 'string' ? colorCode : null;
+  };
+
   const components = {
     span: ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement> & { dataColorCode?: string }) => {
-      if (props.dataColorCode) {
-        return <ColorSwatch color={props.dataColorCode} />;
+      const colorCode = extractColorCode(props as Record<string, unknown>);
+      if (colorCode) {
+        return <ColorSwatch color={colorCode} />;
       }
       return <span className={className} {...props} />;
     },
