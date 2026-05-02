@@ -421,13 +421,24 @@ function installChatUpgradeGuard(targetServer) {
 async function startServer() {
   console.log('[Startup] Initializing WebSocket Server...');
   try {
-    const websocketServer = await import('./server/websocket-server.ts');
+    const websocketModule = await import('./server/websocket-server.ts');
+    const websocketServer = websocketModule.createWebSocketServer
+      ? websocketModule
+      : websocketModule.default || websocketModule['module.exports'];
+    if (
+      !websocketServer ||
+      typeof websocketServer.createWebSocketServer !== 'function' ||
+      typeof websocketServer.isChatWebSocketRequest !== 'function'
+    ) {
+      throw new Error('WebSocket server module did not expose expected functions');
+    }
     isChatWebSocketRequest = websocketServer.isChatWebSocketRequest;
     websocketServer.createWebSocketServer(server);
     console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
   } catch (error) {
     console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
     console.error('[Startup] Stack trace:', error.stack);
+    isChatWebSocketRequest = () => false;
   }
 
   installChatUpgradeGuard(server);
