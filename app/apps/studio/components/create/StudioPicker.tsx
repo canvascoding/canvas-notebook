@@ -167,10 +167,6 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  if (presets.length === 0) {
-    return null;
-  }
-
   const filteredPresets = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return presets;
@@ -182,6 +178,10 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
       return false;
     });
   }, [presets, searchQuery]);
+
+  if (presets.length === 0) {
+    return null;
+  }
 
   const groups = groupPresetsByCategory(filteredPresets);
 
