@@ -645,7 +645,8 @@ function MarkdownMessage({
 
   const components = {
     span: ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement> & { dataColorCode?: string }) => {
-      if (className === 'color-swatch-container' && props.dataColorCode) {
+      const classNames = Array.isArray(className) ? className : (className ? [className] : []);
+      if (classNames.includes('color-swatch-container') && props.dataColorCode) {
         return <ColorSwatch color={props.dataColorCode} />;
       }
       return <span className={className} {...props} />;

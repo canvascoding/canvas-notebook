@@ -53,7 +53,8 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
     components: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       span: (props: any) => {
-        if (props.className === 'color-swatch-container' && props.dataColorCode) {
+        const classNames = Array.isArray(props.className) ? props.className : (props.className ? [props.className] : []);
+        if (classNames.includes('color-swatch-container') && props.dataColorCode) {
           return <ColorSwatch color={props.dataColorCode} />;
         }
         return <span {...props} />;
