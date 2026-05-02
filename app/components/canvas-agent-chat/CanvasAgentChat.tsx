@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
+import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
 import type { Usage } from '@mariozechner/pi-ai';
 import { useTranslations } from 'next-intl';
 import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
@@ -643,6 +644,12 @@ function MarkdownMessage({
       : '[&_blockquote]:border-border/80 [&_pre]:border-border [&_pre]:bg-background/80 [&_code]:bg-background/80 [&_th]:border-border [&_td]:border-border';
 
   const components = {
+    span: ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement> & { dataColorCode?: string }) => {
+      if (className === 'color-swatch-container' && props.dataColorCode) {
+        return <ColorSwatch color={props.dataColorCode} />;
+      }
+      return <span className={className} {...props} />;
+    },
     a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
       if (href && isFilePath(href)) {
         return <FileLink href={href}>{children}</FileLink>;
@@ -711,7 +718,7 @@ function MarkdownMessage({
     <div className={`${sharedClasses} ${toneClasses}`}>
       <ReactMarkdown 
         remarkPlugins={[remarkGfm]} 
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={[rehypeInlineColorSwatch, rehypeHighlight]}
         components={components}
       >
         {content}
