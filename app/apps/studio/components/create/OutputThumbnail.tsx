@@ -4,7 +4,7 @@ import { memo } from 'react';
 
 /* eslint-disable @next/next/no-img-element */
 
-import { Film, ImageIcon, Play } from 'lucide-react';
+import { Film, ImageIcon, Play, Star } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
@@ -57,6 +57,12 @@ export const OutputThumbnail = memo(function OutputThumbnail({
       selected ? 'border-primary ring-2 ring-primary' : 'border-border/70 bg-card',
       recentlyCompleted && 'animate-[studioOutputFadeIn_500ms_ease-out_forwards]',
     )}>
+      {output.isFavorite && !selectionMode && (
+        <div className="pointer-events-none absolute top-2 right-2 z-10">
+          <Star className="h-4 w-4 fill-amber-400 text-amber-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]" />
+        </div>
+      )}
+
       {selectionMode && (
         <div className="pointer-events-none absolute top-2 left-2 z-10">
           <div className={`flex h-6 w-6 items-center justify-center rounded-full border ${selected ? 'bg-primary border-primary text-white' : 'border-white/70 bg-black/40 text-white'}`}>
