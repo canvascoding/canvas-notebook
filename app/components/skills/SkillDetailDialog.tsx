@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Dialog,
@@ -31,9 +31,30 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const saveTimeoutRef = useRef<number | null>(null);
 
+  async function loadSkillContent(skillName: string) {
+    setLoading(true);
+    setError(null);
+    setSaveError(null);
+    setDraft('');
+    try {
+      const response = await fetch(`/api/skills/${skillName}/readme`);
+      const data = await response.json();
+      if (data.success) {
+        setSkillContent(data.content);
+        setDraft(data.content);
+      } else {
+        setError(data.error || t('detail.errors.loadContent'));
+      }
+    } catch {
+      setError(t('detail.errors.loadContent'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (open && skill) {
-      loadSkillContent(skill.name);
+      startTransition(() => { loadSkillContent(skill.name); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSkillContent takes skill.name as argument; skill is in deps
   }, [open, skill]);
@@ -81,27 +102,6 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
       }
     };
   }, [draft, skill, skillContent, t]);
-
-  async function loadSkillContent(skillName: string) {
-    setLoading(true);
-    setError(null);
-    setSaveError(null);
-    setDraft('');
-    try {
-      const response = await fetch(`/api/skills/${skillName}/readme`);
-      const data = await response.json();
-      if (data.success) {
-        setSkillContent(data.content);
-        setDraft(data.content);
-      } else {
-        setError(data.error || t('detail.errors.loadContent'));
-      }
-    } catch {
-      setError(t('detail.errors.loadContent'));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const isDirty = draft !== skillContent;
   const savedTime = lastSavedAt

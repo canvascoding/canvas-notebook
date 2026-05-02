@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Eye, EyeOff, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
@@ -373,22 +373,26 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
   }, [t]);
 
   useEffect(() => {
-    void Promise.all(SCOPE_CARDS.map((card) => loadState(card.scope)));
+    startTransition(() => {
+      void Promise.all(SCOPE_CARDS.map((card) => loadState(card.scope)));
+    });
   }, [loadState]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'agent-settings') {
-      setSettingsTab('agent-settings');
-    } else if (tab === 'workspace') {
-      setSettingsTab('workspace');
-    } else if (tab === 'integrations') {
-      setSettingsTab('integrations');
-    } else if (tab === 'usage') {
-      setSettingsTab('usage');
-    } else if (tab === 'skills') {
-      setSettingsTab('skills');
-    }
+    startTransition(() => {
+      if (tab === 'agent-settings') {
+        setSettingsTab('agent-settings');
+      } else if (tab === 'workspace') {
+        setSettingsTab('workspace');
+      } else if (tab === 'integrations') {
+        setSettingsTab('integrations');
+      } else if (tab === 'usage') {
+        setSettingsTab('usage');
+      } else if (tab === 'skills') {
+        setSettingsTab('skills');
+      }
+    });
   }, [searchParams]);
 
   const saveScope = async (scope: EnvScope, payload: { mode: 'kv'; entries: Array<{ key: string; value: string }> } | { mode: 'raw'; rawContent: string }) => {

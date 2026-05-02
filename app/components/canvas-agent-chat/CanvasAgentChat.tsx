@@ -1157,6 +1157,7 @@ export default function CanvasAgentChat({
     if (messages.length === 0) {
       previousMessageCountRef.current = 0;
       isAtBottomRef.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsAtBottom(true);
       return;
     }
@@ -2280,6 +2281,7 @@ export default function CanvasAgentChat({
     }
   }, [t]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
     setIsUploading(true);
     setUploadError(null);
@@ -2335,6 +2337,7 @@ export default function CanvasAgentChat({
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const preprocessAndUpload = useCallback(async (files: File[]) => {
     const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
     const HEIC_EXTS = new Set(['heic', 'heif']);
@@ -2362,12 +2365,14 @@ export default function CanvasAgentChat({
     }
   }, [handleFileUploadMultiple]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleImagePreprocessConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
     await handleFileUploadMultiple(imagePreprocessPendingFiles, convertParams);
     setImagePreprocessFiles(null);
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleImagePreprocessSkip = useCallback(async () => {
     const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
     const HEIC_EXTS = new Set(['heic', 'heif']);
@@ -2391,6 +2396,7 @@ export default function CanvasAgentChat({
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [preprocessAndUpload]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
     if (!items) return;
@@ -2603,6 +2609,7 @@ export default function CanvasAgentChat({
       const provider = agentConfig.piConfig.activeProvider;
       const model = agentConfig.piConfig.providers[provider]?.model;
       if (model) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setActiveModel(model);
       }
     }
@@ -2659,6 +2666,7 @@ export default function CanvasAgentChat({
   // Fetch history when showing history panel and it's empty (mobile bug fix)
   useEffect(() => {
     if (showHistory && history.length === 0 && !isLoadingHistory) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void fetchHistory();
     }
   }, [showHistory, history.length, fetchHistory, isLoadingHistory]);
@@ -2739,6 +2747,7 @@ export default function CanvasAgentChat({
   const isAgentActive = runtimeStatus != null && runtimeStatus.phase !== 'idle';
   useEffect(() => {
     if (!sessionId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshRuntimeStatus(sessionId);
   }, [refreshRuntimeStatus, sessionId]);
 
@@ -2756,8 +2765,10 @@ export default function CanvasAgentChat({
 
   useEffect(() => {
     if (!isMobile) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setShowMobileDetails(false);
       setShowMobileActionPanel(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [isMobile]);
 

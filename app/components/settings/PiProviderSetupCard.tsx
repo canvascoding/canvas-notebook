@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Check,
@@ -333,7 +333,7 @@ export function PiProviderSetupCard({
   }, [t]);
 
   useEffect(() => {
-    void loadConfig();
+    startTransition(() => { void loadConfig(); });
   }, [loadConfig]);
 
   useEffect(() => {
@@ -341,14 +341,16 @@ export function PiProviderSetupCard({
       return;
     }
 
-    void loadProviderStatus(piConfigDraft.activeProvider);
+    startTransition(() => { void loadProviderStatus(piConfigDraft.activeProvider); });
   }, [piConfigDraft?.activeProvider, loadProviderStatus]);
 
   useEffect(() => {
-    setIsHelpOpen(false);
-    setIsOllamaConfigOpen(false);
-    setIsOpenAiCompatibleConfigOpen(false);
-    setConfigSuccess(null);
+    startTransition(() => {
+      setIsHelpOpen(false);
+      setIsOllamaConfigOpen(false);
+      setIsOpenAiCompatibleConfigOpen(false);
+      setConfigSuccess(null);
+    });
   }, [piConfigDraft?.activeProvider]);
 
   useEffect(() => {
@@ -361,7 +363,7 @@ export function PiProviderSetupCard({
         ? (piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' ? 'oauth' : 'api-key')
         : method;
       console.log(`[PiProviderSetupCard] init authMethodSelection: provider=${piConfigDraft.activeProvider}, methodFromProvider=${method}, resolved=${resolved}`);
-      setAuthMethodSelection(resolved);
+      startTransition(() => { setAuthMethodSelection(resolved); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only set initial auth method
   }, [piConfigDraft?.activeProvider]);

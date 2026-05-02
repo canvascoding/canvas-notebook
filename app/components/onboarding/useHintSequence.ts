@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, startTransition, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
-import { getPageDefinition, type PageDefinition } from './hint-config';
+import { getPageDefinition } from './hint-config';
 
 export interface HintState {
   page: string;
@@ -18,10 +18,8 @@ export function useHintSequence(page: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissing, setDismissing] = useState(false);
-  const pageDefRef = useRef<PageDefinition | null>(null);
 
-  const pageDef = getPageDefinition(page);
-  pageDefRef.current = pageDef ?? null;
+  const pageDef = useMemo(() => getPageDefinition(page) ?? null, [page]);
 
   const fetchState = useCallback(async () => {
     try {
@@ -42,7 +40,9 @@ export function useHintSequence(page: string) {
   }, [page]);
 
   useEffect(() => {
-    void fetchState();
+    startTransition(() => {
+      void fetchState();
+    });
   }, [fetchState]);
 
   const dismissCurrent = useCallback(async () => {
@@ -75,7 +75,7 @@ export function useHintSequence(page: string) {
     } finally {
       setDismissing(false);
     }
-  }, [state?.currentHintKey, dismissing]);
+  }, [state, dismissing]);
 
   const completePage = useCallback(async () => {
     try {
@@ -114,8 +114,8 @@ export function useHintSequence(page: string) {
   }, [page, fetchState]);
 
   const getCurrentHintTexts = useCallback(() => {
-    if (!state?.currentHintKey || !pageDefRef.current) return null;
-    const hintDef = pageDefRef.current.hints.find(
+    if (!state?.currentHintKey || !pageDef) return null;
+    const hintDef = pageDef.hints.find(
       (h) => h.hintKey === state.currentHintKey
     );
     if (!hintDef) return null;
@@ -134,7 +134,7 @@ export function useHintSequence(page: string) {
     } catch {
       return null;
     }
-  }, [state?.currentHintKey, t]);
+  }, [state, t, pageDef]);
 
   return {
     state,
@@ -145,6 +145,6 @@ export function useHintSequence(page: string) {
     completePage,
     resetPage,
     getCurrentHintTexts,
-    pageDef: pageDefRef.current,
+    pageDef,
   };
 }

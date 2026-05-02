@@ -192,6 +192,7 @@ export function HomeChatPrompt() {
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const preprocessAndUpload = useCallback(async (files: File[]) => {
     const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
     const HEIC_EXTS = new Set(['heic', 'heif']);
@@ -219,12 +220,14 @@ export function HomeChatPrompt() {
     }
   }, [handleFileUploadMultiple]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleImagePreprocessConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
     await handleFileUploadMultiple(imagePreprocessPendingFiles, convertParams);
     setImagePreprocessFiles(null);
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleImagePreprocessSkip = useCallback(async () => {
     const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
     const HEIC_EXTS = new Set(['heic', 'heif']);

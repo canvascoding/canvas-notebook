@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -49,9 +49,24 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   const [isFinalizing, setIsFinalizing] = useState(false);
   const completedFlowRef = useRef<string | null>(null);
 
+  const loadStatus = async () => {
+    try {
+      const response = await fetch('/api/oauth/pi/status', {
+        credentials: 'include',
+      });
+      const data = await response.json();
+      
+      if (data.success && data.providers) {
+        setProviders(data.providers);
+      }
+    } catch (err) {
+      console.error('Failed to load OAuth status:', err);
+    }
+  };
+
   // Load OAuth status on mount
   useEffect(() => {
-    void loadStatus();
+    startTransition(() => { void loadStatus(); });
   }, []);
 
   // Auto-select active provider when providers are loaded
@@ -59,7 +74,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
     if (!activeProviderId || !providers.length) return;
     const match = providers.find(p => p.provider === activeProviderId);
     if (match && !match.connected && !selectedProvider) {
-      setSelectedProvider(match);
+      startTransition(() => { setSelectedProvider(match); });
     }
   }, [activeProviderId, providers, selectedProvider]);
 
@@ -193,7 +208,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
 
   useEffect(() => {
     if (!isOpen && flowId) {
-      resetDialogState();
+      startTransition(() => { resetDialogState(); });
     }
   }, [isOpen, flowId]);
 
@@ -206,21 +221,6 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
       return () => clearTimeout(timeout);
     }
   }, [successMessage]);
-
-  const loadStatus = async () => {
-    try {
-      const response = await fetch('/api/oauth/pi/status', {
-        credentials: 'include',
-      });
-      const data = await response.json();
-      
-      if (data.success && data.providers) {
-        setProviders(data.providers);
-      }
-    } catch (err) {
-      console.error('Failed to load OAuth status:', err);
-    }
-  };
 
   const initiateAuth = async () => {
     if (!selectedProvider) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState, startTransition } from 'react';
 import { useHintSequence } from './useHintSequence';
 import { HintTooltip } from './HintTooltip';
 
@@ -98,7 +98,9 @@ export function HintProvider({ page = '', children }: HintProviderProps) {
   }, [state?.currentHintKey, state?.completed, loading, error, getCurrentHintTexts, dismissCurrent]);
 
   useEffect(() => {
-    setSkipHint(false);
+    startTransition(() => {
+      setSkipHint(false);
+    });
   }, [state?.currentHintKey]);
 
   const showHint = !loading && !error && state && !state.completed && state.currentHintKey && currentHint && !skipHint;

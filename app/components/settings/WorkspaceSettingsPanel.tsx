@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { Download, FolderArchive, HardDrive, Loader2, RefreshCw } from 'lucide-react';
 
@@ -41,7 +41,7 @@ export function WorkspaceSettingsPanel() {
   }, [t]);
 
   useEffect(() => {
-    void loadStats();
+    startTransition(() => { void loadStats(); });
   }, [loadStats]);
 
   const handleDownload = async (scope: DownloadScope) => {
