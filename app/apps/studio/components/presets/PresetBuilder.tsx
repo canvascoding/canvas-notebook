@@ -44,6 +44,7 @@ import {
   Layers,
   Image as ImageIcon,
 } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { StudioBlock, StudioPresetBlockCatalog, StudioPreset } from '../../types/presets';
 
@@ -163,6 +164,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [previewCollapsed, setPreviewCollapsed] = useState(false);
   const prevPreviewEnabled = useRef(false);
 
   const canSave = name.trim().length > 0 && category.length > 0 && selectedBlocks.length > 0;
@@ -302,35 +304,64 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4 pb-4 shrink-0">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={handleCancel}>
+      <div className="flex items-center justify-between gap-2 pb-4 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Button variant="ghost" size="icon" onClick={handleCancel} className="shrink-0 h-8 w-8">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-xl font-bold">
+          <h1 className="text-lg md:text-xl font-bold truncate">
             {presetId ? 'Edit Studio Preset' : 'New Studio Preset'}
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
           {presetId && (
-            <Button variant="destructive" size="sm" onClick={handleDelete} className="gap-2">
+            <Button variant="destructive" size="icon" onClick={handleDelete} className="h-8 w-8 md:hidden">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          {presetId && (
+            <Button variant="destructive" size="sm" onClick={handleDelete} className="gap-2 hidden md:inline-flex">
               <Trash2 className="h-4 w-4" />
               Delete
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={handleCancel}>
+          <Button variant="outline" size="sm" onClick={handleCancel} className="hidden sm:inline-flex">
             Cancel
           </Button>
           <Button size="sm" onClick={handleSave} disabled={saving || !canSave} className="gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            Save
+            <span className="hidden sm:inline">Save</span>
           </Button>
         </div>
       </div>
 
+      {/* Block type tabs - horizontal scrollable on mobile, visible on all sizes */}
+      <div className="mb-3 shrink-0 md:hidden">
+        <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1 no-scrollbar">
+          {catalog?.blockTypes.map((group) => (
+            <button
+              key={group.type}
+              onClick={() => setActiveBlockType(group.type)}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors',
+                activeBlockType === group.type
+                  ? 'bg-primary/10 text-primary'
+                  : 'hover:bg-muted text-muted-foreground',
+              )}
+            >
+              {getIconComponent(group.blocks[0]?.icon || 'Sparkles', group.type)}
+              <span className="capitalize">{group.type}</span>
+              <span className="text-[10px] text-muted-foreground">
+                {group.blocks.length}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex flex-1 gap-4 overflow-hidden min-h-0">
-        {/* Left Sidebar - Block Navigator */}
-        <div className="flex w-64 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-card p-3 shrink-0">
+        {/* Left Sidebar - Block Navigator (desktop only) */}
+        <div className="hidden md:flex w-64 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-card p-3 shrink-0">
           <h2 className="text-lg font-semibold px-2">
             Blocks <span className="text-xs text-muted-foreground font-normal">{selectedBlocks.length > 0 ? `${selectedBlocks.length} selected` : ''}</span>
           </h2>
@@ -360,11 +391,11 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto min-h-0">
           {/* Block Options */}
           {currentBlockGroup && (
-            <div className="rounded-xl border border-border bg-card p-4">
-              <h3 className="mb-3 text-sm font-semibold capitalize">
+            <div className="rounded-xl border border-border bg-card p-3 md:p-4">
+              <h3 className="mb-2 md:mb-3 text-sm font-semibold capitalize">
                 {currentBlockGroup.type}
               </h3>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {currentBlockGroup.blocks.map((block) => {
                   const isSelected = selectedBlocks.some((b) => b.id === block.id);
                   return (
@@ -378,7 +409,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
                         }
                       }}
                       className={cn(
-                        'flex items-center gap-3 rounded-lg border p-3 text-left transition-all',
+                        'flex items-center gap-2 md:gap-3 rounded-lg border p-2.5 md:p-3 text-left transition-all',
                         isSelected
                           ? 'border-primary bg-primary/5'
                           : 'border-border hover:border-primary/50 hover:bg-muted/50',
@@ -386,12 +417,12 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
                     >
                       {getIconComponent(block.icon, block.type)}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{block.label}</p>
-                        <p className="text-xs text-muted-foreground">{block.description}</p>
+                        <p className="text-xs md:text-sm font-medium truncate">{block.label}</p>
+                        <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-2">{block.description}</p>
                       </div>
                       <div
                         className={cn(
-                          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2',
+                          'flex h-5 w-5 md:h-6 md:w-6 shrink-0 items-center justify-center rounded-full border-2',
                           isSelected
                             ? 'border-primary bg-primary text-primary-foreground'
                             : 'border-muted-foreground/30',
@@ -407,22 +438,22 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
           )}
 
           {/* Preset Details */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <h3 className="mb-3 text-sm font-semibold">Preset Details</h3>
+          <div className="rounded-xl border border-border bg-card p-3 md:p-4">
+            <h3 className="mb-2 md:mb-3 text-sm font-semibold">Preset Details</h3>
             <div className="flex flex-col gap-3">
               <div>
-                <Label className="mb-1">
+                <Label className="mb-1 text-xs md:text-sm">
                   Name <span className="text-red-500">*</span>
                 </Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Editorial Softbox Portrait" className={!name.trim() && name.length > 0 ? 'border-red-400' : ''} />
               </div>
               <div>
-                <Label className="mb-1">Description</Label>
-                <Textarea value={description} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)} placeholder="Optional description..." />
+                <Label className="mb-1 text-xs md:text-sm">Description</Label>
+                <Textarea value={description} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)} placeholder="Optional description..." rows={3} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label className="mb-1">
+                  <Label className="mb-1 text-xs md:text-sm">
                     Category <span className="text-red-500">*</span>
                   </Label>
                   <select
@@ -440,7 +471,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
                   </select>
                 </div>
                 <div>
-                  <Label className="mb-1">Tags (comma separated)</Label>
+                  <Label className="mb-1 text-xs md:text-sm">Tags (comma separated)</Label>
                   <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="portrait, editorial, soft light" />
                 </div>
               </div>
@@ -449,10 +480,96 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
               <p className="mt-2 text-sm text-red-500">{saveError}</p>
             )}
           </div>
+
+          {/* Preview - mobile (inline) */}
+          <div className="md:hidden">
+            <div className="rounded-xl border border-border bg-card p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Preview</h3>
+                <div className="flex items-center gap-2">
+                  {presetId && (
+                    <button
+                      onClick={() => setPreviewCollapsed(!previewCollapsed)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-muted"
+                    >
+                      {previewCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                    </button>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="preview-toggle-mobile"
+                      checked={previewEnabled}
+                      onCheckedChange={setPreviewEnabled}
+                    />
+                    <Label htmlFor="preview-toggle-mobile" className="text-xs">
+                      Live
+                    </Label>
+                  </div>
+                </div>
+              </div>
+
+              {!previewCollapsed && (
+                <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center relative max-w-[280px] mx-auto">
+                  {previewImageUrl && previewEnabled ? (
+                    <img
+                      src={previewImageUrl}
+                      alt="Preview"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', PREVIEW_CATEGORY_GRADIENTS[category ?? ''] ?? 'from-muted to-muted/50')}>
+                      {(() => {
+                        const FallbackIcon = PREVIEW_CATEGORY_ICONS[category ?? ''] ?? Layers;
+                        const iconColor = PREVIEW_CATEGORY_ICON_COLORS[category ?? ''] ?? 'text-muted-foreground/40';
+                        return <FallbackIcon className={cn('h-10 w-10', iconColor)} />;
+                      })()}
+                      <span className="max-w-[80%] text-center text-xs font-medium leading-tight text-muted-foreground/50 line-clamp-2">
+                        {name || 'Preset Preview'}
+                      </span>
+                      {!previewEnabled && !presetId && (
+                        <p className="text-[10px] text-muted-foreground/40">Save preset first, then enable Live Preview</p>
+                      )}
+                      {!previewEnabled && presetId && (
+                        <p className="text-[10px] text-muted-foreground/40">Enable Live Preview to generate</p>
+                      )}
+                      {previewEnabled && !presetId && (
+                        <p className="text-[10px] text-muted-foreground/40">Save preset first to generate preview</p>
+                      )}
+                      {previewEnabled && presetId && !previewImageUrl && !previewGenerating && (
+                        <p className="text-[10px] text-muted-foreground/40">Tap Generate Preview or add blocks</p>
+                      )}
+                    </div>
+                  )}
+                  {previewGenerating && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                      <Loader2 className="h-8 w-8 animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {presetId && previewEnabled && !previewCollapsed && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 w-full gap-2"
+                  onClick={handleGeneratePreview}
+                  disabled={previewGenerating}
+                >
+                  {previewGenerating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  Generate Preview
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Right - Preview */}
-        <div className="flex w-80 flex-col gap-4 shrink-0">
+        {/* Right - Preview (desktop only) */}
+        <div className="hidden md:flex w-80 flex-col gap-4 shrink-0">
           <div className="rounded-xl border border-border bg-card p-4 overflow-y-auto">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold">Preview</h3>
@@ -470,14 +587,11 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
 
             <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center relative">
               {previewImageUrl && previewEnabled ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={previewImageUrl}
-                    alt="Preview"
-                    className="h-full w-full object-cover"
-                  />
-                </>
+                <img
+                  src={previewImageUrl}
+                  alt="Preview"
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', PREVIEW_CATEGORY_GRADIENTS[category ?? ''] ?? 'from-muted to-muted/50')}>
                   {(() => {
@@ -530,19 +644,19 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
       </div>
 
       {/* Bottom - Selected Blocks Bar */}
-      <div className="mt-4 rounded-xl border border-border bg-card p-3 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">
+      <div className="mt-3 md:mt-4 rounded-xl border border-border bg-card p-2.5 md:p-3 shrink-0">
+        <div className="flex items-start gap-2">
+          <span className="text-xs font-medium text-muted-foreground shrink-0 pt-1">
             Selected <span className="text-red-500">*</span>:
           </span>
-          <div className="flex flex-1 flex-wrap gap-2">
+          <div className="flex flex-1 flex-wrap gap-1.5 md:gap-2">
             {selectedBlocks.length === 0 && (
-              <span className="text-xs text-muted-foreground">No blocks selected yet. Click blocks from the left sidebar to build your preset.</span>
+              <span className="text-xs text-muted-foreground">No blocks selected yet. Tap a block above to add it.</span>
             )}
             {selectedBlocks.map((block) => (
               <div
                 key={block.id}
-                className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+                className="flex items-center gap-1 md:gap-1.5 rounded-full bg-primary/10 px-2 md:px-3 py-1 text-[10px] md:text-xs font-medium text-primary"
               >
                 {getIconComponent(
                   catalog?.blockTypes.find((g) => g.type === block.type)?.blocks.find((b) => b.id === block.id)?.icon || 'Sparkles',
@@ -551,7 +665,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
                 <span>{block.label}</span>
                 <button
                   onClick={() => handleRemoveBlock(block.id)}
-                  className="ml-1 rounded-full hover:bg-primary/20"
+                  className="ml-0.5 md:ml-1 rounded-full hover:bg-primary/20"
                 >
                   <X className="h-3 w-3" />
                 </button>
