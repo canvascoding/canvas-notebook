@@ -11,7 +11,30 @@ loadEnvConfig(process.cwd(), dev);
 // during its own bundling; plain Node would otherwise execute the package's
 // throwing stub.
 const Module = require('module');
+const path = require('path');
 const originalLoad = Module._load;
+const originalResolveFilename = Module._resolveFilename;
+const piAiPackageRoot = path.resolve(process.cwd(), 'node_modules/@mariozechner/pi-ai/dist');
+const piAiModuleAliases = new Map([
+  ['@mariozechner/pi-ai', path.join(piAiPackageRoot, 'index.js')],
+  ['@mariozechner/pi-ai/oauth', path.join(piAiPackageRoot, 'oauth.js')],
+  ['@mariozechner/pi-ai/anthropic', path.join(piAiPackageRoot, 'providers/anthropic.js')],
+  ['@mariozechner/pi-ai/azure-openai-responses', path.join(piAiPackageRoot, 'providers/azure-openai-responses.js')],
+  ['@mariozechner/pi-ai/google', path.join(piAiPackageRoot, 'providers/google.js')],
+  ['@mariozechner/pi-ai/google-vertex', path.join(piAiPackageRoot, 'providers/google-vertex.js')],
+  ['@mariozechner/pi-ai/mistral', path.join(piAiPackageRoot, 'providers/mistral.js')],
+  ['@mariozechner/pi-ai/openai-codex-responses', path.join(piAiPackageRoot, 'providers/openai-codex-responses.js')],
+  ['@mariozechner/pi-ai/openai-completions', path.join(piAiPackageRoot, 'providers/openai-completions.js')],
+  ['@mariozechner/pi-ai/openai-responses', path.join(piAiPackageRoot, 'providers/openai-responses.js')],
+  ['@mariozechner/pi-ai/bedrock-provider', path.join(piAiPackageRoot, 'bedrock-provider.js')],
+]);
+Module._resolveFilename = function resolveWithEsmPackageAliases(request, parent, isMain, options) {
+  const aliasedPath = piAiModuleAliases.get(request);
+  if (aliasedPath) {
+    return aliasedPath;
+  }
+  return originalResolveFilename.call(this, request, parent, isMain, options);
+};
 Module._load = function loadWithServerOnlyMarker(request, parent, isMain) {
   if (request === 'server-only') {
     return {};
@@ -21,7 +44,6 @@ Module._load = function loadWithServerOnlyMarker(request, parent, isMain) {
 
 const http = require('http');
 const fs = require('fs');
-const path = require('path');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
