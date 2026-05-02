@@ -40,6 +40,21 @@ export async function disconnectTool(toolkit: string): Promise<void> {
   }
 }
 
+export async function getAuthConfigs(): Promise<Array<Record<string, unknown>>> {
+  const composio = await getComposio();
+  if (!composio) return [];
+
+  try {
+    const result = await composio.authConfigs.list({});
+    const listResult = result as Record<string, unknown>;
+    const items = Array.isArray(listResult.items) ? listResult.items : [];
+    return items as Array<Record<string, unknown>>;
+  } catch (error) {
+    console.error('[Composio] Failed to fetch auth configs:', error);
+    return [];
+  }
+}
+
 export async function getConnectedAccounts() {
   const composio = await getComposio();
   if (!composio) return [];

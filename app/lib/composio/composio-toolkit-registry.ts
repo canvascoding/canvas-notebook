@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { getComposio } from './composio-client';
-import { getConnectedAccounts } from './composio-auth';
+import { getConnectedAccounts, getAuthConfigs } from './composio-auth';
 
 export interface ToolkitInfo {
   slug: string;
@@ -13,6 +13,8 @@ export interface ToolkitInfo {
   connected: boolean;
   connectedAccountId?: string;
   connectedAccountStatus?: string;
+  authConfigId?: string;
+  authConfigStatus?: string;
 }
 
 export interface ToolkitToolInfo {
@@ -46,12 +48,32 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
   if (!composio) return [];
 
   try {
-    const response = await composio.toolkits.get({});
+    const [response, connectedAccounts, authConfigs] = await Promise.all([
+      composio.toolkits.get({}),
+      getConnectedAccounts(),
+      getAuthConfigs(),
+    ]);
+
     const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
-    const connectedAccounts = await getConnectedAccounts();
-    const connectedBySlug = new Map(
-      connectedAccounts.map((a) => [a.toolkit?.slug ?? '', a])
-    );
+
+    const connectedBySlug = new Map<string, Record<string, unknown>>();
+    for (const a of connectedAccounts) {
+      const acc = a as Record<string, unknown>;
+      const slug = (acc.toolkit as Record<string, unknown> | undefined)?.slug;
+      if (typeof slug === 'string') {
+        connectedBySlug.set(slug, acc);
+      }
+    }
+
+    const authConfigBySlug = new Map<string, Record<string, unknown>>();
+    for (const c of authConfigs) {
+      const config = c as Record<string, unknown>;
+      const toolkit = config.toolkit as Record<string, unknown> | undefined;
+      const slug = toolkit?.slug;
+      if (typeof slug === 'string') {
+        authConfigBySlug.set(slug, config);
+      }
+    }
 
     const toolkits: ToolkitInfo[] = rawItems
       .map((item) => {
@@ -59,16 +81,22 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
         const meta = (t.meta ?? {}) as Record<string, unknown>;
         const slug = String(t.slug ?? '');
         const account = connectedBySlug.get(slug);
+        const authConfig = authConfigBySlug.get(slug);
+        const isOAuth = !(t.noAuth ?? t.isNoAuth);
         return {
           slug,
           name: String(t.name ?? slug),
           logo: String(meta.logo ?? t.logo ?? ''),
           description: String(meta.description ?? t.description ?? ''),
           toolsCount: Number(meta.toolsCount ?? 0),
-          isNoAuth: Boolean(t.noAuth ?? t.isNoAuth ?? false),
-          connected: account?.status === 'ACTIVE',
-          connectedAccountId: account?.id,
-          connectedAccountStatus: account?.status,
+          isNoAuth: !isOAuth,
+          connected: isOAuth
+            ? (account?.status === 'ACTIVE')
+            : (authConfig?.status === 'ENABLED'),
+          connectedAccountId: typeof account?.id === 'string' ? account.id : undefined,
+          connectedAccountStatus: typeof account?.status === 'string' ? account.status : undefined,
+          authConfigId: typeof authConfig?.id === 'string' ? authConfig.id : undefined,
+          authConfigStatus: typeof authConfig?.status === 'string' ? authConfig.status : undefined,
         };
       })
       .filter((tk) => !HIDDEN_TOOLKIT_SLUGS.has(tk.slug));
