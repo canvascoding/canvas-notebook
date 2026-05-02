@@ -1,0 +1,20 @@
+[Unit]
+Description=Canvas Notebook
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=-/etc/canvas-notebook/manager.env
+Environment=CANVAS_MANAGER_LOG_DIR=/var/log/canvas-notebook
+ExecStart=__CLI_PATH__ start --no-banner
+ExecStop=__CLI_PATH__ stop --no-banner
+ExecReload=__CLI_PATH__ restart --no-banner
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
