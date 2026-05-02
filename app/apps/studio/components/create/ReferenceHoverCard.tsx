@@ -60,8 +60,8 @@ function PreviewContent({
   const previewUrl = thumbnailPath ? toPreviewUrl(thumbnailPath, 400) : undefined;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="relative h-[280px] w-[280px] overflow-hidden rounded-md bg-muted">
+    <div className="flex flex-col gap-2 max-w-full">
+      <div className="relative aspect-square max-w-[280px] max-h-[280px] w-full overflow-hidden rounded-md bg-muted mx-auto">
         {previewUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -80,23 +80,24 @@ function PreviewContent({
         )}
         <button
           type="button"
-          onClick={(e) => {
+          onPointerDown={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             onRemove();
           }}
           className={cn(
-            'absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-destructive/10 text-destructive shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/20',
+            'absolute top-2 right-2 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-destructive/10 text-destructive shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/20',
           )}
           title="Remove reference"
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-4 w-4 pointer-events-none" />
         </button>
       </div>
-      <div className="flex items-center gap-2 px-1">
-        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider', TYPE_BADGE_COLORS[type])}>
+      <div className="flex items-center gap-2 px-1 overflow-hidden">
+        <span className={cn('inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider', TYPE_BADGE_COLORS[type])}>
           {TYPE_LABELS[type]}
         </span>
-        <span className="truncate text-sm font-medium">{name}</span>
+        <span className="min-w-0 truncate text-sm font-medium">{name}</span>
       </div>
       {showCloseButton && (
         <DialogClose asChild>
@@ -139,9 +140,9 @@ export function ReferenceHoverCard({
             <span className="inline-flex">{children}</span>
           </HoverCardTrigger>
           <HoverCardContent
-            className="w-auto p-3 border-border/60"
+            className="w-auto max-w-[320px] p-3 border-border/60"
             side="top"
-            align="start"
+            align="center"
             sideOffset={8}
           >
             <PreviewContent
@@ -168,7 +169,7 @@ export function ReferenceHoverCard({
         </span>
         <Dialog open={mobileDialogOpen} onOpenChange={setMobileDialogOpen}>
           <DialogContent
-            className="max-w-[320px] p-4 sm:max-w-[320px]"
+            className="max-w-[90vw] w-auto p-4"
             showCloseButton={false}
           >
             <DialogTitle className="sr-only">{name}</DialogTitle>
