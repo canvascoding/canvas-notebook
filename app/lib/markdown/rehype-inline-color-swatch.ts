@@ -4,8 +4,16 @@ import { INLINE_HEX_REGEX } from './color-swatch';
 
 const SKIPPED_TAGS = new Set(['code', 'a', 'pre', 'script', 'style']);
 
+interface Replacement {
+  parent: Parent;
+  index: number;
+  nodes: Array<Text | Element>;
+}
+
 export function rehypeInlineColorSwatch() {
   return (tree: Root) => {
+    const replacements: Replacement[] = [];
+    
     visit(tree, 'text', (node: Text, index: number | undefined, parent: Parent | undefined) => {
       if (index === undefined || parent === undefined) return;
       
@@ -15,8 +23,8 @@ export function rehypeInlineColorSwatch() {
       const value = node.value;
       if (!value) return;
 
-      INLINE_HEX_REGEX.lastIndex = 0;
-      const matches = [...value.matchAll(INLINE_HEX_REGEX)];
+      const regex = new RegExp(INLINE_HEX_REGEX.source, INLINE_HEX_REGEX.flags);
+      const matches = [...value.matchAll(regex)];
       if (matches.length === 0) return;
 
       const newChildren: Array<Text | Element> = [];
@@ -53,7 +61,12 @@ export function rehypeInlineColorSwatch() {
         });
       }
 
-      (parent.children as Array<Text | Element>).splice(index, 1, ...newChildren);
+      replacements.push({ parent, index, nodes: newChildren });
     });
+
+    // Apply replacements in reverse order so indices remain valid
+    for (const { parent, index, nodes } of replacements.reverse()) {
+      (parent.children as Array<Text | Element>).splice(index, 1, ...nodes);
+    }
   };
 }
