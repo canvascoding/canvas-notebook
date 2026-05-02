@@ -376,16 +376,6 @@ const server = http.createServer((req, res) => {
 // /ws/chat sockets; otherwise Next can still corrupt or close the upgraded
 // connection after our ws server has accepted it.
 let isChatWebSocketRequest = () => false;
-console.log('[Startup] Initializing WebSocket Server...');
-try {
-  const websocketServer = require('./server/websocket-server');
-  isChatWebSocketRequest = websocketServer.isChatWebSocketRequest;
-  websocketServer.createWebSocketServer(server);
-  console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
-} catch (error) {
-  console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
-  console.error('[Startup] Stack trace:', error.stack);
-}
 
 function guardNonChatUpgradeListener(listener) {
   if (typeof listener !== 'function' || listener.__canvasUpgradeGuarded) {
@@ -428,17 +418,29 @@ function installChatUpgradeGuard(targetServer) {
   };
 }
 
-installChatUpgradeGuard(server);
+async function startServer() {
+  console.log('[Startup] Initializing WebSocket Server...');
+  try {
+    const websocketServer = await import('./server/websocket-server.ts');
+    isChatWebSocketRequest = websocketServer.isChatWebSocketRequest;
+    websocketServer.createWebSocketServer(server);
+    console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+  } catch (error) {
+    console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
+    console.error('[Startup] Stack trace:', error.stack);
+  }
 
-app
-  .prepare()
-  .then(() => {
-    server.listen(port, (err) => {
-      if (err) throw err;
-      console.log(`> Ready on http://localhost:${port}`);
-    });
-  })
-  .catch((error) => {
+  installChatUpgradeGuard(server);
+
+  await app.prepare();
+
+  server.listen(port, (err) => {
+    if (err) throw err;
+    console.log(`> Ready on http://localhost:${port}`);
+  });
+}
+
+startServer().catch((error) => {
     console.error('Failed to start server', error);
     process.exit(1);
-  });
+});
