@@ -978,7 +978,8 @@ export const piTools: AgentTool[] = [
     execute: async (toolCallId, params) => {
       try {
         const { path: dirPath } = params as { path?: string };
-        const fullPath = resolveAgentPath(dirPath || '.');
+        const effectiveDir = dirPath || '/data/workspace';
+        const fullPath = resolveAgentPath(effectiveDir);
         const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
         const files = await Promise.all(
           entries.map(async (entry) => {
@@ -986,7 +987,7 @@ export const piTools: AgentTool[] = [
             const stats = await fsPromises.stat(entryFullPath);
             return {
               name: entry.name,
-              path: path.join(dirPath || '.', entry.name),
+              path: path.join(effectiveDir, entry.name),
               type: entry.isDirectory() ? 'directory' : 'file',
               size: stats.size,
               modified: Math.floor(stats.mtimeMs / 1000),
