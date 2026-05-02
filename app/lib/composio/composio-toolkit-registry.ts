@@ -82,17 +82,21 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
         const slug = String(t.slug ?? '');
         const account = connectedBySlug.get(slug);
         const authConfig = authConfigBySlug.get(slug);
-        const isOAuth = !(t.noAuth ?? t.isNoAuth);
+        // OAuth apps: connected = has active connectedAccount
+        // API-Key apps (noAuth=true): connected = has ENABLED authConfig
+        // Truly no-auth apps: connected = false, isNoAuth = true, no authConfig exists
+        const hasOAuthConnection = account?.status === 'ACTIVE';
+        const hasApiKeyConnection = authConfig?.status === 'ENABLED';
+        const isTrulyNoAuth = Boolean(t.noAuth ?? t.isNoAuth) && !hasApiKeyConnection;
+        
         return {
           slug,
           name: String(t.name ?? slug),
           logo: String(meta.logo ?? t.logo ?? ''),
           description: String(meta.description ?? t.description ?? ''),
           toolsCount: Number(meta.toolsCount ?? 0),
-          isNoAuth: !isOAuth,
-          connected: isOAuth
-            ? (account?.status === 'ACTIVE')
-            : (authConfig?.status === 'ENABLED'),
+          isNoAuth: isTrulyNoAuth,
+          connected: hasOAuthConnection || hasApiKeyConnection,
           connectedAccountId: typeof account?.id === 'string' ? account.id : undefined,
           connectedAccountStatus: typeof account?.status === 'string' ? account.status : undefined,
           authConfigId: typeof authConfig?.id === 'string' ? authConfig.id : undefined,
