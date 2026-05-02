@@ -5,6 +5,7 @@ import { ArrowUpCircle } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
@@ -89,21 +90,23 @@ export function VersionUpdateIndicator({ currentVersion, repositoryUrl }: Versio
   const releaseUrl = `${repositoryUrl}/releases/tag/${latestVersion}`;
 
   return (
-    <Tooltip delayDuration={200}>
-      <TooltipTrigger asChild>
-        <a
-          href={releaseUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center justify-center transition-colors hover:text-foreground"
-          aria-label="Neue Version verfügbar"
-        >
-          <ArrowUpCircle className="h-3 w-3 shrink-0 text-orange-500" />
-        </a>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="text-[10px]">
-        <p>Update verfügbar: {latestVersion}</p>
-      </TooltipContent>
-    </Tooltip>
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <a
+            href={releaseUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center transition-colors hover:text-foreground"
+            aria-label="Neue Version verfügbar"
+          >
+            <ArrowUpCircle className="h-3 w-3 shrink-0 text-orange-500" />
+          </a>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-[10px]">
+          <p>Update verfügbar: {latestVersion}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
