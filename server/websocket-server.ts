@@ -86,6 +86,25 @@ interface WebSocketConnection {
 
 const connections = new Map<WebSocket, WebSocketConnection>();
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+const CHAT_WEBSOCKET_PATH = '/ws/chat';
+
+function normalizeChatWebSocketPath(requestUrl?: string): string | null {
+  const [requestPath, query = ''] = (requestUrl || '').split('?', 2);
+
+  if (requestPath === CHAT_WEBSOCKET_PATH) {
+    return query ? `${CHAT_WEBSOCKET_PATH}?${query}` : CHAT_WEBSOCKET_PATH;
+  }
+
+  if (/^\/[a-z]{2}(?:-[A-Z]{2})?\/ws\/chat$/u.test(requestPath)) {
+    return query ? `${CHAT_WEBSOCKET_PATH}?${query}` : CHAT_WEBSOCKET_PATH;
+  }
+
+  return null;
+}
+
+export function isChatWebSocketRequest(requestUrl?: string): boolean {
+  return normalizeChatWebSocketPath(requestUrl) !== null;
+}
 
 /**
  * Create WebSocket Server attached to HTTP server
@@ -93,7 +112,7 @@ const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 export function createWebSocketServer(server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({
     noServer: true,
-    path: '/ws/chat',
+    path: CHAT_WEBSOCKET_PATH,
   });
 
   wss.on('connection', handleConnection);
@@ -101,14 +120,15 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
   const upgradedSockets = new WeakSet<net.Socket>();
 
   server.on('upgrade', (request: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
-    const requestPath = request.url?.split('?', 1)[0] || '';
+    const normalizedUrl = normalizeChatWebSocketPath(request.url);
 
-    if (requestPath === '/ws/chat') {
+    if (normalizedUrl) {
       if (upgradedSockets.has(socket)) {
         console.warn('[WebSocket] Duplicate upgrade on same socket — skipping');
         return;
       }
       upgradedSockets.add(socket);
+      request.url = normalizedUrl;
       wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
         wss.emit('connection', ws, request);
       });

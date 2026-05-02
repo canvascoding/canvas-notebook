@@ -358,22 +358,30 @@ const server = http.createServer((req, res) => {
   handle(req, res);
 });
 
-// WebSocket Server for Chat — must be registered BEFORE Next.js attaches its own
-// upgrade handler during app.prepare(), so that /ws/chat upgrades are handled by
-// our wss and not erroneously by Next.js HMR which would corrupt the socket.
-console.log('[Startup] Initializing WebSocket Server...');
-try {
-  const { createWebSocketServer } = require('./server/websocket-server');
-  createWebSocketServer(server);
-  console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
-} catch (error) {
-  console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
-  console.error('[Startup] Stack trace:', error.stack);
-}
-
 app
   .prepare()
   .then(() => {
+    console.log('[Startup] Initializing WebSocket Server...');
+    try {
+      const { createWebSocketServer, isChatWebSocketRequest } = require('./server/websocket-server');
+      const nextUpgradeListeners = server.listeners('upgrade');
+      server.removeAllListeners('upgrade');
+      createWebSocketServer(server);
+      server.on('upgrade', (request, socket, head) => {
+        if (isChatWebSocketRequest(request.url)) {
+          return;
+        }
+
+        for (const listener of nextUpgradeListeners) {
+          listener.call(server, request, socket, head);
+        }
+      });
+      console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+    } catch (error) {
+      console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
+      console.error('[Startup] Stack trace:', error.stack);
+    }
+
     server.listen(port, (err) => {
       if (err) throw err;
       console.log(`> Ready on http://localhost:${port}`);

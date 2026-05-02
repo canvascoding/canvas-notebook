@@ -10,6 +10,10 @@ const handleI18nRouting = createIntlMiddleware(routing);
 const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/automations/execute', '/api/automations/scheduler'];
 const PUBLIC_EXACT_ROUTES = ['/', '/api/health', '/manifest.webmanifest'];
 
+function isWebSocketRoute(pathname: string) {
+  return pathname === '/ws/chat' || /^\/[a-z]{2}(?:-[A-Z]{2})?\/ws\/chat$/u.test(pathname);
+}
+
 function getLocaleFromPathname(pathname: string) {
   for (const locale of routing.locales) {
     if (pathname === `/${locale}` || pathname.startsWith(`/${locale}/`)) {
@@ -76,6 +80,10 @@ function isPublicRoute(pathname: string) {
 export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  if (isWebSocketRoute(pathname)) {
+    return NextResponse.next();
+  }
+
   // 1. Handle i18n routing first
   const response = handleI18nRouting(request);
   
@@ -122,6 +130,6 @@ export default async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     // Skip all internal paths and static files
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)',
+    '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
   ],
 };
