@@ -22,6 +22,7 @@ import {
 } from './websocket-broadcast';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { initializeWebSocketBridge } from './chat-event-bridge';
+import { checkWsRateLimit } from './websocket-rate-limit';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
@@ -281,6 +282,14 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
   switch (message.type) {
     case 'subscribe_session': {
+      {
+        const rl = checkWsRateLimit('subscribe_session', userId);
+        if (!rl.ok) {
+          sendWs(ws, { type: 'subscribe_result', requestId: message.requestId, success: false, error: 'Rate limit exceeded' });
+          return;
+        }
+      }
+
       if (!message.sessionId) {
         sendWs(ws, { type: 'error', error: 'sessionId required', code: 'MISSING_SESSION_ID' });
         sendWs(ws, { type: 'subscribe_result', requestId: message.requestId, success: false, error: 'sessionId required' });
@@ -318,6 +327,14 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
     }
 
     case 'send_message': {
+      {
+        const rl = checkWsRateLimit('send_message', userId);
+        if (!rl.ok) {
+          sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Rate limit exceeded' });
+          return;
+        }
+      }
+
       if (!message.sessionId || !message.message) {
         sendWs(ws, { type: 'error', error: 'sessionId and message required', code: 'MISSING_PARAMS' });
         sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'sessionId and message required' });
@@ -375,6 +392,14 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
     }
 
     case 'control': {
+      {
+        const rl = checkWsRateLimit('control', userId);
+        if (!rl.ok) {
+          sendWs(ws, { type: 'control_result', requestId: message.requestId, success: false, error: 'Rate limit exceeded' });
+          return;
+        }
+      }
+
       if (!message.sessionId || !message.action) {
         sendWs(ws, { type: 'control_result', requestId: message.requestId, success: false, error: 'sessionId and action required' });
         return;
@@ -407,6 +432,14 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
     }
 
     case 'get_status': {
+      {
+        const rl = checkWsRateLimit('get_status', userId);
+        if (!rl.ok) {
+          sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'Rate limit exceeded' });
+          return;
+        }
+      }
+
       if (!message.sessionId) {
         sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'sessionId required' });
         return;
