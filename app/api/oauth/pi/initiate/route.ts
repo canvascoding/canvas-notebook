@@ -157,13 +157,12 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   const loginFn = getLoginFunctionName(provider);
   
   // Different providers have different signatures:
-  // - anthropic: loginAnthropic(onAuthUrl, onPromptCode)
-  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress })
+  // - anthropic: loginAnthropic({ onAuth, onPrompt, onProgress, onManualCodeInput })
+  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress, onManualCodeInput })
   // - google-gemini-cli: loginGeminiCli(onAuth, onProgress?, onManualCodeInput?)
   // - google-antigravity: loginAntigravity(onAuth, onProgress?, onManualCodeInput?)
-  const isOptionsBased = provider === 'openai-codex';
-  const isSimpleCallback = provider === 'anthropic';
-  const usesManualCodeInputOption = provider === 'openai-codex';
+  const isOptionsBased = provider === 'openai-codex' || provider === 'anthropic';
+  const usesManualCodeInputOption = provider === 'openai-codex' || provider === 'anthropic';
   
   return `
 import fs from 'fs';
@@ -254,10 +253,7 @@ async function run() {
     };
 
     let credentials;
-    ${isSimpleCallback ? `
-    // ${provider} uses simple callback signature
-    credentials = await ${loginFn}(handleAuthUrl, handlePromptCode);
-    ` : isOptionsBased ? `
+    ${isOptionsBased ? `
     // ${provider} uses options object
     credentials = await ${loginFn}({
       onAuth: (info) => {
