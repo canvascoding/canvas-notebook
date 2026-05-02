@@ -274,51 +274,6 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     documentationUrl: 'https://github.com/openai/codex',
   },
 
-  'google-gemini-cli': {
-    category: 'oauth-cli',
-    title: 'Google Gemini CLI',
-    shortDescription: 'Google Cloud Code Assist via PI OAuth',
-    setupSteps: [
-      'Click "Connect Account" in the OAuth section',
-      'Select Google Gemini CLI from the dropdown',
-      'Open the authorization URL in your browser',
-      'Login with your Google account',
-      'Allow Google Cloud Code Assist access',
-      'Copy the authorization code and paste it in the dialog',
-      'Click "Complete Connection" to finish',
-    ],
-    notes: [
-      'Requires Google Cloud project',
-      'OAuth authentication is handled securely via PI',
-      'Credentials are stored encrypted in /data/canvas-agent/',
-      'Token refresh is automatic',
-    ],
-  },
-
-  'google-antigravity': {
-    category: 'oauth-cli',
-    title: 'Google Antigravity',
-    shortDescription: 'Free tier Gemini/Claude via Google Cloud',
-    setupSteps: [
-      'Install and configure Google Cloud SDK',
-      'Login via: gcloud auth login',
-      'Set the Antigravity version if needed',
-      'Verify the provider status',
-    ],
-    cliCommands: [
-      { command: 'gcloud auth login', description: 'Login to Google Cloud' },
-      { command: 'gcloud config set project YOUR_PROJECT_ID', description: 'Set your GCP project' },
-    ],
-    envVars: [
-      { name: 'PI_AI_ANTIGRAVITY_VERSION', description: 'Override User-Agent version', scope: 'agents', required: false },
-    ],
-    notes: [
-      'Free tier available through Google Cloud',
-      'OAuth authentication required',
-      'Supports both Gemini and Claude models',
-    ],
-  },
-
   // ADC Provider
   'google-vertex': {
     category: 'adc',

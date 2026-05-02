@@ -1,6 +1,6 @@
 import { type AgentTool } from '@mariozechner/pi-agent-core';
 import { type ImageContent } from '@mariozechner/pi-ai';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import { exec, execFile } from 'child_process';
 import { promises as fsPromises } from 'fs';
 import { promisify } from 'util';
