@@ -6,6 +6,7 @@ import { useTheme } from '@/app/components/ThemeProvider';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { ColorSwatch, isColorCode } from '@/app/lib/markdown/color-swatch';
 import { rehypeMermaid } from '@/app/lib/markdown/rehype-mermaid';
+import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
 
 const MDEditor = dynamic(
   () => import('@uiw/react-md-editor').then((mod) => mod.default),
@@ -48,8 +49,15 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
 
   const previewOptions = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rehypePlugins: [rehypeMermaid] as any[],
+    rehypePlugins: [rehypeInlineColorSwatch, rehypeMermaid] as any[],
     components: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      span: (props: any) => {
+        if (props.className === 'color-swatch-container' && props.dataColorCode) {
+          return <ColorSwatch color={props.dataColorCode} />;
+        }
+        return <span {...props} />;
+      },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       div: (props: any) => {
         const mermaidCode = extractMermaidCode(props);

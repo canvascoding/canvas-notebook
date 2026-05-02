@@ -15,6 +15,8 @@ export const COLOR_REGEX = new RegExp(
   'i'
 );
 
+export const INLINE_HEX_REGEX = /#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})\b/g;
+
 export function isColorCode(str: string): boolean {
   const trimmed = str.trim();
   return HEX_REGEX.test(trimmed) || 

@@ -113,6 +113,7 @@ function escapeHtml(str: string): string {
 
 // Regex patterns for color detection (same as in color-swatch.tsx)
 const HEX_REGEX = /^#([0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
+const INLINE_HEX_REGEX = /#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})\b/g;
 const RGB_REGEX = /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/;
 const RGBA_REGEX = /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*[\d.]+\s*\)$/;
 const HSL_REGEX = /^hsl\(\s*\d+\s*,\s*\d+%?\s*,\s*\d+%?\s*\)$/;
@@ -128,7 +129,7 @@ function isColorCode(str: string): boolean {
 }
 
 function processColorCodes(htmlContent: string): string {
-  return htmlContent.replace(/<code>([^<]*)<\/code>/g, (match, codeContent) => {
+  let result = htmlContent.replace(/<code>([^<]*)<\/code>/g, (match, codeContent) => {
     const decodedContent = codeContent
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
@@ -142,6 +143,25 @@ function processColorCodes(htmlContent: string): string {
     }
 
     return match;
+  });
+
+  result = processInlineHexColors(result);
+
+  return result;
+}
+
+function processInlineHexColors(htmlContent: string): string {
+  return htmlContent.replace(/>([^<]*)</g, (match, textBetweenTags) => {
+    const hasHex = INLINE_HEX_REGEX.test(textBetweenTags);
+    INLINE_HEX_REGEX.lastIndex = 0;
+    if (!hasHex) return match;
+
+    const replaced = textBetweenTags.replace(INLINE_HEX_REGEX, (hexColor: string) => {
+      const swatchStyle = `display:inline-block;width:14px;height:14px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);margin-left:4px;vertical-align:middle;background-color:${hexColor};`;
+      return `<span style="display:inline-flex;align-items:center;gap:4px;"><code style="font-size:0.75rem;">${hexColor}</code><span style="${swatchStyle}"></span></span>`;
+    });
+
+    return `>${replaced}<`;
   });
 }
 
