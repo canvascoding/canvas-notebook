@@ -151,6 +151,9 @@ export async function initiateOAuthLogin(
         onPrompt: async (prompt) => {
           return await onPrompt(prompt.message);
         },
+        onManualCodeInput: async () => {
+          return await onPrompt('If automatic callback failed, paste the redirect URL here');
+        },
         onProgress: onProgress,
       });
     }

@@ -333,15 +333,15 @@ export function PiProviderSetupCard({
     if (!piConfigDraft?.activeProvider) {
       return;
     }
-    const method = getAuthMethodForProvider(piConfigDraft.activeProvider);
-    if (method === 'both') {
-      if (!authMethodSelection) {
+    if (!authMethodSelection) {
+      const method = getAuthMethodForProvider(piConfigDraft.activeProvider);
+      if (method === 'both') {
         setAuthMethodSelection(piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' ? 'oauth' : 'api-key');
+      } else {
+        setAuthMethodSelection(method);
       }
-    } else {
-      setAuthMethodSelection(method);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync auth method on provider change
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only set initial auth method
   }, [piConfigDraft?.activeProvider]);
 
   const setPiProviderField = <K extends keyof PiProviderConfig>(
@@ -528,7 +528,7 @@ export function PiProviderSetupCard({
     }
   };
 
-  const effectiveAuthMethod = (() => {
+  const effectiveAuthMethod = authMethodSelection ?? (() => {
     if (!piConfigDraft?.activeProvider) return 'api-key' as const;
     const method = getAuthMethodForProvider(piConfigDraft.activeProvider);
     if (method === 'both') return activeProviderConfig?.authMethod === 'oauth' ? 'oauth' : 'api-key';
@@ -931,12 +931,12 @@ export function PiProviderSetupCard({
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-semibold">{t('provider.oauthAuthentication')}</h4>
               {selectedProviderStatus?.hasOAuth ? (
-                <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                <span className="flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-900/40 px-2 py-0.5 text-xs text-green-700 dark:text-green-400">
                   <Check className="h-3 w-3" />
                   {t('provider.connected')}
                 </span>
               ) : (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
                   {t('provider.notConnected')}
                 </span>
               )}

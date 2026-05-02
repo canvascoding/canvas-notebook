@@ -1054,8 +1054,8 @@
         },
         "oauth": {
           "title": "OAuth Login",
-          "description": "Sign in with your existing account or subscription.",
-          "providers": "OpenAI Codex, GitHub Copilot, Anthropic"
+          "description": "Sign in with your existing account or subscription. Only available for selected providers.",
+          "providers": "Anthropic, OpenAI Codex"
         },
         "selfHosted": {
           "title": "Self-Hosted",
