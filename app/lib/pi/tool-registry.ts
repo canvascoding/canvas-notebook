@@ -3,6 +3,8 @@ import { type ImageContent } from '@mariozechner/pi-ai';
 import { Type } from 'typebox';
 import { exec, execFile } from 'child_process';
 import { promises as fsPromises } from 'fs';
+import { createComposioTools } from '../composio/composio-tools';
+import { isComposioConfigured } from '../composio/composio-client';
 import { promisify } from 'util';
 import path from 'path';
 import { Readability } from '@mozilla/readability';
@@ -1175,7 +1177,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio';
 
 export type PiToolMetadata = {
   name: string;
@@ -1428,6 +1430,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
 function getToolGroup(toolName: string): PiToolGroup {
   if (toolName.startsWith('studio_')) return 'Studio';
   if (toolName.includes('automation_job')) return 'Automation';
+  if (toolName.startsWith('COMPOSIO_') || toolName === 'composio_execute') return 'Composio';
   return 'Core';
 }
 
@@ -1480,6 +1483,9 @@ if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
   if (['studio_generate_image', 'studio_generate_video', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('Can run for an extended time.');
   }
+  if (group === 'Composio') {
+    notes.push('May call external apps via Composio. Requires COMPOSIO_API_KEY and connected app accounts.');
+  }
 
   return notes.length > 0 ? notes : ['Read-only or low-side-effect utility under normal use.'];
 }
@@ -1487,11 +1493,21 @@ if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
 export function buildPiToolRegistry(userId?: string): AgentTool[] {
   const userScopedTools = createUserScopedTools(userId);
   const overriddenNames = new Set(userScopedTools.map((t) => t.name));
-  return [...piTools.filter((t) => !overriddenNames.has(t.name)), ...userScopedTools];
+  const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
+  return [...coreTools, ...userScopedTools];
 }
 
-export function getPiToolMetadata(): PiToolMetadata[] {
-  const allTools = buildPiToolRegistry();
+export async function buildPiToolRegistryAsync(userId?: string): Promise<AgentTool[]> {
+  const userScopedTools = createUserScopedTools(userId);
+  const overriddenNames = new Set(userScopedTools.map((t) => t.name));
+  const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
+  const composioConfigured = await isComposioConfigured();
+  const composioTools = composioConfigured ? createComposioTools() : [];
+  return [...coreTools, ...userScopedTools, ...composioTools];
+}
+
+export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
+  const allTools = await buildPiToolRegistryAsync();
   const allToolNames = allTools.map((tool) => tool.name);
   const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
 
@@ -1511,7 +1527,7 @@ export function getPiToolMetadata(): PiToolMetadata[] {
 }
 
 export async function getPiTools(userId?: string): Promise<AgentTool[]> {
-  let allTools = buildPiToolRegistry(userId);
+  let allTools = await buildPiToolRegistryAsync(userId);
 
   try {
     const piConfig = await readPiRuntimeConfig();

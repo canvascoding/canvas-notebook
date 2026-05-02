@@ -1,0 +1,39 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getConnectedAccounts } from '@/app/lib/composio/composio-auth';
+import { isComposioConfigured } from '@/app/lib/composio/composio-client';
+import { clearToolkitCache } from '@/app/lib/composio/composio-toolkit-registry';
+
+export async function POST(
+  _request: NextRequest,
+  { params }: { params: Promise<{ toolkit: string }> },
+) {
+  try {
+    const configured = await isComposioConfigured();
+    if (!configured) {
+      return NextResponse.json({ error: 'Composio not configured' }, { status: 400 });
+    }
+
+    const { toolkit } = await params;
+    if (!toolkit) {
+      return NextResponse.json({ error: 'Toolkit slug is required' }, { status: 400 });
+    }
+
+    const accounts = await getConnectedAccounts();
+    const account = accounts.find((a) => a.toolkit?.slug === toolkit);
+
+    clearToolkitCache();
+
+    if (account) {
+      return NextResponse.json({
+        toolkit,
+        status: account.status,
+        connectedAt: account.createdAt,
+      });
+    }
+
+    return NextResponse.json({ toolkit, status: 'NOT_CONNECTED', connectedAt: null });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

@@ -47,6 +47,7 @@
     "@codemirror/lang-rust": "^6.0.2",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/lang-xml": "^6.1.0",
+    "@composio/core": "^0.8.1",
     "@eigenpal/docx-js-editor": "^0.3.1",
     "@google/genai": "^1.44.0",
     "@jspreadsheet/react": "^12.3.11",

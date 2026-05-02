@@ -9,6 +9,7 @@ import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { SkillsPanel } from '@/app/components/settings/SkillsPanel';
 import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSettingsPanel';
+import { ConnectedAppsPanel } from '@/app/components/settings/ConnectedAppsPanel';
 import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -59,7 +60,7 @@ type ScopeCardConfig = {
 };
 
 const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
-  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY'],
+  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY', 'COMPOSIO_API_KEY'],
   agents: ['OPENROUTER_API_KEY', 'OLLAMA_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
 };
 
@@ -591,6 +592,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-4" id="onboarding-settings-integrations">
+          <ConnectedAppsPanel />
           {SCOPE_CARDS.map((card) => (
             <EnvEditorCard
               key={card.scope}

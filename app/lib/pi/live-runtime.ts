@@ -875,7 +875,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       tools,
       messages: initialMessages,
     },
-    convertToLlm: async (messages) => normalizePiMessagesForLlm(messages.filter((m) => m.role !== 'compact-break')),
+    convertToLlm: async (messages) => normalizePiMessagesForLlm(messages.filter((m) => m.role !== 'compact-break' && m.role !== 'composio_auth_required')),
     transformContext: async (messages, signal) => {
       if (!runtimeRef.current) {
         throw new Error('PI runtime not initialized');
