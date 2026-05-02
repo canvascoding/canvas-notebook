@@ -9,6 +9,12 @@
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 
+type PendingRequest = {
+  resolve: (value: Record<string, unknown>) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
 export class WebSocketClient extends EventTarget {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
@@ -20,6 +26,7 @@ export class WebSocketClient extends EventTarget {
   private isConnecting = false;
   private refCount = 0;
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingRequests = new Map<string, PendingRequest>();
   private static readonly DISCONNECT_GRACE_MS = 3000;
 
   constructor(baseUrl?: string) {
@@ -85,6 +92,7 @@ export class WebSocketClient extends EventTarget {
 
         this.ws.onclose = (event) => {
           console.log(`[WebSocket] Disconnected: code=${event.code} reason=${event.reason || '(empty)'} wasClean=${event.wasClean}`);
+          this.rejectPendingRequests(new Error('WebSocket disconnected'));
           this.dispatchEvent(new CustomEvent('disconnected', { detail: { code: event.code, reason: event.reason, wasClean: event.wasClean } }));
 
           if (!this.isManualDisconnect) {
@@ -184,6 +192,37 @@ export class WebSocketClient extends EventTarget {
       });
     }
   }
+
+  request<T extends Record<string, unknown> = Record<string, unknown>>(
+    type: string,
+    payload: Record<string, unknown>,
+    timeoutMs = 10000,
+  ): Promise<T> {
+    const requestId = crypto.randomUUID();
+
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('WebSocket request timeout'));
+      }, timeoutMs);
+
+      this.pendingRequests.set(requestId, {
+        resolve: (value) => resolve(value as T),
+        reject,
+        timer,
+      });
+
+      this.send({ type, requestId, ...payload });
+    });
+  }
+
+  private rejectPendingRequests(error: Error): void {
+    for (const [requestId, pending] of this.pendingRequests.entries()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+      this.pendingRequests.delete(requestId);
+    }
+  }
   
   private flushMessageQueue(): void {
     if (this.messageQueue.length === 0) return;
@@ -236,6 +275,20 @@ export class WebSocketClient extends EventTarget {
    */
   private handleMessage(message: Record<string, unknown>): void {
     const { type } = message;
+    const requestId = typeof message.requestId === 'string' ? message.requestId : null;
+
+    if (requestId && this.pendingRequests.has(requestId)) {
+      const pending = this.pendingRequests.get(requestId)!;
+      clearTimeout(pending.timer);
+      this.pendingRequests.delete(requestId);
+
+      if (message.success === false) {
+        pending.reject(new Error(typeof message.error === 'string' ? message.error : 'WebSocket request failed'));
+      } else {
+        pending.resolve(message);
+      }
+      return;
+    }
 
     switch (type) {
       case 'auth_success':
@@ -245,6 +298,7 @@ export class WebSocketClient extends EventTarget {
       case 'auth_error':
         console.error('[WebSocket] Auth error:', message.error);
         this.isManualDisconnect = true; // stop reconnect loop on auth errors
+        this.rejectPendingRequests(new Error(typeof message.error === 'string' ? message.error : 'WebSocket authentication failed'));
         this.dispatchEvent(new CustomEvent('error', { detail: { error: message.error as string, code: 'AUTH_ERROR' } }));
         break;
 
