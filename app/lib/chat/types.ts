@@ -1,7 +1,6 @@
 /**
  * Context fields attached to every chat message sent to the PI runtime.
- * Used uniformly across the SSE path (direct fetch → /api/stream)
- * and the WebSocket path (WS send_message → chat-event-bridge → /api/stream).
+ * Used by both the temporary HTTP compatibility routes and the WebSocket runtime protocol.
  */
 export interface ChatRequestContext {
   userTimeZone?: string;

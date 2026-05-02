@@ -10,8 +10,6 @@ import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUse
 import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
-import type { ChatRequestContext } from '@/app/lib/chat/types';
-import { getCanvasInternalToken } from '@/app/lib/internal-auth';
 
 function normalizeNotificationPreview(value: string, maxLength = 500): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -189,64 +187,4 @@ export function unsubscribeFromPiRuntimeEvents(sessionId: string, userId: string
 
     console.log(`[WebSocket Bridge] Unsubscribed user ${userId} from session ${sessionId}`);
   }
-}
-
-/**
- * Send message via PI Runtime HTTP API
- * Forwards message with full context (activeFilePath, timezone, etc.)
- */
-export async function sendMessageViaRuntime(
-  sessionId: string,
-  userId: string,
-  message: { role: 'user'; content: unknown; timestamp: number },
-  context?: ChatRequestContext
-): Promise<void> {
-  // Use 127.0.0.1 explicitly (IPv4) to avoid IPv6 resolution issues in Docker
-  const port = process.env.PORT || '3000';
-  const apiUrl = `http://127.0.0.1:${port}/api/stream`;
-
-  console.log(`[WebSocket Bridge] Sending message to session ${sessionId} via ${apiUrl}`);
-
-  const maxRetries = 5;
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-canvas-internal-token': getCanvasInternalToken(),
-        },
-        body: JSON.stringify({
-          sessionId,
-          userId,
-          message,
-          context,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      console.log(`[WebSocket Bridge] Message sent to session ${sessionId} with context:`, context);
-      return;
-    } catch (error) {
-      lastError = error;
-      const isConnError = error instanceof Error && /ECONNREFUSED|fetch failed/i.test(error.message);
-
-      if (isConnError && attempt < maxRetries) {
-        const delay = Math.min(500 * attempt, 2000);
-        console.warn(`[WebSocket Bridge] Connection failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      }
-
-      break;
-    }
-  }
-
-  console.error('[WebSocket Bridge] Error sending message after retries:', lastError);
-  throw lastError;
 }
