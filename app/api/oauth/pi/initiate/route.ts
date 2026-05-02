@@ -6,15 +6,55 @@ import {
   PROVIDER_DISPLAY_NAMES,
 } from '@/app/lib/pi/oauth';
 import { spawn } from 'child_process';
-import { writeFile, mkdir, readFile, symlink } from 'fs/promises';
+import { writeFile, mkdir, readFile, readdir, symlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
-// Use container data root (/data) or fallback to relative path for local dev
 const DATA_ROOT = resolveCanvasDataRoot();
 const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(DATA_ROOT, 'canvas-agent', 'auth.json');
 const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
+
+const ACTIVE_STATUSES = new Set(['pending', 'waiting_for_auth', 'waiting_for_code', 'auth_url_received']);
+
+async function killStaleFlows(provider: string): Promise<void> {
+  if (!existsSync(OAUTH_STATE_DIR)) return;
+
+  const entries = await readdir(OAUTH_STATE_DIR);
+  const stateFiles = entries.filter(e => e.endsWith('.json'));
+
+  let killed = 0;
+  for (const file of stateFiles) {
+    const filePath = join(OAUTH_STATE_DIR, file);
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const state = JSON.parse(content);
+      if (state.provider !== provider || !ACTIVE_STATUSES.has(state.status)) continue;
+
+      if (state.pid && typeof state.pid === 'number') {
+        try {
+          process.kill(state.pid, 0);
+          process.kill(state.pid, 'SIGTERM');
+          console.log(`[oauth/initiate] Killed stale ${provider} flow ${state.flowId} (PID ${state.pid})`);
+          killed++;
+        } catch {
+          // Process already dead, nothing to do
+        }
+      }
+
+      state.status = 'failed';
+      state.error = 'Superseded by new OAuth flow';
+      state.failedAt = Date.now();
+      await writeFile(filePath, JSON.stringify(state, null, 2));
+    } catch {
+      // Corrupt state file, skip
+    }
+  }
+
+  if (killed > 0) {
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
 
 /**
  * POST /api/oauth/pi/initiate
@@ -47,6 +87,9 @@ export async function POST(request: NextRequest) {
     // Ensure auth directory exists
     await mkdir(dirname(AUTH_FILE_PATH), { recursive: true });
     await mkdir(OAUTH_STATE_DIR, { recursive: true });
+
+    // Kill any stale OAuth flows for the same provider (frees up the callback port)
+    await killStaleFlows(provider);
 
     // Create unique flow ID
     const flowId = `flow_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -96,12 +139,20 @@ export async function POST(request: NextRequest) {
       env: { 
         ...process.env,
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--experimental-vm-modules'].filter(Boolean).join(' '),
-        // No NODE_PATH needed - ES modules resolve via node_modules symlink in cwd
       },
       cwd: tempScriptDir,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+
+    // Store PID in state file for cleanup by killStaleFlows
+    try {
+      const existing = JSON.parse(await readFile(stateFile, 'utf-8'));
+      existing.pid = child.pid;
+      await writeFile(stateFile, JSON.stringify(existing, null, 2));
+    } catch {
+      // Non-critical, continue
+    }
 
     // Handle stdout/stderr for logging
     child.stdout?.on('data', (data) => {
