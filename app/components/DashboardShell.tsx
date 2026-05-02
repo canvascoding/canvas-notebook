@@ -23,6 +23,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 import {
   Sheet,
   SheetContent,
@@ -468,7 +469,10 @@ export function DashboardShell() {
                         <Button
                           variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
                           size="sm"
-                          className="gap-2 rounded-l-full rounded-r-none"
+                          className={cn(
+                            'gap-2',
+                            isMobileViewport ? 'rounded-full' : 'rounded-l-full rounded-r-none'
+                          )}
                           onClick={() => {
                             if (isMobileViewport) {
                               setMobileExplorerOpen(false);
@@ -481,20 +485,22 @@ export function DashboardShell() {
                           <MessageSquare className="h-4 w-4" />
                           <span className="hidden sm:inline">{tCommon('aiChat')}</span>
                         </Button>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
-                            size="sm"
-                            className={`rounded-l-none rounded-r-full border-l ${
-                              ((!isMobileViewport && chatVisible) || (isMobileViewport && mobileChatOpen))
-                                ? 'border-primary-foreground/15'
-                                : 'border-border/60'
-                            }`}
-                            aria-label={tNav('openChatModeMenu')}
-                          >
-                            <ChevronDown className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
+                        {!isMobileViewport && (
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
+                              size="sm"
+                              className={`rounded-l-none rounded-r-full border-l ${
+                                ((!isMobileViewport && chatVisible) || (isMobileViewport && mobileChatOpen))
+                                  ? 'border-primary-foreground/15'
+                                  : 'border-border/60'
+                              }`}
+                              aria-label={tNav('openChatModeMenu')}
+                            >
+                              <ChevronDown className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        )}
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
@@ -522,7 +528,7 @@ export function DashboardShell() {
           </div>
 
           {/* Right side: help, theme, logout */}
-          <div className="flex items-center gap-1.5 md:gap-4">
+          <div className="relative z-[60] flex items-center gap-1.5 md:gap-4">
             <AppLauncher />
             <HelpDropdown page="notebook" />
             <ThemeToggle />
