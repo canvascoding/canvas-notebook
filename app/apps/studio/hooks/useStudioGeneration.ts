@@ -24,6 +24,7 @@ interface UseStudioGenerationReturn {
   fetchGeneration: (id: string, options?: { silent?: boolean }) => Promise<StudioGeneration | null>;
   generate: (payload: StudioGeneratePayload) => Promise<StudioGeneration | null>;
   deleteGeneration: (id: string) => Promise<boolean>;
+  deleteOutput: (generationId: string, outputId: string) => Promise<boolean>;
   toggleFavorite: (generationId: string, outputId: string, isFavorite: boolean) => Promise<boolean>;
   createVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => Promise<StudioGeneration | null>;
   createVideoFromOutput: (generation: StudioGeneration, output: StudioGenerationOutput) => Promise<StudioGeneration | null>;
@@ -290,6 +291,41 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     }
   }, [activeGenerationId, stopPolling]);
 
+  const deleteOutput = useCallback(async (generationId: string, outputId: string) => {
+    setError(null);
+    try {
+      const response = await fetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, { method: 'DELETE' });
+      const data = await parseJsonResponse(response);
+      const generationDeleted = data.generationDeleted === true;
+
+      if (generationDeleted) {
+        setGenerations((current) => current.filter((g) => g.id !== generationId));
+        setCurrentGeneration((current) => (current?.id === generationId ? null : current));
+        if (activeGenerationId === generationId) {
+          stopPolling();
+        }
+      } else {
+        setGenerations((current) =>
+          current.map((g) =>
+            g.id === generationId
+              ? { ...g, outputs: g.outputs.filter((o) => o.id !== outputId) }
+              : g,
+          ),
+        );
+        setCurrentGeneration((current) =>
+          current?.id === generationId
+            ? { ...current, outputs: current.outputs.filter((o) => o.id !== outputId) }
+            : current,
+        );
+      }
+
+      return true;
+    } catch (err) {
+      setError(toErrorMessage(err, 'Failed to delete output'));
+      return false;
+    }
+  }, [activeGenerationId, stopPolling]);
+
   const toggleFavorite = useCallback(async (generationId: string, outputId: string, isFavorite: boolean) => {
     setError(null);
     setGenerations((current) =>
@@ -402,6 +438,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     fetchGeneration,
     generate,
     deleteGeneration,
+    deleteOutput,
     toggleFavorite,
     createVariation,
     createVideoFromOutput,

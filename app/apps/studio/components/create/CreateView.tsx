@@ -10,6 +10,7 @@ import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
+import { useStudioBatchActions } from '../../hooks/useStudioBatchActions';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
@@ -19,6 +20,7 @@ import { FilterBar } from './FilterBar';
 import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
+import { BatchDeleteDialog } from './BatchDeleteDialog';
 import Image from 'next/image';
 import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
@@ -136,6 +138,7 @@ export function CreateView() {
   const personasHook = useStudioPersonas();
   const stylesHook = useStudioStyles();
   const presetsHook = useStudioPresets();
+  const batchActions = useStudioBatchActions();
   const { fetchGenerations, generations, recentlyCompletedIds } = generationHook;
   const { fetchProducts, products } = productsHook;
   const { fetchPersonas, personas } = personasHook;
@@ -160,6 +163,7 @@ export function CreateView() {
   const [dateFilter, setDateFilter] = useState<OutputDateFilter>('all');
   const [sortOrder, setSortOrder] = useState<OutputSortOrder>('newest');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showBatchDeleteDialog, setShowBatchDeleteDialog] = useState(false);
   const promptOverlayRef = useRef<HTMLDivElement | null>(null);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
 
@@ -227,6 +231,39 @@ export function CreateView() {
     setSelectionEnabled(true);
     setShowSaveDialog(true);
   };
+
+  const findOutputPair = useCallback((outputId: string): { generationId: string; outputId: string } | null => {
+    for (const gen of generations) {
+      const out = gen.outputs.find((o) => o.id === outputId);
+      if (out) return { generationId: gen.id, outputId: out.id };
+    }
+    return null;
+  }, [generations]);
+
+  const handleBatchDelete = useCallback(async () => {
+    setShowBatchDeleteDialog(false);
+    const pairs = selectedOutputIds
+      .map((id) => findOutputPair(id))
+      .filter((p): p is { generationId: string; outputId: string } => p !== null);
+    await Promise.allSettled(
+      pairs.map(({ generationId, outputId }) => generationHook.deleteOutput(generationId, outputId)),
+    );
+    setSelectedOutputIds([]);
+    setSelectionEnabled(false);
+  }, [selectedOutputIds, findOutputPair, generationHook]);
+
+  const handleBatchFavorite = useCallback(async () => {
+    const pairs = selectedOutputIds
+      .map((id) => findOutputPair(id))
+      .filter((p): p is { generationId: string; outputId: string } => p !== null);
+    for (const { generationId, outputId } of pairs) {
+      void generationHook.toggleFavorite(generationId, outputId, true);
+    }
+  }, [selectedOutputIds, findOutputPair, generationHook]);
+
+  const handleBatchDownload = useCallback(() => {
+    void batchActions.downloadAsZip(selectedOutputIds);
+  }, [selectedOutputIds, batchActions]);
 
   const visibleOutputList = useMemo(() => {
     const now = new Date();
@@ -400,6 +437,9 @@ export function CreateView() {
                 setSelectionEnabled(false);
               }}
               onImportToWorkspace={handleSaveToWorkspace}
+              onDeleteSelected={() => setShowBatchDeleteDialog(true)}
+              onFavoriteSelected={handleBatchFavorite}
+              onDownloadSelected={handleBatchDownload}
             />
             <OutputGrid
               generations={generations}
@@ -458,8 +498,12 @@ export function CreateView() {
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
               }}
-              onDelete={(generation) => {
-                void generationHook.deleteGeneration(generation.id);
+              onDelete={(generation, output) => {
+                void generationHook.deleteOutput(generation.id, output.id);
+                if (selectedGenerationId === generation.id && selectedOutputId === output.id) {
+                  setSelectedGenerationId(null);
+                  setSelectedOutputId(null);
+                }
               }}
               onSaveToWorkspace={handleSaveSingleToWorkspace}
             />
@@ -681,8 +725,10 @@ export function CreateView() {
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
         }}
-        onDelete={(generation) => {
-          void generationHook.deleteGeneration(generation.id);
+        onDelete={(generation, output) => {
+          void generationHook.deleteOutput(generation.id, output.id);
+          setSelectedGenerationId(null);
+          setSelectedOutputId(null);
         }}
         onSaveToWorkspace={handleSaveSingleToWorkspace}
         onNavigate={handlePreviewNavigate}
@@ -699,6 +745,12 @@ export function CreateView() {
           setSelectedOutputIds([]);
           setSelectionEnabled(false);
         }}
+      />
+      <BatchDeleteDialog
+        open={showBatchDeleteDialog}
+        onOpenChange={setShowBatchDeleteDialog}
+        count={selectedOutputIds.length}
+        onConfirm={handleBatchDelete}
       />
       <ReferencePickerDialog
         open={picker.open}

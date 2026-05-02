@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { ArrowDownUp, CheckSquare, Filter, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowDownUp, CheckSquare, Download, Filter, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +37,9 @@ interface FilterBarProps {
   selectedCount: number;
   onCancelSelection: () => void;
   onImportToWorkspace: () => void;
+  onDeleteSelected?: () => void;
+  onFavoriteSelected?: () => void;
+  onDownloadSelected?: () => void;
 }
 
 function PillButton({
@@ -119,6 +122,9 @@ export function FilterBar({
   selectedCount,
   onCancelSelection,
   onImportToWorkspace,
+  onDeleteSelected,
+  onFavoriteSelected,
+  onDownloadSelected,
 }: FilterBarProps) {
   const [open, setOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -216,6 +222,39 @@ export function FilterBar({
           <div className="mt-2 flex items-center justify-between gap-2 rounded-2xl border border-border bg-card/80 px-3 py-2">
             <div className="text-sm font-medium">{selectedCount} selected</div>
             <div className="flex gap-2">
+              {onDeleteSelected && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50 disabled:opacity-50"
+                  onClick={onDeleteSelected}
+                  disabled={selectedCount === 0}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </button>
+              )}
+              {onFavoriteSelected && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+                  onClick={onFavoriteSelected}
+                  disabled={selectedCount === 0}
+                >
+                  <Star className="h-4 w-4" />
+                  Favorite
+                </button>
+              )}
+              {onDownloadSelected && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
+                  onClick={onDownloadSelected}
+                  disabled={selectedCount === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </button>
+              )}
               <button
                 type="button"
                 className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent"
@@ -292,6 +331,36 @@ export function FilterBar({
           <div className="mt-2 flex items-center justify-between gap-2 rounded-2xl border border-border bg-card/80 px-3 py-2">
             <div className="text-sm font-medium">{selectedCount}</div>
             <div className="flex gap-1.5">
+              {onDeleteSelected && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50 disabled:opacity-50"
+                  onClick={onDeleteSelected}
+                  disabled={selectedCount === 0}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onFavoriteSelected && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
+                  onClick={onFavoriteSelected}
+                  disabled={selectedCount === 0}
+                >
+                  <Star className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onDownloadSelected && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-xs hover:bg-accent disabled:opacity-50"
+                  onClick={onDownloadSelected}
+                  disabled={selectedCount === 0}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </button>
+              )}
               <button
                 type="button"
                 className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-xs hover:bg-accent"
