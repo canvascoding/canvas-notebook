@@ -133,10 +133,10 @@ export function ReferenceHoverCard({
 
   return (
     <>
-      <div className="hidden md:block">
+      <div className="hidden md:inline-flex">
         <HoverCard openDelay={300} closeDelay={100}>
           <HoverCardTrigger asChild>
-            {children}
+            <span className="inline-flex">{children}</span>
           </HoverCardTrigger>
           <HoverCardContent
             className="w-auto p-3 border-border/60"
@@ -156,14 +156,16 @@ export function ReferenceHoverCard({
         </HoverCard>
       </div>
 
-      <div className="block md:hidden">
-        <button
-          type="button"
+      <div className="inline-flex md:hidden">
+        <span
+          role="button"
+          tabIndex={0}
           onClick={() => setMobileDialogOpen(true)}
-          className="cursor-pointer"
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setMobileDialogOpen(true); }}
+          className="inline-flex cursor-pointer"
         >
           {children}
-        </button>
+        </span>
         <Dialog open={mobileDialogOpen} onOpenChange={setMobileDialogOpen}>
           <DialogContent
             className="max-w-[320px] p-4 sm:max-w-[320px]"
