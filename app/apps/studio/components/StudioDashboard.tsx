@@ -25,8 +25,9 @@ import { StudioPreview } from './create/StudioPreview';
 import { ReferencePickerDialog } from './create/ReferencePickerDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play } from 'lucide-react';
+import { Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play, ChevronDown } from 'lucide-react';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
+import { cn } from '@/lib/utils';
 import Image from 'next/image';
 
 interface StartingPoint {
@@ -416,10 +417,23 @@ export function StudioDashboard() {
 
       {!startingPointsLoading && startingPoints.length > 0 && (
         <section>
-          <h3 className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            {t('dashboard.startingPointsTitle')}
-          </h3>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <button
+            type="button"
+            onClick={() => store.setInspirationCollapsed(!store.inspirationCollapsed)}
+            className="mb-4 flex w-full items-center gap-2 text-left"
+          >
+            <ChevronDown
+              className={cn(
+                'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                store.inspirationCollapsed && '-rotate-90',
+              )}
+            />
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {t('dashboard.startingPointsTitle')}
+            </h3>
+          </button>
+          {!store.inspirationCollapsed && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {startingPoints.map((sp) => {
               const Icon = CATEGORY_ICONS[sp.category] || Sparkles;
               const colorClass = CATEGORY_COLORS[sp.category] || 'from-primary/10 to-primary/5 border-primary/20';
@@ -447,7 +461,8 @@ export function StudioDashboard() {
                 </button>
               );
             })}
-          </div>
+            </div>
+          )}
         </section>
       )}
 

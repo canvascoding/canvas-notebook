@@ -7,13 +7,15 @@ import { BulkGenerateView } from './bulk/BulkGenerateView';
 import { StudioDashboard } from './StudioDashboard';
 import { CreateView } from './create/CreateView';
 import { ModelLibrary } from './models/ModelLibrary';
-import { ImagePlus, Layers, LayoutGrid, Sparkles } from 'lucide-react';
+import { PresetLibrary } from './presets/PresetLibrary';
+import { ImagePlus, Layers, LayoutGrid, Sparkles, SwatchBook } from 'lucide-react';
 
 const tabs = [
   { key: 'dashboard', path: '/studio', icon: Sparkles },
   { key: 'create', path: '/studio/create', icon: ImagePlus },
-  { key: 'bulk', path: '/studio/bulk', icon: Layers },
   { key: 'models', path: '/studio/models', icon: LayoutGrid },
+  { key: 'presets', path: '/studio/presets', icon: SwatchBook },
+  { key: 'bulk', path: '/studio/bulk', icon: Layers },
 ] as const;
 
 export function StudioClient() {
@@ -28,8 +30,8 @@ export function StudioClient() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-border bg-background/95 px-4 pt-2">
-        <nav className="flex gap-1" role="tablist">
+      <div className="border-b border-border bg-background/95 px-3 pt-2 sm:px-4">
+        <nav className="flex gap-1 overflow-x-auto no-scrollbar" role="tablist">
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -37,7 +39,7 @@ export function StudioClient() {
               aria-selected={activeTab === tab.key}
               onClick={() => router.push(tab.path)}
               className={cn(
-                'relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors hover:text-foreground',
+                'relative flex flex-shrink-0 items-center gap-1.5 px-3 py-2.5 text-sm font-medium transition-colors hover:text-foreground sm:px-4',
                 activeTab === tab.key
                   ? 'text-foreground'
                   : 'text-muted-foreground',
@@ -57,6 +59,7 @@ export function StudioClient() {
         {activeTab === 'create' && <CreateView />}
         {activeTab === 'bulk' && <BulkGenerateView />}
         {activeTab === 'models' && <ModelLibrary />}
+        {activeTab === 'presets' && <PresetLibrary />}
       </div>
     </div>
   );

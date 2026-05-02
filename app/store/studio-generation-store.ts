@@ -11,6 +11,9 @@ export interface ReferenceTag {
 }
 
 interface StudioGenerationState {
+  inspirationCollapsed: boolean;
+  setInspirationCollapsed: (collapsed: boolean) => void;
+
   mode: StudioGenerationMode;
   setMode: (mode: StudioGenerationMode) => void;
 
@@ -93,6 +96,12 @@ interface StudioGenerationState {
 }
 
 export const useStudioGenerationStore = create<StudioGenerationState>((set) => ({
+  inspirationCollapsed: typeof window !== 'undefined' ? window.localStorage.getItem('studio-inspiration-collapsed') === 'true' : false,
+  setInspirationCollapsed: (collapsed: boolean) => {
+    if (typeof window !== 'undefined') window.localStorage.setItem('studio-inspiration-collapsed', String(collapsed));
+    set({ inspirationCollapsed: collapsed });
+  },
+
   mode: 'image',
   setMode: (mode) => set({ mode }),
 
