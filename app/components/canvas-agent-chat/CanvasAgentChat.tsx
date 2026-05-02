@@ -831,7 +831,7 @@ export default function CanvasAgentChat({
   
   // WebSocket integration - always enabled
   const isWebSocketEnabled = true;
-  const { connected: wsConnected, error: wsError, subscribe, unsubscribe, sendMessage } = useWebSocket({
+  const { connected: wsConnected, error: wsError, subscribe, unsubscribe, request: wsRequest } = useWebSocket({
     autoConnect: false,
   });
   
@@ -1447,19 +1447,16 @@ export default function CanvasAgentChat({
 
   const refreshRuntimeStatus = useCallback(async (targetSessionId: string) => {
     try {
-      const response = await fetch(`/api/stream/status?sessionId=${encodeURIComponent(targetSessionId)}`);
-      if (!response.ok) {
-        return;
-      }
-
-      const payload = await response.json();
+      const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
+        sessionId: targetSessionId,
+      });
       if (payload.success && payload.status) {
         setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
       }
     } catch (error) {
       console.error('Failed to load runtime status', error);
     }
-  }, [setRuntimeStatusWithReconciliation]);
+  }, [setRuntimeStatusWithReconciliation, wsRequest]);
 
   const ensureSession = useCallback(async (preferredTitle?: string) => {
     if (sessionIdRef.current) {
@@ -1845,20 +1842,11 @@ export default function CanvasAgentChat({
     action: 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact',
     message?: Extract<AgentMessage, { role: 'user' }>,
   ) => {
-    const response = await fetch('/api/stream/control', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: targetSessionId,
-        action,
-        ...(message ? { message } : {}),
-      }),
+    const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('control', {
+      sessionId: targetSessionId,
+      action,
+      ...(message ? { message } : {}),
     });
-
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.success) {
-      throw new Error(payload?.error || `Control request failed (${response.status})`);
-    }
 
     if (payload.status) {
       setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
@@ -1866,7 +1854,7 @@ export default function CanvasAgentChat({
     }
 
     return null;
-  }, [setRuntimeStatusWithReconciliation]);
+  }, [setRuntimeStatusWithReconciliation, wsRequest]);
 
   const appendOptimisticUserMessage = useCallback((
     text: string,
@@ -1927,16 +1915,33 @@ export default function CanvasAgentChat({
     const targetSessionId = await ensureSession(rawText);
     setOptimisticRuntimePhase('streaming', targetSessionId);
     
-    // Use WebSocket to send message
-    appendOptimisticUserMessage(rawText, messageAttachments, 'sent', undefined, userMessage);
+    const optimisticMessageId = appendOptimisticUserMessage(rawText, messageAttachments, 'pending', undefined, userMessage);
     
     const activeFilePath = currentFile?.path ?? null;
-    
-    // Send message with full context
-    sendMessage(targetSessionId, userMessage as unknown as Record<string, unknown>, buildRequestContext(activeFilePath));
+
+    try {
+      const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
+        sessionId: targetSessionId,
+        message: userMessage as unknown as Record<string, unknown>,
+        context: buildRequestContext(activeFilePath),
+      });
+
+      setMessages((prev) => prev.map((message) => (
+        message.id === optimisticMessageId ? { ...message, status: 'sent' as const } : message
+      )));
+
+      if (payload.status) {
+        setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
+      }
+    } catch (error) {
+      setMessages((prev) => prev.map((message) => (
+        message.id === optimisticMessageId ? { ...message, status: 'error' as const } : message
+      )));
+      throw error;
+    }
 
     return;
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, currentFile, ensureSession, input, sendMessage, showHistory, isMobile, setOptimisticRuntimePhase, shouldShowHistoryAsOverlay, scanForImageReferences]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, currentFile, ensureSession, input, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -2117,13 +2122,17 @@ export default function CanvasAgentChat({
     }
 
     try {
-      const [messagesResponse, statusResponse] = await Promise.all([
+      const [messagesResponse, statusPayload] = await Promise.all([
         fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}&limit=50`),
-        fetch(`/api/stream/status?sessionId=${encodeURIComponent(session.sessionId)}`),
+        wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
+          sessionId: session.sessionId,
+        }).catch((error) => {
+          console.error('Failed to load runtime status', error);
+          return null;
+        }),
       ]);
 
       const messagesPayload = await messagesResponse.json();
-      const statusPayload = await statusResponse.json().catch(() => null);
 
       if (messagesPayload.success && messagesPayload.messages) {
         setMessages(
@@ -2180,7 +2189,7 @@ export default function CanvasAgentChat({
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [isWebSocketEnabled, mapRawMessage, openRuntimeStream, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay]);
+  }, [isWebSocketEnabled, mapRawMessage, openRuntimeStream, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
