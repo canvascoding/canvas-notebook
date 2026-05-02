@@ -412,7 +412,11 @@ sync_caddy_from_compose() {
     printf '\n%s\n' "$include_line" | run_root tee -a "$caddyfile" >/dev/null
   fi
   if command -v caddy >/dev/null 2>&1; then
-    run_root caddy validate --config "$caddyfile" >/dev/null 2>&1 || fail "Caddyfile validation failed."
+    if ! run_root caddy validate --config "$caddyfile" 2>&1; then
+      warn "Caddyfile validation failed — check your Caddy config manually."
+      warn "Run: sudo caddy validate --config ${caddyfile}"
+      return 0
+    fi
   fi
   run_root systemctl reload caddy >/dev/null 2>&1 || run_root systemctl restart caddy >/dev/null 2>&1 || warn "Could not reload Caddy."
   ok "Caddy synced for https://${domain}"

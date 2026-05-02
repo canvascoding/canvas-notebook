@@ -52,7 +52,11 @@ configure_caddy() {
     elif ! grep -Fxq "$include_line" "$caddyfile"; then
       printf '\n%s\n' "$include_line" | run_root tee -a "$caddyfile" >/dev/null
     fi
-    run_root caddy validate --config "$caddyfile" >/dev/null 2>&1 || fail "Caddyfile validation failed."
+    if ! run_root caddy validate --config "$caddyfile" 2>&1; then
+      warn "Caddyfile validation failed — check your Caddy config manually."
+      warn "You can fix this later by editing ${caddyfile} and running: sudo systemctl reload caddy"
+      return 0
+    fi
     run_root systemctl reload caddy || run_root systemctl restart caddy
     ok "Caddy configured — https://${domain} -> localhost:3456"
     info "Let's Encrypt certificate will be obtained automatically on the first request."
