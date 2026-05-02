@@ -7,6 +7,10 @@ import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import {
   getDefaultModelForProvider,
   getAspectRatiosForProvider,
+  getVideoResolutionsForModel,
+  getVideoDurationsForModel,
+  type VideoResolution,
+  type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 import { useStudioGeneration } from '../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../hooks/useStudioPersonas';
@@ -14,14 +18,14 @@ import { useStudioPresets } from '../hooks/useStudioPresets';
 import { useStudioProducts } from '../hooks/useStudioProducts';
 import { useStudioStyles } from '../hooks/useStudioStyles';
 import type { StudioGeneration, StudioGenerationOutput } from '../types/generation';
-
 import { PromptBar } from './create/PromptBar';
+import { ControlBar } from './create/ControlBar';
 import { SaveToWorkspaceDialog } from './create/SaveToWorkspaceDialog';
 import { StudioPreview } from './create/StudioPreview';
 import { ReferencePickerDialog } from './create/ReferencePickerDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Sparkles, ImagePlus, Play, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, Package } from 'lucide-react';
+import { Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play } from 'lucide-react';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import Image from 'next/image';
 
@@ -98,7 +102,6 @@ export function StudioDashboard() {
   const [selectedGenerationId, setSelectedGenerationId] = useState<string | null>(null);
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null);
   const [selectedOutputIds, setSelectedOutputIds] = useState<string[]>([]);
-  const [_selectionEnabled, setSelectionEnabled] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<'start' | 'end' | 'references'>('references');
@@ -196,26 +199,8 @@ export function StudioDashboard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [store, presets]);
 
-  const recentCompleted = generations
-    .filter((g) => g.status === 'completed' && g.outputs.some((o) => o.mediaUrl))
-    .slice(0, 8);
-
-  const _handleToggleOutputSelect = (outputId: string, selected: boolean) => {
-    if (selected) {
-      setSelectedOutputIds((prev) => (prev.includes(outputId) ? prev : [...prev, outputId]));
-    } else {
-      setSelectedOutputIds((prev) => prev.filter((id) => id !== outputId));
-    }
-  };
-
-  const _handleSaveToWorkspace = () => {
-    if (selectedOutputIds.length === 0) return;
-    setShowSaveDialog(true);
-  };
-
   const handleSaveSingleToWorkspace = (_g: StudioGeneration, output: StudioGenerationOutput) => {
     setSelectedOutputIds([output.id]);
-    setSelectionEnabled(true);
     setShowSaveDialog(true);
   };
 
@@ -245,7 +230,9 @@ export function StudioDashboard() {
     fileRefs: store.fileRefs,
   }), [store.rawPrompt, store.productRefs, store.personaRefs, store.styleRefs, store.presetRef, store.fileRefs]);
 
-  const aspectRatios = getAspectRatiosForProvider(store.mode, store.provider);
+  const recentCompleted = generations
+    .filter((g) => g.status === 'completed' && g.outputs.some((o) => o.mediaUrl))
+    .slice(0, 8);
 
   return (
     <div className="flex flex-col gap-8">
@@ -287,108 +274,6 @@ export function StudioDashboard() {
           }}
         />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center rounded-full border border-border/70 bg-card/90 px-1 py-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                store.setMode('image');
-                store.setCount(1);
-                store.setProvider('gemini');
-                store.setModel(getDefaultModelForProvider('image', 'gemini'));
-                const validRatios = getAspectRatiosForProvider('image', 'gemini');
-                if (!validRatios.includes(store.aspectRatio as never)) store.setAspectRatio('1:1');
-              }}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
-                store.mode === 'image'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <ImagePlus className="mr-1 inline h-3 w-3" />
-              Image
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                store.setMode('video');
-                store.setCount(1);
-                store.setProvider('veo');
-                store.setModel(getDefaultModelForProvider('video', 'veo'));
-                store.setAspectRatio('16:9');
-                store.setVideoResolution('720p');
-                store.setVideoDuration(6);
-                store.setVideoGenerateAudio(true);
-                store.setVideoWebSearch(false);
-                store.setVideoNsfwChecker(false);
-              }}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all ${
-                store.mode === 'video'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <Play className="mr-1 inline h-3 w-3" />
-              Video
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1 rounded-full border border-border/70 bg-card/90 px-3 py-1.5">
-            {aspectRatios.slice(0, 4).map((ratio) => (
-              <button
-                key={ratio}
-                type="button"
-                onClick={() => store.setAspectRatio(ratio)}
-                className={`rounded-full px-2 py-0.5 text-xs font-medium transition-all ${
-                  store.aspectRatio === ratio
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {ratio}
-              </button>
-            ))}
-          </div>
-
-          {store.mode === 'image' && (
-            <div className="flex items-center gap-1 rounded-full border border-border/70 bg-card/90 px-3 py-1.5">
-              {[1, 2, 3, 4].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => store.setCount(n)}
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium transition-all ${
-                    store.count === n
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {n}x
-                </button>
-              ))}
-            </div>
-          )}
-
-          <Button
-            type="button"
-            size="sm"
-            className="ml-auto rounded-full px-4"
-            onClick={handleGenerate}
-            disabled={generationHook.loading || !canGenerate}
-          >
-            <Sparkles className="mr-1.5 h-4 w-4" />
-            {generationHook.loading ? 'Generating...' : 'Generate'}
-          </Button>
-        </div>
-
-        {generationHook.error && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="rounded-full border-red-500/40 text-red-700 dark:text-red-300">
-              {generationHook.error}
-            </Badge>
-          </div>
-        )}
-
         {store.mode === 'video' && (
           <div className="space-y-2 border border-border bg-background p-3 rounded-xl">
             <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.frames.title')}</p>
@@ -413,6 +298,102 @@ export function StudioDashboard() {
               />
               {t('sections.frames.loopVideo')}
             </label>
+          </div>
+        )}
+
+        <ControlBar
+          mode={store.mode}
+          onModeChange={(nextMode) => {
+            store.setMode(nextMode);
+            store.setCount(1);
+            if (nextMode === 'video') {
+              store.setProvider('veo');
+              store.setModel(getDefaultModelForProvider('video', 'veo'));
+              store.setAspectRatio('16:9');
+              store.setVideoResolution('720p');
+              store.setVideoDuration(6);
+              store.setVideoGenerateAudio(true);
+              store.setVideoWebSearch(false);
+              store.setVideoNsfwChecker(false);
+            } else {
+              store.setProvider('gemini');
+              store.setModel(getDefaultModelForProvider('image', 'gemini'));
+              const validRatios = getAspectRatiosForProvider('image', 'gemini');
+              if (!validRatios.includes(store.aspectRatio as never)) {
+                store.setAspectRatio('1:1');
+              }
+            }
+          }}
+          presets={presets}
+          selectedPreset={store.presetRef}
+          onPresetChange={store.setPresetRef}
+          aspectRatio={store.aspectRatio}
+          onAspectRatioChange={store.setAspectRatio}
+          count={store.count}
+          onCountChange={store.setCount}
+          provider={store.provider}
+          onProviderChange={(nextProvider) => {
+            store.setProvider(nextProvider);
+            store.setModel(getDefaultModelForProvider(store.mode, nextProvider));
+            const validRatios = getAspectRatiosForProvider(store.mode, nextProvider);
+            if (!validRatios.includes(store.aspectRatio as never)) {
+              store.setAspectRatio(store.mode === 'video' ? '16:9' : '1:1');
+            }
+            if (store.mode === 'video') {
+              const nextModel = getDefaultModelForProvider(store.mode, nextProvider);
+              const validRes = getVideoResolutionsForModel(nextModel);
+              store.setVideoResolution(validRes.includes(store.videoResolution) ? store.videoResolution : validRes[0] as VideoResolution);
+              const validDur = getVideoDurationsForModel(nextModel);
+              store.setVideoDuration(validDur.includes(store.videoDuration) ? store.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
+            }
+          }}
+          model={store.model}
+          onModelChange={(nextModel) => {
+            store.setModel(nextModel);
+            if (store.mode === 'video') {
+              const validRes = getVideoResolutionsForModel(nextModel);
+              if (!validRes.includes(store.videoResolution)) {
+                store.setVideoResolution(validRes[0] as VideoResolution);
+              }
+              const validDur = getVideoDurationsForModel(nextModel);
+              if (!validDur.includes(store.videoDuration)) {
+                store.setVideoDuration(validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
+              }
+            }
+          }}
+          quality={store.quality}
+          onQualityChange={store.setQuality}
+          outputFormat={store.outputFormat}
+          onOutputFormatChange={store.setOutputFormat}
+          background={store.background}
+          onBackgroundChange={store.setBackground}
+          videoResolution={store.videoResolution}
+          onVideoResolutionChange={(res) => {
+            store.setVideoResolution(res);
+            if (store.provider !== 'bytedance' && (res === '1080p' || res === '4k')) {
+              store.setVideoDuration(8);
+            }
+          }}
+          videoDuration={store.videoDuration}
+          onVideoDurationChange={store.setVideoDuration}
+          videoGenerateAudio={store.videoGenerateAudio}
+          onVideoGenerateAudioChange={store.setVideoGenerateAudio}
+          videoWebSearch={store.videoWebSearch}
+          onVideoWebSearchChange={store.setVideoWebSearch}
+          videoNsfwChecker={store.videoNsfwChecker}
+          onVideoNsfwCheckerChange={store.setVideoNsfwChecker}
+          onGenerate={handleGenerate}
+          isGenerating={generationHook.loading}
+          canGenerate={canGenerate}
+          showMoreOptions={store.showMoreOptions}
+          onShowMoreOptionsChange={store.setShowMoreOptions}
+        />
+
+        {generationHook.error && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="rounded-full border-red-500/40 text-red-700 dark:text-red-300">
+              {generationHook.error}
+            </Badge>
           </div>
         )}
       </div>
@@ -637,7 +618,6 @@ export function StudioDashboard() {
         outputIds={selectedOutputIds}
         onImported={() => {
           setSelectedOutputIds([]);
-          setSelectionEnabled(false);
         }}
       />
 
