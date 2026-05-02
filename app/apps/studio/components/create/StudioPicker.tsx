@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, Camera, Package, UtensilsCrossed, Sun, Sparkles, Cpu, Home, Car, Layers, LayoutTemplate } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Check, Camera, Package, UtensilsCrossed, Sun, Sparkles, Cpu, Home, Car, Layers, LayoutTemplate, Search, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
   DropdownMenu,
@@ -165,12 +165,25 @@ function PresetMenuItem({
 
 export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   if (presets.length === 0) {
     return null;
   }
 
-  const groups = groupPresetsByCategory(presets);
+  const filteredPresets = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return presets;
+    return presets.filter((p) => {
+      if (p.name.toLowerCase().includes(q)) return true;
+      if (p.description?.toLowerCase().includes(q)) return true;
+      if (p.category?.toLowerCase().includes(q)) return true;
+      if (p.tags?.some((t) => t.toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [presets, searchQuery]);
+
+  const groups = groupPresetsByCategory(filteredPresets);
 
   return (
     <DropdownMenu>
@@ -181,6 +194,29 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-96 w-72">
+        <div className="px-1 pb-1">
+          <div className="relative flex items-center">
+            <Search className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Search presets..."
+              className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-7 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+              autoFocus
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
+        </div>
         <DropdownMenuItem onSelect={() => onChange(null)}>
           <span className="flex flex-1 items-center justify-between">
             <span>No preset</span>
@@ -188,22 +224,28 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
           </span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        {groups.map(([category, categoryPresets], groupIndex) => (
-          <div key={category}>
-            <DropdownMenuLabel className="capitalize">{category}</DropdownMenuLabel>
-            {categoryPresets.map((preset) => (
-              <PresetMenuItem
-                key={preset.id}
-                preset={preset}
-                isSelected={value?.id === preset.id}
-                isActive={activePresetId === preset.id}
-                onSelect={() => onChange(preset)}
-                onActivate={(active) => setActivePresetId(active ? preset.id : null)}
-              />
-            ))}
-            {groupIndex < groups.length - 1 ? <DropdownMenuSeparator /> : null}
+        {groups.length === 0 ? (
+          <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+            No presets found.
           </div>
-        ))}
+        ) : (
+          groups.map(([category, categoryPresets], groupIndex) => (
+            <div key={category}>
+              <DropdownMenuLabel className="capitalize">{category}</DropdownMenuLabel>
+              {categoryPresets.map((preset) => (
+                <PresetMenuItem
+                  key={preset.id}
+                  preset={preset}
+                  isSelected={value?.id === preset.id}
+                  isActive={activePresetId === preset.id}
+                  onSelect={() => onChange(preset)}
+                  onActivate={(active) => setActivePresetId(active ? preset.id : null)}
+                />
+              ))}
+              {groupIndex < groups.length - 1 ? <DropdownMenuSeparator /> : null}
+            </div>
+          ))
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
