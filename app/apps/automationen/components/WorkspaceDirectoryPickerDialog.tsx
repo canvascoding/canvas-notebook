@@ -236,14 +236,14 @@ export function WorkspaceDirectoryPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex h-[85dvh] max-h-[85dvh] w-[95vw] max-w-5xl flex-col overflow-hidden p-0">
+        <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle>{t('title')}</DialogTitle>
           <DialogDescription>{t('description')}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="space-y-3 min-w-0">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6 lg:flex-row">
+          <div className="flex min-h-[150px] flex-1 flex-col gap-3">
             <div className="flex gap-2">
               <Input
                 value={search}
@@ -264,7 +264,7 @@ export function WorkspaceDirectoryPickerDialog({
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-            <ScrollArea className="h-[420px] rounded-md border border-border bg-background p-2" data-testid="automation-directory-picker">
+            <ScrollArea className="min-h-0 flex-1 rounded-md border border-border bg-background p-2" data-testid="automation-directory-picker">
               {isLoading ? (
                 <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -298,7 +298,7 @@ export function WorkspaceDirectoryPickerDialog({
             </ScrollArea>
           </div>
 
-          <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+          <div className="flex max-h-[200px] shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4 lg:max-h-none lg:overflow-visible lg:w-72">
             <div>
               <p className="text-sm font-medium">{t('currentSelection')}</p>
               <p className="mt-2 break-all rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
