@@ -43,7 +43,8 @@ progress_bar() {
 
 run_with_spinner() {
   local msg="$1"; shift
-  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' tmp_log pid i=0 rc
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' tmp_log pid rc
+  local i=0
   tmp_log="$(mktemp)"
   "$@" >"$tmp_log" 2>&1 &
   pid=$!
@@ -318,7 +319,8 @@ pull_image_if_needed() {
 
   local pull_log layers size_msg
   pull_log="$(mktemp)"
-  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  local i=0
   compose pull "$SERVICE" >"$pull_log" 2>&1 &
   local pull_pid=$!
   while kill -0 "$pull_pid" 2>/dev/null; do
@@ -443,7 +445,8 @@ edit_env() {
 }
 
 recreate_container() {
-  local recreate_log spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+  local recreate_log spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  local i=0
   recreate_log="$(mktemp)"
   compose up -d --force-recreate "$SERVICE" >"$recreate_log" 2>&1 &
   local rec_pid=$!
