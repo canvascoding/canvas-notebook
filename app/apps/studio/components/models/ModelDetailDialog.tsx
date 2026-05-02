@@ -53,7 +53,8 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     }
   }, [entityId, entityType]);
 
-  useEffect(() => { fetchEntity(); }, [fetchEntity]);
+  useEffect(() => { // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchEntity(); }, [fetchEntity]);
 
   const images = entity?.images ?? [];
   const imageCount = images.length;

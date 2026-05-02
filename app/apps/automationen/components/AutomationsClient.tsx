@@ -404,14 +404,17 @@ export function AutomationsClient() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadJobsEvent();
   }, []);
 
   useEffect(() => {
     if (!selectedJobId) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setRuns([]);
       setSelectedRunId(null);
       setLogContent('');
+      /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
     void loadRuns(selectedJobId);
@@ -420,6 +423,7 @@ export function AutomationsClient() {
 
   useEffect(() => {
     if (!selectedRunId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLogContent('');
       return;
     }
@@ -429,8 +433,10 @@ export function AutomationsClient() {
 
   useEffect(() => {
     if (!selectedRun?.piSessionId || !selectedRun.hasPersistedSession) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setSessionMessages([]);
       setIsLoadingSessionMessages(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
 

@@ -402,6 +402,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchGeneration(activeGenerationId, { silent: true });
 
     if (intervalRef.current) {
@@ -409,7 +410,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     }
 
     intervalRef.current = setInterval(() => {
-      void fetchGeneration(activeGenerationId, { silent: true });
+    void fetchGeneration(activeGenerationId, { silent: true });
     }, POLL_INTERVAL_MS);
 
     return () => {

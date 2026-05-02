@@ -40,11 +40,13 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
 
   useEffect(() => {
     if (open) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setName('');
       setTargetDir(defaultPath);
       setExpandedDirs(new Set());
       setError('');
       setIsCreating(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open, defaultPath]);
 

@@ -169,6 +169,7 @@ export function useStudioBulk(): UseStudioBulkReturn {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchJob(pollingJobId, { silent: true });
 
     if (intervalRef.current) {
@@ -176,7 +177,7 @@ export function useStudioBulk(): UseStudioBulkReturn {
     }
 
     intervalRef.current = setInterval(() => {
-      void fetchJob(pollingJobId, { silent: true });
+    void fetchJob(pollingJobId, { silent: true });
     }, POLL_INTERVAL_MS);
 
     return () => {

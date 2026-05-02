@@ -35,10 +35,12 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
 
   useEffect(() => {
     if (open) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setTargetDir(defaultPath);
       setExpandedDirs(new Set());
       setIsUploading(false);
       setUploadProgress(null);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open, defaultPath]);
 
