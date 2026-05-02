@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const tools = getPiToolMetadata();
+    const tools = await getPiToolMetadata();
     return NextResponse.json({
       success: true,
       data: { tools },

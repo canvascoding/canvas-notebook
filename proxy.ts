@@ -48,7 +48,7 @@ function setCommonHeaders(response: NextResponse) {
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob:",
     "font-src 'self' data: https://fonts.gstatic.com",
     "connect-src 'self' ws: wss: https://o4511053822099456.ingest.de.sentry.io https://api.github.com",

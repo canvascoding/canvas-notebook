@@ -40,6 +40,8 @@ import {
   EyeOff,
   ArrowLeft,
   CheckCheck,
+  ExternalLink,
+  Lock,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
@@ -63,7 +65,7 @@ import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS, type StarterPromptDef
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
-import { type CompactBreakMessage, isCompactBreakMessage } from '@/app/lib/pi/custom-messages';
+import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
@@ -91,7 +93,7 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'toolResult';
   content: string;
-  type?: 'tool_use' | 'tool_result' | 'system' | 'compact_break';
+  type?: 'tool_use' | 'tool_result' | 'system' | 'compact_break' | 'composio_auth_required';
   status?: 'pending' | 'sending' | 'queued_follow_up' | 'queued_steering' | 'aborting' | 'sent' | 'error';
   attachments?: Attachment[];
   piMessage?: AgentMessage;
@@ -106,6 +108,12 @@ interface ChatMessage {
     kind: 'manual' | 'automatic';
     timestamp: string;
     omittedMessageCount: number;
+  };
+  composioAuthMeta?: {
+    toolkit: string;
+    toolkitName: string;
+    redirectUrl: string;
+    toolName: string;
   };
 }
 
@@ -320,7 +328,7 @@ function normalizeMessageStart(text: string): string {
 }
 
 function extractPiMessageText(piMessage?: AgentMessage | null): string {
-  if (!piMessage || isCompactBreakMessage(piMessage)) return '';
+  if (!piMessage || isCompactBreakMessage(piMessage) || isComposioAuthRequiredMessage(piMessage)) return '';
   if (!Array.isArray(piMessage.content)) {
     return typeof piMessage.content === 'string' ? piMessage.content : '';
   }
@@ -1940,6 +1948,23 @@ export default function CanvasAgentChat({
       };
     }
 
+    if (isComposioAuthRequiredMessage(rawMessage)) {
+      const authMsg = rawMessage as ComposioAuthRequiredMessage;
+      return {
+        id: rawMessage.id?.toString() || `composio-auth-${authMsg.toolkit}`,
+        role: 'system' as const,
+        content: `Authentication required for ${authMsg.toolkitName}. [Connect ${authMsg.toolkitName}](${authMsg.redirectUrl})`,
+        type: 'composio_auth_required' as const,
+        status: 'sent' as const,
+        composioAuthMeta: {
+          toolkit: authMsg.toolkit,
+          toolkitName: authMsg.toolkitName,
+          redirectUrl: authMsg.redirectUrl,
+          toolName: authMsg.toolName,
+        },
+      };
+    }
+
     const isToolResult = rawMessage.role === 'toolResult';
     const content = isToolResult
       ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
@@ -3463,6 +3488,38 @@ export default function CanvasAgentChat({
                     {getCompactBreakLabel(message, t)}
                   </div>
                   <div className="h-px flex-1 bg-border/80" />
+                </div>
+              );
+            }
+
+            if (message.type === 'composio_auth_required' && message.composioAuthMeta) {
+              const meta = message.composioAuthMeta;
+              return (
+                <div key={message.id} className="flex justify-start">
+                  <div className="max-w-[90%] rounded-lg border border-blue-500/30 bg-blue-500/5 p-4">
+                    <div className="flex items-start gap-3">
+                      <Lock className="mt-0.5 h-5 w-5 shrink-0 text-blue-500" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground">Authentication Required</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {meta.toolkitName} needs authorization to use {meta.toolName}.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {meta.redirectUrl && (
+                            <Button size="sm" onClick={() => window.open(meta.redirectUrl, '_blank', 'noopener,noreferrer')}>
+                              <ExternalLink className="mr-1 h-3 w-3" />
+                              Connect {meta.toolkitName}
+                            </Button>
+                          )}
+                          <Link href="/settings?tab=integrations">
+                            <Button variant="outline" size="sm">
+                              {t('goToSettings') || 'Settings → Integrations'}
+                            </Button>
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               );
             }
