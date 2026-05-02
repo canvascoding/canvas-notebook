@@ -4,22 +4,13 @@ import { INLINE_HEX_REGEX } from './color-swatch';
 
 const SKIPPED_TAGS = new Set(['code', 'a', 'pre', 'script', 'style']);
 
-function isInsideSkippedNode(node: Text): boolean {
-  let current = node as unknown as Record<string, unknown> | undefined;
-  while (current) {
-    if (current.tagName && typeof current.tagName === 'string') {
-      if (SKIPPED_TAGS.has(current.tagName as string)) return true;
-    }
-    current = (current as Record<string, unknown>).parent as Record<string, unknown> | undefined;
-  }
-  return false;
-}
-
 export function rehypeInlineColorSwatch() {
   return (tree: Root) => {
     visit(tree, 'text', (node: Text, index: number | undefined, parent: Parent | undefined) => {
       if (index === undefined || parent === undefined) return;
-      if (isInsideSkippedNode(node)) return;
+      
+      // Skip if inside <code>, <pre>, <a>, <script>, or <style> elements
+      if (parent.type === 'element' && 'tagName' in parent && SKIPPED_TAGS.has((parent as Element).tagName)) return;
 
       const value = node.value;
       if (!value) return;
