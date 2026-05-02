@@ -1,6 +1,14 @@
+import WebSocket from 'ws';
+
 const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
 const loginEmail = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const loginPassword = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
+
+function getWebSocketUrl() {
+  const url = new URL('/ws/chat', baseUrl);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
+}
 
 async function request(path, options = {}) {
   const response = await fetch(`${baseUrl}${path}`, options);
@@ -46,6 +54,147 @@ async function signIn() {
 
   console.log('[PI Test] Signed in successfully.');
   return cookie;
+}
+
+function parseWsMessage(data) {
+  return JSON.parse(data.toString());
+}
+
+function waitForWsMessage(ws, predicate, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for WebSocket message'));
+    }, timeoutMs);
+
+    const onMessage = (data) => {
+      let message;
+      try {
+        message = parseWsMessage(data);
+      } catch (error) {
+        cleanup();
+        reject(error);
+        return;
+      }
+
+      if (predicate(message)) {
+        cleanup();
+        resolve(message);
+      }
+    };
+
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+
+    const onClose = (code, reason) => {
+      cleanup();
+      reject(new Error(`WebSocket closed while waiting for message: ${code} ${reason.toString()}`));
+    };
+
+    function cleanup() {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+      ws.off('error', onError);
+      ws.off('close', onClose);
+    }
+
+    ws.on('message', onMessage);
+    ws.on('error', onError);
+    ws.on('close', onClose);
+  });
+}
+
+async function connectRuntimeWs(cookie) {
+  const ws = new WebSocket(getWebSocketUrl(), {
+    headers: { cookie },
+  });
+
+  await new Promise((resolve, reject) => {
+    ws.once('open', resolve);
+    ws.once('error', reject);
+  });
+
+  const auth = await waitForWsMessage(ws, (message) => message.type === 'auth_success' || message.type === 'auth_error');
+  if (auth.type !== 'auth_success') {
+    ws.close();
+    throw new Error(`WebSocket auth failed: ${auth.error || 'unknown error'}`);
+  }
+
+  return ws;
+}
+
+async function wsRequest(ws, type, payload = {}, timeoutMs = 30000) {
+  const requestId = crypto.randomUUID();
+  const responsePromise = waitForWsMessage(ws, (message) => message.requestId === requestId, timeoutMs);
+  ws.send(JSON.stringify({ type, requestId, ...payload }));
+  const response = await responsePromise;
+
+  if (!response.success) {
+    throw new Error(`${type} failed: ${response.error || 'unknown error'}`);
+  }
+
+  return response;
+}
+
+function collectAgentRun(ws, sessionId, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const result = {
+      hasText: false,
+      hasAgentEnd: false,
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timed out waiting for agent_end'));
+    }, timeoutMs);
+
+    const onMessage = (data) => {
+      let message;
+      try {
+        message = parseWsMessage(data);
+      } catch (error) {
+        cleanup();
+        reject(error);
+        return;
+      }
+
+      if (message.type !== 'agent_event' || message.sessionId !== sessionId) {
+        return;
+      }
+
+      const event = message.event;
+      if (event?.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
+        result.hasText = true;
+      }
+      if (event?.type === 'agent_end') {
+        result.hasAgentEnd = true;
+        cleanup();
+        resolve(result);
+      }
+    };
+
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+
+    const onClose = (code, reason) => {
+      cleanup();
+      reject(new Error(`WebSocket closed during agent run: ${code} ${reason.toString()}`));
+    };
+
+    function cleanup() {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+      ws.off('error', onError);
+      ws.off('close', onClose);
+    }
+
+    ws.on('message', onMessage);
+    ws.on('error', onError);
+    ws.on('close', onClose);
+  });
 }
 
 async function testConfig(cookie) {
@@ -141,60 +290,20 @@ async function testSessions(cookie) {
   return sessionId;
 }
 
-async function testStream(cookie, sessionId) {
-  console.log('[PI Test] Testing /api/stream (with 30s timeout)...');
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+async function testStream(ws, sessionId) {
+  console.log('[PI Test] Testing WS send_message (with 30s timeout)...');
+  await wsRequest(ws, 'subscribe_session', { sessionId });
 
-  try {
-    const response = await fetch(`${baseUrl}/api/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: 'echo hello' }],
-        sessionId,
-      }),
-      signal: controller.signal,
-    });
+  const runResultPromise = collectAgentRun(ws, sessionId);
+  await wsRequest(ws, 'send_message', {
+    sessionId,
+    message: { role: 'user', content: 'echo hello', timestamp: Date.now() },
+  });
+  const runResult = await runResultPromise;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Stream request failed: ${response.status} - ${errorText}`);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let hasText = false;
-    let hasAgentEnd = false;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const event = JSON.parse(line);
-        if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
-          hasText = true;
-        }
-        if (event.type === 'agent_end') {
-          hasAgentEnd = true;
-        }
-      }
-    }
-
-    if (!hasText) console.warn('[PI Test] WARNING: Stream did not return any text deltas (maybe missing API key?)');
-    if (!hasAgentEnd) throw new Error('Stream did not return agent_end event');
-    console.log('[PI Test] Stream check passed.');
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('Stream request timed out after 30s');
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
+  if (!runResult.hasText) console.warn('[PI Test] WARNING: WS stream did not return any text deltas (maybe missing API key?)');
+  if (!runResult.hasAgentEnd) throw new Error('WS stream did not return agent_end event');
+  console.log('[PI Test] WS stream check passed.');
 }
 
 async function testSessionPersistence(cookie, sessionId) {
@@ -227,18 +336,11 @@ async function testSessionPersistence(cookie, sessionId) {
   return messages;
 }
 
-async function testRuntimeStatusAndCompact(cookie, sessionId) {
-  console.log('[PI Test] Testing /api/stream/status and /api/stream/control compact...');
+async function testRuntimeStatusAndCompact(ws, sessionId) {
+  console.log('[PI Test] Testing WS get_status and control compact...');
 
-  const statusResult = await request(`/api/stream/status?sessionId=${encodeURIComponent(sessionId)}`, {
-    headers: { cookie },
-  });
-
-  if (!statusResult.response.ok || !statusResult.body?.success) {
-    throw new Error(`Runtime status failed: ${statusResult.response.status}`);
-  }
-
-  const status = statusResult.body.status;
+  const statusResult = await wsRequest(ws, 'get_status', { sessionId });
+  const status = statusResult.status;
   if (
     typeof status?.contextWindow !== 'number' ||
     typeof status?.estimatedHistoryTokens !== 'number' ||
@@ -251,29 +353,21 @@ async function testRuntimeStatusAndCompact(cookie, sessionId) {
     throw new Error('Runtime status payload missing context metrics');
   }
 
-  const compactResult = await request('/api/stream/control', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', cookie },
-    body: JSON.stringify({
-      sessionId,
-      action: 'compact',
-    }),
+  const compactResult = await wsRequest(ws, 'control', {
+    sessionId,
+    action: 'compact',
   });
 
-  if (!compactResult.response.ok || !compactResult.body?.success) {
-    throw new Error(`Runtime compact failed: ${compactResult.response.status}`);
-  }
-
   if (
-    typeof compactResult.body?.status?.contextUsagePercent !== 'number' ||
-    typeof compactResult.body?.status?.lastCompactionAt !== 'string' ||
-    compactResult.body?.status?.lastCompactionKind !== 'manual' ||
-    typeof compactResult.body?.status?.lastCompactionOmittedCount !== 'number'
+    typeof compactResult.status?.contextUsagePercent !== 'number' ||
+    typeof compactResult.status?.lastCompactionAt !== 'string' ||
+    compactResult.status?.lastCompactionKind !== 'manual' ||
+    typeof compactResult.status?.lastCompactionOmittedCount !== 'number'
   ) {
     throw new Error('Compact response missing updated runtime compaction status');
   }
 
-  console.log('[PI Test] Runtime status and compact check passed.');
+  console.log('[PI Test] WS runtime status and compact check passed.');
 }
 
 async function testUsageAnalytics(cookie, sessionId, persistedMessages) {
@@ -333,9 +427,11 @@ async function run() {
     await testConfig(cookie);
     await testManagedFiles(cookie);
     const sessionId = await testSessions(cookie);
-    await testStream(cookie, sessionId);
+    const ws = await connectRuntimeWs(cookie);
+    await testStream(ws, sessionId);
     const persistedMessages = await testSessionPersistence(cookie, sessionId);
-    await testRuntimeStatusAndCompact(cookie, sessionId);
+    await testRuntimeStatusAndCompact(ws, sessionId);
+    ws.close();
     await testUsageAnalytics(cookie, sessionId, persistedMessages);
     console.log('[PI Test] All integration tests passed! 🚀');
   } catch (error) {
