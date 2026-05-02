@@ -419,7 +419,7 @@ export function DashboardShell() {
           </div>
 
           {/* Center toggle group: both mobile and desktop */}
-          <div className="absolute left-1/2 top-1/2 z-50 flex -translate-x-1/2 -translate-y-1/2 items-center">
+          <div className="absolute left-1/2 top-1/2 z-[60] flex -translate-x-1/2 -translate-y-1/2 items-center">
             <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border/80 bg-background/95 p-1 shadow-sm">
               {/* Explorer toggle */}
               <Button
@@ -528,7 +528,7 @@ export function DashboardShell() {
           </div>
 
           {/* Right side: help, theme, logout */}
-          <div className="relative z-[60] flex items-center gap-1.5 md:gap-4">
+          <div className="relative z-50 flex items-center gap-1.5 md:gap-4">
             <AppLauncher />
             <HelpDropdown page="notebook" />
             <ThemeToggle />
