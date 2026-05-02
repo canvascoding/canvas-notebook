@@ -358,30 +358,68 @@ const server = http.createServer((req, res) => {
   handle(req, res);
 });
 
+// Register the chat WebSocket handler before Next attaches its own upgrade
+// listeners. After app.prepare() we wrap Next's listeners so they never see
+// /ws/chat sockets; otherwise Next can still corrupt or close the upgraded
+// connection after our ws server has accepted it.
+let isChatWebSocketRequest = () => false;
+console.log('[Startup] Initializing WebSocket Server...');
+try {
+  const websocketServer = require('./server/websocket-server');
+  isChatWebSocketRequest = websocketServer.isChatWebSocketRequest;
+  websocketServer.createWebSocketServer(server);
+  console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+} catch (error) {
+  console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
+  console.error('[Startup] Stack trace:', error.stack);
+}
+
+function guardNonChatUpgradeListener(listener) {
+  if (typeof listener !== 'function' || listener.__canvasUpgradeGuarded) {
+    return listener;
+  }
+
+  const guardedListener = function guardedUpgradeListener(request, socket, head) {
+    if (isChatWebSocketRequest(request.url)) {
+      return;
+    }
+
+    return listener.call(this, request, socket, head);
+  };
+  guardedListener.__canvasUpgradeGuarded = true;
+  guardedListener.__canvasOriginalListener = listener;
+  return guardedListener;
+}
+
+function installChatUpgradeGuard(targetServer) {
+  const originalOn = targetServer.on.bind(targetServer);
+  const originalAddListener = targetServer.addListener.bind(targetServer);
+  const originalPrependListener = targetServer.prependListener.bind(targetServer);
+  const originalOnce = targetServer.once.bind(targetServer);
+  const originalPrependOnceListener = targetServer.prependOnceListener.bind(targetServer);
+
+  targetServer.on = function guardedOn(eventName, listener) {
+    return originalOn(eventName, eventName === 'upgrade' ? guardNonChatUpgradeListener(listener) : listener);
+  };
+  targetServer.addListener = function guardedAddListener(eventName, listener) {
+    return originalAddListener(eventName, eventName === 'upgrade' ? guardNonChatUpgradeListener(listener) : listener);
+  };
+  targetServer.prependListener = function guardedPrependListener(eventName, listener) {
+    return originalPrependListener(eventName, eventName === 'upgrade' ? guardNonChatUpgradeListener(listener) : listener);
+  };
+  targetServer.once = function guardedOnce(eventName, listener) {
+    return originalOnce(eventName, eventName === 'upgrade' ? guardNonChatUpgradeListener(listener) : listener);
+  };
+  targetServer.prependOnceListener = function guardedPrependOnceListener(eventName, listener) {
+    return originalPrependOnceListener(eventName, eventName === 'upgrade' ? guardNonChatUpgradeListener(listener) : listener);
+  };
+}
+
+installChatUpgradeGuard(server);
+
 app
   .prepare()
   .then(() => {
-    console.log('[Startup] Initializing WebSocket Server...');
-    try {
-      const { createWebSocketServer, isChatWebSocketRequest } = require('./server/websocket-server');
-      const nextUpgradeListeners = server.listeners('upgrade');
-      server.removeAllListeners('upgrade');
-      createWebSocketServer(server);
-      server.on('upgrade', (request, socket, head) => {
-        if (isChatWebSocketRequest(request.url)) {
-          return;
-        }
-
-        for (const listener of nextUpgradeListeners) {
-          listener.call(server, request, socket, head);
-        }
-      });
-      console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
-    } catch (error) {
-      console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
-      console.error('[Startup] Stack trace:', error.stack);
-    }
-
     server.listen(port, (err) => {
       if (err) throw err;
       console.log(`> Ready on http://localhost:${port}`);

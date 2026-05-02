@@ -113,6 +113,7 @@ async function testConnection() {
         if (message.type === 'auth_success') {
           authenticated = true;
           console.log('[WebSocket Test] Authenticated as user:', message.userId);
+          ws.send(JSON.stringify({ type: 'subscribe_session', sessionId }));
           ws.send(JSON.stringify({
             type: 'send_message',
             sessionId,
@@ -125,16 +126,6 @@ async function testConnection() {
             currentTime: new Date().toISOString(),
           }));
 
-          setTimeout(() => {
-            if (!regressionChecked) {
-              regressionChecked = true;
-              settle(() => {
-                ws.close();
-                console.log('[WebSocket Test] No HTTP 401 after send_message');
-                resolve();
-              });
-            }
-          }, 3000);
         } else if (message.type === 'auth_error') {
           settle(() => {
             ws.close();
@@ -167,6 +158,10 @@ async function testConnection() {
         settled = true;
         clearTimeout(timeout);
         reject(new Error('Connection closed before authentication'));
+      } else if (!settled && !regressionChecked) {
+        settled = true;
+        clearTimeout(timeout);
+        reject(new Error('Connection closed before agent event'));
       }
     });
   });
