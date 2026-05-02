@@ -159,6 +159,7 @@ export function createComposioExecuteTool(): AgentTool {
         const result = await composio.tools.execute(action, {
           userId,
           arguments: toolParams,
+          dangerouslySkipVersionCheck: true,
         });
 
         return textResult(truncateResult(result));
