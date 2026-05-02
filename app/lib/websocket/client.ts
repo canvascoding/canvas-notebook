@@ -302,6 +302,21 @@ export class WebSocketClient extends EventTarget {
         this.dispatchEvent(new CustomEvent('error', { detail: { error: message.error as string, code: 'AUTH_ERROR' } }));
         break;
 
+      case 'subscribe_result':
+      case 'send_message_result':
+      case 'control_result':
+      case 'status_result':
+        // Request/response messages are normally consumed by the requestId
+        // resolver above. Fire-and-forget legacy calls can still receive
+        // successful results without a pending request; those are harmless.
+        if (message.success === false) {
+          console.error('[WebSocket] Request result error:', message.error);
+          this.dispatchEvent(new CustomEvent<{ error: string; code?: string }>('error', {
+            detail: { error: message.error as string, code: type as string },
+          }));
+        }
+        break;
+
       case 'agent_event': {
         const agentEvent = {
           sessionId: message.sessionId as string,
