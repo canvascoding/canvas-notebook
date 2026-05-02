@@ -1,4 +1,4 @@
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page, type WebSocketRoute } from '@playwright/test';
 import type { PiRuntimeStatus } from '@/app/lib/pi/live-runtime';
 import dotenv from 'dotenv';
 import path from 'node:path';
@@ -92,6 +92,111 @@ async function getChatInputMetrics(page: Page) {
       overflowY: style.overflowY,
     };
   });
+}
+
+type AgentEventPayload = Record<string, unknown>;
+
+interface MockWsConfig {
+  sessionId: string;
+  onSubscribe?: () => void;
+  onSendMessage?: (message: Record<string, unknown>, context: Record<string, unknown> | undefined, requestId: string) => void;
+  onGetStatus?: (requestId: string) => Record<string, unknown> | null;
+  onControl?: (action: string, message: Record<string, unknown> | undefined, requestId: string) => Record<string, unknown>;
+  agentEvents?: AgentEventPayload[];
+  sendEventsAfterSendMessage?: boolean;
+  runtimeStatus?: Record<string, unknown>;
+}
+
+function setupMockWebSocket(page: Page, config: MockWsConfig) {
+  const {
+    sessionId,
+    agentEvents = [],
+    sendEventsAfterSendMessage = true,
+    runtimeStatus,
+    onGetStatus,
+    onControl,
+  } = config;
+
+  let eventQueue: AgentEventPayload[] = [...agentEvents];
+
+  page.routeWebSocket('/ws/chat', (ws: WebSocketRoute) => {
+    ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
+
+    ws.onMessage((rawMessage) => {
+      const message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : JSON.parse(rawMessage.toString());
+      const { type, requestId } = message;
+
+      switch (type) {
+        case 'subscribe_session': {
+          ws.send(JSON.stringify({ type: 'subscribe_result', requestId, success: true, sessionId }));
+          config.onSubscribe?.();
+          break;
+        }
+
+        case 'send_message': {
+          ws.send(JSON.stringify({
+            type: 'send_message_result',
+            requestId,
+            success: true,
+            status: { phase: 'streaming' },
+          }));
+
+          config.onSendMessage?.(message.message, message.context, requestId);
+
+          if (sendEventsAfterSendMessage) {
+            let delay = 0;
+            for (const event of eventQueue) {
+              const currentDelay = delay;
+              setTimeout(() => {
+                ws.send(JSON.stringify({ type: 'agent_event', sessionId, event }));
+              }, currentDelay);
+              delay += 50;
+            }
+            eventQueue = [];
+          }
+          break;
+        }
+
+        case 'get_status': {
+          let status: Record<string, unknown> | null = runtimeStatus ?? { phase: 'idle' };
+          if (onGetStatus) {
+            status = onGetStatus(requestId);
+          }
+          if (status) {
+            ws.send(JSON.stringify({ type: 'status_result', requestId, success: true, status }));
+          } else {
+            ws.send(JSON.stringify({ type: 'status_result', requestId, success: false, error: 'Session not found' }));
+          }
+          break;
+        }
+
+        case 'control': {
+          const action = message.action as string;
+          let status: Record<string, unknown> = runtimeStatus ?? { phase: 'idle' };
+          if (onControl) {
+            status = onControl(action, message.message, requestId);
+          }
+          ws.send(JSON.stringify({ type: 'control_result', requestId, success: true, status }));
+          break;
+        }
+
+        case 'unsubscribe_session': {
+          break;
+        }
+      }
+    });
+  });
+}
+
+function _sendAgentEvents(ws: WebSocketRoute, sessionId: string, events: AgentEventPayload[], delayMs = 50) {
+  let delay = 0;
+  for (const event of events) {
+    const currentDelay = delay;
+    setTimeout(() => {
+      ws.send(JSON.stringify({ type: 'agent_event', sessionId, event }));
+    }, currentDelay);
+    delay += delayMs;
+  }
 }
 
 test.describe('PI Chat E2E', () => {
@@ -210,32 +315,35 @@ test.describe('PI Chat E2E', () => {
   });
 
   test('should render markdown and tool output separately in the chat UI', async ({ page }) => {
-    await page.route('**/api/stream', async (route) => {
-      const body = [
-        JSON.stringify({
+    const sessionId = 'sess-markdown-tool';
+
+    setupMockWebSocket(page, {
+      sessionId,
+      agentEvents: [
+        {
           type: 'message_update',
           assistantMessageEvent: {
             type: 'text_delta',
             delta: '   Here is **bold** output\n\n- first item\n- second item',
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'tool_execution_start',
           toolCallId: 'tool-call-1',
           toolName: 'ls',
           args: {
             path: '.',
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'tool_execution_end',
           toolCallId: 'tool-call-1',
           toolName: 'ls',
           result: {
-            content: [{ type: 'text', text: 'alpha.md\\nbeta.ts' }],
+            content: [{ type: 'text', text: 'alpha.md\nbeta.ts' }],
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'agent_end',
           messages: [
             {
@@ -255,20 +363,15 @@ test.describe('PI Chat E2E', () => {
             },
             {
               role: 'toolResult',
-              content: [{ type: 'text', text: 'alpha.md\\nbeta.ts' }],
+              content: [{ type: 'text', text: 'alpha.md\nbeta.ts' }],
               timestamp: Date.now(),
             },
           ],
-        }),
-      ].join('\n') + '\n';
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body,
-      });
+        },
+      ],
     });
 
+    await mockEmptyChatBootstrap(page);
     await page.goto('/chat');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
@@ -299,13 +402,15 @@ test.describe('PI Chat E2E', () => {
   });
 
   test('should show studio media tool inputs for image and video generation calls', async ({ page }) => {
+    const sessionId = 'sess-studio-media';
     const imageReferencePath = 'public/images/examples/aura_serum_produktfoto.png';
     const videoStartFramePath = 'public/images/examples/tech_banner_future_of_innovation.png';
     const videoEndFramePath = 'public/images/examples/reise_banner_find_your_paradise.png';
 
-    await page.route('**/api/stream', async (route) => {
-      const body = [
-        JSON.stringify({
+    setupMockWebSocket(page, {
+      sessionId,
+      agentEvents: [
+        {
           type: 'tool_execution_start',
           toolCallId: 'tool-call-image-1',
           toolName: 'studio_generate_image',
@@ -314,8 +419,8 @@ test.describe('PI Chat E2E', () => {
             prompt: 'Use the same composition with a colder blue palette.',
             extra_reference_urls: [imageReferencePath],
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'tool_execution_end',
           toolCallId: 'tool-call-image-1',
           toolName: 'studio_generate_image',
@@ -327,8 +432,8 @@ test.describe('PI Chat E2E', () => {
               },
             ],
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'tool_execution_start',
           toolCallId: 'tool-call-video-1',
           toolName: 'studio_generate_video',
@@ -339,8 +444,8 @@ test.describe('PI Chat E2E', () => {
             resolution: '720p',
             is_looping: true,
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'tool_execution_end',
           toolCallId: 'tool-call-video-1',
           toolName: 'studio_generate_video',
@@ -352,8 +457,8 @@ test.describe('PI Chat E2E', () => {
               },
             ],
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'agent_end',
           messages: [
             {
@@ -372,23 +477,16 @@ test.describe('PI Chat E2E', () => {
               timestamp: Date.now(),
             },
           ],
-        }),
-      ].join('\n') + '\n';
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body,
-      });
+        },
+      ],
     });
 
+    await mockEmptyChatBootstrap(page);
     await page.goto('/chat');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
     await input.fill('Use the Studio media tools with workspace assets.');
-    const streamResponse = page.waitForResponse((response) => response.url().includes('/api/stream'));
     await page.getByTestId('chat-send').click();
-    await expect((await streamResponse).ok()).toBeTruthy();
 
     const toolMessages = page.getByTestId('chat-message-toolResult');
     await expect(toolMessages).toHaveCount(2);
@@ -411,80 +509,70 @@ test.describe('PI Chat E2E', () => {
   });
 
   test('should hide assistant text behind a streaming placeholder until the final message arrives', async ({ page }) => {
-    await page.addInitScript(() => {
-      const originalFetch = window.fetch.bind(window);
-      const emptyUsage = {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 0,
-        cost: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          total: 0,
-        },
-      };
+    const sessionId = 'sess-streaming-placeholder';
 
-      window.fetch = async (input, init) => {
-        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
-        const pathname = new URL(url, window.location.origin).pathname;
+    let _wsRoute: WebSocketRoute | null = null;
 
-        if (pathname === '/api/stream') {
-          const encoder = new TextEncoder();
-          const chunks = [
-            JSON.stringify({
+    page.routeWebSocket('/ws/chat', (ws: WebSocketRoute) => {
+      _wsRoute = ws;
+      ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
+
+      ws.onMessage((rawMessage) => {
+        const message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : JSON.parse(rawMessage.toString());
+        const { type, requestId } = message;
+
+        if (type === 'subscribe_session') {
+          ws.send(JSON.stringify({ type: 'subscribe_result', requestId, success: true, sessionId }));
+        }
+
+        if (type === 'send_message') {
+          ws.send(JSON.stringify({
+            type: 'send_message_result',
+            requestId,
+            success: true,
+            status: { phase: 'streaming' },
+          }));
+
+          ws.send(JSON.stringify({
+            type: 'agent_event',
+            sessionId,
+            event: {
               type: 'message_update',
               assistantMessageEvent: {
                 type: 'text_delta',
                 delta: 'Streaming **bold',
               },
-            }) + '\n',
-            JSON.stringify({
-              type: 'message_end',
-              message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'Streaming **bold** answer' }],
-                api: 'mock',
-                provider: 'mock',
-                model: 'mock-model',
-                usage: emptyUsage,
-                stopReason: 'stop',
-                timestamp: Date.now(),
+            },
+          }));
+
+          setTimeout(() => {
+            ws.send(JSON.stringify({
+              type: 'agent_event',
+              sessionId,
+              event: {
+                type: 'message_end',
+                message: {
+                  role: 'assistant',
+                  content: [{ type: 'text', text: 'Streaming **bold** answer' }],
+                  api: 'mock',
+                  provider: 'mock',
+                  model: 'mock-model',
+                  usage: EMPTY_USAGE,
+                  stopReason: 'stop',
+                  timestamp: Date.now(),
+                },
               },
-            }) + '\n',
-          ];
-
-          let chunkIndex = 0;
-
-          const stream = new ReadableStream({
-            async pull(controller) {
-              if (chunkIndex >= chunks.length) {
-                controller.close();
-                return;
-              }
-
-              const delay = chunkIndex === 0 ? 0 : 900;
-              await new Promise((resolve) => window.setTimeout(resolve, delay));
-              controller.enqueue(encoder.encode(chunks[chunkIndex]));
-              chunkIndex += 1;
-            },
-          });
-
-          return new Response(stream, {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          });
+            }));
+          }, 900);
         }
 
-        return originalFetch(input, init);
-      };
+        if (type === 'get_status') {
+          ws.send(JSON.stringify({ type: 'status_result', requestId, success: true, status: { phase: 'streaming' } }));
+        }
+      });
     });
 
+    await mockEmptyChatBootstrap(page);
     await page.goto('/chat');
     await startFreshChat(page);
 
@@ -529,31 +617,30 @@ test.describe('PI Chat E2E', () => {
   });
 
   test('should keep the current scroll position when streaming continues after the user scrolls up', async ({ page }) => {
-    await page.addInitScript(() => {
-      const originalFetch = window.fetch.bind(window);
+    const sessionId = 'sess-scroll';
+
+    page.routeWebSocket('/ws/chat', (ws: WebSocketRoute) => {
       let streamCallCount = 0;
-      const emptyUsage = {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 0,
-        cost: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          total: 0,
-        },
-      };
+      const emptyUsage = { ...EMPTY_USAGE };
 
-      window.fetch = async (input, init) => {
-        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
-        const pathname = new URL(url, window.location.origin).pathname;
+      ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
 
-        if (pathname === '/api/stream') {
-          const encoder = new TextEncoder();
+      ws.onMessage((rawMessage) => {
+        const message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : JSON.parse(rawMessage.toString());
+        const { type, requestId } = message;
+
+        if (type === 'subscribe_session') {
+          ws.send(JSON.stringify({ type: 'subscribe_result', requestId, success: true, sessionId }));
+        }
+
+        if (type === 'send_message') {
           streamCallCount += 1;
+          ws.send(JSON.stringify({
+            type: 'send_message_result',
+            requestId,
+            success: true,
+            status: { phase: 'streaming' },
+          }));
 
           if (streamCallCount <= 5) {
             const seedText = Array.from(
@@ -561,8 +648,10 @@ test.describe('PI Chat E2E', () => {
               (_, lineIndex) => `Seed reply ${streamCallCount}, line ${lineIndex + 1}: keep the transcript tall before the streaming placeholder appears.`,
             ).join('\n');
 
-            return new Response(
-              `${JSON.stringify({
+            ws.send(JSON.stringify({
+              type: 'agent_event',
+              sessionId,
+              event: {
                 type: 'message_end',
                 message: {
                   role: 'assistant',
@@ -574,14 +663,9 @@ test.describe('PI Chat E2E', () => {
                   stopReason: 'stop',
                   timestamp: Date.now(),
                 },
-              })}\n`,
-              {
-                status: 200,
-                headers: {
-                  'Content-Type': 'application/json',
-                },
               },
-            );
+            }));
+            return;
           }
 
           const totalChunks = 18;
@@ -594,65 +678,58 @@ test.describe('PI Chat E2E', () => {
               (_, lineIndex) => `Stream line ${lineIndex + 1}: keep this answer growing while I inspect older history.`,
             ).join('\n');
 
-          const stream = new ReadableStream({
-            async pull(controller) {
-              if (chunkIndex >= totalChunks) {
-                controller.close();
-                return;
-              }
+          const sendChunk = () => {
+            if (chunkIndex >= totalChunks) return;
 
-              const text = buildText(chunkIndex + 1);
-              const payload =
-                chunkIndex === totalChunks - 1
-                  ? {
-                      type: 'message_end',
-                      message: {
-                        role: 'assistant',
-                        content: [{ type: 'text', text }],
-                        api: 'mock',
-                        provider: 'mock',
-                        model: 'mock-model',
-                        usage: emptyUsage,
-                        stopReason: 'stop',
-                        timestamp: Date.now(),
-                      },
-                    }
-                  : {
-                      type: 'message_update',
-                      message: {
-                        role: 'assistant',
-                        content: [{ type: 'text', text }],
-                        api: 'mock',
-                        provider: 'mock',
-                        model: 'mock-model',
-                        usage: emptyUsage,
-                        stopReason: 'streaming',
-                        timestamp: Date.now(),
-                      },
-                      assistantMessageEvent: {
-                        type: 'text_delta',
-                        delta: text,
-                      },
-                    };
+            const text = buildText(chunkIndex + 1);
+            const event =
+              chunkIndex === totalChunks - 1
+                ? {
+                    type: 'message_end',
+                    message: {
+                      role: 'assistant',
+                      content: [{ type: 'text', text }],
+                      api: 'mock',
+                      provider: 'mock',
+                      model: 'mock-model',
+                      usage: emptyUsage,
+                      stopReason: 'stop',
+                      timestamp: Date.now(),
+                    },
+                  }
+                : {
+                    type: 'message_update',
+                    message: {
+                      role: 'assistant',
+                      content: [{ type: 'text', text }],
+                      api: 'mock',
+                      provider: 'mock',
+                      model: 'mock-model',
+                      usage: emptyUsage,
+                      stopReason: 'streaming',
+                      timestamp: Date.now(),
+                    },
+                    assistantMessageEvent: {
+                      type: 'text_delta',
+                      delta: text,
+                    },
+                  };
 
-              await new Promise((resolve) => window.setTimeout(resolve, chunkIndex < 6 ? 35 : 70));
-              controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
-              chunkIndex += 1;
-            },
-          });
+            ws.send(JSON.stringify({ type: 'agent_event', sessionId, event }));
+            chunkIndex += 1;
+            setTimeout(sendChunk, chunkIndex < 6 ? 35 : 70);
+          };
 
-          return new Response(stream, {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          });
+          setTimeout(sendChunk, 0);
         }
 
-        return originalFetch(input, init);
-      };
+        if (type === 'get_status') {
+          ws.send(JSON.stringify({ type: 'status_result', requestId, success: true, status: { phase: streamCallCount > 5 ? 'streaming' : 'idle' } }));
+        }
+      });
     });
 
+    await mockEmptyChatBootstrap(page);
     await page.goto('/chat');
     await startFreshChat(page);
 
@@ -699,9 +776,12 @@ test.describe('PI Chat E2E', () => {
   });
 
   test('should render compact usage footer for assistant responses', async ({ page }) => {
-    await page.route('**/api/stream', async (route) => {
-      const body = [
-        JSON.stringify({
+    const sessionId = 'sess-usage-footer';
+
+    setupMockWebSocket(page, {
+      sessionId,
+      agentEvents: [
+        {
           type: 'message_update',
           message: {
             role: 'assistant',
@@ -730,8 +810,8 @@ test.describe('PI Chat E2E', () => {
             type: 'text_delta',
             delta: 'Usage enabled answer.',
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'agent_end',
           messages: [
             {
@@ -763,16 +843,11 @@ test.describe('PI Chat E2E', () => {
               timestamp: Date.now(),
             },
           ],
-        }),
-      ].join('\n') + '\n';
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body,
-      });
+        },
+      ],
     });
 
+    await mockEmptyChatBootstrap(page);
     await page.goto('/chat');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
@@ -789,10 +864,12 @@ test.describe('PI Chat E2E', () => {
   });
 
   test('should only render cumulative usage on the final assistant message of a tool chain', async ({ page }) => {
-    await page.route('**/api/stream', async (route) => {
-      const now = Date.now();
-      const body = [
-        JSON.stringify({
+    const sessionId = 'sess-cumulative-usage';
+
+    setupMockWebSocket(page, {
+      sessionId,
+      agentEvents: [
+        {
           type: 'message_end',
           message: {
             role: 'assistant',
@@ -815,24 +892,24 @@ test.describe('PI Chat E2E', () => {
               },
             },
             stopReason: 'tool_call',
-            timestamp: now,
+            timestamp: Date.now(),
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'tool_execution_start',
           toolCallId: 'tool-usage-1',
           toolName: 'search_workspace',
           args: { query: 'usage footer' },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'tool_execution_end',
           toolCallId: 'tool-usage-1',
           toolName: 'search_workspace',
           result: {
             content: [{ type: 'text', text: 'Gefundene Treffer' }],
           },
-        }),
-        JSON.stringify({
+        },
+        {
           type: 'message_end',
           message: {
             role: 'assistant',
@@ -855,18 +932,13 @@ test.describe('PI Chat E2E', () => {
               },
             },
             stopReason: 'stop',
-            timestamp: now + 1,
+            timestamp: Date.now() + 1,
           },
-        }),
-      ].join('\n') + '\n';
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body,
-      });
+        },
+      ],
     });
 
+    await mockEmptyChatBootstrap(page);
     await page.goto('/chat');
     await startFreshChat(page);
 
@@ -1000,56 +1072,40 @@ test.describe('PI Chat E2E', () => {
       });
     });
 
-    await page.route(`**/api/stream/status?sessionId=${sessionId}`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
+    setupMockWebSocket(page, {
+      sessionId,
+      runtimeStatus: currentStatus as Record<string, unknown>,
+      onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
+      onControl: (action) => {
+        if (action === 'steer') {
+          currentStatus = {
+            ...currentStatus,
+            steeringQueue: [
+              ...currentStatus.steeringQueue!,
+              { id: 'steer-2', text: 'Take over immediately', attachmentCount: 0 },
+            ],
+          };
+        }
+
+        if (action === 'replace') {
+          currentStatus = {
+            ...currentStatus,
+            phase: 'aborting',
+            activeTool: null,
+            followUpQueue: [],
+            steeringQueue: [],
+          };
+        }
+
+        return currentStatus as unknown as Record<string, unknown>;
+      },
+      agentEvents: [
+        {
+          type: 'runtime_status',
           status: currentStatus,
-        }),
-      });
-    });
-
-    await page.route('**/api/stream', async (route) => {
-      const body = `${JSON.stringify({ type: 'runtime_status', status: currentStatus })}\n`;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body,
-      });
-    });
-
-    await page.route('**/api/stream/control', async (route) => {
-      const requestBody = route.request().postDataJSON() as { action: string; message?: { content?: string | Array<{ type: string; text?: string }> } };
-      if (requestBody.action === 'steer') {
-        currentStatus = {
-          ...currentStatus,
-          steeringQueue: [
-            ...currentStatus.steeringQueue,
-            { id: 'steer-2', text: 'Take over immediately', attachmentCount: 0 },
-          ],
-        };
-      }
-
-      if (requestBody.action === 'replace') {
-        currentStatus = {
-          ...currentStatus,
-          phase: 'aborting',
-          activeTool: null,
-          followUpQueue: [],
-          steeringQueue: [],
-        };
-      }
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          status: currentStatus,
-        }),
-      });
+        },
+      ],
+      sendEventsAfterSendMessage: true,
     });
 
     await page.goto('/chat');
@@ -1229,41 +1285,27 @@ test.describe('PI Chat E2E', () => {
       });
     });
 
-    await page.route(`**/api/stream/status?sessionId=${sessionId}`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          status: {
-            sessionId,
-            phase: 'running_tool',
-            activeTool: { toolCallId: 'tool-1', name: 'read_file' },
-            pendingToolCalls: 1,
-            followUpQueue: [{ id: 'follow-1', text: 'Summarize afterwards', attachmentCount: 0 }],
-            steeringQueue: [],
-            canAbort: true,
-            contextWindow: 128000,
-            estimatedHistoryTokens: 14600,
-            availableHistoryTokens: 23500,
-            contextUsagePercent: 62,
-            includedSummary: true,
-            omittedMessageCount: 8,
-            summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
-            lastCompactionAt: '2026-03-16T16:00:00.000Z',
-            lastCompactionKind: 'automatic',
-            lastCompactionOmittedCount: 8,
-          },
-        }),
-      });
-    });
-
-    await page.route('**/api/stream', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: '',
-      });
+    setupMockWebSocket(page, {
+      sessionId,
+      runtimeStatus: {
+        sessionId,
+        phase: 'running_tool',
+        activeTool: { toolCallId: 'tool-1', name: 'read_file' },
+        pendingToolCalls: 1,
+        followUpQueue: [{ id: 'follow-1', text: 'Summarize afterwards', attachmentCount: 0 }],
+        steeringQueue: [],
+        canAbort: true,
+        contextWindow: 128000,
+        estimatedHistoryTokens: 14600,
+        availableHistoryTokens: 23500,
+        contextUsagePercent: 62,
+        includedSummary: true,
+        omittedMessageCount: 8,
+        summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
+        lastCompactionAt: '2026-03-16T16:00:00.000Z',
+        lastCompactionKind: 'automatic',
+        lastCompactionOmittedCount: 8,
+      } as unknown as Record<string, unknown>,
     });
 
     await page.goto('/chat');
@@ -1374,36 +1416,24 @@ test.describe('PI Chat E2E', () => {
       });
     });
 
-    await page.route(`**/api/stream/status?sessionId=${sessionId}`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          status: currentStatus,
-        }),
-      });
-    });
+    setupMockWebSocket(page, {
+      sessionId,
+      runtimeStatus: currentStatus as Record<string, unknown>,
+      onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
+      onControl: (action) => {
+        if (action === 'compact') {
+          currentStatus = {
+            ...currentStatus,
+            lastCompactionAt: '2026-03-16T17:20:00.000Z',
+            lastCompactionKind: 'manual',
+            lastCompactionOmittedCount: 6,
+          };
+        }
 
-    await page.route('**/api/stream/control', async (route) => {
-      const body = route.request().postDataJSON() as { action: string };
-      if (body.action === 'compact') {
-        currentStatus = {
-          ...currentStatus,
-          lastCompactionAt: '2026-03-16T17:20:00.000Z',
-          lastCompactionKind: 'manual',
-          lastCompactionOmittedCount: 6,
-        };
-      }
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          status: currentStatus,
-        }),
-      });
+        return currentStatus as unknown as Record<string, unknown>;
+      },
+      agentEvents: [],
+      sendEventsAfterSendMessage: false,
     });
 
     await page.goto('/chat');
