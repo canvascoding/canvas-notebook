@@ -58,18 +58,25 @@ export const OutputThumbnail = memo(function OutputThumbnail({
       recentlyCompleted && 'animate-[studioOutputFadeIn_500ms_ease-out_forwards]',
     )}>
       {selectionMode && (
-        <div className="absolute top-2 left-2 z-10">
-          <button
-            type="button"
-            onClick={() => onSelectToggle?.(id, !selected)}
-            className={`flex h-6 w-6 items-center justify-center rounded-full border ${selected ? 'bg-primary border-primary text-white' : 'border-white/70 bg-black/40 text-white'}`}
-          >
+        <div className="pointer-events-none absolute top-2 left-2 z-10">
+          <div className={`flex h-6 w-6 items-center justify-center rounded-full border ${selected ? 'bg-primary border-primary text-white' : 'border-white/70 bg-black/40 text-white'}`}>
             {selected ? '✓' : ''}
-          </button>
+          </div>
         </div>
       )}
 
-      <button type="button" className="absolute inset-0 z-0 cursor-pointer" onClick={() => onOpen(id)} aria-label={`Open ${title}`}>
+      <button
+        type="button"
+        className="absolute inset-0 z-0 cursor-pointer"
+        onClick={() => {
+          if (selectionMode) {
+            onSelectToggle?.(id, !selected);
+          } else {
+            onOpen(id);
+          }
+        }}
+        aria-label={`Open ${title}`}
+      >
         <span className="sr-only">{title}</span>
       </button>
 

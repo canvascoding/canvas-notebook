@@ -1226,6 +1226,44 @@ export async function getStudioGeneration(generationId: string, userId: string) 
   };
 }
 
+export async function deleteStudioOutput(outputId: string, userId: string): Promise<{ success: boolean; generationDeleted: boolean }> {
+  const [outputRow] = await db.select({
+    id: studioGenerationOutputs.id,
+    generationId: studioGenerationOutputs.generationId,
+    filePath: studioGenerationOutputs.filePath,
+  })
+    .from(studioGenerationOutputs)
+    .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+    .where(and(eq(studioGenerationOutputs.id, outputId), eq(studioGenerations.userId, userId)))
+    .limit(1);
+
+  if (!outputRow) {
+    throw new StudioServiceError('Output not found', 'Output nicht gefunden', 'NOT_FOUND');
+  }
+
+  if (outputRow.filePath) {
+    try {
+      const { deleteOutputFile } = await import('@/app/lib/integrations/studio-workspace');
+      await deleteOutputFile(outputRow.filePath);
+    } catch (err) {
+      console.warn(`Failed to delete output file ${outputRow.filePath}:`, err);
+    }
+  }
+
+  await db.delete(studioGenerationOutputs).where(eq(studioGenerationOutputs.id, outputId));
+
+  const remainingOutputs = await db.select({ id: studioGenerationOutputs.id })
+    .from(studioGenerationOutputs)
+    .where(eq(studioGenerationOutputs.generationId, outputRow.generationId));
+
+  const generationDeleted = remainingOutputs.length === 0;
+  if (generationDeleted) {
+    await db.delete(studioGenerations).where(eq(studioGenerations.id, outputRow.generationId));
+  }
+
+  return { success: true, generationDeleted };
+}
+
 export async function deleteStudioGeneration(generationId: string, userId: string) {
   const [generation] = await db.select()
     .from(studioGenerations)
