@@ -1,6 +1,8 @@
 'use client';
 
-import { Check, LayoutTemplate } from 'lucide-react';
+import { useState } from 'react';
+import { Check, Camera, Package, UtensilsCrossed, Sun, Sparkles, Cpu, Home, Car, Layers, LayoutTemplate } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,9 +11,44 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import type { StudioPreset } from '../../types/presets';
+
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  fashion: Camera,
+  product: Package,
+  food: UtensilsCrossed,
+  lifestyle: Sun,
+  beauty: Sparkles,
+  tech: Cpu,
+  interior: Home,
+  automotive: Car,
+};
+
+const CATEGORY_GRADIENTS: Record<string, string> = {
+  fashion: 'from-rose-100 to-pink-50',
+  product: 'from-slate-100 to-gray-50',
+  food: 'from-amber-100 to-yellow-50',
+  lifestyle: 'from-orange-100 to-amber-50',
+  beauty: 'from-fuchsia-100 to-pink-50',
+  tech: 'from-blue-100 to-cyan-50',
+  interior: 'from-stone-100 to-neutral-50',
+  automotive: 'from-zinc-200 to-zinc-100',
+};
+
+const CATEGORY_ICON_COLORS: Record<string, string> = {
+  fashion: 'text-rose-400/60',
+  product: 'text-slate-400/60',
+  food: 'text-amber-400/60',
+  lifestyle: 'text-orange-400/60',
+  beauty: 'text-fuchsia-400/60',
+  tech: 'text-blue-400/60',
+  interior: 'text-stone-400/60',
+  automotive: 'text-zinc-500/60',
+};
 
 interface StudioPickerProps {
   presets: StudioPreset[];
@@ -30,6 +67,98 @@ function groupPresetsByCategory(presets: StudioPreset[]) {
   }
 
   return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
+}
+
+function PresetHoverPreview({ preset }: { preset: StudioPreset }) {
+  const CategoryIcon = CATEGORY_ICONS[preset.category ?? ''] ?? Layers;
+  const gradient = CATEGORY_GRADIENTS[preset.category ?? ''] ?? 'from-muted to-muted/50';
+  const iconColor = CATEGORY_ICON_COLORS[preset.category ?? ''] ?? 'text-muted-foreground/40';
+
+  return (
+    <div className="space-y-2">
+      <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-muted">
+        {preset.previewImagePath ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={toPreviewUrl(preset.previewImagePath, 480)}
+            alt={preset.name}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className={cn('flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br', gradient)}>
+            <CategoryIcon className={cn('h-10 w-10', iconColor)} />
+            <span className="max-w-[80%] text-center text-xs font-medium leading-tight text-muted-foreground/50 line-clamp-2">
+              {preset.name}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="space-y-0.5">
+        <p className="text-sm font-medium">{preset.name}</p>
+        {preset.description ? (
+          <p className="line-clamp-2 text-xs text-muted-foreground">{preset.description}</p>
+        ) : null}
+        {preset.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-1">
+            {preset.tags.slice(0, 3).map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+              >
+                {tag}
+              </span>
+            ))}
+            {preset.tags.length > 3 && (
+              <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                +{preset.tags.length - 3}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PresetMenuItem({
+  preset,
+  isSelected,
+  onSelect,
+}: {
+  preset: StudioPreset;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <HoverCard openDelay={400} closeDelay={100} open={hovered} onOpenChange={setHovered}>
+      <HoverCardTrigger asChild>
+        <DropdownMenuItem onSelect={onSelect}>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            {preset.previewImagePath ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={toPreviewUrl(preset.previewImagePath, 64, { preset: 'mini' })} alt="" className="h-8 w-8 rounded-md object-cover shrink-0" />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 shrink-0">
+                <LayoutTemplate className="h-4 w-4 text-primary" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium">{preset.name}</div>
+              {preset.description ? (
+                <div className="truncate text-xs text-muted-foreground">{preset.description}</div>
+              ) : null}
+            </div>
+            {isSelected ? <Check className="h-4 w-4 shrink-0" /> : null}
+          </div>
+        </DropdownMenuItem>
+      </HoverCardTrigger>
+      <HoverCardContent side="right" align="start" className="w-56 p-3">
+        <PresetHoverPreview preset={preset} />
+      </HoverCardContent>
+    </HoverCard>
+  );
 }
 
 export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
@@ -59,25 +188,12 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
           <div key={category}>
             <DropdownMenuLabel className="capitalize">{category}</DropdownMenuLabel>
             {categoryPresets.map((preset) => (
-              <DropdownMenuItem key={preset.id} onSelect={() => onChange(preset)}>
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  {preset.previewImagePath ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={toPreviewUrl(preset.previewImagePath, 64, { preset: 'mini' })} alt="" className="h-8 w-8 rounded-md object-cover shrink-0" />
-                  ) : (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 shrink-0">
-                      <LayoutTemplate className="h-4 w-4 text-primary" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{preset.name}</div>
-                    {preset.description ? (
-                      <div className="truncate text-xs text-muted-foreground">{preset.description}</div>
-                    ) : null}
-                  </div>
-                  {value?.id === preset.id ? <Check className="h-4 w-4 shrink-0" /> : null}
-                </div>
-              </DropdownMenuItem>
+              <PresetMenuItem
+                key={preset.id}
+                preset={preset}
+                isSelected={value?.id === preset.id}
+                onSelect={() => onChange(preset)}
+              />
             ))}
             {groupIndex < groups.length - 1 ? <DropdownMenuSeparator /> : null}
           </div>
