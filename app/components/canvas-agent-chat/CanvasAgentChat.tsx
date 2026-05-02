@@ -829,8 +829,7 @@ export default function CanvasAgentChat({
     return () => window.removeEventListener('resize', updateWidth);
   }, [chatContainerWidth]);
   
-  // WebSocket integration - always enabled
-  const isWebSocketEnabled = true;
+  // WebSocket integration
   const { connected: wsConnected, error: wsError, subscribe, unsubscribe, request: wsRequest } = useWebSocket({
     autoConnect: false,
   });
@@ -900,8 +899,6 @@ export default function CanvasAgentChat({
   const requestedSessionCleanupRef = useRef<string | null>(null);
   const optimisticSessionTitlesRef = useRef<Record<string, string>>({});
   const toolMessageIdsRef = useRef<Record<string, string>>({});
-  const streamAbortRef = useRef<AbortController | null>(null);
-  const streamSessionRef = useRef<string | null>(null);
   const currentAssistantIdRef = useRef<string | null>(null);
   const streamingContentRef = useRef<string>('');
   const streamingRafRef = useRef<number | null>(null);
@@ -1010,8 +1007,6 @@ export default function CanvasAgentChat({
 
   // Listen for session_updated events (from WebSocket client) to update history unread status
   useEffect(() => {
-    if (!isWebSocketEnabled) return;
-
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, lastMessageAt, title } = event.detail;
       const currentSessionId = sessionIdRef.current;
@@ -1075,7 +1070,7 @@ export default function CanvasAgentChat({
     return () => {
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
     };
-  }, [applyResolvedTitles, isWebSocketEnabled, resolveSessionTitle]);
+  }, [applyResolvedTitles, resolveSessionTitle]);
 
   // Session is created on-demand when user sends first message
 
@@ -1239,9 +1234,6 @@ export default function CanvasAgentChat({
   }, []);
 
   const resetStreamConnection = useCallback(() => {
-    streamAbortRef.current?.abort();
-    streamAbortRef.current = null;
-    streamSessionRef.current = null;
     currentAssistantIdRef.current = null;
     if (streamingRafRef.current !== null) {
       cancelAnimationFrame(streamingRafRef.current);
@@ -1657,23 +1649,6 @@ export default function CanvasAgentChat({
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
       syncPiMessage(assistantId, event.message);
       currentAssistantIdRef.current = null;
-
-      // For WebSocket mode, lastMessageAt is updated by server
-      // For SSE mode, update it manually
-      if (!isWebSocketEnabled) {
-        const targetSessionId = streamSessionRef.current;
-        if (targetSessionId) {
-          const now = new Date();
-          void fetch('/api/sessions', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              sessionId: targetSessionId, 
-              lastMessageAt: now.toISOString() 
-            }),
-          }).catch(err => console.error('Failed to update lastMessageAt', err));
-        }
-      }
       
       return;
     }
@@ -1742,91 +1717,14 @@ export default function CanvasAgentChat({
 
     // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
     // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, isWebSocketEnabled, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
 
-  const openRuntimeStream = useCallback(async (
-    targetSessionId: string,
-    promptMessage?: Extract<AgentMessage, { role: 'user' }>,
-  ) => {
-    if (streamAbortRef.current && streamSessionRef.current === targetSessionId && !promptMessage) {
-      return;
-    }
-
-    if (streamAbortRef.current && streamSessionRef.current !== targetSessionId) {
-      resetStreamConnection();
-    }
-
-    const controller = new AbortController();
-    streamAbortRef.current = controller;
-    streamSessionRef.current = targetSessionId;
-    currentAssistantIdRef.current = null;
-
-    try {
-      const activeFilePath = currentFile?.path ?? null;
-
-      const response = await fetch('/api/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: targetSessionId,
-          ...(promptMessage ? { message: promptMessage, messages: [promptMessage] } : {}),
-          context: buildRequestContext(activeFilePath),
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let lineBuffer = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        lineBuffer += decoder.decode(value, { stream: true });
-        const lines = lineBuffer.split('\n');
-        lineBuffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            handleStreamEvent(JSON.parse(line) as ChatEvent);
-          } catch {
-            // Ignore malformed stream lines.
-          }
-        }
-      }
-    } catch (error) {
-      if (!(error instanceof Error && error.name === 'AbortError')) {
-        console.error('Chat stream error:', error);
-        appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-      }
-    } finally {
-      if (streamAbortRef.current === controller) {
-        streamAbortRef.current = null;
-        streamSessionRef.current = null;
-        currentAssistantIdRef.current = null;
-      }
-      void fetchHistory();
-      if (sessionIdRef.current === targetSessionId) {
-        void refreshRuntimeStatus(targetSessionId);
-      }
-    }
-  }, [appendSystemMessage, buildRequestContext, currentFile, fetchHistory, handleStreamEvent, refreshRuntimeStatus, resetStreamConnection, t]);
-
-  // Listen for WebSocket agent events (from other tabs / background runs).
-  // Skip events for sessions where this tab already owns an SSE stream —
-  // otherwise the originating tab processes each event twice.
+  // Listen for WebSocket agent events (from current tab, other tabs, or background runs).
   useEffect(() => {
     const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: ChatEvent }>) => {
       const { sessionId: eventSessionId, event: agentEvent } = event.detail;
 
       if (eventSessionId !== sessionIdRef.current) return;
-      if (streamSessionRef.current === eventSessionId && streamAbortRef.current) return;
 
       handleStreamEvent(agentEvent);
     };
@@ -1992,14 +1890,6 @@ export default function CanvasAgentChat({
     }
   }, [appendCompactionBreak, appendSystemMessage, postControl, t]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    const streamAbort = streamAbortRef.current;
-    return () => {
-      streamAbort?.abort();
-    };
-  }, []);
-
   const startNewChat = useCallback(() => {
     resetStreamConnection();
     setRuntimeStatus(null);
@@ -2164,13 +2054,6 @@ export default function CanvasAgentChat({
       if (statusPayload?.success && statusPayload.status) {
         setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
         lastCompactionMarkerRef.current = (statusPayload.status as RuntimeStatus).lastCompactionAt || null;
-        if ((statusPayload.status as RuntimeStatus).phase !== 'idle') {
-          // For WebSocket mode, subscription happens via useEffect
-          // For SSE mode, open the stream
-          if (!isWebSocketEnabled) {
-            void openRuntimeStream(session.sessionId);
-          }
-        }
       } else {
         setRuntimeStatus(null);
       }
@@ -2189,7 +2072,7 @@ export default function CanvasAgentChat({
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [isWebSocketEnabled, mapRawMessage, openRuntimeStream, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
+  }, [mapRawMessage, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
