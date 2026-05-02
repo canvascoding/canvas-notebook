@@ -24,6 +24,7 @@ import { Link } from '@/i18n/navigation';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { NotebookNavButton } from '@/app/components/NotebookNavButton';
+import { AppLauncher } from '@/app/components/AppLauncher';
 
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
@@ -318,6 +319,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
             <NotebookNavButton />
+            <AppLauncher />
             <ThemeToggle />
 
             <LogoutButton />

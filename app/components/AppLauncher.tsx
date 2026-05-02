@@ -80,11 +80,11 @@ export function AppLauncher() {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          align="end"
+          align="center"
           sideOffset={8}
-          className="w-[280px] p-3"
+          className="w-[240px] p-2 sm:w-[280px] sm:p-3"
         >
-          <div className="grid grid-cols-4 gap-1">
+          <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
             {APPS.map((app) => {
               const Icon = app.icon;
               const active = isPathActive(pathname, app.href);
@@ -94,7 +94,7 @@ export function AppLauncher() {
                   key={app.id}
                   href={app.href}
                   className={cn(
-                    'flex flex-col items-center gap-1.5 p-2.5 text-center transition-colors',
+                    'flex flex-col items-center gap-1.5 p-2.5 text-center transition-colors sm:p-2',
                     active
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -102,10 +102,10 @@ export function AppLauncher() {
                   onContextMenu={(e) => handleContextMenu(e, app)}
                 >
                   <div className={cn(
-                    'flex h-9 w-9 items-center justify-center',
+                    'flex h-10 w-10 items-center justify-center sm:h-9 sm:w-9',
                     active && 'bg-primary/15'
                   )}>
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-6 w-6 sm:h-5 sm:w-5" />
                   </div>
                   <span className="text-[11px] leading-tight font-medium truncate w-full">
                     {label}

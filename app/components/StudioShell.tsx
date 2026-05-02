@@ -14,6 +14,7 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { useStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -218,7 +219,10 @@ export function StudioShell({ children }: { children: ReactNode }) {
               <Button
                 variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
                 size="sm"
-                className="gap-2 rounded-l-full rounded-r-none px-2 sm:px-3"
+                className={cn(
+                  'gap-2 px-2 sm:px-3',
+                  isMobileViewport ? 'rounded-full' : 'rounded-l-full rounded-r-none'
+                )}
                 onClick={() => {
                   if (isMobileViewport) {
                     setMobileChatOpen((prev) => !prev);
@@ -230,20 +234,22 @@ export function StudioShell({ children }: { children: ReactNode }) {
                 <MessageSquare className="h-4 w-4" />
                 <span className="hidden sm:inline">{tCommon('aiChat')}</span>
               </Button>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
-                  size="sm"
-                  className={`rounded-l-none rounded-r-full border-l px-2 ${
-                    ((!isMobileViewport && chatVisible) || (isMobileViewport && mobileChatOpen))
-                      ? 'border-primary-foreground/15'
-                      : 'border-border/60'
-                  }`}
-                  aria-label={tNav('openChatModeMenu')}
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
+              {!isMobileViewport && (
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
+                    size="sm"
+                    className={`rounded-l-none rounded-r-full border-l px-2 ${
+                      ((!isMobileViewport && chatVisible) || (isMobileViewport && mobileChatOpen))
+                        ? 'border-primary-foreground/15'
+                        : 'border-border/60'
+                    }`}
+                    aria-label={tNav('openChatModeMenu')}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+              )}
             </div>
           </TooltipTrigger>
           <TooltipContent side="bottom">
