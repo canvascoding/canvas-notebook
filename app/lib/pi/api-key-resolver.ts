@@ -23,10 +23,12 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
       const piConfig = await readPiRuntimeConfig();
       const providerConfig = piConfig.providers[providerId];
       const authMethod = providerConfig?.authMethod;
+      console.log(`[api-key-resolver] ${providerId}: supportsBoth=true, authMethod=${authMethod ?? 'not set'}`);
 
       // If OAuth is explicitly selected, use OAuth
       if (authMethod === 'oauth' && isOAuth) {
         const result = await getProviderApiKey(providerId as OAuthProviderId);
+        console.log(`[api-key-resolver] ${providerId}: using OAuth token, found=${!!result?.apiKey}`);
         return result?.apiKey;
       }
 

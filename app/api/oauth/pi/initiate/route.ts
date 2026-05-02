@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { provider } = await request.json();
+    console.log(`[oauth/initiate] POST: provider=${provider}`);
 
     if (!provider || !isOAuthProvider(provider)) {
       return NextResponse.json(

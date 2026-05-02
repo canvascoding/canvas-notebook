@@ -274,6 +274,14 @@ export function PiProviderSetupCard({
       const data = await response.json();
 
       if (data.success) {
+        console.log(`[PiProviderSetupCard] loadProviderStatus(${providerId}):`, {
+          isReady: data.isReady,
+          hasApiKey: data.hasApiKey,
+          hasOAuth: data.hasOAuth,
+          requiresKey: data.requiresKey,
+          requiresOAuth: data.requiresOAuth,
+          issues: data.issues,
+        });
         setSelectedProviderStatus({
           isReady: data.isReady,
           hasApiKey: data.hasApiKey,
@@ -285,9 +293,10 @@ export function PiProviderSetupCard({
         return;
       }
 
+      console.warn(`[PiProviderSetupCard] loadProviderStatus(${providerId}): unsuccessful response`, data);
       setSelectedProviderStatus(null);
     } catch (error) {
-      console.error('Failed to load provider status:', error);
+      console.error('[PiProviderSetupCard] Failed to load provider status:', error);
       setSelectedProviderStatus(null);
     } finally {
       setSelectedProviderLoading(false);
@@ -300,6 +309,19 @@ export function PiProviderSetupCard({
 
     try {
       const payload = await fetchJson<AgentConfigResponse>('/api/agents/config');
+      const authMethods: Record<string, string | undefined> = {};
+      if (payload.piConfig?.providers) {
+        for (const [k, v] of Object.entries(payload.piConfig.providers)) {
+          authMethods[k] = (v as PiProviderConfig).authMethod;
+        }
+      }
+      console.log('[PiProviderSetupCard] loadConfig:', {
+        activeProvider: payload.piConfig?.activeProvider,
+        providers: payload.piConfig?.providers ? Object.keys(payload.piConfig.providers) : [],
+        authMethods,
+        discoveryKeys: payload.discovery ? Object.keys(payload.discovery) : [],
+        readiness: payload.readiness,
+      });
       setPiConfigDraft(deepClone(payload.piConfig));
       setDiscovery(payload.discovery || {});
       setReadiness(payload.readiness);
@@ -335,11 +357,11 @@ export function PiProviderSetupCard({
     }
     if (!authMethodSelection) {
       const method = getAuthMethodForProvider(piConfigDraft.activeProvider);
-      if (method === 'both') {
-        setAuthMethodSelection(piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' ? 'oauth' : 'api-key');
-      } else {
-        setAuthMethodSelection(method);
-      }
+      const resolved = method === 'both' 
+        ? (piConfigDraft.providers[piConfigDraft.activeProvider]?.authMethod === 'oauth' ? 'oauth' : 'api-key')
+        : method;
+      console.log(`[PiProviderSetupCard] init authMethodSelection: provider=${piConfigDraft.activeProvider}, methodFromProvider=${method}, resolved=${resolved}`);
+      setAuthMethodSelection(resolved);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only set initial auth method
   }, [piConfigDraft?.activeProvider]);
@@ -504,6 +526,7 @@ export function PiProviderSetupCard({
 
   const handleAuthMethodChange = (method: AuthMethodCategory) => {
     const previousMethod = authMethodSelection;
+    console.log(`[PiProviderSetupCard] handleAuthMethodChange: ${previousMethod ?? 'null'} -> ${method}, activeProvider=${piConfigDraft.activeProvider}`);
     setAuthMethodSelection(method);
 
     const newProviders = getProvidersForAuthMethod(method);
@@ -534,6 +557,7 @@ export function PiProviderSetupCard({
     if (method === 'both') return activeProviderConfig?.authMethod === 'oauth' ? 'oauth' : 'api-key';
     return method;
   })();
+  console.log(`[PiProviderSetupCard] effectiveAuthMethod=${effectiveAuthMethod}, authMethodSelection=${authMethodSelection ?? 'null'}, providerAuthMethod=${activeProviderConfig?.authMethod ?? 'not set'}`);
 
   return (
     <Card className="border-primary shadow-sm">

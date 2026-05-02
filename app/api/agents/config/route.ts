@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
 
     // Discovery metadata - all models now support files/images
     const providers = getPiProviders();
+    console.log(`[agents/config] GET: activeProvider=${piConfig.activeProvider}, providers=${JSON.stringify(Object.keys(piConfig.providers))}`);
     const discovery = Object.fromEntries(
       providers.map(p => {
         // For Ollama, pass the custom model if configured
@@ -95,6 +96,11 @@ export async function PUT(request: NextRequest) {
   try {
     const payload = await request.json();
     const piConfigInput = payload.piConfig || payload;
+    console.log(`[agents/config] PUT: activeProvider=${piConfigInput.activeProvider}, providers=${JSON.stringify(Object.keys(piConfigInput.providers || {}))}, authMethods=${JSON.stringify(
+      Object.fromEntries(
+        Object.entries(piConfigInput.providers || {}).map(([k, v]) => [k, (v as Record<string, unknown>)?.authMethod ?? 'not set'])
+      )
+    )}`);
 
     const piConfig = await writePiRuntimeConfig(piConfigInput);
     const readiness = await buildAgentConfigReadiness();

@@ -42,8 +42,10 @@ export async function GET(request: NextRequest) {
     try {
       const piConfig = await readPiRuntimeConfig();
       preferredAuthMethod = piConfig.providers[providerId]?.authMethod;
-    } catch {
+      console.log(`[provider-status] ${providerId}: authMethod=${preferredAuthMethod ?? 'not set'}`);
+    } catch (error) {
       // Config read failed, continue with default behavior
+      console.log(`[provider-status] ${providerId}: failed to read config, error=${error instanceof Error ? error.message : String(error)}`);
     }
 
     const isOAuthMode = preferredAuthMethod === 'oauth';
@@ -54,6 +56,8 @@ export async function GET(request: NextRequest) {
     // Check if provider requires OAuth (either legacy CLI auth or PI OAuth)
     const requiresOAuth = requiresCliAuth(providerId) || isProviderOAuth || isOAuthMode;
 
+    console.log(`[provider-status] ${providerId}: isOAuthMode=${isOAuthMode}, isProviderOAuth=${isProviderOAuth}, requiresKey=${requiresKey}, requiresOAuth=${requiresOAuth}`);
+
     let hasApiKey = false;
     let hasOAuth = false;
     const issues: string[] = [];
@@ -61,6 +65,7 @@ export async function GET(request: NextRequest) {
     if (requiresKey) {
       const apiKey = await resolvePiApiKey(providerId);
       hasApiKey = !!apiKey;
+      console.log(`[provider-status] ${providerId}: apiKey resolved=${hasApiKey}`);
       if (!hasApiKey) {
         issues.push(`API key not configured for ${providerId}`);
       }
@@ -70,6 +75,7 @@ export async function GET(request: NextRequest) {
       // Check if provider is a PI OAuth provider
       if (isOAuthProvider(providerId)) {
         hasOAuth = hasProviderCredentials(providerId);
+        console.log(`[provider-status] ${providerId}: OAuth credentials check=${hasOAuth}`);
       }
       if (!hasOAuth && isOAuthMode) {
         issues.push('OAuth not connected. Click "Connect Account" to link your subscription.');
@@ -78,11 +84,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (requiresKey && !hasApiKey && !isOAuthMode) {
-      // Issue already added above
-    }
-
     const isReady = (requiresKey && hasApiKey) || (requiresOAuth && hasOAuth) || (!requiresKey && !requiresOAuth);
+    console.log(`[provider-status] ${providerId}: isReady=${isReady}, hasApiKey=${hasApiKey}, hasOAuth=${hasOAuth}`);
 
     return NextResponse.json({
       success: true,
