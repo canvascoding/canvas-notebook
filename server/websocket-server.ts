@@ -21,11 +21,20 @@ import {
   broadcastToUser,
 } from './websocket-broadcast';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { sendMessageViaRuntime, initializeWebSocketBridge } from './chat-event-bridge';
+import { initializeWebSocketBridge } from './chat-event-bridge';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
+import {
+  control as controlRuntime,
+  getErrorMessage,
+  getStatus as getRuntimeStatus,
+  isValidUserMessage,
+  sendMessage as sendRuntimeMessage,
+  type ControlAction,
+} from '@/app/lib/pi/runtime-service';
+import type { PiRuntimeStatus } from '@/app/lib/pi/live-runtime';
 
 // Initialize WebSocket bridge on module load
 initializeWebSocketBridge();
@@ -34,14 +43,17 @@ initializeWebSocketBridge();
 
 /** Messages sent from the browser client to this server. */
 type ClientMessage =
-  | { type: 'subscribe_session'; sessionId: string }
+  | { type: 'subscribe_session'; requestId?: string; sessionId: string }
   | { type: 'unsubscribe_session'; sessionId: string }
   | {
       type: 'send_message';
+      requestId?: string;
       sessionId: string;
       message: AgentMessage;
       context?: ChatRequestContext;
-    };
+    }
+  | { type: 'control'; requestId?: string; sessionId: string; action: ControlAction; message?: AgentMessage }
+  | { type: 'get_status'; requestId?: string; sessionId: string };
 
 /**
  * Messages pushed from this server to connected browser clients.
@@ -56,6 +68,10 @@ type ClientMessage =
 type ServerMessage =
   | { type: 'auth_success'; userId: string }
   | { type: 'auth_error'; error: string }
+  | { type: 'subscribe_result'; requestId?: string; success: boolean; sessionId?: string; error?: string }
+  | { type: 'send_message_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
+  | { type: 'control_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
+  | { type: 'status_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
   | { type: 'session_updated'; sessionId: string; lastMessageAt: string; title?: string }
   | { type: 'session_read'; sessionId: string; timestamp: number }
@@ -73,6 +89,34 @@ type ServerMessage =
 /** Type-safe helper: serialise and send a ServerMessage over a WebSocket. */
 function sendWs(ws: WebSocket, msg: ServerMessage): void {
   ws.send(JSON.stringify(msg));
+}
+
+async function findSessionOwner(sessionId: string): Promise<string | null> {
+  const session = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, sessionId),
+    columns: { userId: true },
+  });
+  return session?.userId ?? null;
+}
+
+async function userOwnsSession(sessionId: string, userId: string): Promise<boolean> {
+  const ownedSession = await db.query.piSessions.findFirst({
+    where: and(
+      eq(piSessions.sessionId, sessionId),
+      eq(piSessions.userId, userId)
+    ),
+    columns: { id: true },
+  });
+  return Boolean(ownedSession);
+}
+
+function subscribeConnectionToSession(connection: WebSocketConnection, sessionId: string): void {
+  if (connection.sessionId && connection.sessionId !== sessionId) {
+    unsubscribeFromSession(connection.sessionId, connection.ws);
+  }
+
+  connection.sessionId = sessionId;
+  subscribeToSession(sessionId, connection.ws);
 }
 
 // Connection State
@@ -235,34 +279,26 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
     case 'subscribe_session': {
       if (!message.sessionId) {
         sendWs(ws, { type: 'error', error: 'sessionId required', code: 'MISSING_SESSION_ID' });
+        sendWs(ws, { type: 'subscribe_result', requestId: message.requestId, success: false, error: 'sessionId required' });
         return;
       }
 
-      // Authorization: session must belong to this user
-      const ownedSession = await db.query.piSessions.findFirst({
-        where: and(
-          eq(piSessions.sessionId, message.sessionId),
-          eq(piSessions.userId, userId)
-        ),
-        columns: { id: true },
-      });
-
-      if (!ownedSession) {
+      if (!(await userOwnsSession(message.sessionId, userId))) {
         console.warn(`[WebSocket] User ${userId} attempted to subscribe to unauthorized session ${message.sessionId}`);
         sendWs(ws, { type: 'error', error: 'Session not found', code: 'UNAUTHORIZED' });
+        sendWs(ws, { type: 'subscribe_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
       }
 
-      // Unsubscribe from previous session if any
-      if (connection.sessionId) {
-        unsubscribeFromSession(connection.sessionId, ws);
-      }
-
-      // Subscribe to new session
-      connection.sessionId = message.sessionId;
-      subscribeToSession(message.sessionId, ws);
+      subscribeConnectionToSession(connection, message.sessionId);
 
       console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
+      sendWs(ws, {
+        type: 'subscribe_result',
+        requestId: message.requestId,
+        success: true,
+        sessionId: message.sessionId,
+      });
       break;
     }
 
@@ -280,40 +316,120 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
     case 'send_message': {
       if (!message.sessionId || !message.message) {
         sendWs(ws, { type: 'error', error: 'sessionId and message required', code: 'MISSING_PARAMS' });
+        sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'sessionId and message required' });
         return;
       }
 
-      // Validate message is user message
-      const userMessage = message.message as Extract<AgentMessage, { role: 'user' }>;
-      if (userMessage.role !== 'user') {
+      if (!isValidUserMessage(message.message)) {
         sendWs(ws, { type: 'error', error: 'Message role must be "user"', code: 'INVALID_ROLE' });
+        sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Message role must be "user"' });
         return;
       }
 
       // Authorization: if session already exists, it must belong to this user.
       // Non-existent sessions are allowed (new-session create flow).
-      const existingSession = await db.query.piSessions.findFirst({
-        where: eq(piSessions.sessionId, message.sessionId),
-        columns: { userId: true },
-      });
-      if (existingSession && existingSession.userId !== userId) {
+      const existingSessionOwner = await findSessionOwner(message.sessionId);
+      if (existingSessionOwner && existingSessionOwner !== userId) {
         console.warn(`[WebSocket] User ${userId} attempted to send to unauthorized session ${message.sessionId}`);
         sendWs(ws, { type: 'error', error: 'Session not found', code: 'UNAUTHORIZED' });
+        sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
       }
 
       const context = message.context;
 
-      // Send message via PI Runtime bridge with context
+      // Subscribe before starting the runtime so early runtime events cannot race
+      // ahead of this connection's session subscription.
+      subscribeConnectionToSession(connection, message.sessionId);
+
       try {
-        await sendMessageViaRuntime(message.sessionId, userId, userMessage, context);
+        const status = await sendRuntimeMessage(message.sessionId, userId, message.message, context);
         console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime with context:`, context);
+        sendWs(ws, {
+          type: 'send_message_result',
+          requestId: message.requestId,
+          success: true,
+          status,
+        });
       } catch (error) {
         console.error('[WebSocket] Error sending message:', error);
+        const errorMessage = getErrorMessage(error);
         sendWs(ws, {
           type: 'error',
-          error: error instanceof Error ? error.message : 'Failed to send message',
+          error: errorMessage,
           code: 'RUNTIME_ERROR',
+        });
+        sendWs(ws, {
+          type: 'send_message_result',
+          requestId: message.requestId,
+          success: false,
+          error: errorMessage,
+        });
+      }
+      break;
+    }
+
+    case 'control': {
+      if (!message.sessionId || !message.action) {
+        sendWs(ws, { type: 'control_result', requestId: message.requestId, success: false, error: 'sessionId and action required' });
+        return;
+      }
+
+      if (!(await userOwnsSession(message.sessionId, userId))) {
+        console.warn(`[WebSocket] User ${userId} attempted to control unauthorized session ${message.sessionId}`);
+        sendWs(ws, { type: 'control_result', requestId: message.requestId, success: false, error: 'Session not found' });
+        return;
+      }
+
+      try {
+        const status = await controlRuntime(message.sessionId, userId, message.action, message.message);
+        sendWs(ws, {
+          type: 'control_result',
+          requestId: message.requestId,
+          success: true,
+          status,
+        });
+      } catch (error) {
+        sendWs(ws, {
+          type: 'control_result',
+          requestId: message.requestId,
+          success: false,
+          error: getErrorMessage(error),
+        });
+      }
+      break;
+    }
+
+    case 'get_status': {
+      if (!message.sessionId) {
+        sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'sessionId required' });
+        return;
+      }
+
+      if (!(await userOwnsSession(message.sessionId, userId))) {
+        sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'Session not found' });
+        return;
+      }
+
+      try {
+        const status = await getRuntimeStatus(message.sessionId, userId);
+        if (!status) {
+          sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'Session not found' });
+          return;
+        }
+
+        sendWs(ws, {
+          type: 'status_result',
+          requestId: message.requestId,
+          success: true,
+          status,
+        });
+      } catch (error) {
+        sendWs(ws, {
+          type: 'status_result',
+          requestId: message.requestId,
+          success: false,
+          error: getErrorMessage(error),
         });
       }
       break;

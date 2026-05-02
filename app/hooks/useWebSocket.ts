@@ -22,6 +22,11 @@ interface UseWebSocketReturn {
   subscribe: (sessionId: string) => void;
   unsubscribe: (sessionId: string) => void;
   sendMessage: (sessionId: string, message: Record<string, unknown>, context?: ChatRequestContext) => void;
+  request: <T extends Record<string, unknown> = Record<string, unknown>>(
+    type: string,
+    payload: Record<string, unknown>,
+    timeoutMs?: number,
+  ) => Promise<T>;
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSocketReturn, 'client'> & { client: () => WebSocketClient } {
@@ -97,6 +102,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
     clientRef.current?.sendMessage(sessionId, message, context);
   }, []);
 
+  const request = useCallback(<T extends Record<string, unknown> = Record<string, unknown>>(
+    type: string,
+    payload: Record<string, unknown>,
+    timeoutMs?: number,
+  ) => {
+    if (!clientRef.current) {
+      return Promise.reject(new Error('WebSocket client not initialized'));
+    }
+    return clientRef.current.request<T>(type, payload, timeoutMs);
+  }, []);
+
   const getClient = () => {
     if (!clientRef.current) {
       throw new Error('WebSocket client not initialized');
@@ -111,5 +127,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
     subscribe,
     unsubscribe,
     sendMessage,
+    request,
   };
 }
