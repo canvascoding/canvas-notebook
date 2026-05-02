@@ -26,15 +26,19 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
-import {
-  control as controlRuntime,
-  getErrorMessage,
-  getStatus as getRuntimeStatus,
-  isValidUserMessage,
-  sendMessage as sendRuntimeMessage,
-  type ControlAction,
-} from '@/app/lib/pi/runtime-service';
-import type { PiRuntimeStatus } from '@/app/lib/pi/live-runtime';
+
+type ControlAction = 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact';
+type PiRuntimeStatus = Record<string, unknown>;
+
+type RuntimeService = typeof import('@/app/lib/pi/runtime-service');
+
+async function getRuntimeService(): Promise<RuntimeService> {
+  return import('@/app/lib/pi/runtime-service');
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown agent error';
+}
 
 // Initialize WebSocket bridge on module load
 initializeWebSocketBridge();
@@ -320,7 +324,8 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      if (!isValidUserMessage(message.message)) {
+      const runtimeService = await getRuntimeService();
+      if (!runtimeService.isValidUserMessage(message.message)) {
         sendWs(ws, { type: 'error', error: 'Message role must be "user"', code: 'INVALID_ROLE' });
         sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Message role must be "user"' });
         return;
@@ -343,7 +348,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       subscribeConnectionToSession(connection, message.sessionId);
 
       try {
-        const status = await sendRuntimeMessage(message.sessionId, userId, message.message, context);
+        const status = await runtimeService.sendMessage(message.sessionId, userId, message.message, context);
         console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime with context:`, context);
         sendWs(ws, {
           type: 'send_message_result',
@@ -382,7 +387,8 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       }
 
       try {
-        const status = await controlRuntime(message.sessionId, userId, message.action, message.message);
+        const runtimeService = await getRuntimeService();
+        const status = await runtimeService.control(message.sessionId, userId, message.action, message.message);
         sendWs(ws, {
           type: 'control_result',
           requestId: message.requestId,
@@ -412,7 +418,8 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       }
 
       try {
-        const status = await getRuntimeStatus(message.sessionId, userId);
+        const runtimeService = await getRuntimeService();
+        const status = await runtimeService.getStatus(message.sessionId, userId);
         if (!status) {
           sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'Session not found' });
           return;
