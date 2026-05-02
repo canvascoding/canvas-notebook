@@ -6,6 +6,19 @@ const { loadEnvConfig } = require('@next/env');
 const dev = process.env.NODE_ENV !== 'production';
 loadEnvConfig(process.cwd(), dev);
 
+// The custom Node server is server-side code, but it imports some Next app
+// modules directly for WebSocket runtime handling. Next aliases `server-only`
+// during its own bundling; plain Node would otherwise execute the package's
+// throwing stub.
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function loadWithServerOnlyMarker(request, parent, isMain) {
+  if (request === 'server-only') {
+    return {};
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
