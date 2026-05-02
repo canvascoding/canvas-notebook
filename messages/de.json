@@ -1253,6 +1253,8 @@
       "refresh": "Automationen neu laden",
       "loading": "Lade Automationen...",
       "empty": "Noch keine Automation angelegt.",
+      "total": "Gesamt",
+      "successful": "Erfolgreich",
       "nextRun": "Nächster Lauf",
       "lastStatus": "Letzter Status"
     },

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { ChevronDown, Clock3, Loader2, Play, Plus, RefreshCw, Save, Trash2, WandSparkles } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock3, Loader2, PauseCircle, Play, Plus, RefreshCw, Save, Trash2, WandSparkles } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -270,6 +270,17 @@ export function AutomationsClient() {
     [runs, selectedRunId],
   );
 
+  const automationStats = useMemo(
+    () => {
+      const activeCount = jobs.filter((job) => job.status === 'active').length;
+      const pausedCount = jobs.length - activeCount;
+      const successfulCount = jobs.filter((job) => job.lastRunStatus === 'success').length;
+
+      return { activeCount, pausedCount, successfulCount, totalCount: jobs.length };
+    },
+    [jobs],
+  );
+
   const draftDefaultTargetOutputPath = useMemo(
     () => getDefaultAutomationTargetOutputPath(draft.name || 'automation'),
     [draft.name],
@@ -518,28 +529,50 @@ export function AutomationsClient() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 md:px-6">
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <WandSparkles className="h-5 w-5" />
-            {t('title')}
-          </CardTitle>
-          <CardDescription>
-            {t('intro.prefix')}
-            <span className="ml-1 font-mono">automationen/</span>
-            {t('intro.suffix')}
-          </CardDescription>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 py-4 sm:px-4 md:px-6 md:py-6">
+      <Card className="overflow-hidden">
+        <CardHeader className="gap-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <WandSparkles className="h-5 w-5 shrink-0" />
+                {t('title')}
+              </CardTitle>
+              <CardDescription className="mt-2 max-w-3xl">
+                {t('intro.prefix')}
+                <span className="font-mono">automationen/</span>
+                {t('intro.suffix')}
+              </CardDescription>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[420px]">
+              <div className="rounded-md border bg-muted/20 px-3 py-2">
+                <p className="text-[11px] font-medium uppercase text-muted-foreground">{t('overview.total')}</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums">{automationStats.totalCount}</p>
+              </div>
+              <div className="rounded-md border bg-emerald-500/5 px-3 py-2">
+                <p className="text-[11px] font-medium uppercase text-emerald-700">{t('jobStatus.active')}</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums">{automationStats.activeCount}</p>
+              </div>
+              <div className="rounded-md border bg-muted/20 px-3 py-2">
+                <p className="text-[11px] font-medium uppercase text-muted-foreground">{t('jobStatus.paused')}</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums">{automationStats.pausedCount}</p>
+              </div>
+              <div className="rounded-md border bg-primary/5 px-3 py-2">
+                <p className="text-[11px] font-medium uppercase text-primary">{t('overview.successful')}</p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums">{automationStats.successfulCount}</p>
+              </div>
+            </div>
+          </div>
         </CardHeader>
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,380px)]">
-        <Card className="min-h-[620px] min-w-0 overflow-hidden xl:h-[calc(100vh-220px)] xl:max-h-[calc(100vh-220px)]">
-          <CardHeader className="border-b">
+        <Card className="min-w-0 overflow-hidden xl:flex xl:h-[calc(100vh-220px)] xl:max-h-[calc(100vh-220px)] xl:flex-col">
+          <CardHeader className="border-b pb-4">
             <CardTitle className="text-base">{t('overview.title')}</CardTitle>
             <CardDescription>{t('overview.description')}</CardDescription>
           </CardHeader>
-          <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+          <CardContent className="flex max-h-[34rem] min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden p-3 sm:max-h-[38rem] sm:p-6 xl:max-h-none">
             <div className="flex gap-2">
               <Button
                 variant="secondary"
@@ -568,9 +601,8 @@ export function AutomationsClient() {
             </div>
 
             <div
-              className="flex-1 overflow-y-auto pr-2"
+              className="flex-1 overflow-y-auto pr-1 xl:pr-2"
               data-testid="automation-job-list-scroll"
-              style={{ minHeight: '18rem', maxHeight: '65vh' }}
             >
               <div className="min-w-0 space-y-2 overflow-x-hidden pr-1" data-testid="automation-job-list">
                 {isLoadingJobs && jobs.length === 0 ? (
@@ -602,10 +634,11 @@ export function AutomationsClient() {
                           <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{job.prompt}</p>
                         </div>
                         <span
-                          className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                          className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
                             job.status === 'active' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
                           }`}
                         >
+                          {job.status === 'active' ? <CheckCircle2 className="h-3 w-3" /> : <PauseCircle className="h-3 w-3" />}
                           {t(`jobStatus.${job.status}`)}
                         </span>
                       </div>
@@ -622,12 +655,12 @@ export function AutomationsClient() {
           </CardContent>
         </Card>
 
-        <Card className="min-h-[620px] min-w-0 overflow-hidden">
-          <CardHeader className="border-b">
+        <Card className="min-w-0 overflow-hidden xl:flex xl:h-[calc(100vh-220px)] xl:max-h-[calc(100vh-220px)] xl:flex-col">
+          <CardHeader className="border-b pb-4">
             <CardTitle className="text-base">{draft.id ? t('editor.editTitle') : t('editor.newTitle')}</CardTitle>
             <CardDescription>{t('editor.description')}</CardDescription>
           </CardHeader>
-          <CardContent className="min-w-0 space-y-4 overflow-hidden">
+          <CardContent className="min-w-0 flex-1 space-y-4 overflow-y-auto p-3 sm:p-6">
             <div className="grid gap-4 md:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('editor.fields.name')}</span>
@@ -656,7 +689,7 @@ export function AutomationsClient() {
               <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
               <textarea
                 data-testid="automation-prompt"
-                className="min-h-[160px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-40 resize-y rounded-md border border-input bg-background px-3 py-2 text-sm sm:h-44"
                 value={draft.prompt}
                 onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
                 placeholder={t('editor.placeholders.prompt')}
@@ -678,20 +711,20 @@ export function AutomationsClient() {
               <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
               <textarea
                 data-testid="automation-context-paths"
-                className="min-h-[100px] rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+                className="h-28 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
                 value={draft.workspaceContextText}
                 onChange={(event) => setDraft((current) => ({ ...current, workspaceContextText: event.target.value }))}
                 placeholder={'notizen/weekly.md\nbriefings/launch/'}
               />
             </label>
 
-            <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+            <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3 sm:p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{t('output.title')}</p>
                   <p className="text-xs text-muted-foreground">{t('output.description')}</p>
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
                   <Button
                     type="button"
                     variant="outline"
@@ -714,7 +747,7 @@ export function AutomationsClient() {
 
               <textarea
                 data-testid="automation-target-output-path"
-                className="min-h-[112px] w-full rounded-md border border-input bg-background px-3 py-3 font-mono text-sm"
+                className="h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-3 font-mono text-sm"
                 value={draft.targetOutputPath}
                 onChange={(event) => setDraft((current) => ({ ...current, targetOutputPath: event.target.value }))}
                 placeholder={draftDefaultTargetOutputPath}
@@ -731,7 +764,7 @@ export function AutomationsClient() {
               </div>
             </div>
 
-            <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+            <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3 sm:p-4">
               <div className="flex items-center gap-2">
                 <Clock3 className="h-4 w-4 text-muted-foreground" />
                 <p className="text-sm font-medium">{t('schedule.title')}</p>
@@ -791,14 +824,14 @@ export function AutomationsClient() {
 
               {draft.scheduleKind === 'weekly' && (
                 <div className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-wrap">
                     {WEEKDAY_OPTIONS.map((day) => {
                       const selected = draft.weeklyDays.includes(day);
                       return (
                         <button
                           key={day}
                           type="button"
-                          className={`rounded-md border px-3 py-2 text-sm ${selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
+                          className={`min-h-10 rounded-md border px-2 py-2 text-sm ${selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
                           onClick={() =>
                             setDraft((current) => ({
                               ...current,
@@ -856,30 +889,30 @@ export function AutomationsClient() {
               )}
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void handleSave()} disabled={isSaving} data-testid="automation-save">
+            <div className="sticky bottom-0 z-20 -mx-3 grid grid-cols-3 gap-2 border-t bg-background/95 p-3 shadow-lg backdrop-blur sm:static sm:mx-0 sm:flex sm:flex-wrap sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-0">
+              <Button className="min-w-0" onClick={() => void handleSave()} disabled={isSaving} data-testid="automation-save">
                 {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                {t('actions.save')}
+                <span className="truncate">{t('actions.save')}</span>
               </Button>
-              <Button variant="secondary" onClick={() => void handleRunNow()} disabled={!selectedJobId || isRunningNow} data-testid="automation-run-now">
+              <Button className="min-w-0" variant="secondary" onClick={() => void handleRunNow()} disabled={!selectedJobId || isRunningNow} data-testid="automation-run-now">
                 {isRunningNow ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-                {t('actions.runNow')}
+                <span className="truncate">{t('actions.runNow')}</span>
               </Button>
-              <Button variant="outline" onClick={handleDelete} disabled={!selectedJobId || isDeleting}>
+              <Button className="min-w-0" variant="outline" onClick={handleDelete} disabled={!selectedJobId || isDeleting}>
                 {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                {t('actions.delete')}
+                <span className="truncate">{t('actions.delete')}</span>
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="min-h-[620px] min-w-0 overflow-hidden">
-          <CardHeader className="border-b">
+        <Card className="min-w-0 overflow-hidden xl:flex xl:h-[calc(100vh-220px)] xl:max-h-[calc(100vh-220px)] xl:flex-col">
+          <CardHeader className="border-b pb-4">
             <CardTitle className="text-base">{t('runs.title')}</CardTitle>
             <CardDescription>{t('runs.description')}</CardDescription>
           </CardHeader>
-          <CardContent className="min-w-0 space-y-4 overflow-hidden">
-            <div className="space-y-2" data-testid="automation-run-list">
+          <CardContent className="min-w-0 flex-1 space-y-4 overflow-y-auto p-3 sm:p-6">
+            <div className="max-h-80 space-y-2 overflow-y-auto pr-1 xl:max-h-64" data-testid="automation-run-list">
               {isRefreshingRuns && runs.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -901,14 +934,14 @@ export function AutomationsClient() {
                     data-testid={`automation-run-${run.id}`}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{formatRunStatus(run.status, t)}</span>
+                      <span className="break-words font-medium">{formatRunStatus(run.status, t)}</span>
                       <span className="text-xs text-muted-foreground">{t('runs.attempt', { count: run.attemptNumber })}</span>
                     </div>
                     <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      <p>{t('runs.triggeredBy')}: {formatTriggerType(run.triggerType, t)}</p>
-                      <p>{t('runs.scheduledFor')}: {formatDateTime(run.scheduledFor, locale, t('scheduleSummary.notScheduled'))}</p>
-                      <p>{t('runs.finishedAt')}: {formatDateTime(run.finishedAt, locale, t('scheduleSummary.notScheduled'))}</p>
-                      {run.errorMessage ? <p className="text-destructive">{run.errorMessage}</p> : null}
+                      <p className="break-words">{t('runs.triggeredBy')}: {formatTriggerType(run.triggerType, t)}</p>
+                      <p className="break-words">{t('runs.scheduledFor')}: {formatDateTime(run.scheduledFor, locale, t('scheduleSummary.notScheduled'))}</p>
+                      <p className="break-words">{t('runs.finishedAt')}: {formatDateTime(run.finishedAt, locale, t('scheduleSummary.notScheduled'))}</p>
+                      {run.errorMessage ? <p className="line-clamp-3 break-words text-destructive">{run.errorMessage}</p> : null}
                     </div>
                   </button>
                 ))
@@ -918,14 +951,14 @@ export function AutomationsClient() {
             <Collapsible
               open={isLogSectionOpen}
               onOpenChange={setIsLogSectionOpen}
-              className="rounded-lg border border-border bg-muted/20 p-4"
+              className="rounded-md border border-border bg-muted/20 p-3 sm:p-4"
             >
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-sm font-medium">{t('logs.title')}</p>
                   <p className="text-xs text-muted-foreground">{t('logs.description')}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {selectedRun?.logPath ? (
                     <Link
                       href={toNotebookUrl(selectedRun.logPath)}
@@ -961,7 +994,7 @@ export function AutomationsClient() {
               </CollapsibleContent>
             </Collapsible>
 
-            <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
+            <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm sm:p-4">
               <p className="font-medium">{t('results.title')}</p>
               <p className="break-all font-mono text-xs text-muted-foreground" data-testid="automation-result-folder">
                 {selectedRun?.effectiveTargetOutputPath || selectedJob?.effectiveTargetOutputPath || t('noneYet')}
@@ -977,7 +1010,7 @@ export function AutomationsClient() {
               ) : null}
             </div>
 
-            <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4 text-sm">
+            <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm sm:p-4">
               <p className="font-medium">{t('artifacts.title')}</p>
               <p className="break-all font-mono text-xs text-muted-foreground" data-testid="automation-artifact-folder">
                 {selectedRun?.outputDir || t('noneYet')}
@@ -993,7 +1026,7 @@ export function AutomationsClient() {
               ) : null}
               {selectedRun?.piSessionId ? (
                 <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">
+                  <p className="line-clamp-2 break-words text-xs text-muted-foreground">
                     {t('artifacts.piSession')}: {selectedRun.piSessionTitle || selectedRun.piSessionId}
                   </p>
                   <p className="break-all font-mono text-xs text-muted-foreground">{selectedRun.piSessionId}</p>
@@ -1022,8 +1055,8 @@ export function AutomationsClient() {
               ) : null}
             </div>
 
-            <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4 text-sm">
-              <div className="flex items-start justify-between gap-3">
+            <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3 text-sm sm:p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="font-medium">{t('session.title')}</p>
                   <p className="text-xs text-muted-foreground">{t('session.description')}</p>

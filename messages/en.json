@@ -1253,6 +1253,8 @@
       "refresh": "Reload automations",
       "loading": "Loading automations...",
       "empty": "No automation created yet.",
+      "total": "Total",
+      "successful": "Successful",
       "nextRun": "Next run",
       "lastStatus": "Last status"
     },
