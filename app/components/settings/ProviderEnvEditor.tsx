@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { Eye, EyeOff, Loader2, Save, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -107,7 +107,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
   }, [envVars, t]);
 
   useEffect(() => {
-    loadEnvValues();
+    startTransition(() => { loadEnvValues(); });
   }, [loadEnvValues]);
 
   const toggleVisibility = (index: number) => {

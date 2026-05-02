@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Dialog,
@@ -280,9 +280,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
 
   useEffect(() => {
     if (!open) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
     setSelectedPaths(new Set());
     setSearch('');
     setUrlInput('');
+    /* eslint-enable react-hooks/set-state-in-effect */
     void loadStudioAssets();
     void loadWorkspaceTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,8 +292,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
 
   useEffect(() => {
     if (!open) return;
-    if (tab === 'studio') void loadStudioAssets();
-    else if (tab === 'workspace') void loadWorkspaceTree();
+    if (tab === 'studio') {
+      startTransition(() => { void loadStudioAssets(); });
+    } else if (tab === 'workspace') {
+      startTransition(() => { void loadWorkspaceTree(); });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, open, search]);
 

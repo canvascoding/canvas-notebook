@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2, RotateCcw, ChevronDown, Wrench } from 'lucide-react';
@@ -277,15 +277,17 @@ export function AgentSettingsPanel() {
   }, [t]);
 
   useEffect(() => {
-    void loadFiles();
-    void loadSessions();
-    void loadTools();
-    void loadToolsConfig();
+    startTransition(() => {
+      void loadFiles();
+      void loadSessions();
+      void loadTools();
+      void loadToolsConfig();
+    });
   }, [loadFiles, loadSessions, loadTools, loadToolsConfig]);
 
   useEffect(() => {
     if (searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
-      void runDoctor();
+      startTransition(() => { void runDoctor(); });
     }
   }, [searchParams, doctorResult, doctorRunning, runDoctor]);
 

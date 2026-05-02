@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import {
@@ -101,8 +101,10 @@ export function SkillsPanel() {
   }
 
   useEffect(() => {
-    loadSkills();
-    loadSkillTree();
+    startTransition(() => {
+      loadSkills();
+      loadSkillTree();
+    });
   }, []);
 
   const toggleDirectory = useCallback((dirPath: string) => {

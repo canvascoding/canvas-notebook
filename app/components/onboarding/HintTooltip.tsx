@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import { X } from 'lucide-react';
 
 interface HintTooltipProps {
@@ -229,8 +229,10 @@ export function HintTooltip({
     }
 
     let cancelled = false;
-    setVisible(false);
-    setPosition(null);
+    startTransition(() => {
+      setVisible(false);
+      setPosition(null);
+    });
 
     const init = async () => {
       if (cancelled) return;
