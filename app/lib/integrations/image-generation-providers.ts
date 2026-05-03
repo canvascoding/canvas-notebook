@@ -22,6 +22,7 @@ export interface ImageGenerationProvider {
   supportsQuality: boolean;
   supportsOutputFormat: boolean;
   supportsBackground: boolean;
+  supportsImageSize: boolean;
   getMaxReferenceImages(model: string): number;
   generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult>;
 }
@@ -35,6 +36,7 @@ export interface ProviderGenerateParams {
   outputFormat?: 'png' | 'jpeg' | 'webp';
   background?: 'transparent' | 'opaque' | 'auto';
   contextPrompt?: string;
+  imageSize?: string;
 }
 
 export interface ProviderGenerateResult {
@@ -53,6 +55,12 @@ const GEMINI_MODELS: ImageModelOption[] = [
     label: '🎨 Best Quality & Features',
     shortLabel: 'Gemini 3.1 Flash Image',
     description: 'Latest model with the highest quality and more capabilities. Supports up to 14 reference images and advanced features like grounding. Best for professional results.',
+  },
+  {
+    id: 'gemini-3-pro-image-preview',
+    label: '🎯 Pro Quality & Reasoning',
+    shortLabel: 'Nano Banana Pro',
+    description: 'Professional asset production model with advanced reasoning for complex instructions and high-fidelity text rendering. Supports up to 14 reference images and 2K resolution output.',
   },
   {
     id: 'gemini-2.5-flash-image',
@@ -151,9 +159,13 @@ class GeminiImageProvider implements ImageGenerationProvider {
   supportsQuality = false;
   supportsOutputFormat = false;
   supportsBackground = false;
+  supportsImageSize = true;
 
   getMaxReferenceImages(model: string): number {
     if (model === 'gemini-3.1-flash-image-preview') {
+      return 14;
+    }
+    if (model === 'gemini-3-pro-image-preview') {
       return 14;
     }
     if (model === 'gemini-2.5-flash-image') {
@@ -204,7 +216,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
         responseModalities: ['IMAGE', 'TEXT'],
         imageConfig: {
           aspectRatio: params.aspectRatio,
-          imageSize: '1K',
+          ...(params.imageSize ? { imageSize: params.imageSize } : {}),
         },
       },
     });
@@ -230,6 +242,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
   supportsQuality = true;
   supportsOutputFormat = true;
   supportsBackground = true;
+  supportsImageSize = false;
 
   getMaxReferenceImages(): number {
     return this.maxReferenceImages;

@@ -38,6 +38,9 @@ interface StudioGenerationState {
   background: 'transparent' | 'opaque' | 'auto';
   setBackground: (bg: 'transparent' | 'opaque' | 'auto') => void;
 
+  imageSize: string;
+  setImageSize: (size: string) => void;
+
   showMoreOptions: boolean;
   setShowMoreOptions: (show: boolean) => void;
 
@@ -125,6 +128,9 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
 
   background: 'auto',
   setBackground: (background) => set({ background }),
+
+  imageSize: '1K',
+  setImageSize: (imageSize) => set({ imageSize }),
 
   showMoreOptions: false,
   setShowMoreOptions: (showMoreOptions) => set({ showMoreOptions }),

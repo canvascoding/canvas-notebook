@@ -79,6 +79,7 @@ export interface StudioGenerateRequest {
   video_generate_audio?: boolean;
   video_web_search?: boolean;
   video_nsfw_checker?: boolean;
+  image_size?: string;
 }
 
 export interface StudioGenerationOutput {
@@ -524,6 +525,7 @@ export async function createStudioGeneration(
     quality: request.quality,
     outputFormat: request.output_format,
     background: request.background,
+    imageSize: request.image_size,
     videoResolution: request.video_resolution,
     videoDuration: request.video_duration,
     videoGenerateAudio: request.video_generate_audio,
@@ -763,6 +765,7 @@ async function executeStudioGenerationProcessing(
         quality: parsedMeta.quality,
         outputFormat: parsedMeta.outputFormat,
         background: parsedMeta.background,
+        imageSize: parsedMeta.imageSize,
       }, contextText);
     }
 
@@ -795,7 +798,7 @@ async function generateStudioImages(
   referenceImages: ProviderReferenceImage[],
   providerId: string,
   model: string,
-  options?: { quality?: 'low' | 'medium' | 'high' | 'auto'; outputFormat?: 'png' | 'jpeg' | 'webp'; background?: 'transparent' | 'opaque' | 'auto' },
+  options?: { quality?: 'low' | 'medium' | 'high' | 'auto'; outputFormat?: 'png' | 'jpeg' | 'webp'; background?: 'transparent' | 'opaque' | 'auto'; imageSize?: string },
   contextText?: string,
 ): Promise<StudioGenerationOutput[]> {
   const provider = getImageGenerationProvider(providerId);
@@ -834,6 +837,7 @@ async function generateStudioImages(
         outputFormat: options?.outputFormat,
         background: options?.background,
         contextPrompt: contextText,
+        imageSize: options?.imageSize,
       });
 
       const ext = extensionFromMime(result.mimeType);
@@ -853,6 +857,7 @@ async function generateStudioImages(
         quality: options?.quality,
         outputFormat: options?.outputFormat,
         background: options?.background,
+        imageSize: options?.imageSize,
         usage: result.usage,
       };
       await db.insert(studioGenerationOutputs).values({
