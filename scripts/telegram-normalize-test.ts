@@ -44,6 +44,8 @@ assertEqual(markdownToTelegramHtml('just text'), 'just text', 'leaves plain text
 assertEqual(markdownToTelegramHtml('**bold** and `code`'), '<b>bold</b> and <code>code</code>', 'handles mixed formatting');
 assertEqual(markdownToTelegramHtml('<b>raw</b> & text'), '&lt;b&gt;raw&lt;/b&gt; &amp; text', 'escapes raw HTML');
 assertEqual(markdownToTelegramHtml('[bad](javascript:alert(1))'), 'bad)', 'drops unsafe links');
+assertEqual(markdownToTelegramHtml('## Ordner'), '<b>Ordner</b>', 'converts headings to bold text');
+assertEqual(markdownToTelegramHtml('- automationen/'), '• automationen/', 'converts markdown bullets to Telegram bullets');
 
 console.log('\nchunkTelegramMessage:');
 const shortChunks = chunkTelegramMessage('short');

@@ -3,7 +3,7 @@ import type { ChannelId, ChannelPlugin, ChannelStartContext, ChannelStatus, Outb
 import { createTelegramBot } from './bot';
 import { TelegramPollingSession } from './polling';
 import { setupInboundHandler } from './inbound';
-import { deliverToTelegram } from './outbound';
+import { deliverToTelegram, sendTypingAction } from './outbound';
 import { registerTelegramBotCommands } from './commands';
 
 export class TelegramChannel implements ChannelPlugin {
@@ -58,6 +58,10 @@ export class TelegramChannel implements ChannelPlugin {
       this.lastError = err instanceof Error ? err.message : String(err);
       return { ok: false, error: this.lastError };
     }
+  }
+
+  async sendTyping(target: DeliveryTarget): Promise<void> {
+    await sendTypingAction(this.bot, target.chatId);
   }
 
   getStatus(): ChannelStatus {

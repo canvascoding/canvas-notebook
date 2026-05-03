@@ -12,6 +12,9 @@ import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 
+const CHANNEL_TYPING_THROTTLE_MS = 4_000;
+const channelTypingSentAt = new Map<string, number>();
+
 function normalizeNotificationPreview(value: string, maxLength = 500): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (!normalized) {
@@ -69,6 +72,47 @@ function extractAssistantNotificationPreview(eventMessage: unknown): string {
   return '';
 }
 
+function shouldSendTypingEvent(eventType: unknown): boolean {
+  return eventType === 'message_update' ||
+    eventType === 'tool_execution_start' ||
+    eventType === 'tool_execution_update';
+}
+
+async function sendChannelTypingIndicator(sessionId: string, userId: string, eventType: unknown): Promise<void> {
+  if (!shouldSendTypingEvent(eventType)) return;
+
+  const now = Date.now();
+  const lastSentAt = channelTypingSentAt.get(sessionId) ?? 0;
+  if (now - lastSentAt < CHANNEL_TYPING_THROTTLE_MS) return;
+  channelTypingSentAt.set(sessionId, now);
+
+  try {
+    const session = await db.query.piSessions.findFirst({
+      where: and(
+        eq(piSessions.sessionId, sessionId),
+        eq(piSessions.userId, userId)
+      ),
+      columns: { channelId: true, channelSessionKey: true }
+    });
+
+    if (!session?.channelId || session.channelId === 'app' || !session.channelSessionKey) {
+      return;
+    }
+
+    const channel = getChannelRegistry().get(session.channelId);
+    const typingChannel = channel as typeof channel & {
+      sendTyping?: (target: { chatId: string }) => Promise<void>;
+    };
+
+    if (!typingChannel?.sendTyping) return;
+
+    const chatId = session.channelSessionKey.replace(/^telegram:/, '');
+    await typingChannel.sendTyping({ chatId });
+  } catch (error) {
+    console.warn('[WebSocket Bridge] Channel typing indicator failed:', error);
+  }
+}
+
 // Track which sessions are subscribed
 const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
 
@@ -89,6 +133,7 @@ export function initializeWebSocketBridge(): void {
 
     // Broadcast to all WebSocket clients subscribed to this session
     broadcastAgentEvent(sessionId, event);
+    void sendChannelTypingIndicator(sessionId, userId, event.type);
 
     // Handle message_saved event - this is emitted AFTER the message is saved to DB
     if (event.type === 'message_saved') {

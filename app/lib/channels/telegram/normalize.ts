@@ -24,8 +24,27 @@ function sanitizeTelegramHref(value: string): string | null {
   return null;
 }
 
+function normalizeMarkdownForTelegram(markdown: string): string {
+  return markdown
+    .split('\n')
+    .map((line) => {
+      const heading = line.match(/^(#{1,6})\s+(.+)$/);
+      if (heading) {
+        return `**${heading[2].trim()}**`;
+      }
+
+      const unorderedListItem = line.match(/^(\s*)[-*]\s+(.+)$/);
+      if (unorderedListItem) {
+        return `${unorderedListItem[1]}• ${unorderedListItem[2]}`;
+      }
+
+      return line;
+    })
+    .join('\n');
+}
+
 export function markdownToTelegramHtml(markdown: string): string {
-  let html = escapeHtml(markdown);
+  let html = escapeHtml(normalizeMarkdownForTelegram(markdown));
 
   html = html.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
