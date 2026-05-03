@@ -11,6 +11,7 @@ export class TelegramPollingSession {
   private static readonly BACKOFF_FACTOR = 1.8;
   private static readonly STALL_THRESHOLD_MS = 120_000;
   private static readonly STALL_CHECK_INTERVAL_MS = 30_000;
+  private static readonly TELEGRAM_API_TIMEOUT_MS = 10_000;
 
   constructor(bot: import('grammy').Bot, abortSignal: AbortSignal) {
     this.bot = bot;
@@ -27,7 +28,11 @@ export class TelegramPollingSession {
     this.running = true;
 
     try {
-      await this.bot.api.deleteWebhook({ drop_pending_updates: true });
+      await this.withTimeout(
+        this.bot.api.deleteWebhook({ drop_pending_updates: true }),
+        TelegramPollingSession.TELEGRAM_API_TIMEOUT_MS,
+        'deleteWebhook',
+      );
       console.log('[TelegramPolling] Deleted existing webhook');
     } catch (err) {
       console.warn('[TelegramPolling] Could not delete webhook:', err instanceof Error ? err.message : err);
@@ -112,5 +117,19 @@ export class TelegramPollingSession {
 
   notifyUpdateReceived(): void {
     this.lastReceivedUpdateAt = Date.now();
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
   }
 }

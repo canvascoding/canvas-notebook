@@ -218,20 +218,25 @@ export function ChannelsPanel() {
   const handleRestartBot = async () => {
     setIsRestarting(true);
     setError(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25_000);
     try {
       const res = await fetch('/api/channels/restart', {
         method: 'POST',
         credentials: 'include',
+        signal: controller.signal,
       });
       const data = await res.json();
       if (data.success) {
         setSuccess(t('channels.telegram.restarted'));
+        await loadStatus();
       } else {
         setError(data.error || 'Failed to restart bot');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Restart failed');
+      setError(err instanceof Error && err.name === 'AbortError' ? 'Restart timed out' : err instanceof Error ? err.message : 'Restart failed');
     } finally {
+      clearTimeout(timeout);
       setIsRestarting(false);
     }
   };
