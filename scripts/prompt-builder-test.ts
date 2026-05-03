@@ -15,6 +15,7 @@ function createFiles(overrides: Partial<ManagedPromptFiles> = {}): ManagedPrompt
     'MEMORY.md': '',
     'SOUL.md': '',
     'TOOLS.md': '',
+    'HEARTBEAT.md': '',
     ...overrides,
   };
 }
