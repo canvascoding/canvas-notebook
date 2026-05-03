@@ -19,7 +19,6 @@ type ToolkitToolsDialogProps = {
   name: string;
   logo: string;
   connected: boolean;
-  isNoAuth: boolean;
   onClose: () => void;
   onConnect?: (slug: string) => void;
   onDisconnect?: (slug: string) => void;
@@ -32,7 +31,6 @@ export function ToolkitToolsDialog({
   name,
   logo,
   connected,
-  isNoAuth,
   onClose,
   onConnect,
   onDisconnect,
@@ -93,11 +91,9 @@ export function ToolkitToolsDialog({
   const pagedTools = filteredTools.slice(0, page * PAGE_SIZE);
   const hasMore = filteredTools.length > page * PAGE_SIZE;
 
-  const statusText = isNoAuth
-    ? t('directlyAvailable')
-    : connected
-      ? t('toolsAvailableConnected')
-      : t('toolsAvailableNotConnected');
+  const statusText = connected
+    ? t('toolsAvailableConnected')
+    : t('toolsAvailableNotConnected');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
@@ -134,7 +130,7 @@ export function ToolkitToolsDialog({
                   {t('disconnect')}
                 </Button>
               )
-            ) : isNoAuth ? null : (
+            ) : (
               onConnect && (
                 <Button size="sm" onClick={() => onConnect(slug)}>
                   {t('connect')}

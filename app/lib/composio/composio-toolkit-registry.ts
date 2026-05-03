@@ -9,13 +9,11 @@ export interface ToolkitInfo {
   logo: string;
   description: string;
   toolsCount: number;
-  isNoAuth: boolean;
   connected: boolean;
   connectedAccountId?: string;
   connectedAccountStatus?: string;
   authConfigId?: string;
   authConfigStatus?: string;
-  authScheme?: string;
 }
 
 export interface ToolkitToolInfo {
@@ -57,13 +55,13 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
 
     const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
 
+    // Collect best connected account per toolkit (prioritize ACTIVE)
     const connectedBySlug = new Map<string, Record<string, unknown>>();
     for (const a of connectedAccounts) {
       const acc = a as Record<string, unknown>;
       const slug = (acc.toolkit as Record<string, unknown> | undefined)?.slug;
       if (typeof slug === 'string') {
         const existing = connectedBySlug.get(slug);
-        // Prioritize ACTIVE over INITIATED over EXPIRED
         const statusPriority: Record<string, number> = { ACTIVE: 3, INITIATED: 2, INITIALIZING: 1, EXPIRED: 0 };
         const existingPriority = statusPriority[String(existing?.status)] ?? -1;
         const newPriority = statusPriority[String(acc.status)] ?? -1;
@@ -73,6 +71,7 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
       }
     }
 
+    // Collect auth configs per toolkit
     const authConfigBySlug = new Map<string, Record<string, unknown>>();
     for (const c of authConfigs) {
       const config = c as Record<string, unknown>;
@@ -90,28 +89,22 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
         const slug = String(t.slug ?? '');
         const account = connectedBySlug.get(slug);
         const authConfig = authConfigBySlug.get(slug);
-        const authScheme = typeof authConfig?.authScheme === 'string' ? authConfig.authScheme : undefined;
-        
-        // OAuth apps: connected = has active connectedAccount
-        // API-Key apps: connected = has ENABLED authConfig
-        // No-Auth apps: no OAuth, no API-Key config needed
-        const hasOAuthConnection = account?.status === 'ACTIVE';
-        const hasApiKeyConnection = authConfig?.status === 'ENABLED' && authScheme === 'API_KEY';
-        const isTrulyNoAuth = !authConfig && !account;
-        
+
+        // Connected if: has active OAuth account OR enabled auth config
+        const hasActiveConnection = account?.status === 'ACTIVE';
+        const hasEnabledConfig = authConfig?.status === 'ENABLED';
+
         return {
           slug,
           name: String(t.name ?? slug),
           logo: String(meta.logo ?? t.logo ?? ''),
           description: String(meta.description ?? t.description ?? ''),
           toolsCount: Number(meta.toolsCount ?? 0),
-          isNoAuth: isTrulyNoAuth,
-          connected: hasOAuthConnection || hasApiKeyConnection,
+          connected: hasActiveConnection || hasEnabledConfig,
           connectedAccountId: typeof account?.id === 'string' ? account.id : undefined,
           connectedAccountStatus: typeof account?.status === 'string' ? account.status : undefined,
           authConfigId: typeof authConfig?.id === 'string' ? authConfig.id : undefined,
           authConfigStatus: typeof authConfig?.status === 'string' ? authConfig.status : undefined,
-          authScheme,
         };
       })
       .filter((tk) => !HIDDEN_TOOLKIT_SLUGS.has(tk.slug));
