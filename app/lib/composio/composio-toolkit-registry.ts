@@ -15,6 +15,7 @@ export interface ToolkitInfo {
   connectedAccountStatus?: string;
   authConfigId?: string;
   authConfigStatus?: string;
+  authScheme?: string;
 }
 
 export interface ToolkitToolInfo {
@@ -89,12 +90,14 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
         const slug = String(t.slug ?? '');
         const account = connectedBySlug.get(slug);
         const authConfig = authConfigBySlug.get(slug);
+        const authScheme = typeof authConfig?.authScheme === 'string' ? authConfig.authScheme : undefined;
+        
         // OAuth apps: connected = has active connectedAccount
-        // API-Key apps (noAuth=true): connected = has ENABLED authConfig
-        // Truly no-auth apps: connected = false, isNoAuth = true, no authConfig exists
+        // API-Key apps: connected = has ENABLED authConfig
+        // No-Auth apps: no OAuth, no API-Key config needed
         const hasOAuthConnection = account?.status === 'ACTIVE';
-        const hasApiKeyConnection = authConfig?.status === 'ENABLED';
-        const isTrulyNoAuth = Boolean(t.noAuth ?? t.isNoAuth) && !hasApiKeyConnection;
+        const hasApiKeyConnection = authConfig?.status === 'ENABLED' && authScheme === 'API_KEY';
+        const isTrulyNoAuth = !authConfig && !account;
         
         return {
           slug,
@@ -108,6 +111,7 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
           connectedAccountStatus: typeof account?.status === 'string' ? account.status : undefined,
           authConfigId: typeof authConfig?.id === 'string' ? authConfig.id : undefined,
           authConfigStatus: typeof authConfig?.status === 'string' ? authConfig.status : undefined,
+          authScheme,
         };
       })
       .filter((tk) => !HIDDEN_TOOLKIT_SLUGS.has(tk.slug));
