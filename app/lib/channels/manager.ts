@@ -1,9 +1,27 @@
 import { getChannelRegistry } from './registry';
 import { type ChannelStatus } from './types';
 
+const CHANNEL_START_TIMEOUT_MS = 15_000;
+const CHANNEL_STOP_TIMEOUT_MS = 5_000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 class ChannelManager {
   private abortController: AbortController | null = null;
   private started = false;
+  private restartPromise: Promise<void> | null = null;
 
   async start(): Promise<void> {
     if (this.started) {
@@ -28,14 +46,19 @@ class ChannelManager {
         registry.register(telegramChannel);
 
         this.abortController = new AbortController();
-        await telegramChannel.start({
-          abortSignal: this.abortController.signal,
-          onInboundMessage: async () => {},
-        });
+        await withTimeout(
+          telegramChannel.start({
+            abortSignal: this.abortController.signal,
+            onInboundMessage: async () => {},
+          }),
+          CHANNEL_START_TIMEOUT_MS,
+          'Telegram channel start',
+        );
 
         console.log('[ChannelManager] Telegram channel started');
       } catch (error) {
         console.error('[ChannelManager] Failed to start Telegram channel:', error);
+        getChannelRegistry().unregister('telegram');
       }
     }
 
@@ -58,10 +81,11 @@ class ChannelManager {
     const registry = getChannelRegistry();
     for (const channel of registry.getAll()) {
       try {
-        await channel.stop();
+        await withTimeout(channel.stop(), CHANNEL_STOP_TIMEOUT_MS, `${channel.id} channel stop`);
         registry.unregister(channel.id);
       } catch (error) {
         console.error(`[ChannelManager] Error stopping channel ${channel.id}:`, error);
+        registry.unregister(channel.id);
       }
     }
 
@@ -79,6 +103,18 @@ class ChannelManager {
   }
 
   async restart(): Promise<void> {
+    if (this.restartPromise) {
+      console.log('[ChannelManager] Restart already in progress');
+      return this.restartPromise;
+    }
+
+    this.restartPromise = this.restartInternal().finally(() => {
+      this.restartPromise = null;
+    });
+    return this.restartPromise;
+  }
+
+  private async restartInternal(): Promise<void> {
     if (!this.started) {
       console.log('[ChannelManager] Not started yet, calling start()');
       return this.start();
