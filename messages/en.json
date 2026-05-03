@@ -224,8 +224,8 @@
           },
           "modelDetail": {
             "notFound": "Not found",
-        "save": "Save",
-        "saved": "Saved",
+            "save": "Save",
+            "saved": "Saved",
             "cancel": "Cancel",
             "images": "Images",
             "addImages": "Add images",
@@ -862,7 +862,8 @@
         "commandsRegistered": "Bot commands registered",
         "registerCommandsLabel": "Register bot commands",
         "registerCommandsButton": "Register",
-        "refresh": "Refresh"
+        "refresh": "Refresh",
+        "saved": "Saved"
       }
     },
     "envCard": {

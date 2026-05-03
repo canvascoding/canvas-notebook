@@ -467,7 +467,7 @@ async function startServer() {
 
   // Channel Manager start (Telegram polling etc.)
   try {
-    const { getChannelManager } = await import('./app/lib/channels/manager.ts');
+    const { getChannelManager } = require('./app/lib/channels/manager.ts');
     const manager = getChannelManager();
     await manager.start();
     console.log('[Startup] Channel Manager started');
