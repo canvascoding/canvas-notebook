@@ -61,7 +61,14 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
       const acc = a as Record<string, unknown>;
       const slug = (acc.toolkit as Record<string, unknown> | undefined)?.slug;
       if (typeof slug === 'string') {
-        connectedBySlug.set(slug, acc);
+        const existing = connectedBySlug.get(slug);
+        // Prioritize ACTIVE over INITIATED over EXPIRED
+        const statusPriority: Record<string, number> = { ACTIVE: 3, INITIATED: 2, INITIALIZING: 1, EXPIRED: 0 };
+        const existingPriority = statusPriority[String(existing?.status)] ?? -1;
+        const newPriority = statusPriority[String(acc.status)] ?? -1;
+        if (!existing || newPriority > existingPriority) {
+          connectedBySlug.set(slug, acc);
+        }
       }
     }
 
