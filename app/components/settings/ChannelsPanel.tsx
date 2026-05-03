@@ -149,27 +149,7 @@ export function ChannelsPanel() {
     const newValue = !channelEnabled;
     setChannelEnabled(newValue);
     await saveEnv('TELEGRAM_CHANNEL_ENABLED', newValue ? 'true' : 'false');
-    setIsRestarting(true);
-    setError(null);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25_000);
-    try {
-      const res = await fetch('/api/channels/restart', {
-        method: 'POST',
-        credentials: 'include',
-        signal: controller.signal,
-      });
-      const data = await res.json();
-      if (!data.success) {
-        setError(data.error || 'Failed to restart bot');
-      }
-      await loadStatus();
-    } catch (err) {
-      setError(err instanceof Error && err.name === 'AbortError' ? 'Restart timed out' : err instanceof Error ? err.message : 'Restart failed');
-    } finally {
-      clearTimeout(timeout);
-      setIsRestarting(false);
-    }
+    await restartBot();
   };
 
   const handleGenerateLinkToken = async () => {
@@ -236,7 +216,7 @@ export function ChannelsPanel() {
     }
   };
 
-  const handleRestartBot = async () => {
+  const restartBot = async () => {
     setIsRestarting(true);
     setError(null);
     const controller = new AbortController();
@@ -248,12 +228,10 @@ export function ChannelsPanel() {
         signal: controller.signal,
       });
       const data = await res.json();
-      if (data.success) {
-        setSuccess(t('channels.telegram.restarted'));
-        await loadStatus();
-      } else {
+      if (!data.success) {
         setError(data.error || 'Failed to restart bot');
       }
+      await loadStatus();
     } catch (err) {
       setError(err instanceof Error && err.name === 'AbortError' ? 'Restart timed out' : err instanceof Error ? err.message : 'Restart failed');
     } finally {
@@ -407,8 +385,11 @@ export function ChannelsPanel() {
                     </div>
                     <Button
                       type="button"
-                      disabled={isSaving}
-                      onClick={() => void saveEnv('TELEGRAM_BOT_TOKEN', botToken)}
+                      disabled={isSaving || isRestarting}
+                      onClick={async () => {
+                        await saveEnv('TELEGRAM_BOT_TOKEN', botToken);
+                        await restartBot();
+                      }}
                     >
                       {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       {t('channels.telegram.save')}
@@ -558,7 +539,7 @@ export function ChannelsPanel() {
                 <Button
                   type="button"
                   variant="secondary"
-                  onClick={() => void handleRestartBot()}
+                  onClick={() => void restartBot()}
                   disabled={isRestarting}
                 >
                   {isRestarting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
