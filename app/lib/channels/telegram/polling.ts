@@ -12,6 +12,7 @@ export class TelegramPollingSession {
   private static readonly STALL_THRESHOLD_MS = 120_000;
   private static readonly STALL_CHECK_INTERVAL_MS = 30_000;
   private static readonly TELEGRAM_API_TIMEOUT_MS = 10_000;
+  private static readonly STOP_TIMEOUT_MS = 5_000;
 
   constructor(bot: import('grammy').Bot, abortSignal: AbortSignal) {
     this.bot = bot;
@@ -46,7 +47,7 @@ export class TelegramPollingSession {
     });
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.running = false;
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
@@ -57,8 +58,18 @@ export class TelegramPollingSession {
       this.stallCheckInterval = null;
     }
     try {
-      this.bot.stop();
-    } catch { /* ignore */ }
+      await this.withTimeout(
+        Promise.resolve(this.bot.stop()),
+        TelegramPollingSession.STOP_TIMEOUT_MS,
+        'bot.stop',
+      );
+    } catch (err) {
+      if (this.isGetUpdatesConflict(err)) {
+        console.warn('[TelegramPolling] Ignoring getUpdates conflict while stopping polling');
+      } else {
+        console.warn('[TelegramPolling] Error while stopping polling:', err instanceof Error ? err.message : err);
+      }
+    }
     console.log('[TelegramPolling] Stopped');
   }
 
@@ -81,7 +92,11 @@ export class TelegramPollingSession {
 
         console.warn('[TelegramPolling] Bot stopped unexpectedly, will restart...');
       } catch (err) {
-        console.error('[TelegramPolling] Bot error:', err instanceof Error ? err.message : err);
+        if (this.isGetUpdatesConflict(err)) {
+          console.warn('[TelegramPolling] getUpdates conflict detected; another bot instance is polling');
+        } else {
+          console.error('[TelegramPolling] Bot error:', err instanceof Error ? err.message : err);
+        }
       }
 
       if (!this.running || this.abortSignal.aborted) {
@@ -110,7 +125,11 @@ export class TelegramPollingSession {
       const elapsed = Date.now() - this.lastReceivedUpdateAt;
       if (elapsed > TelegramPollingSession.STALL_THRESHOLD_MS && this.lastReceivedUpdateAt > 0) {
         console.warn('[TelegramPolling] Stall detected — no updates for over 2 minutes, restarting...');
-        this.bot.stop();
+        void Promise.resolve(this.bot.stop()).catch((err) => {
+          if (!this.isGetUpdatesConflict(err)) {
+            console.warn('[TelegramPolling] Error while stopping stalled polling:', err instanceof Error ? err.message : err);
+          }
+        });
       }
     }, TelegramPollingSession.STALL_CHECK_INTERVAL_MS);
   }
@@ -131,5 +150,15 @@ export class TelegramPollingSession {
     } finally {
       if (timeout) clearTimeout(timeout);
     }
+  }
+
+  private isGetUpdatesConflict(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const record = error as Record<string, unknown>;
+    const message = error instanceof Error ? error.message : String(record.description ?? '');
+    return record.error_code === 409 ||
+      record.errorCode === 409 ||
+      message.includes('409: Conflict') ||
+      message.includes('terminated by other getUpdates request');
   }
 }

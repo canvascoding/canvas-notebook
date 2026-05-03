@@ -44,7 +44,7 @@ export class TelegramChannel implements ChannelPlugin {
 
   async stop(): Promise<void> {
     if (this.polling) {
-      this.polling.stop();
+      await this.polling.stop();
       this.polling = null;
     }
     this.running = false;
