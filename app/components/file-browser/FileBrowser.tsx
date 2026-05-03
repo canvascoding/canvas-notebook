@@ -23,7 +23,7 @@ import { FilePreviewDialog } from '@/app/components/files/FilePreviewDialog';
 import { Link } from '@/i18n/navigation';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { LogoutButton } from '@/app/components/LogoutButton';
-import { NotebookNavButton } from '@/app/components/NotebookNavButton';
+
 import { AppLauncher } from '@/app/components/AppLauncher';
 
 interface FileBrowserProps {
@@ -318,7 +318,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('filesTitle')}</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
-            <NotebookNavButton />
             <AppLauncher />
             <ThemeToggle />
 
