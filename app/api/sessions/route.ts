@@ -14,6 +14,8 @@ type CreateSessionPayload = {
   title?: string;
   model?: string;
   agentId?: string;
+  channelId?: string;
+  channelSessionKey?: string;
 };
 
 type RenameSessionPayload = {
@@ -81,6 +83,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const legacyModelFilter = resolveRequestedModel(searchParams.get('model'));
+  const channelIdFilter = searchParams.get('channelId');
 
   try {
     const whereClause = legacyModelFilter
@@ -112,6 +115,7 @@ export async function GET(request: NextRequest) {
           title: piSessions.title,
           model: piSessions.model,
           provider: piSessions.provider,
+          channelId: piSessions.channelId,
           createdAt: piSessions.createdAt,
           lastMessageAt: piSessions.lastMessageAt,
           lastViewedAt: piSessions.lastViewedAt,
@@ -120,13 +124,13 @@ export async function GET(request: NextRequest) {
         })
         .from(piSessions)
         .leftJoin(user, eq(piSessions.userId, user.id))
-        .where(eq(piSessions.userId, session.user.id))
+        .where(channelIdFilter ? and(eq(piSessions.userId, session.user.id), eq(piSessions.channelId, channelIdFilter)) : eq(piSessions.userId, session.user.id))
         .orderBy(desc(piSessions.createdAt))
         .limit(100)
     ]);
 
     const combined = [
-      ...legacySessions.map(s => ({ ...s, engine: 'legacy' as const, lastMessageAt: null as Date | null, lastViewedAt: null as Date | null })),
+      ...legacySessions.map(s => ({ ...s, engine: 'legacy' as const, channelId: 'app' as const, lastMessageAt: null as Date | null, lastViewedAt: null as Date | null })),
       ...newPiSessions.map(s => ({ 
         ...s, 
         engine: 'pi' as const,
@@ -150,6 +154,7 @@ export async function GET(request: NextRequest) {
         createdAt: item.createdAt,
         lastMessageAt: item.lastMessageAt,
         lastViewedAt: item.lastViewedAt,
+        channelId: item.channelId,
         hasUnread,
         creator: {
           name: item.creatorName || null,
@@ -198,6 +203,9 @@ export async function POST(request: NextRequest) {
       const provider = piConfig.activeProvider;
       const model = piConfig.providers[provider]?.model || 'unknown';
 
+      const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
+      const channelSessionKey = typeof payload.channelSessionKey === 'string' ? payload.channelSessionKey : null;
+
       const inserted = await db
         .insert(piSessions)
         .values({
@@ -206,6 +214,8 @@ export async function POST(request: NextRequest) {
           provider,
           model,
           title,
+          channelId,
+          channelSessionKey,
           createdAt: new Date(),
           updatedAt: new Date(),
         })

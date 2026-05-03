@@ -465,6 +465,16 @@ async function startServer() {
 
   installChatUpgradeGuard(server);
 
+  // Channel Manager start (Telegram polling etc.)
+  try {
+    const { getChannelManager } = await import('./app/lib/channels/manager.ts');
+    const manager = getChannelManager();
+    await manager.start();
+    console.log('[Startup] Channel Manager started');
+  } catch (error) {
+    console.error('[Startup] Channel Manager failed:', error.message);
+  }
+
   await app.prepare();
 
   server.listen(port, (err) => {

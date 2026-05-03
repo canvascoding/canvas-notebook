@@ -224,7 +224,8 @@
           },
           "modelDetail": {
             "notFound": "Not found",
-            "save": "Save",
+        "save": "Save",
+        "saved": "Saved",
             "cancel": "Cancel",
             "images": "Images",
             "addImages": "Add images",
@@ -797,6 +798,7 @@
       "integrations": "Integrations",
       "agentSettings": "Agent Settings",
       "workspace": "Workspace",
+      "channels": "Channels",
       "usage": "Usage",
       "skills": "Skills"
     },
@@ -824,6 +826,43 @@
       "agents": {
         "title": "Agent Environment",
         "description": "Keys and agent env values for OpenRouter, Ollama, and the agent runtime."
+      }
+    },
+    "channels": {
+      "telegram": {
+        "title": "Telegram",
+        "description": "Connect a Telegram bot to use it as a chat channel.",
+        "loading": "Loading...",
+        "setupGuideTitle": "Setup Guide",
+        "step1": "Create a new bot via",
+        "step1b": "on Telegram — copy the bot token you receive.",
+        "step2": "Enter the bot token below and save it.",
+        "step3": "Enable the channel toggle above.",
+        "step4": "Click 'Link' to generate a token. Copy the displayed /start command and send it to your Telegram bot.",
+        "statusLabel": "Status:",
+        "statusNotConfigured": "Not configured — enter a bot token",
+        "statusDisabled": "Disabled",
+        "statusLinked": "Linked as @{username}",
+        "statusNotLinked": "Not linked — generate a token to connect",
+        "enableLabel": "Enable Telegram channel",
+        "enableDescription": "When enabled, the bot will start polling for messages.",
+        "botTokenLabel": "Bot Token",
+        "save": "Save",
+        "linkLabel": "Account linking",
+        "linkedAs": "Linked as @{username}",
+        "linkedGeneric": "Linked",
+        "unlink": "Unlink",
+        "linkButton": "Link",
+        "tokenGenerated": "Connection token generated:",
+        "copiedToClipboard": "Copied to clipboard!",
+        "clickToCopy": "Click anywhere on the command to copy",
+        "restart": "Restart bot",
+        "restarted": "Bot restarted",
+        "unlinked": "Unlinked",
+        "commandsRegistered": "Bot commands registered",
+        "registerCommandsLabel": "Register bot commands",
+        "registerCommandsButton": "Register",
+        "refresh": "Refresh"
       }
     },
     "envCard": {

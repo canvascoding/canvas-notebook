@@ -7,6 +7,7 @@
 
 import { getPiRuntimeEventEmitter } from '@/app/lib/pi/runtime-event-emitter';
 import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUser } from './websocket-server';
+import { getChannelRegistry } from '@/app/lib/channels/registry';
 import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
@@ -99,7 +100,7 @@ export function initializeWebSocketBridge(): void {
             eq(piSessions.sessionId, sessionId),
             eq(piSessions.userId, userId)
           ),
-          columns: { title: true, id: true }
+          columns: { title: true, id: true, channelId: true, channelSessionKey: true }
         });
 
         if (!session) {
@@ -109,8 +110,6 @@ export function initializeWebSocketBridge(): void {
 
         const lastMessageAt = new Date().toISOString();
 
-        // Use the event payload as the primary source to avoid race conditions where
-        // the DB write hasn't completed yet when we query for the preview.
         let messagePreview = normalizeNotificationPreview(
           extractAssistantNotificationPreview(event.message)
         );
@@ -147,6 +146,25 @@ export function initializeWebSocketBridge(): void {
         console.log(
           `[WebSocket Bridge] AI response in session ${sessionId}: notification + session_updated dispatched`
         );
+
+        // Channel routing: deliver to Telegram if session belongs to a channel
+        if (session.channelId && session.channelId !== 'app' && session.channelSessionKey) {
+          const channel = getChannelRegistry().get(session.channelId);
+          if (channel) {
+            try {
+              const textPreview = extractAssistantNotificationPreview(event.message);
+              if (textPreview) {
+                const chatId = session.channelSessionKey.replace(/^telegram:/, '');
+                await channel.deliver(
+                  { content: textPreview, role: 'assistant' },
+                  { chatId }
+                );
+              }
+            } catch (err) {
+              console.error(`[WebSocket Bridge] Channel delivery failed for ${session.channelId}:`, err);
+            }
+          }
+        }
       } catch (error) {
         console.error(`[WebSocket Bridge] Failed to fetch session/message data:`, error);
         broadcastNotification(userId, sessionId, sessionId, 'new_response', '');

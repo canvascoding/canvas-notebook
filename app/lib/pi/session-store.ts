@@ -67,6 +67,8 @@ export async function savePiSession(
   options?: {
     titleOverride?: string | null;
     persistedLength?: number;
+    channelId?: string;
+    channelSessionKey?: string | null;
   },
 ): Promise<void> {
   // Find or create session
@@ -100,6 +102,8 @@ export async function savePiSession(
       provider,
       model,
       title: resolvedTitle,
+      channelId: options?.channelId ?? 'app',
+      channelSessionKey: options?.channelSessionKey ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
       lastMessageAt: lastMessageAt,
@@ -237,4 +241,19 @@ export async function updatePiSessionLastMessageAt(sessionId: string, userId: st
       .set({ lastMessageAt: timestamp })
       .where(eq(piSessions.id, session.id));
   }
+}
+
+export async function loadPiSessionByChannelKey(channelId: string, channelSessionKey: string): Promise<AgentMessage[] | null> {
+  const session = await db.query.piSessions.findFirst({
+    where: and(eq(piSessions.channelId, channelId), eq(piSessions.channelSessionKey, channelSessionKey))
+  });
+
+  if (!session) return null;
+
+  const rows = await db.select()
+    .from(piMessages)
+    .where(eq(piMessages.piSessionDbId, session.id))
+    .orderBy(asc(piMessages.timestamp));
+
+  return rows.map(m => JSON.parse(m.content) as AgentMessage);
 }
