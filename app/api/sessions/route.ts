@@ -3,7 +3,7 @@ import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages, user, piSessions, piMessages } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
 import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
 import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
 import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig } from '@/app/lib/agents/storage';
@@ -84,8 +84,37 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const legacyModelFilter = resolveRequestedModel(searchParams.get('model'));
   const channelIdFilter = searchParams.get('channelId');
+  const countOnly = searchParams.get('countOnly') === 'true';
+  const olderThanDays = searchParams.get('olderThanDays');
 
   try {
+    const cutoff = olderThanDays ? new Date(Date.now() - parseInt(olderThanDays, 10) * 24 * 60 * 60 * 1000) : null;
+
+    if (countOnly && cutoff) {
+      const piCutoffCondition = cutoff
+        ? or(lt(piSessions.lastMessageAt, cutoff), and(isNull(piSessions.lastMessageAt), lt(piSessions.createdAt, cutoff)))
+        : undefined;
+
+      const piOlderCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(piSessions)
+        .where(and(eq(piSessions.userId, session.user.id), piCutoffCondition!));
+
+      const legacyCutoffCondition = cutoff
+        ? and(eq(aiSessions.userId, session.user.id), lt(aiSessions.createdAt, cutoff))
+        : undefined;
+
+      const legacyOlderCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(aiSessions)
+        .where(legacyCutoffCondition!);
+
+      return NextResponse.json({
+        success: true,
+        count: Number(piOlderCount[0].count) + Number(legacyOlderCount[0].count),
+      });
+    }
+
     const whereClause = legacyModelFilter
       ? and(eq(aiSessions.model, legacyModelFilter), eq(aiSessions.userId, session.user.id))
       : eq(aiSessions.userId, session.user.id);
@@ -397,12 +426,64 @@ export async function DELETE(request: NextRequest) {
   const sessionId = searchParams.get('sessionId');
   const deleteAll = searchParams.get('all');
   const shouldDeleteAll = deleteAll === 'true' || deleteAll === '1';
+  const olderThanDays = searchParams.get('olderThanDays');
+  const shouldDeleteOlder = !!olderThanDays && !shouldDeleteAll && !sessionId;
 
-  if (!shouldDeleteAll && !sessionId) {
+  if (!shouldDeleteAll && !sessionId && !shouldDeleteOlder) {
     return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
   }
 
   try {
+    if (shouldDeleteOlder) {
+      const days = parseInt(olderThanDays!, 10);
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      // Delete PI sessions older than cutoff (using lastMessageAt, falling back to createdAt)
+      const olderPiSessions = await db
+        .select({ id: piSessions.id })
+        .from(piSessions)
+        .where(
+          and(
+            eq(piSessions.userId, session.user.id),
+            or(
+              lt(piSessions.lastMessageAt, cutoff),
+              and(isNull(piSessions.lastMessageAt), lt(piSessions.createdAt, cutoff))
+            )
+          )
+        );
+
+      let deletedCount = olderPiSessions.length;
+
+      if (olderPiSessions.length > 0) {
+        await db.delete(piMessages).where(inArray(piMessages.piSessionDbId, olderPiSessions.map(s => s.id)));
+        await db.delete(piSessions).where(inArray(piSessions.id, olderPiSessions.map(s => s.id)));
+      }
+
+      // Delete legacy AI sessions older than cutoff (using createdAt)
+      const olderAiSessions = await db
+        .select({ id: aiSessions.id })
+        .from(aiSessions)
+        .where(
+          and(
+            eq(aiSessions.userId, session.user.id),
+            lt(aiSessions.createdAt, cutoff)
+          )
+        );
+
+      deletedCount += olderAiSessions.length;
+
+      if (olderAiSessions.length > 0) {
+        await db.delete(aiMessages).where(inArray(aiMessages.aiSessionDbId, olderAiSessions.map(s => s.id)));
+        await db.delete(aiSessions).where(inArray(aiSessions.id, olderAiSessions.map(s => s.id)));
+      }
+
+      return NextResponse.json({
+        success: true,
+        deleted: 'older',
+        count: deletedCount,
+      });
+    }
+
     if (shouldDeleteAll) {
       // Delete only the current user's sessions
       const userPiSessions = await db

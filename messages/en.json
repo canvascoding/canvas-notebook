@@ -1060,7 +1060,11 @@
         "planningAllowed": "Planning Mode",
         "planningBlocked": "Standard only",
         "defaultEnabled": "Default on",
-        "defaultDisabled": "Default off"
+        "defaultDisabled": "Default off",
+        "searchPlaceholder": "Search tools...",
+        "allGroups": "All",
+        "showingCount": "{shown} of {total} tools",
+        "noMatchingTools": "No tools match your search."
       },
       "files": {
         "title": "Agent Managed Files",
@@ -1090,6 +1094,11 @@
         "newSessionPlaceholder": "New session (title optional)",
         "new": "New",
         "deleteAll": "Delete all",
+        "deleteOlder": "Delete sessions older than 2 weeks",
+        "deleteOlderConfirm": "{count} session(s) older than 2 weeks will be deleted. Continue?",
+        "checkingOlder": "Checking...",
+        "deleteOlderSuccess": "Deleted {count} old session(s).",
+        "noOlderSessions": "No sessions older than 2 weeks.",
         "loading": "Loading...",
         "empty": "No history available.",
         "unknownUser": "Unknown",
@@ -1102,7 +1111,8 @@
           "create": "Failed to create session.",
           "rename": "Failed to rename session.",
           "delete": "Failed to delete session.",
-          "deleteAll": "Failed to delete all sessions."
+          "deleteAll": "Failed to delete all sessions.",
+          "deleteOlder": "Failed to delete old sessions."
         }
       }
     },
