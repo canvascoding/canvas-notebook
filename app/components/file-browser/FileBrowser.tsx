@@ -306,7 +306,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
   return (
     <div className="flex h-[100dvh] flex-col bg-background text-foreground">
-      <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
+      <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-full items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
