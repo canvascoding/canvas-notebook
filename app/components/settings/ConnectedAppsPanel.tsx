@@ -222,6 +222,7 @@ export function ConnectedAppsPanel() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('refreshError'));
       void loadStatus();
+      void loadToolkits();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('refreshError'));
     } finally {
