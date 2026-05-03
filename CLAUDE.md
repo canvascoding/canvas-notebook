@@ -41,13 +41,14 @@ The app runs through a custom Node.js server that wraps Next.js:
 - Attaches a WebSocket server for terminal sessions (`server/terminal-server.js`)
 - Delegates everything else to Next.js
 
-### PI Agent Streaming (`app/api/stream/route.ts`)
-The main AI agent endpoint is `POST /api/stream`. It:
-1. Resolves provider/model from config via `app/lib/pi/model-resolver.ts`
-2. Resolves the API key via `app/lib/pi/api-key-resolver.ts`
-3. Looks up or creates a PI session in SQLite (`pi_sessions`, `pi_messages` tables)
-4. Runs the PI agent loop with registered tools from `app/lib/pi/tool-registry.ts`
-5. Streams results back as SSE
+### PI Agent Streaming (`/ws/chat`)
+The main AI agent transport is the authenticated chat WebSocket at `/ws/chat`. It:
+1. Accepts request/response messages for `subscribe_session`, `send_message`, `control`, and `get_status`
+2. Resolves provider/model from config via `app/lib/pi/model-resolver.ts`
+3. Resolves the API key via `app/lib/pi/api-key-resolver.ts`
+4. Looks up or creates a PI session in SQLite (`pi_sessions`, `pi_messages` tables)
+5. Runs the PI agent loop with registered tools from `app/lib/pi/tool-registry.ts`
+6. Streams runtime events back as WebSocket `agent_event` messages
 
 Tools available to the agent: `ls`, `read`, `write`, `mkdir`, `terminal exec`, and others registered in `tool-registry.ts`.
 

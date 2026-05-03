@@ -2,7 +2,7 @@
 
 ## Aktueller Stand (2026-05-02)
 
-Die produktive Chat-Runtime ist auf WebSocket-Requests umgestellt. Der alte interne HTTP-Loopback aus dem WebSocket-Pfad ist entfernt. Die HTTP-Routen `/api/stream`, `/api/stream/status` und `/api/stream/control` existieren noch als temporäre Kompatibilitätsrouten und sollen erst nach erfolgreicher manueller UI-Prüfung, aktualisierten Playwright-Tests und WS-Integrationstestlauf gelöscht werden.
+Die produktive Chat-Runtime ist auf WebSocket-Requests umgestellt. Der alte interne HTTP-Loopback aus dem WebSocket-Pfad ist entfernt. Die HTTP-Routen `/api/stream`, `/api/stream/status` und `/api/stream/control` sind nach der WS-Umstellung gelöscht.
 
 Umgesetzte Commits:
 
@@ -29,7 +29,7 @@ Verifiziert:
 Noch offen:
 
 - Manuelle UI-Prüfung fortsetzen: Stop, Steer, Replace, Session-Wechsel, Reload/Reconnect.
-- Dev-Server prüfen, dass die Browser-Warnung `Unknown message type: subscribe_result` verschwunden ist (behoben durch auth-aware connect).
+- Dev-Server prüfen, dass die Browser-Warnung `Unknown message type: subscribe_result` verschwunden ist (behoben durch auth-aware connect und Subscribe-Ack im UI).
 
 ## Problem
 
