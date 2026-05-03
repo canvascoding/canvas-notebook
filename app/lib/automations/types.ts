@@ -2,6 +2,7 @@ export type AutomationJobStatus = 'active' | 'paused';
 export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'retry_scheduled';
 export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry';
 export type AutomationPreferredSkill = 'auto';
+export type AutomationJobType = 'default' | 'heartbeat';
 export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
 export type AutomationWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export type AutomationIntervalUnit = 'minutes' | 'hours' | 'days';
@@ -48,6 +49,8 @@ export type AutomationJobRecord = {
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
+  jobType: AutomationJobType;
+  channelId: string | null;
 };
 
 export type AutomationRunRecord = {

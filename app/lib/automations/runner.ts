@@ -14,6 +14,7 @@ import { getPiTools } from '@/app/lib/pi/tool-registry';
 
 import { getEffectiveAutomationTargetOutputPath, slugifyAutomationName } from './paths';
 import { buildAutomationPrompt } from './prompt';
+import { executeHeartbeat } from './heartbeat';
 import {
   getAutomationJob,
   getAutomationRun,
@@ -140,6 +141,36 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
   const outputPaths = buildOutputPaths(job, run);
   const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
+
+  if (job.jobType === 'heartbeat') {
+    const heartbeatResult = await executeHeartbeat(job);
+
+    await markAutomationRunStarted(run.id, {
+      outputDir: outputPaths.outputDir,
+      targetOutputPath: job.targetOutputPath,
+      effectiveTargetOutputPath: effectiveTargetOutputPath || '',
+      logPath: '',
+      resultPath: outputPaths.resultPath,
+      piSessionId: heartbeatResult.sessionIds[0] || `heartbeat-${run.id}`,
+      eventsLog: [],
+    });
+
+    await markAutomationRunFinished(run.id, {
+      status: heartbeatResult.errors.length > 0 && heartbeatResult.usersNotified === 0 ? 'failed' : 'success',
+      errorMessage: heartbeatResult.errors.length > 0 ? heartbeatResult.errors.join('; ') : null,
+      eventsLog: [],
+      metadataJson: {
+        provider: 'heartbeat',
+        model: 'heartbeat',
+        status: heartbeatResult.usersNotified > 0 ? 'success' : 'skipped',
+        heartbeatUsersNotified: heartbeatResult.usersNotified,
+        heartbeatSessionIds: heartbeatResult.sessionIds,
+        heartbeatErrors: heartbeatResult.errors,
+      },
+    });
+    return;
+  }
+
   await createDirectory(outputPaths.outputDir);
   await createDirectory(path.dirname(effectiveTargetOutputPath));
 

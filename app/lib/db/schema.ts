@@ -143,6 +143,8 @@ export const automationJobs = sqliteTable("automation_jobs", {
   createdByUserId: text("created_by_user_id").notNull().references(() => user.id),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  jobType: text("job_type").notNull().default('default'),
+  channelId: text("channel_id"),
 });
 
 export const userHintState = sqliteTable("user_hint_state", {

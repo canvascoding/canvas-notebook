@@ -9,7 +9,7 @@ import { resolveAgentStorageDir } from '../runtime-data-paths';
 export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
 export const PI_RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, PI_RUNTIME_CONFIG_FILE);
-export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentManagedFiles = Record<AgentManagedFileName, string>;

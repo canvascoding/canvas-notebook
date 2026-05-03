@@ -37,7 +37,7 @@ import {
 } from '@/app/lib/pi/enabled-tools';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 
-const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
 type ManagedFileName = (typeof MANAGED_FILES)[number];
 
@@ -168,6 +168,7 @@ export function AgentSettingsPanel() {
     'MEMORY.md': '',
     'SOUL.md': '',
     'TOOLS.md': '',
+    'HEARTBEAT.md': '',
   });
   const [activeFile, setActiveFile] = useState<ManagedFileName>('AGENTS.md');
   const [filesResetting, setFilesResetting] = useState(false);
