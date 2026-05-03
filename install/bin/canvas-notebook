@@ -158,7 +158,9 @@ Commands:
              Disable Canvas-managed swap and persist it
   caddy      Check Caddy status and current Caddyfile
   caddy-reload
-             Sync Caddy from BETTER_AUTH_BASE_URL and reload it
+              Sync Caddy from BETTER_AUTH_BASE_URL and reload it
+  caddy-fix
+              Fix known Caddy issues (duplicate definitions, missing headers)
   diagnose   Show host, Docker, memory, OOM, and container diagnostics
   health     Check the local health endpoint; use --json for machine-readable output
   config     Show the compose file path
@@ -387,6 +389,25 @@ is_real_domain() {
   [[ -n "$domain" ]] && [[ "$domain" != "localhost" ]] && ! [[ "$domain" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
+remove_domain_from_main_caddyfile() {
+  local domain="$1" caddyfile="$2"
+  if [[ ! -f "$caddyfile" ]]; then return; fi
+  local escaped_domain
+  escaped_domain="$(printf '%s' "$domain" | sed 's/[.[\*^$]/\\&/g')"
+  grep -q "^${escaped_domain}[[:space:]]*{" "$caddyfile" 2>/dev/null || return
+  local tmpfile
+  tmpfile="$(mktemp)"
+  sed "/^${escaped_domain}[[:space:]]*{/,/^}/d" "$caddyfile" > "$tmpfile"
+  sed '/^$/N;/^\n$/d' "$tmpfile" > "${tmpfile}.clean"
+  run_root cp "${tmpfile}.clean" "$caddyfile"
+  rm -f "$tmpfile" "${tmpfile}.clean"
+}
+
+write_caddy_site_config() {
+  local domain="$1" canvas_caddyfile="$2"
+  printf '%s {\n    reverse_proxy localhost:3456 {\n        header_up X-Forwarded-Port 443\n    }\n}\n' "$domain" | run_root tee "$canvas_caddyfile" >/dev/null
+}
+
 sync_caddy_from_compose() {
   local domain caddyfile canvas_caddyfile include_line
   domain="$(configured_domain)"
@@ -404,8 +425,9 @@ sync_caddy_from_compose() {
     return 0
   fi
 
+  remove_domain_from_main_caddyfile "$domain" "$caddyfile"
   run_root mkdir -p /etc/caddy/conf.d
-  printf '%s {\n    reverse_proxy localhost:3456\n}\n' "$domain" | run_root tee "$canvas_caddyfile" >/dev/null
+  write_caddy_site_config "$domain" "$canvas_caddyfile"
   if [[ ! -f "$caddyfile" ]]; then
     printf '%s\n' "$include_line" | run_root tee "$caddyfile" >/dev/null
   elif ! grep -Fxq "$include_line" "$caddyfile"; then
@@ -420,6 +442,91 @@ sync_caddy_from_compose() {
   fi
   run_root systemctl reload caddy >/dev/null 2>&1 || run_root systemctl restart caddy >/dev/null 2>&1 || warn "Could not reload Caddy."
   ok "Caddy synced for https://${domain}"
+}
+
+caddy_fix() {
+  local domain caddyfile canvas_caddyfile include_line fixed_something=false
+
+  domain="$(configured_domain)"
+  caddyfile="/etc/caddy/Caddyfile"
+  canvas_caddyfile="/etc/caddy/conf.d/canvas-notebook.caddy"
+  include_line="import /etc/caddy/conf.d/*.caddy"
+
+  section "Caddy fix"
+
+  if ! command -v caddy >/dev/null 2>&1 && ! command -v systemctl >/dev/null 2>&1; then
+    warn "Caddy is not installed; nothing to fix."
+    return 1
+  fi
+
+  if [[ ! -f "/etc/caddy/conf.d/canvas-notebook.caddy" && ! -f "$caddyfile" ]]; then
+    info "No Caddy configuration found. Run 'canvas-notebook caddy-reload' first."
+    return 1
+  fi
+
+  if ! is_real_domain "$domain"; then
+    warn "No public domain configured in BETTER_AUTH_BASE_URL or BASE_URL; cannot fix."
+    return 1
+  fi
+
+  if [[ -f "$caddyfile" ]]; then
+    local escaped_domain duplicate_count
+    escaped_domain="$(printf '%s' "$domain" | sed 's/[.[\*^$]/\\&/g')"
+    duplicate_count="$(grep -c "^${escaped_domain}[[:space:]]*{" "$caddyfile" 2>/dev/null || printf '0')"
+    if [[ "$duplicate_count" -gt 0 ]]; then
+      info "Removing duplicate domain definition from ${caddyfile} (${duplicate_count} occurrence(s))"
+      remove_domain_from_main_caddyfile "$domain" "$caddyfile"
+      ok "Removed duplicate('${domain}') from ${caddyfile}"
+      fixed_something=true
+    fi
+  fi
+
+  if [[ -f "$canvas_caddyfile" ]]; then
+    if ! grep -q 'X-Forwarded-Port' "$canvas_caddyfile" 2>/dev/null; then
+      info "Adding X-Forwarded-Port header to ${canvas_caddyfile}"
+      write_caddy_site_config "$domain" "$canvas_caddyfile"
+      ok "Added X-Forwarded-Port 443 to reverse_proxy block"
+      fixed_something=true
+    fi
+
+    local current_domain
+    current_domain="$(sed -n '1s/[[:space:]]*{.*//p' "$canvas_caddyfile" 2>/dev/null)"
+    if [[ -n "$current_domain" && "$current_domain" != "$domain" ]]; then
+      info "Updating domain in ${canvas_caddyfile}: ${current_domain} -> ${domain}"
+      remove_domain_from_main_caddyfile "$current_domain" "$caddyfile"
+      write_caddy_site_config "$domain" "$canvas_caddyfile"
+      ok "Updated domain to ${domain}"
+      fixed_something=true
+    fi
+  else
+    info "Creating ${canvas_caddyfile} for ${domain}"
+    run_root mkdir -p /etc/caddy/conf.d
+    write_caddy_site_config "$domain" "$canvas_caddyfile"
+
+    if [[ ! -f "$caddyfile" ]]; then
+      printf '%s\n' "$include_line" | run_root tee "$caddyfile" >/dev/null
+    elif ! grep -Fxq "$include_line" "$caddyfile"; then
+      printf '\n%s\n' "$include_line" | run_root tee -a "$caddyfile" >/dev/null
+    fi
+    ok "Created ${canvas_caddyfile} with X-Forwarded-Port 443"
+    fixed_something=true
+  fi
+
+  if command -v caddy >/dev/null 2>&1 && [[ -f "$caddyfile" ]]; then
+    if ! run_root caddy validate --config "$caddyfile" 2>&1; then
+      warn "Caddyfile validation failed — check your Caddy config manually."
+      warn "Run: sudo caddy validate --config ${caddyfile}"
+      return 0
+    fi
+  fi
+
+  run_root systemctl reload caddy >/dev/null 2>&1 || run_root systemctl restart caddy >/dev/null 2>&1 || warn "Could not reload Caddy."
+
+  if [[ "$fixed_something" == "true" ]]; then
+    ok "Caddy configuration fixed and reloaded"
+  else
+    ok "Caddy configuration is already correct — no changes needed"
+  fi
 }
 
 show_caddy_status() {
@@ -598,6 +705,38 @@ diagnose() {
   else
     dmesg 2>/dev/null | grep -Ei 'out of memory|oom|killed process|segfault|panic|watchdog' | tail -80 || true
   fi
+
+  local caddy_issues=0
+  local diag_domain
+  diag_domain="$(configured_domain)"
+
+  printf '\n== Caddy configuration health ==\n'
+  if [[ -f "/etc/caddy/Caddyfile" ]] && is_real_domain "$diag_domain"; then
+    local escaped_domain
+    escaped_domain="$(printf '%s' "$diag_domain" | sed 's/[.[\*^$]/\\&/g')"
+    local dup_count
+    dup_count="$(grep -c "^${escaped_domain}[[:space:]]*{" /etc/caddy/Caddyfile 2>/dev/null || printf '0')"
+    if [[ "$dup_count" -gt 0 ]]; then
+      warn "Duplicate site definition: '${diag_domain}' found in /etc/caddy/Caddyfile (${dup_count} occurrence(s))"
+      warn "This causes 'ambiguous site definition' errors in Caddy."
+      caddy_issues=$((caddy_issues + 1))
+    fi
+
+    if [[ -f "/etc/caddy/conf.d/canvas-notebook.caddy" ]] && ! grep -q 'X-Forwarded-Port' /etc/caddy/conf.d/canvas-notebook.caddy 2>/dev/null; then
+      warn "Missing X-Forwarded-Port header in /etc/caddy/conf.d/canvas-notebook.caddy"
+      warn "This can cause redirect loops to port 3000 instead of 443."
+      caddy_issues=$((caddy_issues + 1))
+    fi
+
+    if [[ "$caddy_issues" -gt 0 ]]; then
+      printf '\n'
+      warn "Caddy issues detected (${caddy_issues}). Run: canvas-notebook caddy-fix"
+    else
+      ok "No known Caddy configuration issues detected."
+    fi
+  else
+    info "No public domain configured or no Caddyfile found — skipping Caddy health check."
+  fi
 }
 
 json_escape() {
@@ -670,7 +809,10 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 case "$cmd" in
-  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|diagnose|health|config|cli-update|cleanup-logs)
+  help|-h|--help)
+    usage
+    ;;
+  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|caddy-fix|diagnose|health|config|cli-update|cleanup-logs)
     if [[ "$NO_BANNER" != "true" ]]; then
       banner
     fi
@@ -678,9 +820,6 @@ case "$cmd" in
 esac
 
 case "$cmd" in
-  help|-h|--help)
-    usage
-    ;;
   install|update)
     log_msg "$cmd started"
     info "Phase 1/3: Image"
@@ -741,6 +880,9 @@ case "$cmd" in
   caddy-reload)
     sync_caddy_from_compose
     ;;
+  caddy-fix)
+    caddy_fix
+    ;;
   diagnose)
     if [[ "$OUTPUT_JSON" == "true" ]]; then
       diagnose_json
@@ -785,6 +927,8 @@ case "$cmd" in
       rm -f "$tmp_installer"
       fail "CLI update failed — previous version is still in place"
     fi
+    info "Running Caddy configuration health fix..."
+    caddy_fix || true
     ;;
   cleanup-logs)
     pkill -f "docker compose .*logs.*-f.*canvas-notebook" >/dev/null 2>&1 || true
