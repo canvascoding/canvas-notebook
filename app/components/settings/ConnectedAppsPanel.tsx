@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, EyeOff, Check, ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ type ComposioStatus = {
 
 export function ConnectedAppsPanel() {
   const t = useTranslations('settings.connectedApps');
+  const searchParams = useSearchParams();
 
   const [status, setStatus] = useState<ComposioStatus | null>(null);
   const [toolkits, setToolkits] = useState<ToolkitInfo[]>([]);
@@ -141,12 +143,30 @@ export function ConnectedAppsPanel() {
   }, [loadStatus]);
 
   useEffect(() => {
+    const connectedParam = searchParams.get('connected');
+    if (connectedParam) {
+      startTransition(() => {
+        void loadStatus();
+      });
+    }
+  }, [searchParams, loadStatus]);
+
+  useEffect(() => {
     if (status?.configured && status?.apiKeyValid) {
       startTransition(() => {
         void loadToolkits();
       });
     }
   }, [status?.configured, status?.apiKeyValid, loadToolkits]);
+
+  useEffect(() => {
+    const connectedParam = searchParams.get('connected');
+    if (connectedParam && status?.configured && status?.apiKeyValid) {
+      startTransition(() => {
+        void loadToolkits();
+      });
+    }
+  }, [searchParams, status?.configured, status?.apiKeyValid, loadToolkits]);
 
   const handleConnect = async (toolkitSlug: string) => {
     setActionInProgress(`connect-${toolkitSlug}`);
