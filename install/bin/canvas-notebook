@@ -452,7 +452,7 @@ caddy_fix() {
   canvas_caddyfile="/etc/caddy/conf.d/canvas-notebook.caddy"
   include_line="import /etc/caddy/conf.d/*.caddy"
 
-  section "Caddy fix"
+  printf '\n== Caddy fix ==\n'
 
   if ! command -v caddy >/dev/null 2>&1 && ! command -v systemctl >/dev/null 2>&1; then
     warn "Caddy is not installed; nothing to fix."
