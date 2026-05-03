@@ -54,7 +54,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
 import { useLocale } from 'next-intl';
 import { Button } from '@/components/ui/button';
-import { NotebookNavButton } from '@/app/components/NotebookNavButton';
+
 
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { LogoutButton } from '@/app/components/LogoutButton';
@@ -919,6 +919,8 @@ export default function CanvasAgentChat({
   const isAtBottomRef = useRef(true);
   const referenceRequestIdRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const subscribedSessionAckRef = useRef<string | null>(null);
+  const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
 
   // Sync messagesRef with messages state
   useEffect(() => {
@@ -967,6 +969,35 @@ export default function CanvasAgentChat({
     ...requestContext,
   }), [planningMode, requestContext]);
 
+  const ensureSessionSubscribed = useCallback(async (targetSessionId: string) => {
+    if (subscribedSessionAckRef.current === targetSessionId) {
+      return;
+    }
+
+    if (subscribedSessionRequestRef.current?.sessionId === targetSessionId) {
+      await subscribedSessionRequestRef.current.promise;
+      return;
+    }
+
+    const promise = subscribe(targetSessionId)
+      .then((payload) => {
+        if (payload.success === false) {
+          throw new Error(typeof payload.error === 'string' ? payload.error : 'Failed to subscribe to chat session');
+        }
+        if (subscribedSessionRequestRef.current?.sessionId === targetSessionId) {
+          subscribedSessionAckRef.current = targetSessionId;
+        }
+      })
+      .finally(() => {
+        if (subscribedSessionRequestRef.current?.sessionId === targetSessionId) {
+          subscribedSessionRequestRef.current = null;
+        }
+      });
+
+    subscribedSessionRequestRef.current = { sessionId: targetSessionId, promise };
+    await promise;
+  }, [subscribe]);
+
   const resolveSessionTitle = useCallback((targetSessionId: string, title: string | null | undefined) => {
     const optimisticTitle = optimisticSessionTitlesRef.current[targetSessionId];
     const normalizedTitle = title?.trim() || null;
@@ -999,19 +1030,32 @@ export default function CanvasAgentChat({
   // Session subscription for WebSocket
   useEffect(() => {
     if (!wsConnected || !sessionId) {
+      if (!wsConnected) {
+        subscribedSessionAckRef.current = null;
+        subscribedSessionRequestRef.current = null;
+      }
       return;
     }
 
-    // Subscribe to session for receiving events
-    subscribe(sessionId);
-
-    console.log(`[CanvasAgentChat] Subscribed to session ${sessionId}`);
+    void ensureSessionSubscribed(sessionId)
+      .then(() => {
+        console.log(`[CanvasAgentChat] Subscribed to session ${sessionId}`);
+      })
+      .catch((error) => {
+        console.error(`[CanvasAgentChat] Failed to subscribe to session ${sessionId}`, error);
+      });
 
     return () => {
+      if (subscribedSessionAckRef.current === sessionId) {
+        subscribedSessionAckRef.current = null;
+      }
+      if (subscribedSessionRequestRef.current?.sessionId === sessionId) {
+        subscribedSessionRequestRef.current = null;
+      }
       unsubscribe(sessionId);
       console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
     };
-  }, [wsConnected, sessionId, subscribe, unsubscribe]);
+  }, [ensureSessionSubscribed, wsConnected, sessionId, unsubscribe]);
 
   // Listen for session_updated events (from WebSocket client) to update history unread status
   useEffect(() => {
@@ -1447,6 +1491,7 @@ export default function CanvasAgentChat({
 
   const refreshRuntimeStatus = useCallback(async (targetSessionId: string) => {
     try {
+      await ensureSessionSubscribed(targetSessionId);
       const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
         sessionId: targetSessionId,
       });
@@ -1456,7 +1501,7 @@ export default function CanvasAgentChat({
     } catch (error) {
       console.error('Failed to load runtime status', error);
     }
-  }, [setRuntimeStatusWithReconciliation, wsRequest]);
+  }, [ensureSessionSubscribed, setRuntimeStatusWithReconciliation, wsRequest]);
 
   const ensureSession = useCallback(async (preferredTitle?: string) => {
     if (sessionIdRef.current) {
@@ -1826,11 +1871,14 @@ export default function CanvasAgentChat({
     const activeFilePath = currentFile?.path ?? null;
 
     try {
-      const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
-        sessionId: targetSessionId,
-        message: userMessage as unknown as Record<string, unknown>,
-        context: buildRequestContext(activeFilePath),
-      });
+      await ensureSessionSubscribed(targetSessionId);
+      const payload = action === 'send'
+        ? await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
+          sessionId: targetSessionId,
+          message: userMessage as unknown as Record<string, unknown>,
+          context: buildRequestContext(activeFilePath),
+        })
+        : { status: await postControl(targetSessionId, action, userMessage) };
 
       setMessages((prev) => prev.map((message) => (
         message.id === optimisticMessageId ? { ...message, status: 'sent' as const } : message
@@ -1847,7 +1895,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, currentFile, ensureSession, input, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -2039,9 +2087,11 @@ export default function CanvasAgentChat({
     try {
       const [messagesResponse, statusPayload] = await Promise.all([
         fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}&limit=50`),
-        wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
-          sessionId: session.sessionId,
-        }).catch((error) => {
+        ensureSessionSubscribed(session.sessionId).then(() => (
+          wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
+            sessionId: session.sessionId,
+          })
+        )).catch((error) => {
           console.error('Failed to load runtime status', error);
           return null;
         }),
@@ -2097,7 +2147,7 @@ export default function CanvasAgentChat({
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [mapRawMessage, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
+  }, [ensureSessionSubscribed, mapRawMessage, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -2869,7 +2919,6 @@ export default function CanvasAgentChat({
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
-            <NotebookNavButton />
             <ThemeToggle />
             <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
               <Link href="/usage">{t('usage')}</Link>

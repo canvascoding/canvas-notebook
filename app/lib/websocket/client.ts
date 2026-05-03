@@ -266,10 +266,10 @@ export class WebSocketClient extends EventTarget {
   /**
    * Subscribe to a session
    */
-  subscribe(sessionId: string): void {
+  subscribe(sessionId: string): Promise<Record<string, unknown>> {
     this.subscribedSessions.add(sessionId);
-    this.send({ type: 'subscribe_session', sessionId });
     console.log(`[WebSocket] Subscribed to session ${sessionId}`);
+    return this.request('subscribe_session', { sessionId });
   }
 
   /**
