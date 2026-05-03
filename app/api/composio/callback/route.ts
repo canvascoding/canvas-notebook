@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { clearToolkitCache } from '@/app/lib/composio/composio-toolkit-registry';
+import { resetSessionCache } from '@/app/lib/composio/composio-session';
 
 function getBaseUrl(): string {
   const baseUrl = process.env.BASE_URL || process.env.APP_BASE_URL;
@@ -13,6 +15,9 @@ export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
     const connected = url.searchParams.get('connected');
+
+    clearToolkitCache();
+    resetSessionCache();
 
     const baseUrl = getBaseUrl();
     const redirectUrl = new URL(`/settings?tab=integrations${connected ? `&connected=${connected}` : ''}`, baseUrl);

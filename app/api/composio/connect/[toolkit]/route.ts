@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initiateConnection } from '@/app/lib/composio/composio-auth';
 import { isComposioConfigured } from '@/app/lib/composio/composio-client';
+import { clearToolkitCache } from '@/app/lib/composio/composio-toolkit-registry';
 
 export async function POST(
   _request: NextRequest,
@@ -19,6 +20,7 @@ export async function POST(
 
     const { redirectUrl, noAuth } = await initiateConnection(toolkit);
     if (noAuth) {
+      clearToolkitCache();
       return NextResponse.json({ noAuth: true, redirectUrl: null });
     }
     return NextResponse.json({ redirectUrl });

@@ -52,7 +52,13 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
 
     const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
 
-    // Collect best connected account per toolkit (prioritize ACTIVE)
+    console.log(`[Composio] Fetched ${rawItems.length} toolkits, ${connectedAccounts.length} connected accounts`);
+    for (const a of connectedAccounts) {
+      const acc = a as Record<string, unknown>;
+      const slug = (acc.toolkit as Record<string, unknown> | undefined)?.slug;
+      console.log(`[Composio] Connected account: slug=${slug}, status=${acc.status}, id=${acc.id}`);
+    }
+
     const connectedBySlug = new Map<string, Record<string, unknown>>();
     for (const a of connectedAccounts) {
       const acc = a as Record<string, unknown>;
