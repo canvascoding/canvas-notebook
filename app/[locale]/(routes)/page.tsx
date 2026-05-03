@@ -11,9 +11,6 @@ import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
-import { Link } from '@/i18n/navigation';
-import { Button } from '@/components/ui/button';
-import { Settings } from 'lucide-react';
 
 const repositoryUrl = 'https://github.com/canvascoding/canvas-notebook';
 const releaseVersion = packageJson.version;
@@ -42,11 +39,7 @@ export default async function Home() {
               <HelpDropdown page="home" />
               <AppLauncher />
 
-              <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2" title="Settings">
-                <Link href="/settings">
-                  <Settings className="h-4 w-4" />
-                </Link>
-              </Button>
+
               <ThemeToggle />
               <LogoutButton />
             </div>
