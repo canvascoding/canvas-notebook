@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
-import { NotebookNavButton } from '@/app/components/NotebookNavButton';
+
 
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { LogoutButton } from '@/app/components/LogoutButton';
@@ -32,7 +32,6 @@ export function ChatShell() {
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
           </div>
             <div className="flex items-center gap-1.5 md:gap-4">
-              <NotebookNavButton />
               <AppLauncher />
               <ThemeToggle />
               <LogoutButton />

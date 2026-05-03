@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl';
 
 import { cn } from '@/lib/utils';
 import { LogoutButton } from '@/app/components/LogoutButton';
-import { NotebookNavButton } from '@/app/components/NotebookNavButton';
+
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
@@ -84,7 +84,6 @@ export function SuitePageLayout({
 
               {hintPage && <HelpDropdown page={hintPage} />}
               <AppLauncher />
-              <NotebookNavButton />
               <ThemeToggle />
               <LogoutButton />
             </div>
