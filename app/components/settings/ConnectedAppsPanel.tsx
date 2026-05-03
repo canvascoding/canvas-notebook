@@ -26,7 +26,6 @@ type ToolkitInfo = {
   logo: string;
   description: string;
   toolsCount: number;
-  isNoAuth: boolean;
   connected: boolean;
   connectedAccountId?: string;
   connectedAccountStatus?: string;
@@ -55,7 +54,6 @@ export function ConnectedAppsPanel() {
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [dialogToolkit, setDialogToolkit] = useState<ToolkitInfo | null>(null);
   const [availablePage, setAvailablePage] = useState(1);
-  const [noAuthPage, setNoAuthPage] = useState(1);
   const PAGE_SIZE = 30;
 
   const loadStatus = useCallback(async () => {
@@ -233,8 +231,7 @@ export function ConnectedAppsPanel() {
   }
 
   const connectedToolkits = toolkits.filter((tk) => tk.connected);
-  const availableToolkits = toolkits.filter((tk) => !tk.connected && !tk.isNoAuth);
-  const noAuthToolkits = toolkits.filter((tk) => !tk.connected && tk.isNoAuth);
+  const availableToolkits = toolkits.filter((tk) => !tk.connected);
   const filteredAvailable = searchQuery
     ? availableToolkits.filter(
         (tk) =>
@@ -243,9 +240,7 @@ export function ConnectedAppsPanel() {
       )
     : availableToolkits;
   const pagedAvailable = searchQuery ? filteredAvailable : filteredAvailable.slice(0, availablePage * PAGE_SIZE);
-  const pagedNoAuth = noAuthToolkits.slice(0, noAuthPage * PAGE_SIZE);
   const hasMoreAvailable = !searchQuery && filteredAvailable.length > pagedAvailable.length;
-  const hasMoreNoAuth = noAuthToolkits.length > pagedNoAuth.length;
 
   const statusBadge = (s: string) => {
     switch (s) {
@@ -390,47 +385,7 @@ export function ConnectedAppsPanel() {
           </div>
         )}
 
-        {/* No-Auth Apps (directly available, no OAuth needed) */}
-        {!needsApiKey && noAuthToolkits.length > 0 && (
-          <div>
-            <h3 className="mb-3 text-sm font-semibold">{t('noAuthApps')}</h3>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {pagedNoAuth.map((tk) => (
-                <div
-                  key={tk.slug}
-                  className="flex cursor-pointer items-center gap-2 rounded border border-border p-3 transition-colors hover:bg-muted/50"
-                  onClick={() => setDialogToolkit(tk)}
-                >
-                  {tk.logo ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={tk.logo} alt={tk.name} className="h-5 w-5 shrink-0" />
-                  ) : (
-                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-bold">
-                      {tk.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{tk.name}</p>
-                    {tk.toolsCount > 0 && (
-                      <p className="text-[10px] text-muted-foreground">{tk.toolsCount} tools</p>
-                    )}
-                  </div>
-                  <Badge variant="secondary" className="ml-auto text-[10px]">{t('noAuthBadge')}</Badge>
-                </div>
-              ))}
-            </div>
-            {hasMoreNoAuth && (
-              <div className="flex justify-center pt-3">
-                <Button variant="outline" size="sm" onClick={() => setNoAuthPage((p) => p + 1)}>
-                  <ChevronDown className="mr-1 h-3 w-3" />
-                  {t('loadMore')} ({noAuthToolkits.length - pagedNoAuth.length} {t('remaining')})
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Available Apps (require OAuth) */}
+        {/* Available Apps */}
         {!needsApiKey && (
           <div>
             <h3 className="mb-3 text-sm font-semibold">{t('availableApps')}</h3>
@@ -453,53 +408,55 @@ export function ConnectedAppsPanel() {
             ) : filteredAvailable.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('noResults')}</p>
             ) : (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {pagedAvailable.map((tk) => (
-                  <div
-                    key={tk.slug}
-                    className="flex cursor-pointer items-center justify-between rounded border border-border p-3 transition-colors hover:bg-muted/50"
-                    onClick={() => setDialogToolkit(tk)}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {tk.logo ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={tk.logo} alt={tk.name} className="h-5 w-5 shrink-0" />
-                      ) : (
-                        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-bold">
-                          {tk.name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{tk.name}</p>
-                        {tk.toolsCount > 0 && (
-                          <p className="text-[10px] text-muted-foreground">{tk.toolsCount} tools</p>
-                        )}
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => { e.stopPropagation(); void handleConnect(tk.slug); }}
-                      disabled={actionInProgress === `connect-${tk.slug}`}
+              <>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {pagedAvailable.map((tk) => (
+                    <div
+                      key={tk.slug}
+                      className="flex cursor-pointer items-center justify-between rounded border border-border p-3 transition-colors hover:bg-muted/50"
+                      onClick={() => setDialogToolkit(tk)}
                     >
-                      {actionInProgress === `connect-${tk.slug}` ? (
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      ) : (
-                        <Link2 className="mr-1 h-3 w-3" />
-                      )}
-                       {t('connect')}
+                      <div className="flex items-center gap-2 min-w-0">
+                        {tk.logo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={tk.logo} alt={tk.name} className="h-5 w-5 shrink-0" />
+                        ) : (
+                          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-bold">
+                            {tk.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{tk.name}</p>
+                          {tk.toolsCount > 0 && (
+                            <p className="text-[10px] text-muted-foreground">{tk.toolsCount} tools</p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); void handleConnect(tk.slug); }}
+                        disabled={actionInProgress === `connect-${tk.slug}`}
+                      >
+                        {actionInProgress === `connect-${tk.slug}` ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Link2 className="mr-1 h-3 w-3" />
+                        )}
+                        {t('connect')}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                {hasMoreAvailable && (
+                  <div className="flex justify-center pt-3">
+                    <Button variant="outline" size="sm" onClick={() => setAvailablePage((p) => p + 1)}>
+                      <ChevronDown className="mr-1 h-3 w-3" />
+                      {t('loadMore')} ({filteredAvailable.length - pagedAvailable.length} {t('remaining')})
                     </Button>
                   </div>
-                ))}
-              </div>
-            )}
-            {hasMoreAvailable && (
-              <div className="flex justify-center pt-3">
-                <Button variant="outline" size="sm" onClick={() => setAvailablePage((p) => p + 1)}>
-                  <ChevronDown className="mr-1 h-3 w-3" />
-                  {t('loadMore')} ({filteredAvailable.length - pagedAvailable.length} {t('remaining')})
-                </Button>
-              </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -510,9 +467,8 @@ export function ConnectedAppsPanel() {
           name={dialogToolkit.name}
           logo={dialogToolkit.logo}
           connected={dialogToolkit.connected}
-          isNoAuth={dialogToolkit.isNoAuth}
           onClose={() => setDialogToolkit(null)}
-          onConnect={dialogToolkit.isNoAuth ? undefined : (slug) => { setDialogToolkit(null); void handleConnect(slug); }}
+          onConnect={dialogToolkit.connected ? undefined : (slug) => { setDialogToolkit(null); void handleConnect(slug); }}
           onDisconnect={(slug) => { setDialogToolkit(null); void handleDisconnect(slug); }}
         />
       )}
