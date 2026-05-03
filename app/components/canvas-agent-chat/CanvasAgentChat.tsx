@@ -3408,7 +3408,7 @@ export default function CanvasAgentChat({
         <div
           ref={scrollContainerRef}
           data-testid="chat-scroll-region"
-          className="absolute inset-0 space-y-4 overflow-y-auto p-4"
+          className="absolute inset-0 space-y-4 overflow-y-auto overflow-x-hidden p-4"
           style={{
             paddingBottom: `${scrollContentPadding}px`,
             overflowAnchor: isAtBottom ? 'auto' : 'none',
@@ -3551,7 +3551,7 @@ export default function CanvasAgentChat({
 
             return (
               <div key={message.id} data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[96%] border p-3 sm:max-w-[90%] ${bubbleClass}`}>
+                <div className={`max-w-[96%] border p-3 sm:max-w-[90%] overflow-hidden min-w-0 ${bubbleClass}`}>
                   {isTool ? (
                     <div>
                       <button
@@ -3584,7 +3584,7 @@ export default function CanvasAgentChat({
                           {message.toolArgs ? (
                             <div className="rounded-md border border-amber-500/30 bg-background/60 p-2">
                               <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t('toolInput')}</div>
-                              <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">{message.toolArgs}</pre>
+                              <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90 max-w-full">{message.toolArgs}</pre>
                             </div>
                           ) : null}
                           <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />
