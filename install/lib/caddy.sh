@@ -35,6 +35,25 @@ detect_public_ip() {
     || true
 }
 
+remove_domain_from_main_caddyfile() {
+  local domain="$1" caddyfile="$2"
+  if [[ ! -f "$caddyfile" ]]; then return; fi
+  local escaped_domain
+  escaped_domain="$(printf '%s' "$domain" | sed 's/[.[\*^$]/\\&/g')"
+  grep -q "^${escaped_domain}[[:space:]]*{" "$caddyfile" 2>/dev/null || return
+  local tmpfile
+  tmpfile="$(mktemp)"
+  sed "/^${escaped_domain}[[:space:]]*{/,/^}/d" "$caddyfile" > "$tmpfile"
+  sed '/^$/N;/^\n$/d' "$tmpfile" > "${tmpfile}.clean"
+  run_root cp "${tmpfile}.clean" "$caddyfile"
+  rm -f "$tmpfile" "${tmpfile}.clean"
+}
+
+write_caddy_site_config() {
+  local domain="$1" canvas_caddyfile="$2"
+  printf '%s {\n    reverse_proxy localhost:3456 {\n        header_up X-Forwarded-Port 443\n    }\n}\n' "$domain" | run_root tee "$canvas_caddyfile" >/dev/null
+}
+
 configure_caddy() {
   local domain="$1" caddyfile canvas_caddyfile include_line server_ip
   if [[ "$SETUP_CADDY" != "true" ]]; then return; fi
@@ -45,8 +64,9 @@ configure_caddy() {
 
   section "Public access"
   if is_real_domain "$domain"; then
+    remove_domain_from_main_caddyfile "$domain" "$caddyfile"
     run_root mkdir -p /etc/caddy/conf.d
-    printf '%s {\n    reverse_proxy localhost:3456\n}\n' "$domain" | run_root tee "$canvas_caddyfile" >/dev/null
+    write_caddy_site_config "$domain" "$canvas_caddyfile"
     if [[ ! -f "$caddyfile" ]]; then
       printf '%s\n' "$include_line" | run_root tee "$caddyfile" >/dev/null
     elif ! grep -Fxq "$include_line" "$caddyfile"; then
