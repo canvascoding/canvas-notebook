@@ -1018,7 +1018,11 @@
         "planningAllowed": "Planning Mode",
         "planningBlocked": "Nur Standardmodus",
         "defaultEnabled": "Standard an",
-        "defaultDisabled": "Standard aus"
+        "defaultDisabled": "Standard aus",
+        "searchPlaceholder": "Werkzeuge suchen...",
+        "allGroups": "Alle",
+        "showingCount": "{shown} von {total} Werkzeugen",
+        "noMatchingTools": "Keine Werkzeuge entsprechen deiner Suche."
       },
       "files": {
         "title": "Agent-Dateien",
@@ -1048,6 +1052,11 @@
         "newSessionPlaceholder": "Neue Session (Titel optional)",
         "new": "Neu",
         "deleteAll": "Alle löschen",
+        "deleteOlder": "Sessions älter als 2 Wochen löschen",
+        "deleteOlderConfirm": "{count} Session(s) älter als 2 Wochen werden gelöscht. Fortfahren?",
+        "checkingOlder": "Prüfe...",
+        "deleteOlderSuccess": "{count} alte Session(s) gelöscht.",
+        "noOlderSessions": "Keine Sessions älter als 2 Wochen.",
         "loading": "Lade...",
         "empty": "Kein Verlauf vorhanden.",
         "unknownUser": "Unbekannt",
@@ -1060,7 +1069,8 @@
           "create": "Session konnte nicht erstellt werden.",
           "rename": "Session konnte nicht umbenannt werden.",
           "delete": "Session konnte nicht gelöscht werden.",
-          "deleteAll": "Alle Sessions konnten nicht gelöscht werden."
+          "deleteAll": "Alle Sessions konnten nicht gelöscht werden.",
+          "deleteOlder": "Alte Sessions konnten nicht gelöscht werden."
         }
       }
     },
