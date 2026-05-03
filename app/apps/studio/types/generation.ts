@@ -69,6 +69,7 @@ export interface StudioGeneratePayload {
   video_generate_audio?: boolean;
   video_web_search?: boolean;
   video_nsfw_checker?: boolean;
+  image_size?: string;
 }
 
 export interface StudioReferenceUrl {

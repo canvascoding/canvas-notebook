@@ -10,8 +10,18 @@ export const VIDEO_PROVIDERS = [
 
 export const GEMINI_MODELS = [
   { id: 'gemini-3.1-flash-image-preview', optionKey: 'bestQuality' as const },
+  { id: 'gemini-3-pro-image-preview', optionKey: 'proQuality' as const },
   { id: 'gemini-2.5-flash-image', optionKey: 'fastAffordable' as const },
 ] as const;
+
+export const GEMINI_IMAGE_SIZES = ['1K', '2K', '4K'] as const;
+export const GEMINI_FLASH_IMAGE_SIZES = ['512', '1K', '2K', '4K'] as const;
+
+export function getImageSizesForModel(model: string): readonly string[] {
+  if (model === 'gemini-2.5-flash-image') return [];
+  if (model === 'gemini-3.1-flash-image-preview') return GEMINI_FLASH_IMAGE_SIZES;
+  return GEMINI_IMAGE_SIZES;
+}
 
 export const OPENAI_MODELS = [
   { id: 'gpt-image-2', optionKey: 'gptImage2' as const },

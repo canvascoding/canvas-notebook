@@ -27,6 +27,7 @@ import {
   getAspectRatiosForProvider,
   getVideoResolutionsForModel,
   getVideoDurationsForModel,
+  getImageSizesForModel,
   type VideoResolution,
   type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
@@ -53,6 +54,8 @@ interface ControlBarProps {
   onOutputFormatChange: (value: 'png' | 'jpeg' | 'webp') => void;
   background: 'transparent' | 'opaque' | 'auto';
   onBackgroundChange: (value: 'transparent' | 'opaque' | 'auto') => void;
+  imageSize: string;
+  onImageSizeChange: (value: string) => void;
   videoResolution: VideoResolution;
   onVideoResolutionChange: (value: VideoResolution) => void;
   videoDuration: StudioVideoDuration;
@@ -105,6 +108,8 @@ export function ControlBar({
   onOutputFormatChange,
   background,
   onBackgroundChange,
+  imageSize,
+  onImageSizeChange,
   videoResolution,
   onVideoResolutionChange,
   videoDuration,
@@ -266,7 +271,9 @@ export function ControlBar({
                               : 'GPT Image 1 Mini — Fast & Affordable'
                         : m.id === 'gemini-3.1-flash-image-preview'
                           ? 'Gemini 3.1 Flash — Best Quality & Features'
-                          : 'Gemini 2.5 Flash — Fast & Affordable'}
+                          : m.id === 'gemini-3-pro-image-preview'
+                            ? 'Nano Banana Pro — Pro Quality & Reasoning'
+                            : 'Gemini 2.5 Flash — Fast & Affordable'}
                   </option>
                 ))}
               </select>
@@ -304,6 +311,23 @@ export function ControlBar({
                   </select>
                 </label>
               </>
+            ) : null}
+
+            {!isOpenAI && mode === 'image' && getImageSizesForModel(model).length > 0 ? (
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs text-muted-foreground">Resolution</span>
+                <select
+                  className="h-9 border border-input bg-background px-2 text-sm"
+                  value={imageSize}
+                  onChange={(event) => onImageSizeChange(event.target.value)}
+                >
+                  {getImageSizesForModel(model).map((size) => (
+                    <option key={size} value={size}>
+                      {size === '512' ? '512px (0.5K)' : size}
+                    </option>
+                  ))}
+                </select>
+              </label>
             ) : null}
 
             {isOpenAI && mode === 'image' ? (

@@ -22,7 +22,7 @@ import { ControlBar } from './ControlBar';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { BatchDeleteDialog } from './BatchDeleteDialog';
 import Image from 'next/image';
-import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
+import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, getImageSizesForModel, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
@@ -365,6 +365,7 @@ export function CreateView() {
       quality: store.provider === 'openai' ? store.quality : undefined,
       output_format: store.provider === 'openai' ? store.outputFormat : undefined,
       background: store.provider === 'openai' ? store.background : undefined,
+      image_size: store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
       extra_reference_urls: fileUrls,
       video_resolution: store.mode === 'video' ? store.videoResolution : undefined,
       video_duration: store.mode === 'video' ? store.videoDuration : undefined,
@@ -624,6 +625,14 @@ export function CreateView() {
             model={store.model}
             onModelChange={(nextModel) => {
               store.setModel(nextModel);
+              if (nextModel === 'gemini-2.5-flash-image') {
+                store.setImageSize('1K');
+              } else {
+                const validSizes = getImageSizesForModel(nextModel);
+                if (validSizes.length > 0 && !validSizes.includes(store.imageSize)) {
+                  store.setImageSize(validSizes[0]);
+                }
+              }
               if (store.mode === 'video') {
                 const validRes = getVideoResolutionsForModel(nextModel);
                 if (!validRes.includes(store.videoResolution)) {
@@ -641,6 +650,8 @@ export function CreateView() {
             onOutputFormatChange={store.setOutputFormat}
             background={store.background}
             onBackgroundChange={store.setBackground}
+            imageSize={store.imageSize}
+            onImageSizeChange={store.setImageSize}
             videoResolution={store.videoResolution}
             onVideoResolutionChange={(res) => {
               store.setVideoResolution(res);
