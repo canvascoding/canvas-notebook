@@ -4,6 +4,7 @@ import { createTelegramBot } from './bot';
 import { TelegramPollingSession } from './polling';
 import { setupInboundHandler } from './inbound';
 import { deliverToTelegram } from './outbound';
+import { registerTelegramBotCommands } from './commands';
 
 export class TelegramChannel implements ChannelPlugin {
   id: ChannelId = 'telegram';
@@ -27,6 +28,9 @@ export class TelegramChannel implements ChannelPlugin {
 
       this.polling = new TelegramPollingSession(this.bot, context.abortSignal);
       await this.polling.start();
+      void registerTelegramBotCommands(this.bot).catch((err) => {
+        console.warn('[TelegramChannel] Failed to register bot commands:', err instanceof Error ? err.message : err);
+      });
       this.running = true;
       this.lastError = undefined;
       console.log('[TelegramChannel] Started successfully');

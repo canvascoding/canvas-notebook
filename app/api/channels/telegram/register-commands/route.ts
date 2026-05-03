@@ -4,6 +4,7 @@ import { getChannelRegistry } from '@/app/lib/channels/registry';
 import { getTelegramConfigFromIntegrations } from '@/app/lib/integrations/env-config';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { TelegramChannel } from '@/app/lib/channels/telegram';
+import { registerTelegramBotCommands } from '@/app/lib/channels/telegram/commands';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -26,14 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     const bot = (channel as TelegramChannel).getBot();
-    await bot.api.setMyCommands([
-      { command: 'new', description: 'Neue Session erstellen' },
-      { command: 'stop', description: 'Agent-Lauf abbrechen' },
-      { command: 'compact', description: 'Context komprimieren' },
-      { command: 'sessions', description: 'Sessions auflisten' },
-      { command: 'switch', description: 'Zu Session wechseln' },
-      { command: 'status', description: 'Session-Status anzeigen' },
-    ]);
+    await registerTelegramBotCommands(bot);
 
     return NextResponse.json({ success: true });
   } catch (error) {
