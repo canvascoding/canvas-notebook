@@ -12,6 +12,16 @@ const COMMANDS_LIST = [
   '/status — Aktuelle Session und Agent-Status',
 ];
 
+export const TELEGRAM_BOT_COMMANDS = [
+  { command: 'start', description: 'Account verknüpfen' },
+  { command: 'new', description: 'Neue Session erstellen' },
+  { command: 'stop', description: 'Agent-Lauf abbrechen' },
+  { command: 'compact', description: 'Context komprimieren' },
+  { command: 'sessions', description: 'Sessions auflisten' },
+  { command: 'switch', description: 'Zu Session wechseln' },
+  { command: 'status', description: 'Session-Status anzeigen' },
+];
+
 export function registerCommands(bot: Bot): void {
   bot.command('start', handleStartCommand);
   bot.command('new', handleNewCommand);
@@ -20,6 +30,10 @@ export function registerCommands(bot: Bot): void {
   bot.command('sessions', handleSessionsCommand);
   bot.command('switch', handleSwitchCommand);
   bot.command('status', handleStatusCommand);
+}
+
+export async function registerTelegramBotCommands(bot: Bot): Promise<void> {
+  await bot.api.setMyCommands(TELEGRAM_BOT_COMMANDS);
 }
 
 function isPrivateChat(ctx: Context): boolean {
