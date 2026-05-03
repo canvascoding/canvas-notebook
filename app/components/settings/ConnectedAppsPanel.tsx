@@ -299,7 +299,7 @@ export function ConnectedAppsPanel() {
               <p className="text-sm text-muted-foreground">
                 {status?.configured && !status?.apiKeyValid ? t('apiKeyInvalid') : t('notConfigured')}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="relative flex-1">
                   <Input
                     type={apiKeyVisible ? 'text' : 'password'}
@@ -321,7 +321,7 @@ export function ConnectedAppsPanel() {
                     {apiKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
-                <Button onClick={() => void saveApiKey()} disabled={apiKeySaving || !apiKeyDraft.trim()}>
+                <Button onClick={() => void saveApiKey()} disabled={apiKeySaving || !apiKeyDraft.trim()} className="w-full sm:w-auto">
                   {apiKeySaving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
                   {t('saveApiKey')}
                 </Button>
@@ -352,7 +352,7 @@ export function ConnectedAppsPanel() {
                 {connectedToolkits.map((tk) => (
                   <div
                     key={tk.slug}
-                    className="flex cursor-pointer items-center justify-between rounded border border-border p-3 transition-colors hover:bg-muted/50"
+                    className="flex cursor-pointer flex-col gap-2 rounded border border-border p-3 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
                     onClick={() => setDialogToolkit(tk)}
                   >
                     <div className="flex items-center gap-3">
@@ -364,7 +364,7 @@ export function ConnectedAppsPanel() {
                           {tk.name.charAt(0).toUpperCase()}
                         </div>
                       )}
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm font-medium">{tk.name}</p>
                         <p className="text-xs text-muted-foreground">{tk.slug}</p>
                       </div>
