@@ -1,14 +1,42 @@
 const TELEGRAM_MAX_LENGTH = 4000;
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value).replace(/'/g, '&#39;');
+}
+
+function sanitizeTelegramHref(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:') {
+      return url.toString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export function markdownToTelegramHtml(markdown: string): string {
-  let html = markdown;
+  let html = escapeHtml(markdown);
 
   html = html.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<i>$1</i>');
   html = html.replace(/~~(.+?)~~/g, '<s>$1</s>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) => {
+    const sanitizedHref = sanitizeTelegramHref(href.replace(/&amp;/g, '&'));
+    if (!sanitizedHref) return label;
+    return `<a href="${escapeAttribute(sanitizedHref)}">${label}</a>`;
+  });
 
   return html;
 }

@@ -94,8 +94,10 @@ export function ChannelsPanel() {
   }, []);
 
   useEffect(() => {
-    loadEnvValues();
-    loadStatus();
+    void Promise.resolve().then(() => {
+      void loadEnvValues();
+      void loadStatus();
+    });
   }, [loadEnvValues, loadStatus]);
 
   const saveEnv = async (key: string, value: string) => {

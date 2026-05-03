@@ -37,11 +37,13 @@ console.log('markdownToTelegramHtml:');
 assertEqual(markdownToTelegramHtml('**hello**'), '<b>hello</b>', 'converts bold');
 assertEqual(markdownToTelegramHtml('*hello*'), '<i>hello</i>', 'converts italic');
 assertEqual(markdownToTelegramHtml('use `npm install`'), 'use <code>npm install</code>', 'converts inline code');
-assertContains(markdownToTelegramHtml('```js\nconsole.log("hi")\n```\nDone'), '<pre>js\nconsole.log("hi")\n</pre>', 'converts code blocks');
+assertContains(markdownToTelegramHtml('```js\nconsole.log("hi")\n```\nDone'), '<pre>js\nconsole.log(&quot;hi&quot;)\n</pre>', 'converts code blocks');
 assertEqual(markdownToTelegramHtml('~~deleted~~'), '<s>deleted</s>', 'converts strikethrough');
-assertEqual(markdownToTelegramHtml('[click](https://example.com)'), '<a href="https://example.com">click</a>', 'converts links');
+assertEqual(markdownToTelegramHtml('[click](https://example.com)'), '<a href="https://example.com/">click</a>', 'converts links');
 assertEqual(markdownToTelegramHtml('just text'), 'just text', 'leaves plain text unchanged');
 assertEqual(markdownToTelegramHtml('**bold** and `code`'), '<b>bold</b> and <code>code</code>', 'handles mixed formatting');
+assertEqual(markdownToTelegramHtml('<b>raw</b> & text'), '&lt;b&gt;raw&lt;/b&gt; &amp; text', 'escapes raw HTML');
+assertEqual(markdownToTelegramHtml('[bad](javascript:alert(1))'), 'bad)', 'drops unsafe links');
 
 console.log('\nchunkTelegramMessage:');
 const shortChunks = chunkTelegramMessage('short');

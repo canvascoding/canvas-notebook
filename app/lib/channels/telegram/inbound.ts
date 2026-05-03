@@ -9,11 +9,17 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
   registerCommands(bot);
 
   bot.on('message', async (ctx: Context) => {
-    const chatId = String(ctx.chat?.id);
-    const text = ctx.message?.text;
-    const from = ctx.from;
+    if (ctx.chat?.type !== 'private') {
+      return;
+    }
 
-    if (!text || !from) return;
+    const chatId = String(ctx.chat?.id);
+    const text = ctx.message?.text ?? '';
+    const caption = ctx.message?.caption ?? '';
+    const from = ctx.from;
+    const hasPhoto = Array.isArray(ctx.message?.photo) && ctx.message.photo.length > 0;
+
+    if ((!text && !caption && !hasPhoto) || !from) return;
     if (text.startsWith('/')) return;
 
     const binding = await getBinding('telegram', chatId);
@@ -45,7 +51,6 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
       }
     }
 
-    const caption = ctx.message?.caption ?? '';
     const userMessage = caption || text;
 
     const inbound: InboundMessage = {

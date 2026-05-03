@@ -30,7 +30,7 @@ export async function resolveTelegramSession(chatId: string, userId: string): Pr
   return createTelegramSession(chatId, userId);
 }
 
-async function createTelegramSession(chatId: string, userId: string): Promise<string> {
+export async function createTelegramSession(chatId: string, userId: string): Promise<string> {
   const sessionId = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const piConfig = await readPiRuntimeConfig();
   const model = await resolveActivePiModel();
@@ -74,7 +74,11 @@ async function setActiveSession(chatId: string, userId: string, sessionId: strin
 
 export async function switchTelegramSession(chatId: string, userId: string, sessionId: string): Promise<boolean> {
   const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId)),
+    where: and(
+      eq(piSessions.sessionId, sessionId),
+      eq(piSessions.userId, userId),
+      eq(piSessions.channelId, 'telegram'),
+    ),
   });
 
   if (!session) return false;

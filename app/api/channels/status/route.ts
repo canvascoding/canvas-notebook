@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getChannelManager } from '@/app/lib/channels/manager';
 import { getTelegramConfigFromIntegrations } from '@/app/lib/integrations/env-config';
-import { getBinding } from '@/app/lib/channels/telegram/link-token';
+import { getBindingByUser } from '@/app/lib/channels/telegram/link-token';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
     const telegramConfig = await getTelegramConfigFromIntegrations();
     const telegramBinding = telegramConfig.botToken
-      ? await getBinding('telegram', session.user.id).catch(() => null)
+      ? await getBindingByUser('telegram', session.user.id).catch(() => null)
       : null;
 
     const channels = Object.entries(managerStatuses).map(([id, status]) => ({

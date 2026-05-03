@@ -84,6 +84,18 @@ export async function getBinding(channelId: string, channelUserId: string): Prom
   return { userId: record.userId, channelUserName: record.channelUserName };
 }
 
+export async function getBindingByUser(channelId: string, userId: string): Promise<{ channelUserId: string; channelUserName: string | null } | null> {
+  const record = await db.query.channelUserBindings.findFirst({
+    where: and(
+      eq(channelUserBindings.channelId, channelId),
+      eq(channelUserBindings.userId, userId),
+    ),
+  });
+
+  if (!record) return null;
+  return { channelUserId: record.channelUserId, channelUserName: record.channelUserName };
+}
+
 export async function deleteBinding(userId: string, channelId: string): Promise<void> {
   await db.delete(channelUserBindings)
     .where(and(

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -414,7 +414,7 @@ export const channelUserBindings = sqliteTable("channel_user_bindings", {
   channelUserName: text("channel_user_name"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
-  uniqueBinding: index("idx_channel_user_binding").on(table.channelId, table.channelUserId),
+  uniqueBinding: uniqueIndex("idx_channel_user_binding").on(table.channelId, table.channelUserId),
 }));
 
 export const channelLinkTokens = sqliteTable("channel_link_tokens", {
@@ -434,5 +434,5 @@ export const telegramActiveSession = sqliteTable("telegram_active_session", {
   sessionId: text("session_id").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
-  uniqueChat: index("idx_tg_active_session_chat").on(table.chatId),
+  uniqueChat: uniqueIndex("idx_tg_active_session_chat").on(table.chatId),
 }));
