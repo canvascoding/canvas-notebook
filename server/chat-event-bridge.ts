@@ -55,18 +55,26 @@ function extractTextPreview(value: unknown): string {
 }
 
 function extractAssistantNotificationPreview(eventMessage: unknown): string {
-  const directPreview = extractTextPreview(eventMessage);
-  if (directPreview) {
-    return directPreview;
-  }
-
   if (!eventMessage || typeof eventMessage !== 'object') {
-    return '';
+    return extractTextPreview(eventMessage);
   }
 
   const record = eventMessage as Record<string, unknown>;
-  if ('content' in record) {
-    return extractTextPreview(record.content);
+
+  if (record.stopReason === 'error' && typeof record.errorMessage === 'string' && record.errorMessage) {
+    return `[Error] ${record.errorMessage}`;
+  }
+
+  const contentPreview = 'content' in record
+    ? extractTextPreview(record.content)
+    : extractTextPreview(eventMessage);
+
+  if (contentPreview) {
+    return contentPreview;
+  }
+
+  if (typeof record.errorMessage === 'string' && record.errorMessage) {
+    return `[Error] ${record.errorMessage}`;
   }
 
   return '';
@@ -213,6 +221,40 @@ export function initializeWebSocketBridge(): void {
       } catch (error) {
         console.error(`[WebSocket Bridge] Failed to fetch session/message data:`, error);
         broadcastNotification(userId, sessionId, sessionId, 'new_response', '');
+      }
+    }
+
+    // Handle error events - deliver error messages to channel (e.g. Telegram)
+    if (event.type === 'error' && typeof event.error === 'string') {
+      console.log(`[WebSocket Bridge] Received error event for session ${sessionId}: ${event.error}`);
+
+      try {
+        const session = await db.query.piSessions.findFirst({
+          where: and(
+            eq(piSessions.sessionId, sessionId),
+            eq(piSessions.userId, userId)
+          ),
+          columns: { channelId: true, channelSessionKey: true }
+        });
+
+        const errorText = `[Error] ${event.error}`;
+
+        if (session?.channelId && session.channelId !== 'app' && session.channelSessionKey) {
+          const channel = getChannelRegistry().get(session.channelId);
+          if (channel) {
+            try {
+              const chatId = session.channelSessionKey.replace(/^telegram:/, '');
+              await channel.deliver(
+                { content: errorText, role: 'assistant' },
+                { chatId }
+              );
+            } catch (err) {
+              console.error(`[WebSocket Bridge] Error delivery failed for ${session.channelId}:`, err);
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`[WebSocket Bridge] Failed to handle error event for channel delivery:`, error);
       }
     }
   });
