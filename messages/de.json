@@ -797,6 +797,7 @@
       "integrations": "Integrationen",
       "agentSettings": "Agent-Einstellungen",
       "workspace": "Workspace",
+      "channels": "Channels",
       "usage": "Nutzung",
       "skills": "Skills"
     },
@@ -824,6 +825,44 @@
       "agents": {
         "title": "Agent-Umgebung",
         "description": "Keys und Agent-Env-Werte für OpenRouter, Ollama und die Agent-Runtime."
+      }
+    },
+    "channels": {
+      "telegram": {
+        "title": "Telegram",
+        "description": "Verbinde einen Telegram-Bot, um ihn als Chat-Channel zu nutzen.",
+        "loading": "Laden...",
+        "setupGuideTitle": "Einrichtungsanleitung",
+        "step1": "Erstelle einen neuen Bot über",
+        "step1b": "auf Telegram — kopiere das Bot-Token, das du erhältst.",
+        "step2": "Trage das Bot-Token unten ein und speichere es.",
+        "step3": "Aktiviere den Channel-Toggle oben.",
+        "step4": "Klicke auf 'Verknüpfen', um ein Token zu generieren. Kopiere den angezeigten /start-Befehl und sende ihn an deinen Telegram-Bot.",
+        "statusLabel": "Status:",
+        "statusNotConfigured": "Nicht konfiguriert — Bot-Token eingeben",
+        "statusDisabled": "Deaktiviert",
+        "statusLinked": "Verknüpft als @{username}",
+        "statusNotLinked": "Nicht verknüpft — Token generieren zum Verbinden",
+        "enableLabel": "Telegram-Channel aktivieren",
+        "enableDescription": "Wenn aktiv, beginnt der Bot mit dem Abrufen von Nachrichten.",
+        "botTokenLabel": "Bot-Token",
+        "save": "Speichern",
+        "saved": "Gespeichert",
+        "linkLabel": "Kontoverknüpfung",
+        "linkedAs": "Verknüpft als @{username}",
+        "linkedGeneric": "Verknüpft",
+        "unlink": "Aufheben",
+        "linkButton": "Verknüpfen",
+        "tokenGenerated": "Verknüpfungs-Token generiert:",
+        "copiedToClipboard": "In Zwischenablage kopiert!",
+        "clickToCopy": "Auf den Befehl klicken zum Kopieren",
+        "restart": "Bot neustarten",
+        "restarted": "Bot neu gestartet",
+        "unlinked": "Verknüpfung aufgehoben",
+        "commandsRegistered": "Bot-Commands registered",
+        "registerCommandsLabel": "Bot-Commands registrieren",
+        "registerCommandsButton": "Registrieren",
+        "refresh": "Aktualisieren"
       }
     },
     "envCard": {

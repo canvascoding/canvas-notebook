@@ -80,7 +80,11 @@ export const piSessions = sqliteTable("pi_sessions", {
   summaryThroughTimestamp: integer("summary_through_timestamp"),
   lastMessageAt: integer("last_message_at", { mode: "timestamp" }),
   lastViewedAt: integer("last_viewed_at", { mode: "timestamp" }),
-});
+  channelId: text("channel_id").notNull().default('app'),
+  channelSessionKey: text("channel_session_key"),
+}, (table) => ({
+  channelIdx: index("idx_pi_sessions_channel").on(table.channelId, table.channelSessionKey),
+}));
 
 export const piMessages = sqliteTable("pi_messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -400,4 +404,35 @@ export const studioBulkJobLineItems = sqliteTable("studio_bulk_job_line_items", 
 }, (table) => ({
   bulkJobIdx: index("idx_studio_bulk_job_line_items_bulk_job").on(table.bulkJobId),
   statusIdx: index("idx_studio_bulk_job_line_items_status").on(table.status),
+}));
+
+export const channelUserBindings = sqliteTable("channel_user_bindings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().references(() => user.id),
+  channelId: text("channel_id").notNull().default('telegram'),
+  channelUserId: text("channel_user_id").notNull(),
+  channelUserName: text("channel_user_name"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  uniqueBinding: index("idx_channel_user_binding").on(table.channelId, table.channelUserId),
+}));
+
+export const channelLinkTokens = sqliteTable("channel_link_tokens", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().references(() => user.id),
+  channelId: text("channel_id").notNull().default('telegram'),
+  token: text("token").notNull().unique(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  usedAt: integer("used_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const telegramActiveSession = sqliteTable("telegram_active_session", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().references(() => user.id),
+  chatId: text("chat_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  uniqueChat: index("idx_tg_active_session_chat").on(table.chatId),
 }));

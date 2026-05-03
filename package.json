@@ -80,6 +80,7 @@
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "file-type": "^22.0.0",
+    "grammy": "^1.42.0",
     "iron-session": "^8.0.4",
     "jsdom": "^29.1.1",
     "jspreadsheet-ce": "^5.0.4",

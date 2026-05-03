@@ -397,3 +397,31 @@ export async function getKieApiKeyFromIntegrations(): Promise<string | null> {
     return process.env.KIE_API_KEY || null;
   }
 }
+
+export async function getTelegramConfigFromIntegrations(): Promise<{
+  botToken: string | null;
+  channelEnabled: boolean;
+}> {
+  try {
+    const state = await readScopedEnvState('integrations');
+    const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
+
+    const botToken = byKey.get('TELEGRAM_BOT_TOKEN') || process.env.TELEGRAM_BOT_TOKEN || null;
+    const enabledRaw = byKey.get('TELEGRAM_CHANNEL_ENABLED') || process.env.TELEGRAM_CHANNEL_ENABLED || 'false';
+    const channelEnabled = enabledRaw.toLowerCase() === 'true';
+
+    if (botToken) {
+      console.log('[EnvConfig] Found TELEGRAM_BOT_TOKEN in integrations env file');
+    } else {
+      console.warn('[EnvConfig] TELEGRAM_BOT_TOKEN not found — Telegram channel will not start');
+    }
+
+    return { botToken, channelEnabled };
+  } catch (error) {
+    console.error('[EnvConfig] Error loading Telegram config:', error);
+    return {
+      botToken: process.env.TELEGRAM_BOT_TOKEN || null,
+      channelEnabled: (process.env.TELEGRAM_CHANNEL_ENABLED || 'false').toLowerCase() === 'true',
+    };
+  }
+}

@@ -10,6 +10,7 @@ import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsP
 import { SkillsPanel } from '@/app/components/settings/SkillsPanel';
 import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSettingsPanel';
 import { ConnectedAppsPanel } from '@/app/components/settings/ConnectedAppsPanel';
+import { ChannelsPanel } from '@/app/components/settings/ChannelsPanel';
 import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -60,7 +61,7 @@ type ScopeCardConfig = {
 };
 
 const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
-  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY', 'COMPOSIO_API_KEY'],
+  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY', 'COMPOSIO_API_KEY', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHANNEL_ENABLED'],
   agents: ['OPENROUTER_API_KEY', 'OLLAMA_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
 };
 
@@ -313,7 +314,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
-  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage' | 'skills'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage' | 'skills' | 'channels'>('general');
   const { activeTabOverride } = useHintContext();
 
   const effectiveTab = (activeTabOverride as typeof settingsTab) || settingsTab;
@@ -392,6 +393,8 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         setSettingsTab('usage');
       } else if (tab === 'skills') {
         setSettingsTab('skills');
+      } else if (tab === 'channels') {
+        setSettingsTab('channels');
       }
     });
   }, [searchParams]);
@@ -566,7 +569,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         onValueChange={handleTabChange}
         className="space-y-4"
       >
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-6">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-7">
           <TabsTrigger value="general" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.general')}
           </TabsTrigger>
@@ -578,6 +581,9 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
           </TabsTrigger>
           <TabsTrigger value="workspace" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.workspace')}
+          </TabsTrigger>
+          <TabsTrigger value="channels" className="min-h-9 border border-border data-[state=active]:bg-muted">
+            {t('tabs.channels')}
           </TabsTrigger>
           <TabsTrigger value="usage" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.usage')}
@@ -617,6 +623,10 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
 
         <TabsContent value="workspace" className="space-y-4">
           <WorkspaceSettingsPanel />
+        </TabsContent>
+
+        <TabsContent value="channels" className="space-y-4">
+          <ChannelsPanel />
         </TabsContent>
 
         <TabsContent value="usage" className="space-y-4" id="onboarding-settings-usage">

@@ -513,6 +513,47 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     custom_prompt: 'TEXT',
   });
 
+  addColumns(sqlite, 'pi_sessions', {
+    channel_id: "TEXT NOT NULL DEFAULT 'app'",
+    channel_session_key: 'TEXT',
+  });
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS channel_user_bindings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      user_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL DEFAULT 'telegram',
+      channel_user_id TEXT NOT NULL,
+      channel_user_name TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS channel_link_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      user_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL DEFAULT 'telegram',
+      token TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      used_at INTEGER,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS telegram_active_session (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      user_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_user_binding ON channel_user_bindings (channel_id, channel_user_id);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_active_session_chat ON telegram_active_session (chat_id);
+  `);
+
   // ── One-time data fixes ───────────────────────────────────────────────────────
 
   try {
