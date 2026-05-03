@@ -35,7 +35,10 @@ export class TelegramPollingSession {
 
     this.lastReceivedUpdateAt = Date.now();
     this.startStallDetection();
-    await this.runWithBackoff();
+    void this.runWithBackoff().catch((err) => {
+      console.error('[TelegramPolling] Polling loop crashed:', err instanceof Error ? err.message : err);
+      this.running = false;
+    });
   }
 
   stop(): void {
