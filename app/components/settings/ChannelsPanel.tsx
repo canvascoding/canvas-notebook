@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import {
   Check,
   Copy,
   ExternalLink,
   Eye,
   EyeOff,
+  Heart,
   Link2,
   Loader2,
   RefreshCw,
@@ -25,8 +27,24 @@ type TelegramStatus = {
   linkedUserName: string | null;
 };
 
+type HeartbeatSchedule =
+  | { kind: 'daily'; time: string; timeZone: string }
+  | { kind: 'weekly'; days: string[]; time: string; timeZone: string }
+  | { kind: 'interval'; every: number; unit: 'minutes' | 'hours' | 'days'; timeZone: string };
+
+type HeartbeatConfig = {
+  configured: boolean;
+  enabled: boolean;
+  schedule: HeartbeatSchedule | null;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastRunStatus: string | null;
+  jobId: string | null;
+};
+
 export function ChannelsPanel() {
   const t = useTranslations('settings');
+  const router = useRouter();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -44,6 +62,17 @@ export function ChannelsPanel() {
 
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const [heartbeatConfig, setHeartbeatConfig] = useState<HeartbeatConfig | null>(null);
+  const [heartbeatSaving, setHeartbeatSaving] = useState(false);
+  const [heartbeatError, setHeartbeatError] = useState<string | null>(null);
+  const [heartbeatSuccess, setHeartbeatSuccess] = useState<string | null>(null);
+  const [heartbeatScheduleKind, setHeartbeatScheduleKind] = useState<'daily' | 'weekly' | 'interval'>('daily');
+  const [heartbeatTime, setHeartbeatTime] = useState('09:00');
+  const [heartbeatTimezone, setHeartbeatTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [heartbeatWeekdays, setHeartbeatWeekdays] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
+  const [heartbeatIntervalEvery, setHeartbeatIntervalEvery] = useState(6);
+  const [heartbeatIntervalUnit, setHeartbeatIntervalUnit] = useState<'minutes' | 'hours' | 'days'>('hours');
 
   const fullCommand = linkToken ? `/start ${linkToken}` : '';
 
@@ -93,12 +122,47 @@ export function ChannelsPanel() {
     }
   }, []);
 
+  const loadHeartbeatConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/channels/heartbeat/config', { credentials: 'include', cache: 'no-store' });
+      const data = await res.json();
+      if (data.success) {
+        const config: HeartbeatConfig = {
+          configured: data.configured,
+          enabled: data.enabled,
+          schedule: data.schedule,
+          nextRunAt: data.nextRunAt,
+          lastRunAt: data.lastRunAt,
+          lastRunStatus: data.lastRunStatus,
+          jobId: data.jobId,
+        };
+        setHeartbeatConfig(config);
+        if (data.schedule) {
+          const sched = data.schedule as HeartbeatSchedule;
+          setHeartbeatScheduleKind(sched.kind === 'weekly' ? 'weekly' : sched.kind === 'interval' ? 'interval' : 'daily');
+          if (sched.kind === 'daily' || sched.kind === 'weekly') {
+            setHeartbeatTime(sched.time);
+            setHeartbeatTimezone(sched.timeZone);
+            if (sched.kind === 'weekly') setHeartbeatWeekdays(sched.days);
+          } else if (sched.kind === 'interval') {
+            setHeartbeatIntervalEvery(sched.every);
+            setHeartbeatIntervalUnit(sched.unit);
+            setHeartbeatTimezone(sched.timeZone);
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     void Promise.resolve().then(() => {
       void loadEnvValues();
       void loadStatus();
+      void loadHeartbeatConfig();
     });
-  }, [loadEnvValues, loadStatus]);
+  }, [loadEnvValues, loadStatus, loadHeartbeatConfig]);
 
   const saveEnv = async (key: string, value: string) => {
     setIsSaving(true);
@@ -261,6 +325,65 @@ export function ChannelsPanel() {
     }
   };
 
+  const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
+  const buildScheduleFromForm = (): HeartbeatSchedule => {
+    if (heartbeatScheduleKind === 'daily') {
+      return { kind: 'daily', time: heartbeatTime, timeZone: heartbeatTimezone };
+    }
+    if (heartbeatScheduleKind === 'weekly') {
+      return { kind: 'weekly', days: heartbeatWeekdays, time: heartbeatTime, timeZone: heartbeatTimezone };
+    }
+    return { kind: 'interval', every: heartbeatIntervalEvery, unit: heartbeatIntervalUnit, timeZone: heartbeatTimezone };
+  };
+
+  const saveHeartbeatConfig = async (enabled: boolean) => {
+    setHeartbeatSaving(true);
+    setHeartbeatError(null);
+    setHeartbeatSuccess(null);
+    try {
+      const schedule = buildScheduleFromForm();
+      const res = await fetch('/api/channels/heartbeat/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled, schedule }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to save');
+      setHeartbeatConfig({
+        configured: data.configured,
+        enabled: data.enabled,
+        schedule: data.schedule,
+        nextRunAt: data.nextRunAt,
+        lastRunAt: data.lastRunAt,
+        lastRunStatus: data.lastRunStatus,
+        jobId: data.jobId,
+      });
+      setHeartbeatSuccess(t('channels.heartbeat.saved'));
+      setTimeout(() => setHeartbeatSuccess(null), 3000);
+    } catch (err) {
+      setHeartbeatError(err instanceof Error ? err.message : t('channels.heartbeat.saveError'));
+    } finally {
+      setHeartbeatSaving(false);
+    }
+  };
+
+  const handleHeartbeatToggle = async () => {
+    const newEnabled = !heartbeatConfig?.enabled;
+    setHeartbeatConfig((prev) => prev ? { ...prev, enabled: newEnabled } : null);
+    await saveHeartbeatConfig(newEnabled);
+  };
+
+  const formatNextRun = (dateStr: string | null) => {
+    if (!dateStr) return t('channels.heartbeat.never');
+    try {
+      return new Date(dateStr).toLocaleString();
+    } catch {
+      return dateStr;
+    }
+  };
+
   const statusEmoji = telegramStatus?.configured
     ? telegramStatus?.enabled
       ? telegramStatus?.linked
@@ -282,6 +405,7 @@ export function ChannelsPanel() {
         : t('channels.telegram.statusNotLinked');
 
   return (
+    <div className="space-y-4">
     <Card>
       <CardHeader className="px-4 sm:px-6">
         <CardTitle>{t('channels.telegram.title')}</CardTitle>
@@ -552,5 +676,164 @@ export function ChannelsPanel() {
         )}
       </CardContent>
     </Card>
+
+    <Card>
+      <CardHeader className="px-4 sm:px-6">
+        <CardTitle className="flex items-center gap-2">
+          <Heart className="h-5 w-5" />
+          {t('channels.heartbeat.title')}
+        </CardTitle>
+        <CardDescription>{t('channels.heartbeat.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
+        {heartbeatError && <p className="text-sm text-destructive">{heartbeatError}</p>}
+        {heartbeatSuccess && <p className="text-sm text-primary">{heartbeatSuccess}</p>}
+
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-sm font-medium">
+              {t('channels.heartbeat.enableLabel')}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t('channels.heartbeat.enableDescription')}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={heartbeatConfig?.enabled ?? false}
+            onClick={() => void handleHeartbeatToggle()}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${heartbeatConfig?.enabled ? 'bg-primary' : 'bg-muted'}`}
+            disabled={heartbeatSaving}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${heartbeatConfig?.enabled ? 'translate-x-6' : 'translate-x-1'}`}
+            />
+          </button>
+        </div>
+
+        {(heartbeatConfig?.enabled || heartbeatConfig?.configured) && (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('channels.heartbeat.scheduleKindLabel')}</label>
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={heartbeatScheduleKind}
+                onChange={(e) => setHeartbeatScheduleKind(e.target.value as 'daily' | 'weekly' | 'interval')}
+                disabled={heartbeatSaving}
+              >
+                <option value="daily">{t('channels.heartbeat.daily')}</option>
+                <option value="weekly">{t('channels.heartbeat.weekly')}</option>
+                <option value="interval">{t('channels.heartbeat.interval')}</option>
+              </select>
+            </div>
+
+            {(heartbeatScheduleKind === 'daily' || heartbeatScheduleKind === 'weekly') && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('channels.heartbeat.timeLabel')}</label>
+                <Input
+                  type="time"
+                  value={heartbeatTime}
+                  onChange={(e) => setHeartbeatTime(e.target.value)}
+                  disabled={heartbeatSaving}
+                  className="max-w-[200px]"
+                />
+              </div>
+            )}
+
+            {heartbeatScheduleKind === 'weekly' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('channels.heartbeat.weekdays')}</label>
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAYS.map((day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      className={`px-2 py-1 text-xs rounded border transition-colors ${heartbeatWeekdays.includes(day) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border'}`}
+                      onClick={() => {
+                        setHeartbeatWeekdays((prev) =>
+                          prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                        );
+                      }}
+                      disabled={heartbeatSaving}
+                    >
+                      {t(`channels.heartbeat.weekdayLabels.${day}`)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {heartbeatScheduleKind === 'interval' && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium">{t('channels.heartbeat.intervalEveryLabel')}</label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={heartbeatIntervalEvery}
+                  onChange={(e) => setHeartbeatIntervalEvery(parseInt(e.target.value) || 1)}
+                  disabled={heartbeatSaving}
+                  className="w-20"
+                />
+                <select
+                  className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={heartbeatIntervalUnit}
+                  onChange={(e) => setHeartbeatIntervalUnit(e.target.value as 'minutes' | 'hours' | 'days')}
+                  disabled={heartbeatSaving}
+                >
+                  <option value="minutes">{t('channels.heartbeat.minutes')}</option>
+                  <option value="hours">{t('channels.heartbeat.hours')}</option>
+                  <option value="days">{t('channels.heartbeat.days')}</option>
+                </select>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('channels.heartbeat.timezone')}</label>
+              <Input
+                value={heartbeatTimezone}
+                onChange={(e) => setHeartbeatTimezone(e.target.value)}
+                disabled={heartbeatSaving}
+                className="max-w-[300px]"
+              />
+            </div>
+
+            <Button
+              type="button"
+              disabled={heartbeatSaving}
+              onClick={() => void saveHeartbeatConfig(heartbeatConfig?.enabled ?? true)}
+            >
+              {heartbeatSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t('channels.telegram.save')}
+            </Button>
+
+            {heartbeatConfig?.nextRunAt && (
+              <div className="text-sm text-muted-foreground">
+                {t('channels.heartbeat.nextRun')}: {formatNextRun(heartbeatConfig.nextRunAt)}
+              </div>
+            )}
+            {heartbeatConfig?.lastRunAt && (
+              <div className="text-sm text-muted-foreground">
+                {t('channels.heartbeat.lastRun')}: {formatNextRun(heartbeatConfig.lastRunAt)}
+                {heartbeatConfig.lastRunStatus && ` (${heartbeatConfig.lastRunStatus})`}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!heartbeatConfig?.configured && !heartbeatConfig?.enabled && (
+          <p className="text-sm text-muted-foreground">{t('channels.heartbeat.noSchedule')}</p>
+        )}
+
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => router.push('/settings?tab=agent-settings')}
+        >
+          {t('channels.heartbeat.editHeartbeatFile')}
+        </Button>
+      </CardContent>
+    </Card>
+    </div>
   );
 }

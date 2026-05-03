@@ -10,6 +10,8 @@ import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import {
   type AutomationJobRecord,
+  type AutomationJobStatus,
+  type AutomationJobType,
   type AutomationPreferredSkill,
   type AutomationRunRecord,
   type AutomationRunStatus,
@@ -106,6 +108,8 @@ function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord
     createdByUserId: row.createdByUserId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    jobType: (row.jobType as AutomationJobType) || 'default',
+    channelId: row.channelId ?? null,
   };
 }
 
@@ -175,7 +179,14 @@ export async function listAutomationJobs(userId: string): Promise<AutomationJobR
   const rows = await db
     .select()
     .from(automationJobs)
-    .where(eq(automationJobs.createdByUserId, userId))
+    .where(
+      and(
+        eq(automationJobs.createdByUserId, userId),
+        or(
+          eq(automationJobs.jobType, 'default'),
+        ),
+      ),
+    )
     .orderBy(asc(automationJobs.name), asc(automationJobs.createdAt));
 
   return rows.map(mapJobRow);
@@ -641,4 +652,71 @@ export async function markAutomationRunFinished(
 
     return updated ? mapRunRow(updated, null) : null;
   });
+}
+
+export async function getHeartbeatJob(): Promise<AutomationJobRecord | null> {
+  const row = await db.query.automationJobs.findFirst({
+    where: eq(automationJobs.jobType, 'heartbeat'),
+  });
+
+  return row ? mapJobRow(row) : null;
+}
+
+export async function upsertHeartbeatJob(data: {
+  enabled: boolean;
+  schedule: FriendlySchedule;
+  userId: string;
+}): Promise<AutomationJobRecord> {
+  const existing = await getHeartbeatJob();
+
+  const status: AutomationJobStatus = data.enabled ? 'active' : 'paused';
+  const nextRunAt = data.enabled
+    ? computeNextRunAt(data.schedule, { from: new Date() })
+    : null;
+
+  if (existing) {
+    const [updated] = await db
+      .update(automationJobs)
+      .set({
+        status,
+        scheduleKind: data.schedule.kind,
+        scheduleConfigJson: JSON.stringify(data.schedule),
+        timeZone: data.schedule.timeZone,
+        nextRunAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(automationJobs.id, existing.id))
+      .returning();
+
+    return mapJobRow(updated);
+  }
+
+  const id = `job-heartbeat-${Date.now()}`;
+  const now = new Date();
+
+  const [inserted] = await db
+    .insert(automationJobs)
+    .values({
+      id,
+      name: 'Telegram Heartbeat',
+      status,
+      prompt: 'Heartbeat',
+      preferredSkill: 'auto',
+      workspaceContextPathsJson: '[]',
+      targetOutputPath: null,
+      scheduleKind: data.schedule.kind,
+      scheduleConfigJson: JSON.stringify(data.schedule),
+      timeZone: data.schedule.timeZone,
+      nextRunAt,
+      lastRunAt: null,
+      lastRunStatus: null,
+      createdByUserId: data.userId,
+      createdAt: now,
+      updatedAt: now,
+      jobType: 'heartbeat',
+      channelId: 'telegram',
+    })
+    .returning();
+
+  return mapJobRow(inserted);
 }

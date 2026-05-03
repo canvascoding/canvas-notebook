@@ -518,6 +518,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     channel_session_key: 'TEXT',
   });
 
+  addColumns(sqlite, 'automation_jobs', {
+    job_type: "TEXT NOT NULL DEFAULT 'default'",
+    channel_id: 'TEXT',
+  });
+
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS channel_user_bindings (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,

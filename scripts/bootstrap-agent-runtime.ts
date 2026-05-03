@@ -68,7 +68,7 @@ const LEGACY_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
 const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
 
 // All managed files (excluding BOOTSTRAP.md which is only for initial setup)
-const MANAGED_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+const MANAGED_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
 // Helper to read seed file content
 async function readSeedFile(fileName: string): Promise<string | null> {
