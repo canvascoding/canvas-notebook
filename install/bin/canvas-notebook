@@ -22,6 +22,8 @@ fi
 DEFAULT_HEALTH_ATTEMPTS="${CANVAS_HEALTH_MAX_ATTEMPTS:-180}"
 LOG_DIR="${CANVAS_MANAGER_LOG_DIR:-/var/log/canvas-notebook}"
 LOG_FILE="${LOG_DIR}/manager.log"
+CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
+CANVAS_AUTO_UPDATE_SCHEDULE="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
 
 ok()      { printf '✓ %s\n' "$*"; }
 info()    { printf '  %s\n' "$*"; }
@@ -147,26 +149,32 @@ Commands:
   status     Show compose status; use --json for machine-readable output
   logs       Follow container logs
   container-logs
-             Alias for logs
+              Alias for logs
   manager-log
-             Show the host-side CLI management log
+              Show the host-side CLI management log
   env        Edit the Compose environment, sync Caddy, and restart
   swap       Show swap status
   swap-enable
-             Enable Canvas-managed swap and persist it
+              Enable Canvas-managed swap and persist it
   swap-disable
-             Disable Canvas-managed swap and persist it
+              Disable Canvas-managed swap and persist it
   caddy      Check Caddy status and current Caddyfile
   caddy-reload
-              Sync Caddy from BETTER_AUTH_BASE_URL and reload it
+               Sync Caddy from BETTER_AUTH_BASE_URL and reload it
   caddy-fix
-              Fix known Caddy issues (duplicate definitions, missing headers)
+               Fix known Caddy issues (duplicate definitions, missing headers)
   diagnose   Show host, Docker, memory, OOM, and container diagnostics
   health     Check the local health endpoint; use --json for machine-readable output
   config     Show the compose file path
   cli-update Download the latest management CLI and systemd service from GitHub
+  auto-update-status
+              Show auto-update timer status and last update result
+  auto-update-enable
+              Enable automatic daily image updates via systemd timer
+  auto-update-disable
+              Disable automatic image updates
   cleanup-logs
-             Kill orphaned docker compose log followers
+              Kill orphaned docker compose log followers
 
 Environment:
   CANVAS_HEALTH_MAX_ATTEMPTS=180   Health wait timeout in seconds
@@ -174,6 +182,9 @@ Environment:
   CANVAS_SWAP_ENABLED=false        Enable Canvas-managed swap when set true
   CANVAS_SWAP_SIZE=2G              Canvas-managed swapfile size
   CANVAS_SWAP_FILE=/swapfile       Canvas-managed swapfile path
+  CANVAS_AUTO_UPDATE_ENABLED=true  Enable automatic image updates
+  CANVAS_AUTO_UPDATE_SCHEDULE=*-*-* 04:00:00
+                                   systemd calendar for auto-update timer
   TAIL=120                         Number of log lines shown before following
 HELP
 }
@@ -658,6 +669,97 @@ show_manager_log() {
   tail -n "${TAIL:-200}" "$LOG_FILE"
 }
 
+ensure_manager_config() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    run_root mkdir -p "$(dirname "$CONFIG_FILE")"
+    run_root touch "$CONFIG_FILE"
+  fi
+}
+
+show_auto_update_status() {
+  local timer_active next_run last_result
+  if ! command -v systemctl >/dev/null 2>&1; then
+    warn "systemd not found — auto-update timer requires systemd"
+    return 1
+  fi
+
+  if [[ ! -f /etc/systemd/system/canvas-notebook-update.timer ]]; then
+    info "Auto-update timer unit not installed. Run: canvas-notebook cli-update"
+    return 1
+  fi
+
+  printf '\n== Auto-Update Status ==\n'
+  printf 'Config file: %s\n' "$CONFIG_FILE"
+
+  local enabled_val
+  enabled_val="$(grep '^CANVAS_AUTO_UPDATE_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'")"
+  enabled_val="${enabled_val:-true}"
+  printf 'CANVAS_AUTO_UPDATE_ENABLED=%s\n' "$enabled_val"
+
+  local schedule_val
+  schedule_val="$(grep '^CANVAS_AUTO_UPDATE_SCHEDULE=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'")"
+  schedule_val="${schedule_val:-*-*-* 04:00:00}"
+  printf 'CANVAS_AUTO_UPDATE_SCHEDULE=%s\n' "$schedule_val"
+
+  timer_active="$(systemctl is-active canvas-notebook-update.timer 2>/dev/null || true)"
+  if [[ "$timer_active" == "active" ]]; then
+    ok "Timer is active"
+    next_run="$(systemctl show canvas-notebook-update.timer --property=NextElapseUSecRealtime 2>/dev/null | cut -d= -f2-)"
+    if [[ -n "$next_run" ]]; then
+      printf '  Next scheduled run: %s\n' "$next_run"
+    fi
+  else
+    info "Timer is inactive (auto-update disabled)"
+  fi
+
+  printf '\n== Timer Unit ==\n'
+  systemctl list-timers canvas-notebook-update.timer --no-pager 2>/dev/null || true
+
+  printf '\n== Last Auto-Update Result ==\n'
+  last_result="$(journalctl -u canvas-notebook-update.service --no-pager -n 10 -o short-precise 2>/dev/null || true)"
+  if [[ -n "$last_result" ]]; then
+    printf '%s\n' "$last_result"
+  else
+    info "No auto-update runs recorded yet"
+  fi
+}
+
+enable_auto_update() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    fail "systemd not found — auto-update timer requires systemd"
+  fi
+
+  if [[ ! -f /etc/systemd/system/canvas-notebook-update.timer ]]; then
+    fail "Auto-update timer unit not installed. Run: canvas-notebook cli-update first"
+  fi
+
+  ensure_manager_config
+  set_manager_env CANVAS_AUTO_UPDATE_ENABLED true
+
+  run_root systemctl enable canvas-notebook-update.timer >/dev/null
+  run_root systemctl start canvas-notebook-update.timer >/dev/null 2>&1 || \
+    run_root systemctl restart canvas-notebook-update.timer >/dev/null
+
+  ok "Auto-update enabled (schedule: $(grep '^CANVAS_AUTO_UPDATE_SCHEDULE=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'") || echo '*-*-* 04:00:00')"
+  info "View schedule: systemctl list-timers canvas-notebook-update.timer"
+}
+
+disable_auto_update() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    fail "systemd not found — auto-update timer requires systemd"
+  fi
+
+  ensure_manager_config
+  set_manager_env CANVAS_AUTO_UPDATE_ENABLED false
+
+  if [[ -f /etc/systemd/system/canvas-notebook-update.timer ]]; then
+    run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true
+    run_root systemctl disable canvas-notebook-update.timer >/dev/null 2>&1 || true
+  fi
+
+  ok "Auto-update disabled"
+}
+
 diagnose() {
   local cid url
   ensure_log_file
@@ -812,7 +914,7 @@ case "$cmd" in
   help|-h|--help)
     usage
     ;;
-  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|caddy-fix|diagnose|health|config|cli-update|cleanup-logs)
+  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|caddy-fix|diagnose|health|config|cli-update|auto-update-status|auto-update-enable|auto-update-disable|cleanup-logs)
     if [[ "$NO_BANNER" != "true" ]]; then
       banner
     fi
@@ -929,6 +1031,17 @@ case "$cmd" in
     fi
     info "Running Caddy configuration health fix..."
     caddy_fix || true
+    ;;
+  auto-update-status)
+    show_auto_update_status
+    ;;
+  auto-update-enable)
+    log_msg "auto-update-enable"
+    enable_auto_update
+    ;;
+  auto-update-disable)
+    log_msg "auto-update-disable"
+    disable_auto_update
     ;;
   cleanup-logs)
     pkill -f "docker compose .*logs.*-f.*canvas-notebook" >/dev/null 2>&1 || true

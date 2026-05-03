@@ -1,0 +1,10 @@
+[Unit]
+Description=Canvas Notebook Auto-Update
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/canvas-notebook/manager.env
+ExecStart=__CLI_PATH__ update --no-banner
+TimeoutStartSec=600
