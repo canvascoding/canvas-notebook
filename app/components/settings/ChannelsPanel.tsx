@@ -149,6 +149,27 @@ export function ChannelsPanel() {
     const newValue = !channelEnabled;
     setChannelEnabled(newValue);
     await saveEnv('TELEGRAM_CHANNEL_ENABLED', newValue ? 'true' : 'false');
+    setIsRestarting(true);
+    setError(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25_000);
+    try {
+      const res = await fetch('/api/channels/restart', {
+        method: 'POST',
+        credentials: 'include',
+        signal: controller.signal,
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.error || 'Failed to restart bot');
+      }
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error && err.name === 'AbortError' ? 'Restart timed out' : err instanceof Error ? err.message : 'Restart failed');
+    } finally {
+      clearTimeout(timeout);
+      setIsRestarting(false);
+    }
   };
 
   const handleGenerateLinkToken = async () => {
@@ -321,7 +342,7 @@ export function ChannelsPanel() {
                 aria-checked={channelEnabled}
                 onClick={() => void handleToggleEnabled()}
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${channelEnabled ? 'bg-primary' : 'bg-muted'}`}
-                disabled={isSaving}
+                disabled={isSaving || isRestarting}
               >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${channelEnabled ? 'translate-x-6' : 'translate-x-1'}`}
