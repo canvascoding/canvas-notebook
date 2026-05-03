@@ -2,9 +2,10 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileTypeFromBuffer } from 'file-type';
 import { randomUUID } from 'crypto';
+import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 
 // Upload configuration
-const DATA = process.env.DATA || path.join(process.cwd(), 'data');
+const DATA = resolveCanvasDataRoot();
 const UPLOAD_BASE_DIR = path.join(DATA, 'user-uploads');
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
