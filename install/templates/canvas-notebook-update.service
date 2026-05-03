@@ -6,5 +6,6 @@ Wants=docker.service network-online.target
 [Service]
 Type=oneshot
 EnvironmentFile=-/etc/canvas-notebook/manager.env
+ExecStart=__CLI_PATH__ cli-update --no-banner
 ExecStart=__CLI_PATH__ update --no-banner
-TimeoutStartSec=600
+TimeoutStartSec=900
