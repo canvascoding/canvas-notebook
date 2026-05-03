@@ -96,12 +96,12 @@ export function ToolkitToolsDialog({
     : t('toolsAvailableNotConnected');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50" onClick={onClose}>
       <div
-        className="relative mx-4 w-full max-w-2xl rounded-lg border border-border bg-background shadow-lg"
+        className="relative w-full rounded-t-lg border border-border bg-background shadow-lg sm:mx-4 sm:max-w-2xl sm:rounded-lg max-h-[90vh] sm:max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-0">
           <div className="flex items-center gap-3">
             {logo ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -111,8 +111,8 @@ export function ToolkitToolsDialog({
                 {name.charAt(0).toUpperCase()}
               </div>
             )}
-            <div>
-              <h2 className="text-lg font-semibold">{name}</h2>
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold truncate">{name}</h2>
               <p className="text-xs text-muted-foreground">
                 {loading ? '...' : `${tools.length} ${t('toolsAvailable')}`}
               </p>
@@ -155,7 +155,7 @@ export function ToolkitToolsDialog({
           </div>
         </div>
 
-        <div className="max-h-[400px] overflow-y-auto px-4 py-3">
+        <div className="flex-1 overflow-y-auto px-4 py-3">
           {loading ? (
             <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
