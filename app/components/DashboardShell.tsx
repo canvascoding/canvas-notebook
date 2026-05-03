@@ -401,7 +401,7 @@ export function DashboardShell() {
     <FileWatcherProvider>
     <HintProvider page="notebook">
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
-      <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95">
+      <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)]">
         <div className="relative mx-auto flex h-full items-center justify-between px-4">
           {/* Left side: always back link + title (desktop) */}
           <div className="flex items-center gap-2">

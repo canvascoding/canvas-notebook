@@ -65,7 +65,7 @@ export function SuitePageLayout({
   const content = (
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="flex h-full flex-col">
-        <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <header className="sticky top-0 z-20 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
             <div className="min-w-0 flex items-center gap-2 sm:gap-3">
               <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">

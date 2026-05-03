@@ -278,7 +278,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
   return (
     <HintProvider page="studio">
       <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
-        <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="flex h-full items-center justify-between gap-3 px-4 md:px-6">
             <div className="min-w-0 flex items-center gap-2 sm:gap-3">
               <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
