@@ -1,7 +1,7 @@
 import type { Bot, Context } from 'grammy';
 import { control, getStatus } from '@/app/lib/pi/runtime-service';
 import { getBinding, validateLinkToken, createBinding } from './link-token';
-import { resolveTelegramSession, switchTelegramSession, listTelegramSessions } from './session-resolver';
+import { createTelegramSession, resolveTelegramSession, switchTelegramSession, listTelegramSessions } from './session-resolver';
 
 const COMMANDS_LIST = [
   '/new — Neue Session erstellen',
@@ -22,7 +22,19 @@ export function registerCommands(bot: Bot): void {
   bot.command('status', handleStatusCommand);
 }
 
+function isPrivateChat(ctx: Context): boolean {
+  return ctx.chat?.type === 'private';
+}
+
+async function rejectNonPrivateChat(ctx: Context): Promise<boolean> {
+  if (isPrivateChat(ctx)) return false;
+  await ctx.reply('Telegram ist nur in direkten Chats mit dem Bot verfügbar.');
+  return true;
+}
+
 async function handleStartCommand(ctx: Context): Promise<void> {
+  if (await rejectNonPrivateChat(ctx)) return;
+
   const chatId = String(ctx.chat?.id);
   const token = typeof ctx.match === 'string' ? ctx.match.trim() : ctx.match?.[0]?.trim();
 
@@ -45,6 +57,8 @@ async function handleStartCommand(ctx: Context): Promise<void> {
 }
 
 async function handleNewCommand(ctx: Context): Promise<void> {
+  if (await rejectNonPrivateChat(ctx)) return;
+
   const chatId = String(ctx.chat?.id);
   const binding = await getBinding('telegram', chatId);
   if (!binding) {
@@ -52,11 +66,13 @@ async function handleNewCommand(ctx: Context): Promise<void> {
     return;
   }
 
-  const sessionId = await resolveTelegramSession(chatId, binding.userId);
+  const sessionId = await createTelegramSession(chatId, binding.userId);
   await ctx.reply(`Neue Session erstellt: ${sessionId.slice(0, 12)}…`);
 }
 
 async function handleStopCommand(ctx: Context): Promise<void> {
+  if (await rejectNonPrivateChat(ctx)) return;
+
   const chatId = String(ctx.chat?.id);
   const binding = await getBinding('telegram', chatId);
   if (!binding) {
@@ -74,6 +90,8 @@ async function handleStopCommand(ctx: Context): Promise<void> {
 }
 
 async function handleCompactCommand(ctx: Context): Promise<void> {
+  if (await rejectNonPrivateChat(ctx)) return;
+
   const chatId = String(ctx.chat?.id);
   const binding = await getBinding('telegram', chatId);
   if (!binding) {
@@ -91,6 +109,8 @@ async function handleCompactCommand(ctx: Context): Promise<void> {
 }
 
 async function handleSessionsCommand(ctx: Context): Promise<void> {
+  if (await rejectNonPrivateChat(ctx)) return;
+
   const chatId = String(ctx.chat?.id);
   const binding = await getBinding('telegram', chatId);
   if (!binding) {
@@ -112,6 +132,8 @@ async function handleSessionsCommand(ctx: Context): Promise<void> {
 }
 
 async function handleSwitchCommand(ctx: Context): Promise<void> {
+  if (await rejectNonPrivateChat(ctx)) return;
+
   const chatId = String(ctx.chat?.id);
   const binding = await getBinding('telegram', chatId);
   if (!binding) {
@@ -134,6 +156,8 @@ async function handleSwitchCommand(ctx: Context): Promise<void> {
 }
 
 async function handleStatusCommand(ctx: Context): Promise<void> {
+  if (await rejectNonPrivateChat(ctx)) return;
+
   const chatId = String(ctx.chat?.id);
   const binding = await getBinding('telegram', chatId);
   if (!binding) {
