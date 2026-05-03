@@ -23,6 +23,10 @@ CANVAS_SWAP_FILE_WAS_SET="${CANVAS_SWAP_FILE+x}"
 CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-false}"
 CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
 CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
+CANVAS_AUTO_UPDATE_ENABLED_WAS_SET="${CANVAS_AUTO_UPDATE_ENABLED+x}"
+CANVAS_AUTO_UPDATE_SCHEDULE_WAS_SET="${CANVAS_AUTO_UPDATE_SCHEDULE+x}"
+CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
+CANVAS_AUTO_UPDATE_SCHEDULE="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
 LEGACY_COMPOSE_PATH=""
 LEGACY_DATA_PATH=""
 SUPPORT_TMP_DIR=""
@@ -51,6 +55,14 @@ load_existing_manager_config() {
   CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-false}"
   CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
   CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
+  if [[ -z "$CANVAS_AUTO_UPDATE_ENABLED_WAS_SET" ]]; then
+    CANVAS_AUTO_UPDATE_ENABLED="$(awk -F= '/^CANVAS_AUTO_UPDATE_ENABLED=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+  fi
+  if [[ -z "$CANVAS_AUTO_UPDATE_SCHEDULE_WAS_SET" ]]; then
+    CANVAS_AUTO_UPDATE_SCHEDULE="$(awk -F= '/^CANVAS_AUTO_UPDATE_SCHEDULE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+  fi
+  CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
+  CANVAS_AUTO_UPDATE_SCHEDULE="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
 }
 
 resolve_support_dir() {
@@ -206,6 +218,7 @@ run_cli_update_only() {
 
   install_management_cli
   install_systemd_service
+  install_update_timer
   ok "Canvas Notebook management CLI updated"
 }
 
@@ -227,12 +240,16 @@ run_prebuilt_install() {
   install_manager_config
   install_management_cli
   install_systemd_service
+  install_update_timer
   configure_caddy "$(configured_domain_from_compose)"
 
   echo
   echo -e "${GREEN}${BOLD}Canvas Notebook is running.${RESET}"
   echo
-  info "To update to the latest version:"
+  info "Auto-update is enabled — the image updates automatically every day."
+  info "Manage with: canvas-notebook auto-update-status | auto-update-enable | auto-update-disable"
+  echo
+  info "To update manually:"
   info "  canvas-notebook update"
   info "Useful management commands:"
   info "  canvas-notebook status"

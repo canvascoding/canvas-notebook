@@ -1,0 +1,10 @@
+[Unit]
+Description=Canvas Notebook Auto-Update Timer
+
+[Timer]
+OnCalendar=__CANVAS_AUTO_UPDATE_SCHEDULE__
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
