@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { getComposio } from './composio-client';
-import { getConnectedAccounts, getAuthConfigs } from './composio-auth';
+import { getConnectedAccounts } from './composio-auth';
 
 export interface ToolkitInfo {
   slug: string;
@@ -12,8 +12,6 @@ export interface ToolkitInfo {
   connected: boolean;
   connectedAccountId?: string;
   connectedAccountStatus?: string;
-  authConfigId?: string;
-  authConfigStatus?: string;
 }
 
 export interface ToolkitToolInfo {
@@ -47,10 +45,9 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
   if (!composio) return [];
 
   try {
-    const [response, connectedAccounts, authConfigs] = await Promise.all([
+    const [response, connectedAccounts] = await Promise.all([
       composio.toolkits.get({}),
       getConnectedAccounts(),
-      getAuthConfigs(),
     ]);
 
     const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
@@ -71,28 +68,15 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
       }
     }
 
-    // Collect auth configs per toolkit
-    const authConfigBySlug = new Map<string, Record<string, unknown>>();
-    for (const c of authConfigs) {
-      const config = c as Record<string, unknown>;
-      const toolkit = config.toolkit as Record<string, unknown> | undefined;
-      const slug = toolkit?.slug;
-      if (typeof slug === 'string') {
-        authConfigBySlug.set(slug, config);
-      }
-    }
-
     const toolkits: ToolkitInfo[] = rawItems
       .map((item) => {
         const t = item as Record<string, unknown>;
         const meta = (t.meta ?? {}) as Record<string, unknown>;
         const slug = String(t.slug ?? '');
         const account = connectedBySlug.get(slug);
-        const authConfig = authConfigBySlug.get(slug);
 
-        // Connected if: has active OAuth account OR enabled auth config
+        // Connected only if: has active OAuth account for this user
         const hasActiveConnection = account?.status === 'ACTIVE';
-        const hasEnabledConfig = authConfig?.status === 'ENABLED';
 
         return {
           slug,
@@ -100,11 +84,9 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
           logo: String(meta.logo ?? t.logo ?? ''),
           description: String(meta.description ?? t.description ?? ''),
           toolsCount: Number(meta.toolsCount ?? 0),
-          connected: hasActiveConnection || hasEnabledConfig,
+          connected: hasActiveConnection,
           connectedAccountId: typeof account?.id === 'string' ? account.id : undefined,
           connectedAccountStatus: typeof account?.status === 'string' ? account.status : undefined,
-          authConfigId: typeof authConfig?.id === 'string' ? authConfig.id : undefined,
-          authConfigStatus: typeof authConfig?.status === 'string' ? authConfig.status : undefined,
         };
       })
       .filter((tk) => !HIDDEN_TOOLKIT_SLUGS.has(tk.slug));
