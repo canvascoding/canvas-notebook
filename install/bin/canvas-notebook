@@ -352,8 +352,15 @@ pull_image_if_needed() {
 }
 
 cleanup_docker_artifacts() {
-  log_msg "docker cleanup skipped"
-  info "Skipping global Docker cleanup; use Docker's prune commands manually if you want to reclaim host-wide space."
+  local prune_output reclaimed
+  prune_output="$(docker_cmd image prune -f 2>&1 || true)"
+  reclaimed="$(printf '%s' "$prune_output" | grep -oE '[0-9]+(\.[0-9]+)?(kB|MB|GB)' | tail -1 || true)"
+  if [[ -n "$reclaimed" ]]; then
+    ok "Cleaned up dangling images (reclaimed ${reclaimed})"
+  else
+    ok "No dangling images to clean up"
+  fi
+  log_msg "docker image prune completed reclaimed=${reclaimed:-0}"
 }
 
 host_port() {
