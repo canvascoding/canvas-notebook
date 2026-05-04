@@ -89,9 +89,9 @@ function buildPayload(draft: JobDraft) {
     draft.scheduleKind === 'once'
       ? { kind: 'once' as const, date: draft.onceDate, time: draft.onceTime, timeZone: draft.timeZone }
       : draft.scheduleKind === 'daily'
-        ? { kind: 'daily' as const, time: draft.dailyTime, timeZone: draft.timeZone }
+        ? { kind: 'daily' as const, times: draft.dailyTime ? [draft.dailyTime] : [], timeZone: draft.timeZone }
         : draft.scheduleKind === 'weekly'
-          ? { kind: 'weekly' as const, days: draft.weeklyDays, time: draft.weeklyTime, timeZone: draft.timeZone }
+          ? { kind: 'weekly' as const, days: draft.weeklyDays, times: draft.weeklyTime ? [draft.weeklyTime] : [], timeZone: draft.timeZone }
           : {
               kind: 'interval' as const,
               every: Number(draft.intervalEvery || '1'),
@@ -131,13 +131,13 @@ function describeFriendlyScheduleLocalized(
   }
 
   if (schedule.kind === 'daily') {
-    return translate('scheduleSummary.daily', { time: schedule.time });
+    return translate('scheduleSummary.daily', { time: schedule.times.join(', ') });
   }
 
   if (schedule.kind === 'weekly') {
     return translate('scheduleSummary.weekly', {
       days: schedule.days.map((day) => weekdayLabels[day]).join(', '),
-      time: schedule.time,
+      time: schedule.times.join(', '),
     });
   }
 
@@ -229,9 +229,9 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
     draft.onceDate = job.schedule.date;
     draft.onceTime = job.schedule.time;
   } else if (job.schedule.kind === 'daily') {
-    draft.dailyTime = job.schedule.time;
+    draft.dailyTime = job.schedule.times[0] || '';
   } else if (job.schedule.kind === 'weekly') {
-    draft.weeklyTime = job.schedule.time;
+    draft.weeklyTime = job.schedule.times[0] || '';
     draft.weeklyDays = job.schedule.days;
   } else {
     draft.intervalEvery = String(job.schedule.every);

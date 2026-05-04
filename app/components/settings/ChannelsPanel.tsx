@@ -27,9 +27,12 @@ type TelegramStatus = {
   linkedUserName: string | null;
 };
 
+type HeartbeatMode = 'pulse' | 'fixedTimes';
+type HeartbeatFixedKind = 'daily' | 'weekly';
+
 type HeartbeatSchedule =
-  | { kind: 'daily'; time: string; timeZone: string }
-  | { kind: 'weekly'; days: string[]; time: string; timeZone: string }
+  | { kind: 'daily'; times: string[]; timeZone: string }
+  | { kind: 'weekly'; days: string[]; times: string[]; timeZone: string }
   | { kind: 'interval'; every: number; unit: 'minutes' | 'hours' | 'days'; timeZone: string };
 
 type HeartbeatConfig = {
@@ -67,8 +70,9 @@ export function ChannelsPanel() {
   const [heartbeatSaving, setHeartbeatSaving] = useState(false);
   const [heartbeatError, setHeartbeatError] = useState<string | null>(null);
   const [heartbeatSuccess, setHeartbeatSuccess] = useState<string | null>(null);
-  const [heartbeatScheduleKind, setHeartbeatScheduleKind] = useState<'daily' | 'weekly' | 'interval'>('daily');
-  const [heartbeatTime, setHeartbeatTime] = useState('09:00');
+  const [heartbeatMode, setHeartbeatMode] = useState<HeartbeatMode>('pulse');
+  const [heartbeatFixedKind, setHeartbeatFixedKind] = useState<HeartbeatFixedKind>('daily');
+  const [heartbeatTimes, setHeartbeatTimes] = useState<string[]>(['09:00']);
   const [heartbeatTimezone, setHeartbeatTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [heartbeatWeekdays, setHeartbeatWeekdays] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
   const [heartbeatIntervalEvery, setHeartbeatIntervalEvery] = useState(6);
@@ -139,15 +143,17 @@ export function ChannelsPanel() {
         setHeartbeatConfig(config);
         if (data.schedule) {
           const sched = data.schedule as HeartbeatSchedule;
-          setHeartbeatScheduleKind(sched.kind === 'weekly' ? 'weekly' : sched.kind === 'interval' ? 'interval' : 'daily');
-          if (sched.kind === 'daily' || sched.kind === 'weekly') {
-            setHeartbeatTime(sched.time);
-            setHeartbeatTimezone(sched.timeZone);
-            if (sched.kind === 'weekly') setHeartbeatWeekdays(sched.days);
-          } else if (sched.kind === 'interval') {
+          if (sched.kind === 'interval') {
+            setHeartbeatMode('pulse');
             setHeartbeatIntervalEvery(sched.every);
             setHeartbeatIntervalUnit(sched.unit);
             setHeartbeatTimezone(sched.timeZone);
+          } else {
+            setHeartbeatMode('fixedTimes');
+            setHeartbeatFixedKind(sched.kind === 'weekly' ? 'weekly' : 'daily');
+            setHeartbeatTimes(sched.times);
+            setHeartbeatTimezone(sched.timeZone);
+            if (sched.kind === 'weekly') setHeartbeatWeekdays(sched.days);
           }
         }
       }
@@ -328,13 +334,13 @@ export function ChannelsPanel() {
   const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 
   const buildScheduleFromForm = (): HeartbeatSchedule => {
-    if (heartbeatScheduleKind === 'daily') {
-      return { kind: 'daily', time: heartbeatTime, timeZone: heartbeatTimezone };
+    if (heartbeatMode === 'pulse') {
+      return { kind: 'interval', every: heartbeatIntervalEvery, unit: heartbeatIntervalUnit, timeZone: heartbeatTimezone };
     }
-    if (heartbeatScheduleKind === 'weekly') {
-      return { kind: 'weekly', days: heartbeatWeekdays, time: heartbeatTime, timeZone: heartbeatTimezone };
+    if (heartbeatFixedKind === 'weekly') {
+      return { kind: 'weekly', days: heartbeatWeekdays, times: heartbeatTimes, timeZone: heartbeatTimezone };
     }
-    return { kind: 'interval', every: heartbeatIntervalEvery, unit: heartbeatIntervalUnit, timeZone: heartbeatTimezone };
+    return { kind: 'daily', times: heartbeatTimes, timeZone: heartbeatTimezone };
   };
 
   const saveHeartbeatConfig = async (enabled: boolean) => {
@@ -713,81 +719,153 @@ export function ChannelsPanel() {
         </div>
 
         {(heartbeatConfig?.enabled || heartbeatConfig?.configured) && (
-          <div className="space-y-3">
+          <div className="space-y-4">
+            {/* Mode selector: Pulse vs Fixed Times */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('channels.heartbeat.scheduleKindLabel')}</label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={heartbeatScheduleKind}
-                onChange={(e) => setHeartbeatScheduleKind(e.target.value as 'daily' | 'weekly' | 'interval')}
-                disabled={heartbeatSaving}
-              >
-                <option value="daily">{t('channels.heartbeat.daily')}</option>
-                <option value="weekly">{t('channels.heartbeat.weekly')}</option>
-                <option value="interval">{t('channels.heartbeat.interval')}</option>
-              </select>
+              <label className="text-sm font-medium">{t('channels.heartbeat.modeLabel')}</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${heartbeatMode === 'pulse' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}
+                  onClick={() => setHeartbeatMode('pulse')}
+                  disabled={heartbeatSaving}
+                >
+                  {t('channels.heartbeat.pulseMode')}
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${heartbeatMode === 'fixedTimes' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}
+                  onClick={() => setHeartbeatMode('fixedTimes')}
+                  disabled={heartbeatSaving}
+                >
+                  {t('channels.heartbeat.fixedTimesMode')}
+                </button>
+              </div>
             </div>
 
-            {(heartbeatScheduleKind === 'daily' || heartbeatScheduleKind === 'weekly') && (
+            {/* Pulse mode: interval input */}
+            {heartbeatMode === 'pulse' && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t('channels.heartbeat.timeLabel')}</label>
-                <Input
-                  type="time"
-                  value={heartbeatTime}
-                  onChange={(e) => setHeartbeatTime(e.target.value)}
-                  disabled={heartbeatSaving}
-                  className="max-w-[200px]"
-                />
+                <label className="text-sm font-medium">{t('channels.heartbeat.pulseIntervalLabel')}</label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={heartbeatIntervalEvery}
+                    onChange={(e) => setHeartbeatIntervalEvery(parseInt(e.target.value) || 1)}
+                    disabled={heartbeatSaving}
+                    className="w-20"
+                  />
+                  <select
+                    className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={heartbeatIntervalUnit}
+                    onChange={(e) => setHeartbeatIntervalUnit(e.target.value as 'minutes' | 'hours' | 'days')}
+                    disabled={heartbeatSaving}
+                  >
+                    <option value="minutes">{t('channels.heartbeat.minutes')}</option>
+                    <option value="hours">{t('channels.heartbeat.hours')}</option>
+                    <option value="days">{t('channels.heartbeat.days')}</option>
+                  </select>
+                </div>
+                <p className="text-xs text-muted-foreground">{t('channels.heartbeat.pulseDescription')}</p>
               </div>
             )}
 
-            {heartbeatScheduleKind === 'weekly' && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t('channels.heartbeat.weekdays')}</label>
-                <div className="flex flex-wrap gap-2">
-                  {WEEKDAYS.map((day) => (
-                    <button
-                      key={day}
+            {/* Fixed times mode */}
+            {heartbeatMode === 'fixedTimes' && (
+              <div className="space-y-3">
+                {/* Daily / Weekly sub-selector */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${heartbeatFixedKind === 'daily' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}
+                    onClick={() => setHeartbeatFixedKind('daily')}
+                    disabled={heartbeatSaving}
+                  >
+                    {t('channels.heartbeat.daily')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${heartbeatFixedKind === 'weekly' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}
+                    onClick={() => setHeartbeatFixedKind('weekly')}
+                    disabled={heartbeatSaving}
+                  >
+                    {t('channels.heartbeat.weekly')}
+                  </button>
+                </div>
+
+                {/* Weekdays (only for weekly) */}
+                {heartbeatFixedKind === 'weekly' && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{t('channels.heartbeat.weekdays')}</label>
+                    <div className="flex flex-wrap gap-2">
+                      {WEEKDAYS.map((day) => (
+                        <button
+                          key={day}
+                          type="button"
+                          className={`px-2 py-1 text-xs rounded border transition-colors ${heartbeatWeekdays.includes(day) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border'}`}
+                          onClick={() => {
+                            setHeartbeatWeekdays((prev) =>
+                              prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                            );
+                          }}
+                          disabled={heartbeatSaving}
+                        >
+                          {t(`channels.heartbeat.weekdayLabels.${day}`)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Times list with add/remove */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">{t('channels.heartbeat.timesLabel')}</label>
+                  <div className="space-y-2">
+                    {heartbeatTimes.map((time, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <Input
+                          type="time"
+                          value={time}
+                          onChange={(e) => {
+                            setHeartbeatTimes((prev) => {
+                              const next = [...prev];
+                              next[index] = e.target.value;
+                              return next;
+                            });
+                          }}
+                          disabled={heartbeatSaving}
+                          className="max-w-[200px]"
+                        />
+                        {heartbeatTimes.length > 1 && (
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-destructive transition-colors text-sm px-1"
+                            onClick={() => {
+                              setHeartbeatTimes((prev) => prev.filter((_, i) => i !== index));
+                            }}
+                            disabled={heartbeatSaving}
+                          >
+                            {t('channels.heartbeat.removeTime')}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <Button
                       type="button"
-                      className={`px-2 py-1 text-xs rounded border transition-colors ${heartbeatWeekdays.includes(day) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border'}`}
-                      onClick={() => {
-                        setHeartbeatWeekdays((prev) =>
-                          prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
-                        );
-                      }}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setHeartbeatTimes((prev) => [...prev, '09:00'])}
                       disabled={heartbeatSaving}
                     >
-                      {t(`channels.heartbeat.weekdayLabels.${day}`)}
-                    </button>
-                  ))}
+                      {t('channels.heartbeat.addTime')}
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
 
-            {heartbeatScheduleKind === 'interval' && (
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">{t('channels.heartbeat.intervalEveryLabel')}</label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={heartbeatIntervalEvery}
-                  onChange={(e) => setHeartbeatIntervalEvery(parseInt(e.target.value) || 1)}
-                  disabled={heartbeatSaving}
-                  className="w-20"
-                />
-                <select
-                  className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  value={heartbeatIntervalUnit}
-                  onChange={(e) => setHeartbeatIntervalUnit(e.target.value as 'minutes' | 'hours' | 'days')}
-                  disabled={heartbeatSaving}
-                >
-                  <option value="minutes">{t('channels.heartbeat.minutes')}</option>
-                  <option value="hours">{t('channels.heartbeat.hours')}</option>
-                  <option value="days">{t('channels.heartbeat.days')}</option>
-                </select>
-              </div>
-            )}
-
+            {/* Timezone (shared) */}
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('channels.heartbeat.timezone')}</label>
               <Input
@@ -798,6 +876,7 @@ export function ChannelsPanel() {
               />
             </div>
 
+            {/* Save button */}
             <Button
               type="button"
               disabled={heartbeatSaving}
@@ -807,6 +886,7 @@ export function ChannelsPanel() {
               {t('channels.telegram.save')}
             </Button>
 
+            {/* Status info */}
             {heartbeatConfig?.nextRunAt && (
               <div className="text-sm text-muted-foreground">
                 {t('channels.heartbeat.nextRun')}: {formatNextRun(heartbeatConfig.nextRunAt)}

@@ -12,7 +12,7 @@ function assertDate(value: Date | null, message: string): Date {
 
 const dailySchedule: FriendlySchedule = {
   kind: 'daily',
-  time: '09:15',
+  times: ['09:15'],
   timeZone: 'UTC',
 };
 
@@ -25,7 +25,7 @@ assert.equal(dailyRun.toISOString(), '2026-03-14T09:15:00.000Z');
 const weeklySchedule: FriendlySchedule = {
   kind: 'weekly',
   days: ['mon', 'wed'],
-  time: '10:00',
+  times: ['10:00'],
   timeZone: 'UTC',
 };
 
