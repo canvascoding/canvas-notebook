@@ -16,13 +16,13 @@ export type FriendlySchedule =
     }
   | {
       kind: 'daily';
-      time: string;
+      times: string[];
       timeZone: string;
     }
   | {
       kind: 'weekly';
       days: AutomationWeekday[];
-      time: string;
+      times: string[];
       timeZone: string;
     }
   | {

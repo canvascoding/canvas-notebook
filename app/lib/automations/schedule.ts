@@ -133,6 +133,25 @@ function intervalToMs(every: number, unit: AutomationIntervalUnit): number {
   return every * 24 * 60 * 60_000;
 }
 
+function normalizeTimesToSchedule(candidate: Record<string, unknown>, kind: 'daily' | 'weekly'): { times: string[]; error: string | null } {
+  if (Array.isArray(candidate.times) && candidate.times.length > 0) {
+    const times = candidate.times.filter((v): v is string => typeof v === 'string').map((s) => s.trim()).filter((s) => s.length > 0);
+    const valid = times.filter((t) => parseTimeInput(t) !== null);
+    if (valid.length === 0) {
+      return { times: [], error: `${kind === 'daily' ? 'Daily' : 'Weekly'} schedules require at least one valid time.` };
+    }
+    return { times: valid, error: null };
+  }
+  if (typeof candidate.time === 'string' && candidate.time.trim().length > 0) {
+    const time = candidate.time.trim();
+    if (!parseTimeInput(time)) {
+      return { times: [], error: `${kind === 'daily' ? 'Daily' : 'Weekly'} schedules require a valid time.` };
+    }
+    return { times: [time], error: null };
+  }
+  return { times: [], error: `${kind === 'daily' ? 'Daily' : 'Weekly'} schedules require at least one valid time.` };
+}
+
 export function validateFriendlySchedule(input: unknown): { schedule: FriendlySchedule | null; error: string | null } {
   if (!input || typeof input !== 'object') {
     return { schedule: null, error: 'Schedule is required.' };
@@ -156,11 +175,9 @@ export function validateFriendlySchedule(input: unknown): { schedule: FriendlySc
   }
 
   if (kind === 'daily') {
-    const time = typeof candidate.time === 'string' ? candidate.time.trim() : '';
-    if (!parseTimeInput(time)) {
-      return { schedule: null, error: 'Daily schedules require a valid time.' };
-    }
-    return { schedule: { kind, time, timeZone }, error: null };
+    const { times, error } = normalizeTimesToSchedule(candidate, 'daily');
+    if (error) return { schedule: null, error };
+    return { schedule: { kind, times, timeZone }, error: null };
   }
 
   if (kind === 'weekly') {
@@ -174,11 +191,11 @@ export function validateFriendlySchedule(input: unknown): { schedule: FriendlySc
           value === 'sat' ||
           value === 'sun')
       : [];
-    const time = typeof candidate.time === 'string' ? candidate.time.trim() : '';
-    if (!days.length || !parseTimeInput(time)) {
-      return { schedule: null, error: 'Weekly schedules require at least one weekday and a valid time.' };
+    const { times, error } = normalizeTimesToSchedule(candidate, 'weekly');
+    if (error || !days.length) {
+      return { schedule: null, error: error || 'Weekly schedules require at least one weekday.' };
     }
-    return { schedule: { kind, days, time, timeZone }, error: null };
+    return { schedule: { kind, days, times, timeZone }, error: null };
   }
 
   const every = typeof candidate.every === 'number' ? candidate.every : Number(candidate.every);
@@ -230,29 +247,35 @@ export function computeNextRunAt(
   }
 
   if (schedule.kind === 'daily') {
-    const time = parseTimeInput(schedule.time);
-    if (!time) {
+    const parsedTimes = schedule.times.map((t) => parseTimeInput(t)).filter((t): t is { hour: number; minute: number } => t !== null);
+    if (parsedTimes.length === 0) {
       return null;
     }
+    const timeSet = new Set(parsedTimes.map((t) => `${t.hour}:${t.minute}`));
     return findNextMatchingDate(
       fromDate,
       timeZone,
-      (parts) => parts.hour === time.hour && parts.minute === time.minute,
+      (parts) => timeSet.has(`${parts.hour}:${parts.minute}`),
       3 * 24 * 60,
     );
   }
 
-  const time = parseTimeInput(schedule.time);
-  if (!time) {
-    return null;
+  if (schedule.kind === 'weekly') {
+    const parsedTimes = schedule.times.map((t) => parseTimeInput(t)).filter((t): t is { hour: number; minute: number } => t !== null);
+    if (parsedTimes.length === 0) {
+      return null;
+    }
+    const weekdays = new Set(schedule.days.map((day) => WEEKDAY_MAP[day]));
+    const timeSet = new Set(parsedTimes.map((t) => `${t.hour}:${t.minute}`));
+    return findNextMatchingDate(
+      fromDate,
+      timeZone,
+      (parts) => weekdays.has(parts.weekday) && timeSet.has(`${parts.hour}:${parts.minute}`),
+      10 * 24 * 60,
+    );
   }
-  const weekdays = new Set(schedule.days.map((day) => WEEKDAY_MAP[day]));
-  return findNextMatchingDate(
-    fromDate,
-    timeZone,
-    (parts) => weekdays.has(parts.weekday) && parts.hour === time.hour && parts.minute === time.minute,
-    10 * 24 * 60,
-  );
+
+  return null;
 }
 
 export function describeFriendlySchedule(schedule: FriendlySchedule): string {
@@ -260,10 +283,10 @@ export function describeFriendlySchedule(schedule: FriendlySchedule): string {
     return `Einmalig am ${schedule.date} um ${schedule.time}`;
   }
   if (schedule.kind === 'daily') {
-    return `Täglich um ${schedule.time}`;
+    return `Täglich um ${schedule.times.join(', ')}`;
   }
   if (schedule.kind === 'weekly') {
-    return `Wöchentlich (${schedule.days.join(', ')}) um ${schedule.time}`;
+    return `Wöchentlich (${schedule.days.join(', ')}) um ${schedule.times.join(', ')}`;
   }
   return `Alle ${schedule.every} ${schedule.unit}`;
 }

@@ -133,6 +133,7 @@ function normalizeAutomationSchedule(schedule: {
   kind: string;
   date?: string;
   time?: string;
+  times?: string[];
   days?: string[];
   every?: number;
   unit?: string;
@@ -146,19 +147,26 @@ function normalizeAutomationSchedule(schedule: {
         throw new Error('once schedule requires date and time.');
       }
       return { kind: 'once', date: schedule.date, time: schedule.time, timeZone };
-    case 'daily':
-      if (!schedule.time) {
-        throw new Error('daily schedule requires time.');
+    case 'daily': {
+      const times = Array.isArray(schedule.times) && schedule.times.length > 0
+        ? schedule.times.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+        : (schedule.time ? [schedule.time] : []);
+      if (times.length === 0) {
+        throw new Error('daily schedule requires at least one time.');
       }
-      return { kind: 'daily', time: schedule.time, timeZone };
+      return { kind: 'daily', times, timeZone };
+    }
     case 'weekly': {
       const days = (schedule.days || []).filter((day): day is AutomationWeekday =>
         VALID_AUTOMATION_DAYS.includes(day as AutomationWeekday),
       );
-      if (days.length === 0 || !schedule.time) {
+      const times = Array.isArray(schedule.times) && schedule.times.length > 0
+        ? schedule.times.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+        : (schedule.time ? [schedule.time] : []);
+      if (days.length === 0 || times.length === 0) {
         throw new Error('weekly schedule requires at least one valid day and a time.');
       }
-      return { kind: 'weekly', days, time: schedule.time, timeZone };
+      return { kind: 'weekly', days, times, timeZone };
     }
     case 'interval':
       if (!schedule.every || !schedule.unit || !VALID_AUTOMATION_INTERVAL_UNITS.includes(schedule.unit as AutomationIntervalUnit)) {
