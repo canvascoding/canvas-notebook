@@ -11,7 +11,6 @@ import { LogoutButton } from '@/app/components/LogoutButton';
 
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
-import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 
 import { Button } from '@/components/ui/button';
@@ -81,8 +80,6 @@ export function SuitePageLayout({
             </div>
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
-
-              {hintPage && <HelpDropdown page={hintPage} />}
               <AppLauncher />
               <ThemeToggle />
               <LogoutButton />
