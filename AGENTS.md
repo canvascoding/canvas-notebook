@@ -91,3 +91,34 @@ Wenn ein Skill oder Tool eine Env-Variable benötigt, die nicht gesetzt ist:
 - Zeige eine klare Fehlermeldung im UI an
 - Verlinke auf den Integrations-Tab in den Settings
 - Biete einen direkten Link: `/settings?tab=integrations`
+
+---
+
+## Control Plane Agent Integration
+
+**This repository contains the Canvas Notebook service (the payload).** It is managed remotely by the **Canvas Control Plane** via the **Canvas Agent** running on the VM host.
+
+### What the Agent Does
+
+The Agent is a lightweight Node.js service (systemd) that:
+- Connects to the Control Plane API via WebSocket tunnel
+- Collects host and Docker metrics
+- Executes management commands locally
+- Reports status, alerts (OOM), and container health
+
+### Interfaces Used by the Agent
+
+| Interface | Location | Purpose |
+|-----------|----------|---------|
+| **Canvas CLI** | `/usr/local/bin/canvas-notebook` | Commands: `update`, `restart`, `start`, `stop`, `health`, `logs`, `status` |
+| **Health Endpoint** | `GET /api/health` (inside container) | Container readiness check (returns `{ ok: true }` or DB-connected health JSON) |
+| **Docker Compose** | `/opt/canvas/canvas-notebook-compose.yaml` | Container lifecycle management |
+| **Systemd Service** | `canvas-notebook.service` | Host-level service control (if installed) |
+
+### Architecture References
+
+- **Canvas Notebook context:** `docs/architecture/canvas-notebook/plan.md`
+- **Complete system architecture:** `docs/architecture/canvas-control-plane/plan.md`
+- **Implementation tasks:** `docs/architecture/canvas-notebook/todo.json`
+
+**No code changes in this repository are required** for Control Plane integration. The Agent interacts exclusively through the CLI, Docker, and HTTP health endpoint.

@@ -36,7 +36,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
-import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
@@ -530,7 +529,6 @@ export function DashboardShell() {
           {/* Right side: help, theme, logout */}
           <div className="relative z-50 flex items-center gap-1.5 md:gap-4">
             <AppLauncher />
-            <HelpDropdown page="notebook" />
             <ThemeToggle />
             <LogoutButton />
           </div>

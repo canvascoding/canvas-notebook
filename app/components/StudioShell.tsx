@@ -6,7 +6,6 @@ import { useTranslations } from 'next-intl';
 
 import { Link, usePathname } from '@/i18n/navigation';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
-import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { AppLauncher } from '@/app/components/AppLauncher';
@@ -293,7 +292,6 @@ export function StudioShell({ children }: { children: ReactNode }) {
             <div className="ml-auto flex min-w-0 items-center gap-1.5 md:gap-3">
               <AppLauncher />
               {chatModeControl}
-              <HelpDropdown page="studio" />
               <ThemeToggle />
               <LogoutButton />
             </div>
