@@ -405,7 +405,7 @@ export function DashboardShell() {
           {/* Left side: always back link + title (desktop) */}
           <div className="flex items-center gap-2">
             <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
-              <Link href="/" target="_blank" rel="noopener noreferrer">
+              <Link href="/">
                 <ArrowLeft className="h-4 w-4" />
                 <span className="hidden sm:inline">{tCommon('suite')}</span>
               </Link>
