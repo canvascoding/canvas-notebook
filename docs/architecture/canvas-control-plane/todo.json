@@ -1,0 +1,521 @@
+{
+  "version": "1.0",
+  "project": "canvas-control-plane",
+  "description": "Complete implementation tasks for the Canvas Control Plane monorepo. Each task must be completed cleanly before moving to the next. References are to plan.md line numbers.",
+  "phases": [
+    {
+      "name": "Phase 1: Project Setup",
+      "tasks": [
+        {
+          "id": "cp-1.1",
+          "title": "Initialize Monorepo Structure",
+          "description": "Create root package.json with workspaces (apps/*, packages/*). Choose pnpm or npm. Create empty directories: apps/api, apps/web, packages/agent, packages/shared.",
+          "planRef": "plan.md:136-138 (Tech Stack overview)",
+          "status": "pending",
+          "dependencies": []
+        },
+        {
+          "id": "cp-1.2",
+          "title": "Initialize API App (Fastify)",
+          "description": "Set up apps/api with TypeScript, tsconfig.json, Fastify v4, build script, and dev script (tsx or nodemon).",
+          "planRef": "plan.md:150-163 (Control Plane API stack)",
+          "status": "pending",
+          "dependencies": ["cp-1.1"]
+        },
+        {
+          "id": "cp-1.3",
+          "title": "Initialize Web App (Next.js)",
+          "description": "Set up apps/web with Next.js 14, App Router, TypeScript, Tailwind, shadcn/ui init.",
+          "planRef": "plan.md:140-148 (Serverless UI stack)",
+          "status": "pending",
+          "dependencies": ["cp-1.1"]
+        },
+        {
+          "id": "cp-1.4",
+          "title": "Initialize Agent Package",
+          "description": "Set up packages/agent with TypeScript, ws library, build script. This is a Node.js executable, not a web app.",
+          "planRef": "plan.md:170-178 (Canvas Agent stack)",
+          "status": "pending",
+          "dependencies": ["cp-1.1"]
+        },
+        {
+          "id": "cp-1.5",
+          "title": "Dev Infrastructure: Postgres + Caddy",
+          "description": "Create docker-compose.dev.yml with Postgres 15. Configure local Caddy (optional) or use Fastify directly on port 3001 for dev.",
+          "planRef": "plan.md:593-606 (Deployment V1)",
+          "status": "pending",
+          "dependencies": ["cp-1.2"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 2: Database & Schema",
+      "tasks": [
+        {
+          "id": "cp-2.1",
+          "title": "Setup Drizzle ORM",
+          "description": "Install Drizzle ORM and Drizzle Kit in apps/api. Create db/ directory with connection config and schema file.",
+          "planRef": "plan.md:157 (Drizzle ORM)",
+          "status": "pending",
+          "dependencies": ["cp-1.5"]
+        },
+        {
+          "id": "cp-2.2",
+          "title": "Define vm_agents Table",
+          "description": "Implement Drizzle schema for vm_agents (id, name, api_key_hash, api_key_prefix, status, last_seen_at, etc.).",
+          "planRef": "plan.md:185-204",
+          "status": "pending",
+          "dependencies": ["cp-2.1"]
+        },
+        {
+          "id": "cp-2.3",
+          "title": "Define vm_commands Table",
+          "description": "Implement Drizzle schema for vm_commands (id, agent_id, command, status, output, timestamps).",
+          "planRef": "plan.md:206-219",
+          "status": "pending",
+          "dependencies": ["cp-2.1"]
+        },
+        {
+          "id": "cp-2.4",
+          "title": "Define vm_metrics Table",
+          "description": "Implement Drizzle schema for vm_metrics (id, agent_id, sampled_at, cpu_percent, memory_percent, etc.).",
+          "planRef": "plan.md:221-235",
+          "status": "pending",
+          "dependencies": ["cp-2.1"]
+        },
+        {
+          "id": "cp-2.5",
+          "title": "Define vm_alerts Table",
+          "description": "Implement Drizzle schema for vm_alerts (id, agent_id, type, severity, message, metadata, resolved_at).",
+          "planRef": "plan.md:237-247",
+          "status": "pending",
+          "dependencies": ["cp-2.1"]
+        },
+        {
+          "id": "cp-2.6",
+          "title": "Run Initial Migration",
+          "description": "Generate and run first Drizzle migration against local dev Postgres. Verify tables exist.",
+          "planRef": "plan.md:598 (Run DB migrations)",
+          "status": "pending",
+          "dependencies": ["cp-2.2", "cp-2.3", "cp-2.4", "cp-2.5"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 3: API Core",
+      "tasks": [
+        {
+          "id": "cp-3.1",
+          "title": "Fastify Server Bootstrap",
+          "description": "Create server.ts with Fastify instance, CORS plugin, global error handler. Add health check route GET /health.",
+          "planRef": "plan.md:389-411 (Fastify Structure), 593-606 (Deployment)",
+          "status": "pending",
+          "dependencies": ["cp-1.2"]
+        },
+        {
+          "id": "cp-3.2",
+          "title": "Rate Limiting Middleware",
+          "description": "Integrate rate-limiter-flexible (in-memory) for general API and specific endpoints (auth, exec).",
+          "planRef": "plan.md:160 (rate-limiter-flexible), 552-562 (Rate Limiting table)",
+          "status": "pending",
+          "dependencies": ["cp-3.1"]
+        },
+        {
+          "id": "cp-3.3",
+          "title": "JWT Utilities",
+          "description": "Create lib/jwt.ts with sign and verify functions using SHARED_SECRET (256-bit from ENV).",
+          "planRef": "plan.md:100-119 (Token Exchange Flow), 581-584 (SHARED_SECRET)",
+          "status": "pending",
+          "dependencies": ["cp-3.1"]
+        },
+        {
+          "id": "cp-3.4",
+          "title": "Auth Exchange Endpoint",
+          "description": "Implement POST /auth/exchange. This endpoint verifies the incoming Better Auth session and returns a short-lived JWT (1h).",
+          "planRef": "plan.md:102-119 (Token Exchange Flow)",
+          "status": "pending",
+          "dependencies": ["cp-3.3"]
+        },
+        {
+          "id": "cp-3.5",
+          "title": "JWT Auth Middleware",
+          "description": "Create Fastify preHandler hook that validates Bearer JWT on all /v1/* routes. Returns 401 if missing or invalid.",
+          "planRef": "plan.md:115-118 (API validates JWT)",
+          "status": "pending",
+          "dependencies": ["cp-3.4"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 4: VM REST API",
+      "tasks": [
+        {
+          "id": "cp-4.1",
+          "title": "POST /v1/vms (Register)",
+          "description": "Create endpoint to register a new VM. Generate unique API key (plain text once, bcrypt hash stored). Return key to admin.",
+          "planRef": "plan.md:185-204 (vm_agents schema), 417-421 (REST Endpoints table)",
+          "status": "pending",
+          "dependencies": ["cp-2.6", "cp-3.5"]
+        },
+        {
+          "id": "cp-4.2",
+          "title": "GET /v1/vms (List)",
+          "description": "Return all VMs with current status. Join with latest heartbeat data from in-memory state or DB.",
+          "planRef": "plan.md:417-418",
+          "status": "pending",
+          "dependencies": ["cp-4.1"]
+        },
+        {
+          "id": "cp-4.3",
+          "title": "GET /v1/vms/:id (Details)",
+          "description": "Return single VM details plus last 10 commands from vm_commands.",
+          "planRef": "plan.md:419",
+          "status": "pending",
+          "dependencies": ["cp-4.2"]
+        },
+        {
+          "id": "cp-4.4",
+          "title": "DELETE /v1/vms/:id (Deregister)",
+          "description": "Soft or hard delete VM. Revoke API key. If agent is online, close WebSocket.",
+          "planRef": "plan.md:421",
+          "status": "pending",
+          "dependencies": ["cp-4.3"]
+        },
+        {
+          "id": "cp-4.5",
+          "title": "POST /v1/vms/:id/revoke-key",
+          "description": "Generate new API key, update hash in DB, disconnect current agent.",
+          "planRef": "plan.md:427",
+          "status": "pending",
+          "dependencies": ["cp-4.1"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 5: Agent WebSocket Tunnel",
+      "tasks": [
+        {
+          "id": "cp-5.1",
+          "title": "Setup @fastify/websocket",
+          "description": "Register WebSocket plugin in Fastify for route-level WS handling.",
+          "planRef": "plan.md:156 (@fastify/websocket), 389-411 (Fastify Structure)",
+          "status": "pending",
+          "dependencies": ["cp-3.1"]
+        },
+        {
+          "id": "cp-5.2",
+          "title": "Agent WS Route /agent",
+          "description": "Create WS route at /agent. Handle connection query param `key`.",
+          "planRef": "plan.md:297-302 (Agent Protocol Connection)",
+          "status": "pending",
+          "dependencies": ["cp-5.1"]
+        },
+        {
+          "id": "cp-5.3",
+          "title": "Agent Authentication",
+          "description": "Verify API key from query param against bcrypt hash in vm_agents. Reject connection if invalid. Map agentId to socket.",
+          "planRef": "plan.md:121-127 (Agent Authentication), 496-498 (agentSockets map)",
+          "status": "pending",
+          "dependencies": ["cp-5.2", "cp-4.1"]
+        },
+        {
+          "id": "cp-5.4",
+          "title": "Heartbeat Handler",
+          "description": "Process `type: 'heartbeat'` messages. Update vm_agents status, dockerStatus, canvasVersion, last_seen_at in DB.",
+          "planRef": "plan.md:306-315 (Heartbeat message)",
+          "status": "pending",
+          "dependencies": ["cp-5.3"]
+        },
+        {
+          "id": "cp-5.5",
+          "title": "Metrics Handler",
+          "description": "Process `type: 'metrics'` messages. Insert new row into vm_metrics table.",
+          "planRef": "plan.md:317-334 (Metrics message), 221-235 (vm_metrics schema)",
+          "status": "pending",
+          "dependencies": ["cp-5.4"]
+        },
+        {
+          "id": "cp-5.6",
+          "title": "Alert Handler",
+          "description": "Process `type: 'alert'` messages (OOM, etc.). Insert into vm_alerts. Broadcast to subscribed admins.",
+          "planRef": "plan.md:336-343 (Alert message), 237-247 (vm_alerts schema)",
+          "status": "pending",
+          "dependencies": ["cp-5.5"]
+        },
+        {
+          "id": "cp-5.7",
+          "title": "Command Dispatcher",
+          "description": "Listen for queued commands in vm_commands. If agent is online, send `type: 'exec'` message over agent socket.",
+          "planRef": "plan.md:345-351 (Exec message), 429-457 (Asynchronous Command Execution)",
+          "status": "pending",
+          "dependencies": ["cp-5.3"]
+        },
+        {
+          "id": "cp-5.8",
+          "title": "Output Stream Handler",
+          "description": "Process `type: 'output'` messages from agent. Update vm_commands output field. Forward chunks to subscribed admin browsers.",
+          "planRef": "plan.md:353-368 (Output messages), 476-479 (cmd:output broadcast)",
+          "status": "pending",
+          "dependencies": ["cp-5.7"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 6: Admin WebSocket Stream",
+      "tasks": [
+        {
+          "id": "cp-6.1",
+          "title": "Admin WS Route /ws",
+          "description": "Create WS route at /ws for browsers. Validate JWT from query param `token`.",
+          "planRef": "plan.md:78-80 (WebSocket Admin), 459-461 (Browser connects)",
+          "status": "pending",
+          "dependencies": ["cp-5.1", "cp-3.5"]
+        },
+        {
+          "id": "cp-6.2",
+          "title": "Subscribe/Unsubscribe Handler",
+          "description": "Handle `type: 'subscribe'` and `type: 'unsubscribe'` messages from browser. Update in-memory subscriptions map.",
+          "planRef": "plan.md:485-490 (Subscribe messages), 503-504 (subscriptions map)",
+          "status": "pending",
+          "dependencies": ["cp-6.1"]
+        },
+        {
+          "id": "cp-6.3",
+          "title": "Broadcast Service",
+          "description": "Implement helper to send messages to all admin sockets subscribed to a specific vmId.",
+          "planRef": "plan.md:496-504 (In-Memory State), 466-479 (Messages API->Browser)",
+          "status": "pending",
+          "dependencies": ["cp-6.2"]
+        },
+        {
+          "id": "cp-6.4",
+          "title": "Initial State Push",
+          "description": "When admin subscribes to a VM, immediately push current status, latest metrics, and active alerts.",
+          "planRef": "plan.md:466-479",
+          "status": "pending",
+          "dependencies": ["cp-6.3"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 7: Commands & Queue",
+      "tasks": [
+        {
+          "id": "cp-7.1",
+          "title": "POST /v1/vms/:id/exec",
+          "description": "Create endpoint that queues a command. Insert into vm_commands with status='queued'. Return { cmdId } immediately.",
+          "planRef": "plan.md:422, 429-457 (Command Execution Flow)",
+          "status": "pending",
+          "dependencies": ["cp-4.3"]
+        },
+        {
+          "id": "cp-7.2",
+          "title": "Command Queue Service",
+          "description": "In-memory service that checks for queued commands and dispatches them to online agents. Handles offline agents (wait or timeout).",
+          "planRef": "plan.md:429-457",
+          "status": "pending",
+          "dependencies": ["cp-7.1", "cp-5.7"]
+        },
+        {
+          "id": "cp-7.3",
+          "title": "Command Finalizer",
+          "description": "When agent sends done=true, update vm_commands with exitCode, status='done' or 'failed', completed_at. Notify admins.",
+          "planRef": "plan.md:451-454, 479 (cmd:done)",
+          "status": "pending",
+          "dependencies": ["cp-7.2"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 8: UI Implementation",
+      "tasks": [
+        {
+          "id": "cp-8.1",
+          "title": "Better Auth Setup",
+          "description": "Configure Better Auth in apps/web with email/password. Connect to the same Postgres DB used by the API (or a separate one if preferred).",
+          "planRef": "plan.md:142-143 (Better Auth), 513-521 (UI Pages)",
+          "status": "pending",
+          "dependencies": ["cp-1.3"]
+        },
+        {
+          "id": "cp-8.2",
+          "title": "Login Page / Dashboard Layout",
+          "description": "Implement /login with Better Auth. Create dashboard shell with navigation (sidebar or top bar).",
+          "planRef": "plan.md:517-520",
+          "status": "pending",
+          "dependencies": ["cp-8.1"]
+        },
+        {
+          "id": "cp-8.3",
+          "title": "VM List Page",
+          "description": "Page /dashboard showing grid/table of all VMs. Fetch from GET /v1/vms. Show status badges.",
+          "planRef": "plan.md:518",
+          "status": "pending",
+          "dependencies": ["cp-8.2", "cp-4.2"]
+        },
+        {
+          "id": "cp-8.4",
+          "title": "VM Detail Page",
+          "description": "Page /dashboard/vms/[id]. Contains: live metrics, command history, alerts, terminal panel.",
+          "planRef": "plan.md:519",
+          "status": "pending",
+          "dependencies": ["cp-8.3"]
+        },
+        {
+          "id": "cp-8.5",
+          "title": "Live Metrics Component",
+          "description": "Display gauges/charts for CPU, RAM, Disk, Docker stats. Updates via WebSocket every 30s.",
+          "planRef": "plan.md:522-527 (Live Metrics Display)",
+          "status": "pending",
+          "dependencies": ["cp-8.4", "cp-6.4"]
+        },
+        {
+          "id": "cp-8.6",
+          "title": "Terminal / Log Panel",
+          "description": "Scrollable terminal showing live logs and command output. Connects to admin WS and subscribes to VM.",
+          "planRef": "plan.md:529-533 (Terminal & Logs)",
+          "status": "pending",
+          "dependencies": ["cp-8.5", "cp-6.3"]
+        },
+        {
+          "id": "cp-8.7",
+          "title": "Command Runner",
+          "description": "UI to send commands: dropdown with presets (restart, update) + custom input. Calls POST /v1/vms/:id/exec.",
+          "planRef": "plan.md:532-533 (Run Command)",
+          "status": "pending",
+          "dependencies": ["cp-8.6", "cp-7.1"]
+        },
+        {
+          "id": "cp-8.8",
+          "title": "Alert Panel",
+          "description": "Show active alerts from GET /v1/vms/:id/alerts. Color-coded by severity. OOM alerts linked to detail page.",
+          "planRef": "plan.md:534-538 (Alert Panel)",
+          "status": "pending",
+          "dependencies": ["cp-8.4"]
+        },
+        {
+          "id": "cp-8.9",
+          "title": "VM Registration Page",
+          "description": "Page /dashboard/vms/new. Form to create VM entry. Displays generated API key and install script once.",
+          "planRef": "plan.md:520",
+          "status": "pending",
+          "dependencies": ["cp-8.3", "cp-4.1"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 9: Agent Implementation",
+      "tasks": [
+        {
+          "id": "cp-9.1",
+          "title": "Agent WS Client",
+          "description": "Implement WebSocket client in packages/agent using `ws`. Connects to wss://api.yourdomain.com/agent?key=... with auto-reconnect.",
+          "planRef": "plan.md:174-176 (WS Client), 297-302 (Connection)",
+          "status": "pending",
+          "dependencies": ["cp-1.4"]
+        },
+        {
+          "id": "cp-9.2",
+          "title": "Host Metrics Collection",
+          "description": "Collect CPU, RAM, Disk usage using Node.js `os` and `fs` modules. Run every 30s.",
+          "planRef": "plan.md:177 (Metrics: os, fs), 317-334 (Metrics message)",
+          "status": "pending",
+          "dependencies": ["cp-9.1"]
+        },
+        {
+          "id": "cp-9.3",
+          "title": "Docker Metrics Collection",
+          "description": "Parse output of `docker stats --no-stream --format ...` to get container CPU and memory usage.",
+          "planRef": "plan.md:177 (docker stats), 330-333 (docker metrics in message)",
+          "status": "pending",
+          "dependencies": ["cp-9.2"]
+        },
+        {
+          "id": "cp-9.4",
+          "title": "Heartbeat Loop",
+          "description": "Send `type: 'heartbeat'` message every 30s. Include status, dockerStatus, canvasVersion, uptime.",
+          "planRef": "plan.md:306-315",
+          "status": "pending",
+          "dependencies": ["cp-9.1"]
+        },
+        {
+          "id": "cp-9.5",
+          "title": "OOM Detection",
+          "description": "Check `dmesg` or `/var/log/kern.log` for OOM killer events targeting node/docker. Send `type: 'alert'` if found.",
+          "planRef": "plan.md:371-381 (OOM Detection A)",
+          "status": "pending",
+          "dependencies": ["cp-9.4"]
+        },
+        {
+          "id": "cp-9.6",
+          "title": "Command Executor",
+          "description": "Handle incoming `type: 'exec'` messages. Run command via `child_process.spawn`. Stream stdout/stderr back as `type: 'output'` chunks.",
+          "planRef": "plan.md:345-368 (Exec and Output flow)",
+          "status": "pending",
+          "dependencies": ["cp-9.1"]
+        },
+        {
+          "id": "cp-9.7",
+          "title": "Installation Script",
+          "description": "Create `install-agent.sh` that installs Node.js (if missing), writes agent.env, creates systemd service, starts agent.",
+          "planRef": "plan.md:283-295 (Installation Flow)",
+          "status": "pending",
+          "dependencies": ["cp-9.6"]
+        }
+      ]
+    },
+    {
+      "name": "Phase 10: Deployment & E2E",
+      "tasks": [
+        {
+          "id": "cp-10.1",
+          "title": "API Deployment Script",
+          "description": "Create deploy script for API VM: install Node.js, Postgres, Caddy, clone repo, run migrations, start with PM2.",
+          "planRef": "plan.md:593-606 (API VM Setup)",
+          "status": "pending",
+          "dependencies": ["cp-3.1"]
+        },
+        {
+          "id": "cp-10.2",
+          "title": "Caddy Production Config",
+          "description": "Write Caddyfile for production: reverse proxy to localhost:3001, automatic TLS, security headers.",
+          "planRef": "plan.md:546-550 (Network Security), 601-604 (Caddy config)",
+          "status": "pending",
+          "dependencies": ["cp-10.1"]
+        },
+        {
+          "id": "cp-10.3",
+          "title": "UI Deploy Script (Netlify)",
+          "description": "Script to build apps/web and deploy to Netlify via CLI. Set environment variables.",
+          "planRef": "plan.md:607-615 (Serverless UI Deployment)",
+          "status": "pending",
+          "dependencies": ["cp-8.9"]
+        },
+        {
+          "id": "cp-10.4",
+          "title": "E2E Test: Agent Connection",
+          "description": "Manual or scripted test: Run agent locally (or in Docker). Verify it appears as 'online' in DB and UI.",
+          "planRef": "plan.md:283-295, 306-315",
+          "status": "pending",
+          "dependencies": ["cp-5.8", "cp-9.7"]
+        },
+        {
+          "id": "cp-10.5",
+          "title": "E2E Test: Command Flow",
+          "description": "Test full flow: UI sends restart command -> API queues -> Agent receives -> Executes -> Streams output -> UI displays result.",
+          "planRef": "plan.md:429-479",
+          "status": "pending",
+          "dependencies": ["cp-10.4", "cp-7.3", "cp-8.7"]
+        },
+        {
+          "id": "cp-10.6",
+          "title": "E2E Test: OOM Alert",
+          "description": "Simulate OOM (e.g. limit container memory). Verify agent sends alert, API stores it, UI shows notification.",
+          "planRef": "plan.md:371-381, 534-538",
+          "status": "pending",
+          "dependencies": ["cp-10.5"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "project": "canvas-notebook",
+  "description": "Tasks for the existing Canvas Notebook repository in the context of the Control Plane architecture. This repo remains untouched; tasks focus on ensuring compatibility.",
+  "phases": [
+    {
+      "name": "Preparation",
+      "tasks": [
+        {
+          "id": "cn-1",
+          "title": "Verify CLI Stability for Agent Invocation",
+          "description": "Ensure all canvas-notebook CLI commands (update, restart, health, logs, status) are idempotent and return reliable exit codes. The Agent will invoke these via child_process.",
+          "planRef": "../canvas-control-plane/plan.md:7.3, 8.2",
+          "status": "completed",
+          "dependencies": []
+        },
+        {
+          "id": "cn-2",
+          "title": "Document Agent Interaction",
+          "description": "Add a section to AGENTS.md explaining how the Control Plane (via the Agent) manages this service. Reference the full architecture plan.",
+          "planRef": "../canvas-control-plane/plan.md:7.1, 7.2",
+          "status": "completed",
+          "dependencies": []
+        },
+        {
+          "id": "cn-3",
+          "title": "Confirm Health Endpoint Availability",
+          "description": "Enhanced GET /api/health to return consistent JSON with DB connectivity check. This is the primary health signal for the Agent.",
+          "planRef": "../canvas-control-plane/plan.md:7.3",
+          "status": "completed",
+          "dependencies": []
+        }
+      ]
+    }
+  ]
+}
