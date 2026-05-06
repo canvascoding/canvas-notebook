@@ -235,11 +235,11 @@ set_manager_env() {
   local key="$1" value="$2" escaped
   run_root mkdir -p "$(dirname "$CONFIG_FILE")"
   run_root touch "$CONFIG_FILE"
-  escaped="$(printf '%s' "$value" | sed 's/[&|]/\\&/g')"
+  escaped="$(printf '%s' "$value" | sed 's/[&|]/\\&/g; s/"/\\"/g')"
   if grep -q "^${key}=" "$CONFIG_FILE" 2>/dev/null; then
-    run_root sed -i "s|^${key}=.*|${key}=${escaped}|" "$CONFIG_FILE"
+    run_root sed -i "s|^${key}=.*|${key}=\"${escaped}\"|" "$CONFIG_FILE"
   else
-    printf '%s=%s\n' "$key" "$value" | run_root tee -a "$CONFIG_FILE" >/dev/null
+    printf '%s="%s"\n' "$key" "$value" | run_root tee -a "$CONFIG_FILE" >/dev/null
   fi
 }
 
