@@ -73,6 +73,7 @@ temp/screenshots/
 next-env.d.ts
 
 /docs
+!/docs/architecture/
 /.opencode
 
 # Sentry Config File
