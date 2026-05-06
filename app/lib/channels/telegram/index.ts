@@ -20,10 +20,6 @@ export class TelegramChannel implements ChannelPlugin {
 
   async start(context: ChannelStartContext): Promise<void> {
     try {
-      this.bot.use(async (_ctx, next) => {
-        this.polling?.notifyUpdateReceived();
-        await next();
-      });
       setupInboundHandler(this.bot, context.onInboundMessage);
 
       this.polling = new TelegramPollingSession(this.bot, context.abortSignal);

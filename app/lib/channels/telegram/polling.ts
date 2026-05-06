@@ -3,14 +3,9 @@ export class TelegramPollingSession {
   private abortSignal: AbortSignal;
   private running = false;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastUpdateTimestamp = 0;
-  private stallCheckInterval: ReturnType<typeof setInterval> | null = null;
-  private lastReceivedUpdateAt = 0;
   private static readonly INITIAL_BACKOFF_MS = 2000;
   private static readonly MAX_BACKOFF_MS = 30000;
   private static readonly BACKOFF_FACTOR = 1.8;
-  private static readonly STALL_THRESHOLD_MS = 120_000;
-  private static readonly STALL_CHECK_INTERVAL_MS = 30_000;
   private static readonly TELEGRAM_API_TIMEOUT_MS = 10_000;
   private static readonly STOP_TIMEOUT_MS = 5_000;
 
@@ -39,8 +34,6 @@ export class TelegramPollingSession {
       console.warn('[TelegramPolling] Could not delete webhook:', err instanceof Error ? err.message : err);
     }
 
-    this.lastReceivedUpdateAt = Date.now();
-    this.startStallDetection();
     void this.runWithBackoff().catch((err) => {
       console.error('[TelegramPolling] Polling loop crashed:', err instanceof Error ? err.message : err);
       this.running = false;
@@ -52,10 +45,6 @@ export class TelegramPollingSession {
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
-    }
-    if (this.stallCheckInterval) {
-      clearInterval(this.stallCheckInterval);
-      this.stallCheckInterval = null;
     }
     try {
       await this.withTimeout(
@@ -117,25 +106,6 @@ export class TelegramPollingSession {
         TelegramPollingSession.MAX_BACKOFF_MS,
       );
     }
-  }
-
-  private startStallDetection(): void {
-    this.stallCheckInterval = setInterval(() => {
-      if (!this.running) return;
-      const elapsed = Date.now() - this.lastReceivedUpdateAt;
-      if (elapsed > TelegramPollingSession.STALL_THRESHOLD_MS && this.lastReceivedUpdateAt > 0) {
-        console.warn('[TelegramPolling] Stall detected — no updates for over 2 minutes, restarting...');
-        void Promise.resolve(this.bot.stop()).catch((err) => {
-          if (!this.isGetUpdatesConflict(err)) {
-            console.warn('[TelegramPolling] Error while stopping stalled polling:', err instanceof Error ? err.message : err);
-          }
-        });
-      }
-    }, TelegramPollingSession.STALL_CHECK_INTERVAL_MS);
-  }
-
-  notifyUpdateReceived(): void {
-    this.lastReceivedUpdateAt = Date.now();
   }
 
   private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
