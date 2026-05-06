@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { cn } from '@/lib/utils';
 
 type FileNode = {
@@ -264,7 +264,7 @@ export function WorkspaceDirectoryPickerDialog({
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-            <ScrollArea className="min-h-0 flex-1 rounded-md border border-border bg-background p-2" data-testid="automation-directory-picker">
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-background p-2" data-testid="automation-directory-picker">
               {isLoading ? (
                 <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -295,7 +295,7 @@ export function WorkspaceDirectoryPickerDialog({
                   {renderDirectoryNodes(filteredDirectories)}
                 </div>
               )}
-            </ScrollArea>
+            </div>
           </div>
 
           <div className="flex max-h-[200px] shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4 lg:max-h-none lg:overflow-visible lg:w-72">
