@@ -122,10 +122,10 @@ install_update_timer() {
   run_root mkdir -p "$(dirname "$MANAGER_CONFIG_FILE")"
   run_root touch "$MANAGER_CONFIG_FILE"
   if ! grep -q "^CANVAS_AUTO_UPDATE_ENABLED=" "$MANAGER_CONFIG_FILE" 2>/dev/null; then
-    printf '%s=%s\n' "CANVAS_AUTO_UPDATE_ENABLED" "$update_enabled" | run_root tee -a "$MANAGER_CONFIG_FILE" >/dev/null
+    printf '%s="%s"\n' "CANVAS_AUTO_UPDATE_ENABLED" "$update_enabled" | run_root tee -a "$MANAGER_CONFIG_FILE" >/dev/null
   fi
   if ! grep -q "^CANVAS_AUTO_UPDATE_SCHEDULE=" "$MANAGER_CONFIG_FILE" 2>/dev/null; then
-    printf '%s=%s\n' "CANVAS_AUTO_UPDATE_SCHEDULE" "$update_schedule" | run_root tee -a "$MANAGER_CONFIG_FILE" >/dev/null
+    printf '%s="%s"\n' "CANVAS_AUTO_UPDATE_SCHEDULE" "$update_schedule" | run_root tee -a "$MANAGER_CONFIG_FILE" >/dev/null
   fi
 
   run_root systemctl daemon-reload
