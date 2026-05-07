@@ -54,7 +54,7 @@ install_management_cli() {
 
   shared_dir="${INSTALL_DIR}/lib/shared"
   run_root mkdir -p "$shared_dir"
-  for _lib in output utils caddy swap container docker; do
+  for _lib in output utils config caddy swap container docker; do
     if [[ -f "${SUPPORT_DIR}/lib/shared/${_lib}.sh" ]]; then
       run_root install -m 644 "${SUPPORT_DIR}/lib/shared/${_lib}.sh" "${shared_dir}/"
     fi

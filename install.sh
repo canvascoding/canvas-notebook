@@ -216,10 +216,7 @@ run_cli_update_only() {
   fi
 
   section "Loading existing config"
-  set -a
-  # shellcheck disable=SC1090
-  . "$MANAGER_CONFIG_FILE"
-  set +a
+  load_manager_config "$MANAGER_CONFIG_FILE"
   ok "Loaded ${MANAGER_CONFIG_FILE}"
 
   install_management_cli
