@@ -25,12 +25,31 @@ LOG_FILE="${LOG_DIR}/manager.log"
 CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
 CANVAS_AUTO_UPDATE_SCHEDULE="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
 
-ok()      { printf '✓ %s\n' "$*"; }
-info()    { printf '  %s\n' "$*"; }
-warn()    { printf '! %s\n' "$*" >&2; }
-fail()    { printf '✗ %s\n' "$*" >&2; exit 1; }
+SHARED_DIR=""
+CLI_BIN_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" 2>/dev/null && pwd)"
+for _dir in "${CLI_BIN_DIR}/../lib/shared" "${INSTALL_DIR}/lib/shared"; do
+  if [[ -f "${_dir}/output.sh" ]]; then
+    SHARED_DIR="$_dir"
+    break
+  fi
+done
+unset _dir
 
-CLI_GREEN='\033[0;32m'; CLI_CYAN='\033[0;36m'; CLI_BOLD='\033[1m'; CLI_DIM='\033[2m'; CLI_RESET='\033[0m'
+if [[ -n "$SHARED_DIR" ]]; then
+  for _lib in output utils caddy swap container docker; do
+    # shellcheck source=/dev/null
+    . "${SHARED_DIR}/${_lib}.sh"
+  done
+  unset _lib
+else
+  printf '✗ Canvas Notebook shared libraries not found.\n' >&2
+  printf '  Run: canvas-notebook cli-update\n' >&2
+  exit 1
+fi
+
+CANVAS_USE_COLOR="${CANVAS_USE_COLOR:-false}"
+
+CLI_BOLD='\033[1m'; CLI_DIM='\033[2m'; CLI_RESET='\033[0m'
 
 progress_bar() {
   local current="$1" total="$2" label="${3:-}"
@@ -65,32 +84,6 @@ run_with_spinner() {
   printf "\r  ✓ %s\n" "$msg"
   cat "$tmp_log" >> "$LOG_FILE" 2>/dev/null || true
   rm -f "$tmp_log"
-}
-
-count_pull_layers() {
-  local log_file="$1" count
-  count=$(grep -cE 'Pulling fs layer|Already exists' "$log_file" 2>/dev/null || true)
-  printf '%s' "${count:-0}"
-}
-
-pull_size_mb() {
-  local log_file="$1" total
-  total=$(awk '
-    {
-      while (match($0, /[0-9]+(\.[0-9]+)?(kB|MB|GB)/)) {
-        token = substr($0, RSTART, RLENGTH)
-        value = token + 0
-        unit = token
-        sub(/^[0-9.]+/, "", unit)
-        if (unit == "kB") value = value / 1024
-        else if (unit == "GB") value = value * 1024
-        sum += value
-        $0 = substr($0, RSTART + RLENGTH)
-      }
-    }
-    END {printf "%.0f", sum}
-  ' "$log_file" 2>/dev/null)
-  printf '%s' "${total:-0}"
 }
 
 ensure_log_file() {
@@ -160,9 +153,9 @@ Commands:
               Disable Canvas-managed swap and persist it
   caddy      Check Caddy status and current Caddyfile
   caddy-reload
-               Sync Caddy from BETTER_AUTH_BASE_URL and reload it
+                Sync Caddy from BETTER_AUTH_BASE_URL and reload it
   caddy-fix
-               Fix known Caddy issues (duplicate definitions, missing headers)
+                Fix known Caddy issues (duplicate definitions, missing headers)
   diagnose   Show host, Docker, memory, OOM, and container diagnostics
   health     Check the local health endpoint; use --json for machine-readable output
   config     Show the compose file path
@@ -214,23 +207,6 @@ docker_cmd() {
   fi
 }
 
-run_root() {
-  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    "$@"
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
-  else
-    return 1
-  fi
-}
-
-is_false() {
-  case "${1,,}" in
-    false|0|no|off|disabled) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 set_manager_env() {
   local key="$1" value="$2" escaped
   run_root mkdir -p "$(dirname "$CONFIG_FILE")"
@@ -243,13 +219,11 @@ set_manager_env() {
   fi
 }
 
-swap_is_active() {
-  swapon --show=NAME --noheadings 2>/dev/null | awk '{print $1}' | grep -Fxq "$CANVAS_SWAP_FILE"
-}
-
-remove_swap_fstab_entry() {
-  run_root sed -i '\|[[:space:]]# canvas-notebook swap$|d' /etc/fstab
-  run_root sed -i "\|^${CANVAS_SWAP_FILE}[[:space:]]|d" /etc/fstab
+_persist_swap_env() {
+  set_manager_env CANVAS_SWAP_ENABLED "$CANVAS_SWAP_ENABLED"
+  set_manager_env CANVAS_SWAP_SIZE "$CANVAS_SWAP_SIZE"
+  set_manager_env CANVAS_SWAP_FILE "$CANVAS_SWAP_FILE"
+  ok "Swap setting saved to ${CONFIG_FILE}"
 }
 
 show_swap_status() {
@@ -260,118 +234,6 @@ show_swap_status() {
   swapon --show || true
   printf '\n== memory ==\n'
   free -h || true
-}
-
-enable_canvas_swap() {
-  if swap_is_active; then
-    ok "Swap already enabled at ${CANVAS_SWAP_FILE}"
-  else
-    if [[ ! -f "$CANVAS_SWAP_FILE" ]]; then
-      run_root fallocate -l "$CANVAS_SWAP_SIZE" "$CANVAS_SWAP_FILE"
-      ok "Created ${CANVAS_SWAP_SIZE} swapfile at ${CANVAS_SWAP_FILE}"
-    fi
-    run_root chmod 600 "$CANVAS_SWAP_FILE"
-    run_root mkswap "$CANVAS_SWAP_FILE" >/dev/null
-    run_root swapon "$CANVAS_SWAP_FILE"
-    ok "Enabled swap at ${CANVAS_SWAP_FILE}"
-  fi
-
-  remove_swap_fstab_entry
-  printf '%s none swap sw 0 0 # canvas-notebook swap\n' "$CANVAS_SWAP_FILE" | run_root tee -a /etc/fstab >/dev/null
-  set_manager_env CANVAS_SWAP_ENABLED true
-  set_manager_env CANVAS_SWAP_SIZE "$CANVAS_SWAP_SIZE"
-  set_manager_env CANVAS_SWAP_FILE "$CANVAS_SWAP_FILE"
-  ok "Swap setting saved to ${CONFIG_FILE}"
-}
-
-disable_canvas_swap() {
-  if swap_is_active; then
-    run_root swapoff "$CANVAS_SWAP_FILE"
-    ok "Disabled swap at ${CANVAS_SWAP_FILE}"
-  else
-    ok "Swap already disabled at ${CANVAS_SWAP_FILE}"
-  fi
-
-  remove_swap_fstab_entry
-  if [[ -f "$CANVAS_SWAP_FILE" ]]; then
-    run_root rm -f "$CANVAS_SWAP_FILE"
-    ok "Removed ${CANVAS_SWAP_FILE}"
-  fi
-  set_manager_env CANVAS_SWAP_ENABLED false
-  set_manager_env CANVAS_SWAP_SIZE "$CANVAS_SWAP_SIZE"
-  set_manager_env CANVAS_SWAP_FILE "$CANVAS_SWAP_FILE"
-  ok "Swap setting saved to ${CONFIG_FILE}"
-}
-
-run_compose() {
-  log_msg "compose $*"
-  compose "$@" 2>&1 | tee -a "$LOG_FILE"
-  return "${PIPESTATUS[0]}"
-}
-
-image_digest() {
-  docker_cmd image inspect "$IMAGE_REF" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | awk -F@ 'NF == 2 {print $2}' || true
-}
-
-remote_image_digest() {
-  if docker_cmd buildx imagetools inspect "$IMAGE_REF" >/dev/null 2>&1; then
-    docker_cmd buildx imagetools inspect "$IMAGE_REF" 2>/dev/null | awk '/^Digest:/ {print $2; exit}'
-  elif docker_cmd manifest inspect -v "$IMAGE_REF" >/dev/null 2>&1; then
-    docker_cmd manifest inspect -v "$IMAGE_REF" 2>/dev/null | sed -n 's/.*"Descriptor":{.*"digest":"\([^"]*\)".*/\1/p' | head -1
-  fi
-}
-
-pull_image_if_needed() {
-  local remote_digest
-  remote_digest="$(remote_image_digest || true)"
-  if [[ -n "$remote_digest" ]] && image_digest | grep -Fxq "$remote_digest"; then
-    ok "Already up to date (${IMAGE_REF}@${remote_digest:0:19}…)"
-    log_msg "pull skipped image current $remote_digest"
-    return 0
-  fi
-
-  local pull_log layers size_msg
-  pull_log="$(mktemp)"
-  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-  local i=0
-  compose pull "$SERVICE" >"$pull_log" 2>&1 &
-  local pull_pid=$!
-  while kill -0 "$pull_pid" 2>/dev/null; do
-    printf "\r  ${spin:$((i % ${#spin})):1} Pulling latest image…"
-    i=$((i + 1))
-    sleep 0.08
-  done
-  wait "$pull_pid" || { cat "$pull_log"; rm -f "$pull_log"; fail "Image pull failed"; }
-
-  layers=$(count_pull_layers "$pull_log")
-  size_msg=$(pull_size_mb "$pull_log")
-  cat "$pull_log" >> "$LOG_FILE" 2>/dev/null || true
-  rm -f "$pull_log"
-  printf "\r  ✓ Image pulled (%s layers, %s MB)\n" "$layers" "$size_msg"
-  log_msg "pull completed layers=$layers size_mb=$size_msg"
-}
-
-cleanup_docker_artifacts() {
-  local prune_output reclaimed
-  prune_output="$(docker_cmd image prune -f 2>&1 || true)"
-  reclaimed="$(printf '%s' "$prune_output" | grep -oE '[0-9]+(\.[0-9]+)?(kB|MB|GB)' | tail -1 || true)"
-  if [[ -n "$reclaimed" ]]; then
-    ok "Cleaned up dangling images (reclaimed ${reclaimed})"
-  else
-    ok "No dangling images to clean up"
-  fi
-  log_msg "docker image prune completed reclaimed=${reclaimed:-0}"
-}
-
-host_port() {
-  compose_optional port "$SERVICE" 3000 2>/dev/null | tail -1 | awk -F: '{print $NF}' || true
-}
-
-health_url() {
-  local port
-  port="$(host_port)"
-  port="${port:-3456}"
-  printf 'http://127.0.0.1:%s/api/health\n' "$port"
 }
 
 compose_env_value() {
@@ -402,28 +264,15 @@ configured_domain() {
   printf '%s\n' "$url" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1
 }
 
-is_real_domain() {
-  local domain="$1"
-  [[ -n "$domain" ]] && [[ "$domain" != "localhost" ]] && ! [[ "$domain" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+host_port() {
+  compose_optional port "$SERVICE" 3000 2>/dev/null | tail -1 | awk -F: '{print $NF}' || true
 }
 
-remove_domain_from_main_caddyfile() {
-  local domain="$1" caddyfile="$2"
-  if [[ ! -f "$caddyfile" ]]; then return; fi
-  local escaped_domain
-  escaped_domain="$(printf '%s' "$domain" | sed 's/[.[\*^$]/\\&/g')"
-  grep -q "^${escaped_domain}[[:space:]]*{" "$caddyfile" 2>/dev/null || return
-  local tmpfile
-  tmpfile="$(mktemp)"
-  sed "/^${escaped_domain}[[:space:]]*{/,/^}/d" "$caddyfile" > "$tmpfile"
-  sed '/^$/N;/^\n$/d' "$tmpfile" > "${tmpfile}.clean"
-  run_root cp "${tmpfile}.clean" "$caddyfile"
-  rm -f "$tmpfile" "${tmpfile}.clean"
-}
-
-write_caddy_site_config() {
-  local domain="$1" canvas_caddyfile="$2"
-  printf '%s {\n    reverse_proxy localhost:3456 {\n        header_up X-Forwarded-Port 443\n    }\n}\n' "$domain" | run_root tee "$canvas_caddyfile" >/dev/null
+health_url() {
+  local port
+  port="$(host_port)"
+  port="${port:-3456}"
+  printf 'http://127.0.0.1:%s/api/health\n' "$port"
 }
 
 sync_caddy_from_compose() {
@@ -580,7 +429,7 @@ recreate_container() {
   compose up -d --force-recreate "$SERVICE" >"$recreate_log" 2>&1 &
   local rec_pid=$!
   while kill -0 "$rec_pid" 2>/dev/null; do
-    printf "\r  ${spin:$((i % ${#spin})):1} Recreating container…"
+    printf "\r  ${spin:$((i % ${#spin})):1} Recreating container..."
     i=$((i + 1))
     sleep 0.08
   done
@@ -614,57 +463,8 @@ wait_until_healthy() {
 }
 
 follow_until_healthy() {
-  local log_pgid attempts attempt url since_ts
-  attempts="$DEFAULT_HEALTH_ATTEMPTS"
-  url="$(health_url)"
-  since_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-  stop_log_stream() {
-    if [[ -n "${log_pgid:-}" ]]; then
-      kill -- "-$log_pgid" >/dev/null 2>&1 || true
-      wait "-$log_pgid" >/dev/null 2>&1 || true
-    fi
-  }
-
-  info "Streaming startup logs…"
-
-  pkill -f "docker[- ]compose .*logs.* -f.* canvas-notebook" >/dev/null 2>&1 || true
-  pkill -f "docker compose .*logs.*-f.*canvas-notebook" >/dev/null 2>&1 || true
-
-  _follow_filter() {
-    local line strip_ansi
-    strip_ansi='s/\x1b\[[0-9;]*[a-zA-Z]//g'
-    while IFS= read -r line; do
-      line="$(printf '%s' "$line" | sed "$strip_ansi")"
-      line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
-      [[ -z "$line" ]] && continue
-      case "$line" in
-        *Pulling*fs*layer*|*Pulling*layer*|*Downloading*|*Download*complete*|*Extracting*|*Pull*complete*|*Already*exists*) continue ;;
-        *Recreating*|*Recreated*|*Starting*|*Started*) continue ;;
-        *canvas-notebook*" | "*) line="$(printf '%s' "$line" | sed 's/^.*canvas-notebook[[:space:]]*|[[:space:]]*//')" ;;
-      esac
-      printf '%s\n' "$line"
-    done
-  }
-
-  set -m
-  compose logs -f --since="$since_ts" "$SERVICE" 2>&1 | _follow_filter | tee -a "$LOG_FILE" &
-  log_pgid=$(ps -o pgid= $! 2>/dev/null | tr -d ' ') || true
-  set +m
-
-  trap 'stop_log_stream' RETURN
-
-  for ((attempt=1; attempt<=attempts; attempt++)); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
-      stop_log_stream
-      ok "Canvas Notebook is healthy"
-      return 0
-    fi
-    sleep 1
-  done
-
-  stop_log_stream
-  fail "Canvas Notebook did not become healthy within ${attempts}s. Run: canvas-notebook logs"
+  local compose_cmd="compose -f ${COMPOSE_FILE}"
+  wait_for_healthy "$compose_cmd" "$SERVICE" "$(health_url)" "$DEFAULT_HEALTH_ATTEMPTS" "$LOG_FILE"
 }
 
 container_id() {
@@ -894,6 +694,24 @@ diagnose_json() {
     "$status" "${mem_total:-0}" "${mem_available:-0}" "${disk_total:-0}" "${disk_available:-0}"
 }
 
+run_compose() {
+  log_msg "compose $*"
+  compose "$@" 2>&1 | tee -a "$LOG_FILE"
+  return "${PIPESTATUS[0]}"
+}
+
+cleanup_docker_artifacts() {
+  local prune_output reclaimed
+  prune_output="$(docker_cmd image prune -f 2>&1 || true)"
+  reclaimed="$(printf '%s' "$prune_output" | grep -oE '[0-9]+(\.[0-9]+)?(kB|MB|GB)' | tail -1 || true)"
+  if [[ -n "$reclaimed" ]]; then
+    ok "Cleaned up dangling images (reclaimed ${reclaimed})"
+  else
+    ok "No dangling images to clean up"
+  fi
+  log_msg "docker image prune completed reclaimed=${reclaimed:-0}"
+}
+
 cmd="${1:-help}"
 if [[ "$#" -gt 0 ]]; then
   shift
@@ -932,7 +750,7 @@ case "$cmd" in
   install|update)
     log_msg "$cmd started"
     info "Phase 1/3: Image"
-    pull_image_if_needed
+    pull_image_if_needed "compose" "$IMAGE_REF" "$SERVICE" "$LOG_FILE"
     info "Phase 2/3: Container"
     recreate_container
     info "Phase 3/3: Health check"
@@ -978,10 +796,10 @@ case "$cmd" in
     show_swap_status
     ;;
   swap-enable)
-    enable_canvas_swap
+    enable_canvas_swap "_persist_swap_env"
     ;;
   swap-disable)
-    disable_canvas_swap
+    disable_canvas_swap "_persist_swap_env"
     ;;
   caddy)
     show_caddy_status
