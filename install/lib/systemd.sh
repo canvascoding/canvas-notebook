@@ -33,7 +33,7 @@ EOF
 }
 
 install_management_cli() {
-  local bin_path fallback_bin_path
+  local bin_path fallback_bin_path shared_dir
   bin_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
   fallback_bin_path="/usr/bin/canvas-notebook"
 
@@ -52,7 +52,17 @@ install_management_cli() {
     fi
   fi
 
+  shared_dir="${INSTALL_DIR}/lib/shared"
+  run_root mkdir -p "$shared_dir"
+  for _lib in output utils caddy swap container docker; do
+    if [[ -f "${SUPPORT_DIR}/lib/shared/${_lib}.sh" ]]; then
+      run_root install -m 644 "${SUPPORT_DIR}/lib/shared/${_lib}.sh" "${shared_dir}/"
+    fi
+  done
+  unset _lib
+
   ok "Installed management CLI: ${bin_path}"
+  ok "Deployed shared libraries to ${shared_dir}"
   [[ -x "$fallback_bin_path" ]] && info "Also available as: ${fallback_bin_path}"
   info "Run: canvas-notebook help"
 }

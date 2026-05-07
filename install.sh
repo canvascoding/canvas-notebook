@@ -90,6 +90,12 @@ resolve_support_dir() {
 source_libs() {
   # shellcheck source=install/lib/common.sh
   . "${SUPPORT_DIR}/lib/common.sh"
+  # Shared libs are sourced by their respective installer modules:
+  # common.sh -> shared/output.sh, shared/utils.sh
+  # docker.sh -> shared/docker.sh
+  # swap.sh   -> shared/swap.sh
+  # caddy.sh  -> shared/caddy.sh
+  # compose.sh -> shared/container.sh
   # shellcheck source=install/lib/docker.sh
   . "${SUPPORT_DIR}/lib/docker.sh"
   # shellcheck source=install/lib/swap.sh
