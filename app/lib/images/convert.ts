@@ -1,13 +1,51 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import sharp from 'sharp';
 
 sharp.cache(false);
 
 const execFileAsync = promisify(execFile);
+
+const PYTHON_HEIC_SCRIPT = `
+import sys
+import io
+from pillow_heif import HeifFile
+from PIL import Image
+buf = sys.stdin.buffer.read()
+heif = HeifFile.from_bytes(buf)
+img = Image.frombytes(heif[0].mode, heif[0].size, heif[0].data, "raw", heif[0].mode)
+out = io.BytesIO()
+img.save(out, "PNG")
+sys.stdout.buffer.write(out.getvalue())
+`;
+
+function decodeHeicViaPython(buffer: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('python3', ['-c', PYTHON_HEIC_SCRIPT], {
+      timeout: 30_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const chunks: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+    child.stderr.on('data', () => {});
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve(Buffer.concat(chunks));
+      } else {
+        reject(new Error(`python3 exited with code ${code}`));
+      }
+    });
+
+    child.on('error', reject);
+    child.stdin.write(buffer);
+    child.stdin.end();
+  });
+}
 
 export interface ConvertOptions {
   format: 'jpg' | 'webp' | 'png';
@@ -222,28 +260,33 @@ async function decodeHeicWithSystemFallback(
   buffer: Buffer,
   originalName: string,
 ): Promise<{ buffer: Buffer; filename: string }> {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-heic-'));
-  const inputPath = path.join(tempDir, replaceExtension(path.basename(originalName), '.heic'));
-  const outputPath = path.join(tempDir, replaceExtension(path.basename(originalName), '.png'));
+  if (process.platform === 'darwin') {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-heic-'));
+    const inputPath = path.join(tempDir, replaceExtension(path.basename(originalName), '.heic'));
+    const outputPath = path.join(tempDir, replaceExtension(path.basename(originalName), '.png'));
+
+    try {
+      await fs.writeFile(inputPath, buffer);
+      await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', inputPath, '--out', outputPath]);
+      const decodedBuffer = await fs.readFile(outputPath);
+      return {
+        buffer: decodedBuffer,
+        filename: replaceExtension(originalName, '.png'),
+      };
+    } catch (error) {
+      throw new ImageConversionError(
+        'unsupported_heic',
+        error instanceof Error
+          ? `HEIC conversion is not available on this server: ${error.message}`
+          : 'HEIC conversion is not available on this server',
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  }
 
   try {
-    await fs.writeFile(inputPath, buffer);
-
-    if (process.platform === 'darwin') {
-      await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', inputPath, '--out', outputPath]);
-    } else {
-      const script = `
-import sys
-from pillow_heif import HeifFile
-from PIL import Image
-heif = HeifFile(sys.argv[1])
-img = Image.frombytes(heif[0].mode, heif[0].size, heif[0].data, "raw", heif[0].mode)
-img.save(sys.argv[2], "PNG")
-`.trim();
-      await execFileAsync('python3', ['-c', script, inputPath, outputPath], { timeout: 30_000 });
-    }
-
-    const decodedBuffer = await fs.readFile(outputPath);
+    const decodedBuffer = await decodeHeicViaPython(buffer);
     return {
       buffer: decodedBuffer,
       filename: replaceExtension(originalName, '.png'),
@@ -255,8 +298,6 @@ img.save(sys.argv[2], "PNG")
         ? `HEIC conversion is not available on this server: ${error.message}`
         : 'HEIC conversion is not available on this server',
     );
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
   }
 }
 
