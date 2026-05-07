@@ -54,12 +54,21 @@ install_management_cli() {
 
   shared_dir="${INSTALL_DIR}/lib/shared"
   run_root mkdir -p "$shared_dir"
-  for _lib in output utils config caddy swap container docker; do
+  for _lib in output utils config logging compose caddy swap container docker ui; do
     if [[ -f "${SUPPORT_DIR}/lib/shared/${_lib}.sh" ]]; then
       run_root install -m 644 "${SUPPORT_DIR}/lib/shared/${_lib}.sh" "${shared_dir}/"
     fi
   done
   unset _lib
+
+  local commands_dir="${INSTALL_DIR}/lib/commands"
+  run_root mkdir -p "$commands_dir"
+  for _cmd_file in "${SUPPORT_DIR}/lib/commands/"*.sh; do
+    if [[ -f "$_cmd_file" ]]; then
+      run_root install -m 644 "$_cmd_file" "${commands_dir}/"
+    fi
+  done
+  unset _cmd_file
 
   ok "Installed management CLI: ${bin_path}"
   ok "Deployed shared libraries to ${shared_dir}"
