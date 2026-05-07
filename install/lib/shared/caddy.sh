@@ -2,6 +2,9 @@
 # Shared Caddy utility functions for Canvas Notebook CLI and installer.
 # Sourced by both install/bin/canvas-notebook and install/lib/caddy.sh
 
+[[ -n "${_SHARED_CADDY_LOADED:-}" ]] && return 0
+_SHARED_CADDY_LOADED=1
+
 is_real_domain() {
   local domain="$1"
   [[ -n "$domain" ]] && [[ "$domain" != "localhost" ]] && ! [[ "$domain" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]

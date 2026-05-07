@@ -2,6 +2,9 @@
 # Shared output functions for Canvas Notebook CLI and installer.
 # Sourced by both install/bin/canvas-notebook and install/lib/common.sh
 
+[[ -n "${_SHARED_OUTPUT_LOADED:-}" ]] && return 0
+_SHARED_OUTPUT_LOADED=1
+
 CANVAS_USE_COLOR="${CANVAS_USE_COLOR:-true}"
 
 if [[ "$CANVAS_USE_COLOR" == "true" ]]; then

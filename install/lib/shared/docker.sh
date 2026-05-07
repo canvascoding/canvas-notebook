@@ -2,6 +2,19 @@
 # Shared Docker/image functions for Canvas Notebook CLI and installer.
 # Sourced by both install/bin/canvas-notebook and install/lib/docker.sh
 
+[[ -n "${_SHARED_DOCKER_LOADED:-}" ]] && return 0
+_SHARED_DOCKER_LOADED=1
+
+docker_cmd() {
+  if docker info >/dev/null 2>&1; then
+    docker "$@"
+  elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+    sudo docker "$@"
+  else
+    return 1
+  fi
+}
+
 count_pull_layers() {
   local log_file="$1" count
   count=$(grep -cE 'Pulling fs layer|Already exists' "$log_file" 2>/dev/null || true)
@@ -35,8 +48,8 @@ pull_image_if_needed() {
   local log_file="${4:-}"
 
   local remote_digest
-  remote_digest="$(remote_image_digest || true)"
-  if [[ -n "$remote_digest" ]] && image_digest | grep -Fxq "$remote_digest"; then
+  remote_digest="$(remote_image_digest "$image_ref" || true)"
+  if [[ -n "$remote_digest" ]] && image_digest "$image_ref" | grep -Fxq "$remote_digest"; then
     ok "Already up to date (${image_ref}@${remote_digest:0:19}...)"
     return 0
   fi
@@ -63,27 +76,15 @@ pull_image_if_needed() {
 }
 
 image_digest() {
-  _docker_cmd image inspect "$(_image_ref)" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | awk -F@ 'NF == 2 {print $2}' || true
+  local image_ref="${1:-${IMAGE_REF:-${IMAGE:-}}}"
+  docker_cmd image inspect "$image_ref" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | awk -F@ 'NF == 2 {print $2}' || true
 }
 
 remote_image_digest() {
-  if _docker_cmd buildx imagetools inspect "$(_image_ref)" >/dev/null 2>&1; then
-    _docker_cmd buildx imagetools inspect "$(_image_ref)" 2>/dev/null | awk '/^Digest:/ {print $2; exit}'
-  elif _docker_cmd manifest inspect -v "$(_image_ref)" >/dev/null 2>&1; then
-    _docker_cmd manifest inspect -v "$(_image_ref)" 2>/dev/null | sed -n 's/.*"Descriptor":{.*"digest":"\([^"]*\)".*/\1/p' | head -1
-  fi
-}
-
-_image_ref() {
-  printf '%s' "${IMAGE_REF:-${IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}}"
-}
-
-_docker_cmd() {
-  if docker info >/dev/null 2>&1; then
-    docker "$@"
-  elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
-    sudo docker "$@"
-  else
-    return 1
+  local image_ref="${1:-${IMAGE_REF:-${IMAGE:-}}}"
+  if docker_cmd buildx imagetools inspect "$image_ref" >/dev/null 2>&1; then
+    docker_cmd buildx imagetools inspect "$image_ref" 2>/dev/null | awk '/^Digest:/ {print $2; exit}'
+  elif docker_cmd manifest inspect -v "$image_ref" >/dev/null 2>&1; then
+    docker_cmd manifest inspect -v "$image_ref" 2>/dev/null | sed -n 's/.*"Descriptor":{.*"digest":"\([^"]*\)".*/\1/p' | head -1
   fi
 }

@@ -2,6 +2,9 @@
 # Shared container health-check and startup functions for Canvas Notebook CLI and installer.
 # Sourced by both install/bin/canvas-notebook and install/lib/compose.sh
 
+[[ -n "${_SHARED_CONTAINER_LOADED:-}" ]] && return 0
+_SHARED_CONTAINER_LOADED=1
+
 wait_for_healthy() {
   local compose_cmd="$1"
   local service="$2"
