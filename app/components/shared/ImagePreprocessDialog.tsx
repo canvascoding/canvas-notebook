@@ -51,11 +51,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function getFormatForFile(file: File, isHeic: boolean): 'jpg' | 'webp' | 'png' {
-  if (isHeic) return 'jpg';
-  const ext = file.name.split('.').pop()?.toLowerCase();
-  if (ext === 'png') return 'png';
-  if (ext === 'webp') return 'webp';
+function getFormatForFile(_file: File, _isHeic: boolean): 'jpg' | 'webp' | 'png' {
   return 'jpg';
 }
 
@@ -111,11 +107,9 @@ export function ImagePreprocessDialog({
 
   const handleConfirm = useCallback(() => {
     const params: (ConvertParams | null)[] = files.map((f, i) => {
-      const format = f.isHeic
-        ? 'jpg'
-        : applyToAll
-          ? globalFormat
-          : (perFileFormat[i] ?? getFormatForFile(f.file, f.isHeic));
+      const format = applyToAll
+        ? globalFormat
+        : (perFileFormat[i] ?? getFormatForFile(f.file, f.isHeic));
       const quality = applyToAll ? effectiveGlobalQuality : getQualityForFile(i, perFileQuality);
       const maxDimension = applyToAll ? globalDimension : perFileDimension[i];
       return {
@@ -146,13 +140,11 @@ export function ImagePreprocessDialog({
 
         <div className="space-y-4">
           {files.map((f, i) => {
-            const isHeic = f.isHeic;
-            const isLarge = f.isLarge;
-            const fileFormat = isHeic
-              ? 'jpg'
-              : applyToAll
-                ? globalFormat
-                : (perFileFormat[i] ?? getFormatForFile(f.file, isHeic));
+             const isHeic = f.isHeic;
+             const isLarge = f.isLarge;
+             const fileFormat = applyToAll
+               ? globalFormat
+               : (perFileFormat[i] ?? getFormatForFile(f.file, isHeic));
             const fileQuality = applyToAll ? effectiveGlobalQuality : getQualityForFile(i, perFileQuality);
             const fileDimension = applyToAll ? globalDimension : (perFileDimension[i] ?? undefined);
             const isCustomQuality = !!perFileCustomQuality[i];
@@ -181,12 +173,7 @@ export function ImagePreprocessDialog({
                   <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
                     <div>
                       <label className="text-muted-foreground block mb-1">{t('imagePreprocessFormat')}</label>
-                      {isHeic ? (
-                        <div className="rounded-md border border-input bg-muted/50 px-2 py-1 text-sm text-muted-foreground">
-                          JPG
-                        </div>
-                      ) : (
-                        <select
+                      <select
                           className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
                           value={fileFormat}
                           disabled={applyToAll}
@@ -200,12 +187,6 @@ export function ImagePreprocessDialog({
                           <option value="webp">WebP</option>
                           <option value="png">PNG</option>
                         </select>
-                      )}
-                      {isHeic && (
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          HEIC-Dateien werden immer zu JPG konvertiert.
-                        </p>
-                      )}
                     </div>
                     <div>
                       <label className="text-muted-foreground block mb-1">{t('imagePreprocessQuality')}</label>
@@ -314,28 +295,17 @@ export function ImagePreprocessDialog({
             <div className="grid grid-cols-1 gap-3 text-xs border border-border rounded-lg p-3 sm:grid-cols-3 sm:p-4">
               <div>
                 <label className="text-muted-foreground block mb-1">
-                  {hasHeic && !allHeic ? 'Format (nur für Nicht-HEIC)' : t('imagePreprocessFormat')}
+                  {t('imagePreprocessFormat')}
                 </label>
-                {allHeic ? (
-                  <div className="rounded-md border border-input bg-muted/50 px-2 py-1 text-sm text-muted-foreground">
-                    JPG
-                  </div>
-                ) : (
-                  <select
-                    className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                    value={globalFormat}
-                    onChange={(e) => setGlobalFormat(e.target.value as 'jpg' | 'webp' | 'png')}
-                  >
-                    <option value="jpg">JPG</option>
-                    <option value="webp">WebP</option>
-                    <option value="png">PNG</option>
-                  </select>
-                )}
-                {hasHeic && (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    HEIC-Dateien bleiben hier fest auf JPG.
-                  </p>
-                )}
+                <select
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                  value={globalFormat}
+                  onChange={(e) => setGlobalFormat(e.target.value as 'jpg' | 'webp' | 'png')}
+                >
+                  <option value="jpg">JPG</option>
+                  <option value="webp">WebP</option>
+                  <option value="png">PNG</option>
+                </select>
               </div>
               <div>
                 <label className="text-muted-foreground block mb-1">{t('imagePreprocessQuality')}</label>
