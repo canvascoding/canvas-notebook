@@ -6,7 +6,7 @@
   "scripts": {
     "postinstall": "patch-package",
     "dev": "node scripts/run-dev.mjs",
-    "build": "next build",
+    "build": "next build && bash scripts/inject-cli-version.sh",
     "bootstrap:admin": "node scripts/bootstrap-admin.js",
     "start": "NODE_ENV=production ./scripts/start-services.sh",
     "lint": "eslint",

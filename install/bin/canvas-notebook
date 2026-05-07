@@ -47,8 +47,6 @@ else
   exit 1
 fi
 
-CANVAS_USE_COLOR="${CANVAS_USE_COLOR:-false}"
-
 CLI_BOLD='\033[1m'; CLI_DIM='\033[2m'; CLI_RESET='\033[0m'
 
 progress_bar() {
@@ -133,6 +131,7 @@ Usage:
 
 Commands:
   help       Show this help
+  version    Show CLI version
   install    Pull the image and start/recreate the container
   update     Pull the latest image, recreate the container, and wait until healthy
   start      Start the container and wait until healthy
@@ -183,11 +182,10 @@ HELP
 }
 
 compose_optional() {
-  cd "$INSTALL_DIR"
   if docker info >/dev/null 2>&1; then
-    docker compose -f "$COMPOSE_FILE" "$@"
+    docker compose -f "$COMPOSE_FILE" --project-directory "$INSTALL_DIR" "$@"
   elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
-    sudo docker compose -f "$COMPOSE_FILE" "$@"
+    sudo docker compose -f "$COMPOSE_FILE" --project-directory "$INSTALL_DIR" "$@"
   else
     return 1
   fi
@@ -718,6 +716,14 @@ while [[ "$#" -gt 0 ]]; do
     --no-banner)
       NO_BANNER=true
       ;;
+    -V|--version)
+      printf 'Canvas Notebook CLI %s\n' "$CANVAS_CLI_VERSION"
+      exit 0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
     *)
       fail "Unknown option: $1"
       ;;
@@ -729,7 +735,7 @@ case "$cmd" in
   help|-h|--help)
     usage
     ;;
-  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|caddy-fix|diagnose|health|config|cli-update|auto-update-status|auto-update-enable|auto-update-disable|cleanup-logs)
+  install|update|start|restart|stop|down|status|ps|logs|container-logs|manager-log|env|swap|swap-enable|swap-disable|caddy|caddy-reload|caddy-fix|diagnose|health|config|version|cli-update|auto-update-status|auto-update-enable|auto-update-disable|cleanup-logs)
     if [[ "$NO_BANNER" != "true" ]]; then
       banner
     fi
@@ -747,6 +753,9 @@ case "$cmd" in
     follow_until_healthy
     cleanup_docker_artifacts
     log_msg "$cmd completed"
+    ;;
+  version|-V|--version)
+    printf 'Canvas Notebook CLI %s\n' "$CANVAS_CLI_VERSION"
     ;;
   start)
     log_msg "start"
