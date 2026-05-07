@@ -197,16 +197,6 @@ compose() {
   compose_optional "$@" || fail "Docker is not reachable. Try logging out/in for docker group changes, or run with a user that can access Docker."
 }
 
-docker_cmd() {
-  if docker info >/dev/null 2>&1; then
-    docker "$@"
-  elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
-    sudo docker "$@"
-  else
-    return 1
-  fi
-}
-
 set_manager_env() {
   local key="$1" value="$2" escaped
   run_root mkdir -p "$(dirname "$CONFIG_FILE")"

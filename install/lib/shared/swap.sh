@@ -2,6 +2,9 @@
 # Shared swap functions for Canvas Notebook CLI and installer.
 # Sourced by both install/bin/canvas-notebook and install/lib/swap.sh
 
+[[ -n "${_SHARED_SWAP_LOADED:-}" ]] && return 0
+_SHARED_SWAP_LOADED=1
+
 swap_is_active() {
   swapon --show=NAME --noheadings 2>/dev/null | awk '{print $1}' | grep -Fxq "$CANVAS_SWAP_FILE"
 }

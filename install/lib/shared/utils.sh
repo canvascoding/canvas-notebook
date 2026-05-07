@@ -2,6 +2,9 @@
 # Shared utility functions for Canvas Notebook CLI and installer.
 # Sourced by both install/bin/canvas-notebook and install/lib/common.sh
 
+[[ -n "${_SHARED_UTILS_LOADED:-}" ]] && return 0
+_SHARED_UTILS_LOADED=1
+
 run_root() {
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     "$@"
