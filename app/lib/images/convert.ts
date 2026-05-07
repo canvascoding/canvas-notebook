@@ -232,7 +232,15 @@ async function decodeHeicWithSystemFallback(
     if (process.platform === 'darwin') {
       await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', inputPath, '--out', outputPath]);
     } else {
-      await execFileAsync('heif-convert', [inputPath, outputPath]);
+      const script = `
+import sys
+from pillow_heif import HeifFile
+from PIL import Image
+heif = HeifFile(sys.argv[1])
+img = Image.frombytes(heif[0].mode, heif[0].size, heif[0].data, "raw", heif[0].mode)
+img.save(sys.argv[2], "PNG")
+`.trim();
+      await execFileAsync('python3', ['-c', script, inputPath, outputPath], { timeout: 30_000 });
     }
 
     const decodedBuffer = await fs.readFile(outputPath);

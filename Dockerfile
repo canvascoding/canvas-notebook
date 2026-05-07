@@ -36,12 +36,12 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 unzip zip git make python3 python3-pip python3-venv ripgrep \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
-     fonts-noto-color-emoji libheif-examples \
+     fonts-noto-color-emoji \
   && rm -rf /var/lib/apt/lists/* \
   && python3 --version
 
 # Install Python packages required by skills
-RUN pip3 install --no-cache-dir --break-system-packages openpyxl pypdf pdfplumber pdf2image Pillow defusedxml lxml PyYAML python-pptx python-docx pandas numpy chardet beautifulsoup4 rich tabulate markitdown
+RUN pip3 install --no-cache-dir --break-system-packages openpyxl pypdf pdfplumber pdf2image Pillow pillow-heif defusedxml lxml PyYAML python-pptx python-docx pandas numpy chardet beautifulsoup4 rich tabulate markitdown
 RUN echo "${APP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${APP_USER} && \
     chmod 0440 /etc/sudoers.d/${APP_USER}
 RUN npm install -g npm@${NPM_VERSION}
