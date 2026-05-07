@@ -222,20 +222,19 @@ async function decodeHeicWithSystemFallback(
   buffer: Buffer,
   originalName: string,
 ): Promise<{ buffer: Buffer; filename: string }> {
-  if (process.platform !== 'darwin') {
-    throw new ImageConversionError(
-      'unsupported_heic',
-      'HEIC conversion is not available in this runtime because native HEIF support is missing',
-    );
-  }
-
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-heic-'));
   const inputPath = path.join(tempDir, replaceExtension(path.basename(originalName), '.heic'));
   const outputPath = path.join(tempDir, replaceExtension(path.basename(originalName), '.png'));
 
   try {
     await fs.writeFile(inputPath, buffer);
-    await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', inputPath, '--out', outputPath]);
+
+    if (process.platform === 'darwin') {
+      await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', inputPath, '--out', outputPath]);
+    } else {
+      await execFileAsync('heif-convert', [inputPath, outputPath]);
+    }
+
     const decodedBuffer = await fs.readFile(outputPath);
     return {
       buffer: decodedBuffer,
