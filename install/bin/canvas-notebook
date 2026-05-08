@@ -51,14 +51,17 @@ fi
 
 OUTPUT_JSON=false
 NO_BANNER=false
+CMD_ARGS=()
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --json)
       OUTPUT_JSON=true
       NO_BANNER=true
+      shift
       ;;
     --no-banner)
       NO_BANNER=true
+      shift
       ;;
     -V|--version)
       printf 'Canvas Notebook CLI %s\n' "$CANVAS_CLI_VERSION"
@@ -68,11 +71,16 @@ while [[ "$#" -gt 0 ]]; do
       usage
       exit 0
       ;;
+    --)
+      shift
+      CMD_ARGS+=("$@")
+      break
+      ;;
     *)
-      fail "Unknown option: $1"
+      CMD_ARGS+=("$1")
+      shift
       ;;
   esac
-  shift
 done
 
 declare -A CMD_FILE=(
@@ -126,4 +134,4 @@ if ! declare -f "$cmd_fn" >/dev/null 2>&1; then
   fail "Command '${cmd}' is defined in ${CMD_FILE[$cmd]}.sh but function ${cmd_fn}() not found"
 fi
 
-"$cmd_fn" "$@"
+"$cmd_fn" "${CMD_ARGS[@]}"
