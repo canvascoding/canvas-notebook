@@ -111,9 +111,9 @@ source_libs() {
 
 print_banner() {
   echo
-  echo -e "${BOLD}╔══════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}║   Canvas Notebook  —  Installer          ║${RESET}"
-  echo -e "${BOLD}╚══════════════════════════════════════════╝${RESET}"
+  echo -e "${_OUT_BOLD}╔══════════════════════════════════════════╗${_OUT_RESET}"
+  echo -e "${_OUT_BOLD}║   Canvas Notebook  —  Installer          ║${_OUT_RESET}"
+  echo -e "${_OUT_BOLD}╚══════════════════════════════════════════╝${_OUT_RESET}"
   echo
 }
 
@@ -288,7 +288,7 @@ run_prebuilt_install() {
   configure_caddy "$domain"
 
   echo
-  echo -e "${GREEN}${BOLD}Canvas Notebook is running.${RESET}"
+  echo -e "${_OUT_GREEN}${_OUT_BOLD}Canvas Notebook is running.${_OUT_RESET}"
   echo
   info "Auto-update is enabled — the image updates automatically every day."
   info "Manage with: canvas-notebook auto-update-status | auto-update-enable | auto-update-disable"
