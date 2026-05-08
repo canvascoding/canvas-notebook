@@ -47,12 +47,11 @@ const fs = require('fs');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
-const { spawn } = require('child_process');
-const { prepareSkillsRuntime } = require('./server/skills-runtime');
-const { auth } = require('./app/lib/auth');
-const {
-  resolveSkillsDataDir,
-} = require('./app/lib/runtime-data-paths');
+  const { spawn } = require('child_process');
+  const { auth } = require('./app/lib/auth');
+  const {
+    resolveSkillsDataDir,
+  } = require('./app/lib/runtime-data-paths');
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = process.env.HOSTNAME || 'localhost';
@@ -122,9 +121,18 @@ function getContentType(filePath) {
 }
 
 function ensureSkillsDirectory() {
+  const skillsDir = resolveSkillsDataDir(process.cwd());
+  const repoSkillsDir = path.resolve(process.cwd(), 'seed_skills');
+
   try {
-    const result = prepareSkillsRuntime({ cwd: process.cwd() });
-    console.log(`[Startup] Skills synced to ${resolveSkillsDataDir()} (${result.commandSpecs.length} commands)`);
+    if (!fs.existsSync(skillsDir)) {
+      fs.mkdirSync(skillsDir, { recursive: true });
+      console.log(`[Startup] Created skills directory: ${skillsDir}`);
+    }
+    if (fs.existsSync(repoSkillsDir)) {
+      fs.cpSync(repoSkillsDir, skillsDir, { recursive: true, force: true });
+      console.log(`[Startup] Synced seed skills to ${skillsDir}`);
+    }
   } catch (error) {
     console.error('[Startup] Failed to sync skills directory:', error);
   }
