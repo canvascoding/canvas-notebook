@@ -20,5 +20,5 @@ cmd_cli_update() {
     fail "CLI update failed — previous version is still in place"
   fi
   info "Running Caddy configuration health fix..."
-  caddy_fix || true
+  caddy_fix >/dev/null 2>&1 || true
 }
