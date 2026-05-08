@@ -1,6 +1,6 @@
 ---
 name: find-skills
-description: "Discover and install specialized agent skills from the open ecosystem. Use when the user asks 'how do I do X', 'find a skill for X', 'is there a skill for X', wants to extend agent capabilities, or needs help with a specific domain (design, testing, deployment, etc.). Integrates with the Skills CLI and skills.sh directory."
+description: "Discover and install specialized agent skills from the open ecosystem. ALWAYS use this skill when the user asks 'how do I do X', 'find a skill for X', 'is there a skill for X', wants to extend agent capabilities, or needs help with a specific domain (design, testing, deployment, etc.). Make sure to use this skill whenever the user mentions skills, plugins, extensions, tools, or wants to find new capabilities for the agent. Integrates with the Skills CLI and skills.sh directory."
 metadata:
   version: "1.0"
   author: canvas-studios
