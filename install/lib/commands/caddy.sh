@@ -26,11 +26,10 @@ caddy_fix() {
   fi
 
   if [[ -f "$caddyfile" ]]; then
-    local escaped_domain duplicate_count
+    local escaped_domain
     escaped_domain="$(printf '%s' "$domain" | sed 's/[.[\*^$]/\\&/g')"
-    duplicate_count="$(grep -c "^${escaped_domain}[[:space:]]*{" "$caddyfile" 2>/dev/null || printf '0')"
-    if [[ "$duplicate_count" -gt 0 ]]; then
-      info "Removing duplicate domain definition from ${caddyfile} (${duplicate_count} occurrence(s))"
+    if grep -q "^${escaped_domain}[[:space:]]*{" "$caddyfile" 2>/dev/null; then
+      info "Removing duplicate domain definition from ${caddyfile}"
       remove_domain_from_main_caddyfile "$domain" "$caddyfile"
       ok "Removed duplicate('${domain}') from ${caddyfile}"
       fixed_something=true
