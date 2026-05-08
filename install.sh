@@ -109,6 +109,17 @@ source_libs() {
   . "${SUPPORT_DIR}/lib/systemd.sh"
 }
 
+is_inside_container() {
+  [[ -f /.dockerenv ]] && return 0
+  grep -qaE '(docker|kubepods|containerd|lxc)' /proc/1/cgroup 2>/dev/null
+}
+
+ensure_host_install() {
+  if is_inside_container; then
+    fail "This installer must run on the VM host, not inside a container. The management CLI and systemd service need host-level access."
+  fi
+}
+
 print_banner() {
   local _bi='\033[1m' _ri='\033[0m'
   echo
