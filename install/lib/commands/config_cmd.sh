@@ -1,12 +1,31 @@
 #!/usr/bin/env bash
 
+_MASKED_JSON_KEYS=("BETTER_AUTH_SECRET" "CANVAS_INTERNAL_API_KEY" "BOOTSTRAP_ADMIN_PASSWORD")
+
+_mask_json_secrets() {
+  local input="$1"
+  local jq_expr
+  jq_expr='.env.BETTER_AUTH_SECRET = (if .env.BETTER_AUTH_SECRET == "" then "(not set)" else (.env.BETTER_AUTH_SECRET | .[0:4] + "***") end)
+    | .env.CANVAS_INTERNAL_API_KEY = (if .env.CANVAS_INTERNAL_API_KEY == "" then "(not set)" else (.env.CANVAS_INTERNAL_API_KEY | .[0:4] + "***") end)
+    | .env.BOOTSTRAP_ADMIN_PASSWORD = (if .env.BOOTSTRAP_ADMIN_PASSWORD == "" then "(not set)" else (.env.BOOTSTRAP_ADMIN_PASSWORD | .[0:4] + "***") end)'
+  printf '%s' "$input" | jq "$jq_expr"
+}
+
 cmd_config_show() {
   if [[ "$OUTPUT_JSON" == "true" ]]; then
-    config_json_show
+    if [[ -f "$CONFIG_JSON_PATH" ]]; then
+      _mask_json_secrets "$(cat "$CONFIG_JSON_PATH")"
+    else
+      _mask_json_secrets "$CONFIG_JSON_DEFAULTS"
+    fi
   else
     info "Config file: ${CONFIG_JSON_PATH}"
     echo
-    config_json_show
+    if [[ -f "$CONFIG_JSON_PATH" ]]; then
+      _mask_json_secrets "$(cat "$CONFIG_JSON_PATH")"
+    else
+      info "No config.json found. Run: canvas-notebook config-migrate"
+    fi
   fi
 }
 
@@ -17,7 +36,14 @@ cmd_config_set() {
 
   local key="$1" value="$2"
   config_json_write "$key" "$value"
-  ok "Set ${key} = ${value}"
+
+  local display_value="$value"
+  case "$key" in
+    env.BETTER_AUTH_SECRET|env.CANVAS_INTERNAL_API_KEY|env.BOOTSTRAP_ADMIN_PASSWORD)
+      display_value="${value:0:4}***"
+      ;;
+  esac
+  ok "Set ${key} = ${display_value}"
 
   case "$key" in
     domain|image|hostPort|containerPort|dataDir|env.*)
