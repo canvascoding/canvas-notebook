@@ -29,7 +29,7 @@ write_caddy_site_config() {
   printf '%s {\n    reverse_proxy localhost:3456 {\n        header_up X-Forwarded-Port 443\n    }\n}\n' "$domain" | run_root tee "$canvas_caddyfile" >/dev/null
 }
 
-sync_caddy_from_compose() {
+sync_caddy() {
   local domain caddyfile canvas_caddyfile include_line
   domain="$(configured_domain)"
   caddyfile="/etc/caddy/Caddyfile"

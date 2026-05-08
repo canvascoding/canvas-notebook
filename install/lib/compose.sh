@@ -78,16 +78,13 @@ migrate_legacy_data() {
 }
 
 configure_data_bind_mount() {
-  local escaped_data_dir
-
   section "Data directory"
   run_root mkdir -p "$DATA_DIR"
   run_root chown -R 1000:1000 "$DATA_DIR"
 
-  escaped_data_dir="$(sed_replacement_escape "$DATA_DIR")"
-  sed -i -E "s|^([[:space:]]*-[[:space:]]*).+:/data([[:space:]]*)$|\\1${escaped_data_dir}:/data\\2|" "$COMPOSE_FILE"
+  config_json_write dataDir "$DATA_DIR"
 
-  ok "Persistent data bind mount: ${DATA_DIR} -> /data"
+  ok "Persistent data directory: ${DATA_DIR}"
 }
 
 start_canvas_container() {

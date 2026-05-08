@@ -1,25 +1,13 @@
 services:
   canvas-notebook:
-    image: ghcr.io/canvascoding/canvas-notebook:latest
+    image: ${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}
     ports:
-      - "3456:3000"
+      - "${HOST_PORT:-3456}:${CONTAINER_PORT:-3000}"
+    env_file:
+      - ${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook.env
     environment:
-      # Required: random 32-byte base64 secrets — generate with: openssl rand -base64 32
-      BETTER_AUTH_SECRET: "change-me-generate-with-openssl-rand-base64-32"
-      CANVAS_INTERNAL_API_KEY: "change-me-generate-with-openssl-rand-base64-32"
-
-      # Required: the URL where the app will be accessible
-      BASE_URL: "https://your-domain.com"
-      BETTER_AUTH_BASE_URL: "https://your-domain.com"
-
-      # Recommended: your login credentials
-      BOOTSTRAP_ADMIN_EMAIL: "admin@example.com"
-      BOOTSTRAP_ADMIN_PASSWORD: "change-me"
-      BOOTSTRAP_ADMIN_NAME: "Administrator"
-
-      # Do not change
       HOSTNAME: "0.0.0.0"
       DATA: "/data"
     volumes:
-      - ./data:/data
+      - ${DATA_DIR:-./data}:/data
     restart: unless-stopped

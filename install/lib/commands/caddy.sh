@@ -102,7 +102,8 @@ cmd_caddy() {
 }
 
 cmd_caddy_reload() {
-  sync_caddy_from_compose
+  config_json_to_env
+  sync_caddy
 }
 
 cmd_caddy_fix() {

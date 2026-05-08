@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
 
-ensure_manager_config() {
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    run_root mkdir -p "$(dirname "$CONFIG_FILE")"
-    run_root touch "$CONFIG_FILE"
-  fi
-}
-
 show_auto_update_status() {
   local timer_active next_run last_result
   if ! command -v systemctl >/dev/null 2>&1; then
@@ -20,17 +13,16 @@ show_auto_update_status() {
   fi
 
   printf '\n== Auto-Update Status ==\n'
-  printf 'Config file: %s\n' "$CONFIG_FILE"
+  printf 'Config file: %s\n' "$CONFIG_JSON_PATH"
 
-  local enabled_val
-  enabled_val="$(grep '^CANVAS_AUTO_UPDATE_ENABLED=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'")"
+  local enabled_val schedule_val
+  enabled_val="$(config_json_read autoUpdate.enabled)"
   enabled_val="${enabled_val:-true}"
-  printf 'CANVAS_AUTO_UPDATE_ENABLED=%s\n' "$enabled_val"
+  printf 'autoUpdate.enabled=%s\n' "$enabled_val"
 
-  local schedule_val
-  schedule_val="$(grep '^CANVAS_AUTO_UPDATE_SCHEDULE=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'")"
+  schedule_val="$(config_json_read autoUpdate.schedule)"
   schedule_val="${schedule_val:-*-*-* 04:00:00}"
-  printf 'CANVAS_AUTO_UPDATE_SCHEDULE=%s\n' "$schedule_val"
+  printf 'autoUpdate.schedule=%s\n' "$schedule_val"
 
   timer_active="$(systemctl is-active canvas-notebook-update.timer 2>/dev/null || true)"
   if [[ "$timer_active" == "active" ]]; then
@@ -56,6 +48,15 @@ show_auto_update_status() {
 }
 
 enable_auto_update() {
+  local schedule_arg=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --schedule) schedule_arg="$2"; shift ;;
+    esac
+    shift
+  done
+
   if ! command -v systemctl >/dev/null 2>&1; then
     fail "systemd not found — auto-update timer requires systemd"
   fi
@@ -64,14 +65,29 @@ enable_auto_update() {
     fail "Auto-update timer unit not installed. Run: canvas-notebook cli-update first"
   fi
 
-  ensure_manager_config
-  set_manager_env CANVAS_AUTO_UPDATE_ENABLED true
+  config_json_write autoUpdate.enabled true
+
+  if [[ -n "$schedule_arg" ]]; then
+    if ! printf '%s' "$schedule_arg" | grep -qE '^[*0-9]{1,2}-[*0-9]{1,2}-[*0-9]{1,2} [*0-9:,]+'; then
+      fail "Invalid schedule format '${schedule_arg}'. Example: '*-*-* 04:00:00'"
+    fi
+    config_json_write autoUpdate.schedule "$schedule_arg"
+  fi
+
+  local current_schedule
+  current_schedule="$(config_json_read autoUpdate.schedule)"
+  current_schedule="${current_schedule:-*-*-* 04:00:00}"
+
+  CANVAS_AUTO_UPDATE_SCHEDULE="$current_schedule"
+  export CANVAS_AUTO_UPDATE_SCHEDULE
+
+  install_update_timer
 
   run_root systemctl enable canvas-notebook-update.timer >/dev/null
   run_root systemctl start canvas-notebook-update.timer >/dev/null 2>&1 || \
     run_root systemctl restart canvas-notebook-update.timer >/dev/null
 
-  ok "Auto-update enabled (schedule: $(grep '^CANVAS_AUTO_UPDATE_SCHEDULE=' "$CONFIG_FILE" 2>/dev/null | cut -d= -f2 | tr -d "\"'") || echo '*-*-* 04:00:00')"
+  ok "Auto-update enabled (schedule: ${current_schedule})"
   info "View schedule: systemctl list-timers canvas-notebook-update.timer"
 }
 
@@ -80,8 +96,7 @@ disable_auto_update() {
     fail "systemd not found — auto-update timer requires systemd"
   fi
 
-  ensure_manager_config
-  set_manager_env CANVAS_AUTO_UPDATE_ENABLED false
+  config_json_write autoUpdate.enabled false
 
   if [[ -f /etc/systemd/system/canvas-notebook-update.timer ]]; then
     run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true
@@ -97,7 +112,7 @@ cmd_auto_update_status() {
 
 cmd_auto_update_enable() {
   log_msg "auto-update-enable"
-  enable_auto_update
+  enable_auto_update "$@"
 }
 
 cmd_auto_update_disable() {

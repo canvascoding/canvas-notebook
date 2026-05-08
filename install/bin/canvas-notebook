@@ -11,7 +11,6 @@ CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
 SERVICE="${CANVAS_SERVICE:-canvas-notebook}"
 IMAGE_REF="${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}"
 INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh"
-CONFIG_FILE="${CANVAS_MANAGER_CONFIG:-/etc/canvas-notebook/manager.env}"
 
 SHARED_DIR=""
 CLI_BIN_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" 2>/dev/null && pwd)"
@@ -24,7 +23,7 @@ done
 unset _dir
 
 if [[ -n "$SHARED_DIR" ]]; then
-  for _lib in output utils config logging compose caddy swap container docker ui; do
+  for _lib in output utils config_json logging compose caddy swap container docker ui; do
     if [[ -f "${SHARED_DIR}/${_lib}.sh" ]]; then
       # shellcheck source=/dev/null
       . "${SHARED_DIR}/${_lib}.sh"
@@ -37,7 +36,7 @@ else
   exit 1
 fi
 
-load_manager_config "$CONFIG_FILE"
+config_json_init
 
 DEFAULT_HEALTH_ATTEMPTS="${CANVAS_HEALTH_MAX_ATTEMPTS:-180}"
 LOG_DIR="${CANVAS_MANAGER_LOG_DIR:-/var/log/canvas-notebook}"
@@ -86,6 +85,7 @@ declare -A CMD_FILE=(
   [caddy]=caddy         [caddy-reload]=caddy [caddy-fix]=caddy
   [auto-update-status]=auto_update [auto-update-enable]=auto_update [auto-update-disable]=auto_update
   [cli-update]=cli_update
+  [config-show]=config_cmd [config-set]=config_cmd [config-migrate]=config_cmd
 )
 
 case "$cmd" in

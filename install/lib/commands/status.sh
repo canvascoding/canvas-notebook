@@ -163,5 +163,5 @@ cmd_diagnose() {
 
 cmd_config() {
   ensure_log_file
-  printf 'Install dir: %s\nCompose file: %s\nData dir: %s\nConfig file: %s\nManager log: %s\n' "$INSTALL_DIR" "$COMPOSE_FILE" "${DATA_DIR:-}" "$CONFIG_FILE" "$LOG_FILE"
+  printf 'Install dir: %s\nCompose file: %s\nData dir: %s\nConfig file: %s\nEnv file: %s\nManager log: %s\n' "$INSTALL_DIR" "$COMPOSE_FILE" "${DATA_DIR:-}" "$CONFIG_JSON_PATH" "$CONFIG_ENV_PATH" "$LOG_FILE"
 }

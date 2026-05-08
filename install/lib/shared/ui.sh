@@ -25,7 +25,7 @@ usage() {
   fi
   cat <<'HELP'
 Usage:
-  canvas-notebook <command> [--json] [--no-banner]
+  canvas-notebook <command> [options] [--json] [--no-banner]
 
 Commands:
   help       Show this help
@@ -39,42 +39,44 @@ Commands:
   status     Show compose status; use --json for machine-readable output
   logs       Follow container logs
   container-logs
-              Alias for logs
+               Alias for logs
   manager-log
-              Show the host-side CLI management log
-  env        Edit the Compose environment, sync Caddy, and restart
+               Show the host-side CLI management log
+  env        Show current environment from config.json
+  env --sync Generate .env from config.json, sync Caddy, and restart
+  env --edit Open config.json in editor, then sync and restart
   swap       Show swap status
-  swap-enable
-              Enable Canvas-managed swap and persist it
+  swap-enable [--size 2G] [--file /swapfile]
+               Enable Canvas-managed swap and persist it
   swap-disable
-              Disable Canvas-managed swap and persist it
+               Disable Canvas-managed swap and persist it
   caddy      Check Caddy status and current Caddyfile
   caddy-reload
-                Sync Caddy from BETTER_AUTH_BASE_URL and reload it
+               Sync Caddy from config.json domain and reload it
   caddy-fix
-                Fix known Caddy issues (duplicate definitions, missing headers)
+               Fix known Caddy issues (duplicate definitions, missing headers)
   diagnose   Show host, Docker, memory, OOM, and container diagnostics
   health     Check the local health endpoint; use --json for machine-readable output
-  config     Show the compose file path
+  config     Show config paths
+  config-show
+               Show config.json contents; use --json for machine-readable output
+  config-set <key> <value>
+               Set a config value (dot notation, e.g. env.BETTER_AUTH_BASE_URL)
+  config-migrate [--force]
+               Migrate from legacy manager.env + Compose to config.json
   cli-update Download the latest management CLI and systemd service from GitHub
   auto-update-status
-              Show auto-update timer status and last update result
-  auto-update-enable
-              Enable automatic daily image updates via systemd timer
+               Show auto-update timer status and last update result
+  auto-update-enable [--schedule "..."]
+               Enable automatic image updates via systemd timer
   auto-update-disable
-              Disable automatic image updates
+               Disable automatic image updates
   cleanup-logs
-              Kill orphaned docker compose log followers
+               Kill orphaned docker compose log followers
 
 Environment:
   CANVAS_HEALTH_MAX_ATTEMPTS=180   Health wait timeout in seconds
   CANVAS_MANAGER_LOG_DIR=/var/log/canvas-notebook
-  CANVAS_SWAP_ENABLED=false        Enable Canvas-managed swap when set true
-  CANVAS_SWAP_SIZE=2G              Canvas-managed swapfile size
-  CANVAS_SWAP_FILE=/swapfile       Canvas-managed swapfile path
-  CANVAS_AUTO_UPDATE_ENABLED=true  Enable automatic image updates
-  CANVAS_AUTO_UPDATE_SCHEDULE=*-*-* 04:00:00
-                                   systemd calendar for auto-update timer
   TAIL=120                         Number of log lines shown before following
 HELP
 }
