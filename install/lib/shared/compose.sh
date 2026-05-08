@@ -96,3 +96,62 @@ health_url() {
 container_id() {
   compose_optional ps -q "$SERVICE" 2>/dev/null || true
 }
+
+migrate_compose_file() {
+  if [[ ! -f "$COMPOSE_FILE" ]]; then
+    return 0
+  fi
+
+  local needs_migration=false
+
+  if ! grep -q 'container_name:' "$COMPOSE_FILE" 2>/dev/null; then
+    needs_migration=true
+  fi
+
+  if ! grep -q 'env_file:' "$COMPOSE_FILE" 2>/dev/null; then
+    needs_migration=true
+  fi
+
+  if [[ "$needs_migration" != "true" ]]; then
+    return 0
+  fi
+
+  section "Migrating Compose file"
+  info "Updating ${COMPOSE_FILE} to new format..."
+
+  local tmp
+  tmp="$(mktemp)"
+
+  local install_dir_env="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}"
+  local data_dir_default="${CANVAS_DATA_DIR:-${HOME:-/opt}/canvas-notebook-data}"
+
+  cat > "$tmp" <<'EOCOMPOSE'
+services:
+  canvas-notebook:
+    container_name: canvas-notebook
+    image: ${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}
+    ports:
+      - "${HOST_PORT:-3456}:${CONTAINER_PORT:-3000}"
+    env_file:
+      - __INSTALL_DIR__/canvas-notebook.env
+    environment:
+      HOSTNAME: "0.0.0.0"
+      DATA: "/data"
+    volumes:
+      - ${DATA_DIR:-__DATA_DIR_DEFAULT__/data}:/data
+    restart: unless-stopped
+EOCOMPOSE
+
+  sed -i "s|__INSTALL_DIR__|${install_dir_env}|g" "$tmp"
+  sed -i "s|__DATA_DIR_DEFAULT__|${data_dir_default}|g" "$tmp"
+
+  if [[ -f "$COMPOSE_FILE" ]]; then
+    local backup="${COMPOSE_FILE}.bak"
+    cp "$COMPOSE_FILE" "$backup"
+    ok "Backed up existing file to ${backup}"
+  fi
+
+  cp "$tmp" "$COMPOSE_FILE"
+  rm -f "$tmp"
+  ok "Updated ${COMPOSE_FILE} with container_name and env_file"
+}

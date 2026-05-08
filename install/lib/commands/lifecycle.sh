@@ -2,6 +2,7 @@
 
 cmd_start() {
   log_msg "start"
+  migrate_compose_file
   config_json_to_env
   ensure_env_file
   run_compose up -d "$SERVICE"
@@ -10,6 +11,7 @@ cmd_start() {
 
 cmd_restart() {
   log_msg "restart"
+  migrate_compose_file
   config_json_to_env
   ensure_env_file
   run_compose restart "$SERVICE"

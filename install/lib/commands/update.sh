@@ -8,6 +8,7 @@ cmd_install() {
     config_json_migrate
   fi
 
+  migrate_compose_file
   config_json_to_env
 
   info "Phase 1/3: Image"
@@ -28,6 +29,7 @@ cmd_update() {
     config_json_migrate
   fi
 
+  migrate_compose_file
   config_json_to_env
 
   info "Phase 1/3: Image"
