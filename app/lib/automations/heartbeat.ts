@@ -17,6 +17,9 @@ export interface HeartbeatResult {
 }
 
 export async function executeHeartbeat(_job: AutomationJobRecord): Promise<HeartbeatResult> {
+  const startTime = Date.now();
+  console.log('[Heartbeat] Starting heartbeat execution');
+
   const heartbeatContent = await readManagedAgentFile('HEARTBEAT.md');
   if (!heartbeatContent || heartbeatContent.trim().length === 0) {
     console.warn('[Heartbeat] HEARTBEAT.md is empty, skipping execution');
@@ -31,6 +34,8 @@ export async function executeHeartbeat(_job: AutomationJobRecord): Promise<Heart
     console.log('[Heartbeat] No linked Telegram users, skipping execution');
     return { usersNotified: 0, sessionIds: [], errors: ['No linked Telegram users'] };
   }
+
+  console.log(`[Heartbeat] Found ${bindings.length} linked Telegram user(s)`);
 
   const channel = getChannelRegistry().get('telegram');
   if (!channel) {
@@ -58,6 +63,7 @@ export async function executeHeartbeat(_job: AutomationJobRecord): Promise<Heart
       const chatId = binding.channelUserId;
       const userId = binding.userId;
 
+      console.log(`[Heartbeat] Processing user ${userId} (chatId=${chatId})`);
       const sessionId = await createTelegramSession(chatId, userId);
       sessionIds.push(sessionId);
 
@@ -75,6 +81,7 @@ export async function executeHeartbeat(_job: AutomationJobRecord): Promise<Heart
         currentTime: new Date().toISOString(),
       });
 
+      console.log(`[Heartbeat] Session created for user ${userId}: ${sessionId}`);
       usersNotified++;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -83,6 +90,7 @@ export async function executeHeartbeat(_job: AutomationJobRecord): Promise<Heart
     }
   }
 
-  console.log(`[Heartbeat] Completed: ${usersNotified} users notified, ${errors.length} errors`);
+  const duration = Date.now() - startTime;
+  console.log(`[Heartbeat] Execution completed in ${duration}ms (${usersNotified} notified, ${errors.length} errors)`);
   return { usersNotified, sessionIds, errors };
 }

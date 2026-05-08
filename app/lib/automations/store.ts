@@ -261,6 +261,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
     })
     .returning();
 
+  console.log(`[Automationen] Created job "${name}" (${id}, schedule=${schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
   return mapJobRow(inserted);
 }
 
@@ -307,6 +308,7 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
     .where(eq(automationJobs.id, jobId))
     .returning();
 
+  console.log(`[Automationen] Updated job ${jobId} (status=${status}, schedule=${schedule.kind})`);
   return mapJobRow(updated);
 }
 
@@ -318,6 +320,8 @@ export async function deleteAutomationJob(jobId: string): Promise<boolean> {
     }
     tx.delete(automationRuns).where(eq(automationRuns.jobId, jobId)).run();
     tx.delete(automationJobs).where(eq(automationJobs.id, jobId)).run();
+
+    console.log(`[Automationen] Deleted job ${jobId} and associated runs`);
     return true;
   });
 }
@@ -412,6 +416,7 @@ async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise
     );
 
   if (staleRuns.length > 0) {
+    console.warn(`[Automationen] Marking ${staleRuns.length} stale run(s) as failed for job ${jobId}`);
     db.transaction((tx) => {
       for (const run of staleRuns) {
         tx
@@ -469,6 +474,7 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
       ),
     }).sync();
     if (inFlightRun) {
+      console.log(`[Automationen] Skipping run creation for job ${jobId}: in-flight run ${inFlightRun.id} already exists`);
       return null;
     }
 
@@ -563,6 +569,12 @@ export async function markAutomationRunStarted(
     )
     .returning();
 
+  if (!updated) {
+    console.warn(`[Automationen] markAutomationRunStarted: run ${runId} not in pending/retry_scheduled state, skipping`);
+  } else {
+    console.log(`[Automationen] Run ${runId} started (piSessionId=${values.piSessionId})`);
+  }
+
   return updated ? mapRunRow(updated, null) : null;
 }
 
@@ -604,6 +616,8 @@ export async function markAutomationRunRetryScheduled(
       })
       .where(eq(automationJobs.id, current.jobId))
       .run();
+
+    console.warn(`[Automationen] Run ${runId} marked as retry_scheduled (attempt=${current.attemptNumber + 1}, nextAttemptAt=${nextAttemptAt.toISOString()})`);
 
     return updated ? mapRunRow(updated, null) : null;
   });
@@ -650,6 +664,8 @@ export async function markAutomationRunFinished(
       .where(eq(automationJobs.id, current.jobId))
       .run();
 
+    console.log(`[Automationen] Run ${runId} finished (status=${values.status}, job=${current.jobId})`);
+
     return updated ? mapRunRow(updated, null) : null;
   });
 }
@@ -688,6 +704,7 @@ export async function upsertHeartbeatJob(data: {
       .where(eq(automationJobs.id, existing.id))
       .returning();
 
+    console.log(`[Heartbeat] Updated heartbeat job ${existing.id} (status=${status}, schedule=${data.schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
     return mapJobRow(updated);
   }
 
@@ -718,5 +735,6 @@ export async function upsertHeartbeatJob(data: {
     })
     .returning();
 
+  console.log(`[Heartbeat] Created heartbeat job ${id} (status=${status}, schedule=${data.schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
   return mapJobRow(inserted);
 }

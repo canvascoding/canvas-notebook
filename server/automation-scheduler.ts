@@ -14,11 +14,16 @@ let activeTick: Promise<void> | null = null;
 async function queueDueScheduledJobs() {
   const dueJobs = await listDueAutomationJobs(new Date());
 
+  if (dueJobs.length > 0) {
+    console.log(`[Automationen] Scheduler: found ${dueJobs.length} due job(s)`);
+  }
+
   for (const job of dueJobs) {
     const anchor = job.nextRunAt ? new Date(job.nextRunAt) : new Date();
     try {
       await scheduleAutomationJobRun(job.id, 'scheduled', new Date());
       await advanceAutomationJobSchedule(job.id, anchor);
+      console.log(`[Automationen] Queued scheduled run for job ${job.id} (nextRunAt=${anchor.toISOString()})`);
     } catch (error) {
       console.warn(`[Automationen] Failed to queue scheduled run for ${job.id}:`, error instanceof Error ? error.message : error);
     }
@@ -28,12 +33,17 @@ async function queueDueScheduledJobs() {
 async function executeReadyRuns() {
   const runs = await listExecutableAutomationRuns(new Date());
 
+  if (runs.length > 0) {
+    console.log(`[Automationen] Scheduler: found ${runs.length} executable run(s)`);
+  }
+
   for (const run of runs) {
     try {
       const didDispatch = dispatchAutomationRunExecution(run.id);
       if (!didDispatch) {
         throw new Error('Run is already being dispatched.');
       }
+      console.log(`[Automationen] Dispatching run ${run.id}`);
     } catch (error) {
       console.error(`[Automationen] Failed to execute run ${run.id}:`, error);
     }
