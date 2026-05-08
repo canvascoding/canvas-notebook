@@ -1,5 +1,6 @@
 services:
   canvas-notebook:
+    container_name: canvas-notebook
     image: ${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}
     ports:
       - "${HOST_PORT:-3456}:${CONTAINER_PORT:-3000}"
