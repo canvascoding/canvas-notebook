@@ -123,13 +123,16 @@ function createAutomationErrorMessage(message: string, provider: Provider, model
 }
 
 export async function executeAutomationRun(runId: string): Promise<void> {
+  const runStartTime = Date.now();
   const run = await getAutomationRun(runId);
   if (!run) {
+    console.warn(`[Automationen] Run ${runId} not found, skipping`);
     return;
   }
 
   const job = await getAutomationJob(run.jobId);
   if (!job) {
+    console.error(`[Automationen] Job ${run.jobId} not found for run ${runId}`);
     await markAutomationRunFinished(runId, { 
       status: 'failed', 
       errorMessage: 'Automation job not found.',
@@ -139,11 +142,15 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     return;
   }
 
+  console.log(`[Automationen] Starting run ${runId} for job "${job.name}" (type=${job.jobType})`);
+
   const outputPaths = buildOutputPaths(job, run);
   const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
 
   if (job.jobType === 'heartbeat') {
+    console.log(`[Automationen] Executing heartbeat for run ${runId}`);
     const heartbeatResult = await executeHeartbeat(job);
+    const heartbeatDuration = Date.now() - runStartTime;
 
     await markAutomationRunStarted(run.id, {
       outputDir: outputPaths.outputDir,
@@ -155,8 +162,9 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       eventsLog: [],
     });
 
+    const heartbeatStatus = heartbeatResult.errors.length > 0 && heartbeatResult.usersNotified === 0 ? 'failed' : 'success';
     await markAutomationRunFinished(run.id, {
-      status: heartbeatResult.errors.length > 0 && heartbeatResult.usersNotified === 0 ? 'failed' : 'success',
+      status: heartbeatStatus,
       errorMessage: heartbeatResult.errors.length > 0 ? heartbeatResult.errors.join('; ') : null,
       eventsLog: [],
       metadataJson: {
@@ -168,6 +176,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         heartbeatErrors: heartbeatResult.errors,
       },
     });
+
+    console.log(`[Automationen] Heartbeat run ${runId} finished (status=${heartbeatStatus}, duration=${heartbeatDuration}ms, notified=${heartbeatResult.usersNotified}, errors=${heartbeatResult.errors.length})`);
     return;
   }
 
@@ -185,7 +195,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   const piSessionId = buildAutomationSessionId(run.id);
   const piSessionTitle = buildAutomationSessionTitle(job.name);
   
-  // Start collecting events before run starts
   const events: string[] = [];
   let finalMessages: AgentMessage[] = [];
 
@@ -193,6 +202,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   const provider = piConfig.activeProvider;
   const providerConfig = piConfig.providers[provider];
   const model = await resolveActivePiModel();
+  console.log(`[Automationen] Run ${runId} using provider=${provider}, model=${model.id}`);
+
   const tools = await getPiTools();
   const { systemPrompt } = await loadManagedAgentSystemPrompt();
   const promptMessage: AgentMessage = {
@@ -217,13 +228,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     outputDir: outputPaths.outputDir,
     targetOutputPath: job.targetOutputPath,
     effectiveTargetOutputPath,
-    logPath: '', // No longer used - events stored in DB
+    logPath: '',
     resultPath: outputPaths.resultPath,
     piSessionId,
     eventsLog: [],
   });
 
   if (!startedRun) {
+    console.warn(`[Automationen] Run ${runId} could not be marked as started (already running?), aborting`);
     return;
   }
 
@@ -238,12 +250,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       { titleOverride: piSessionTitle },
     );
 
+    console.log(`[Automationen] Starting agent loop for run ${runId} (provider=${provider}, model=${model.id})`);
     for await (const event of agentLoop([promptMessage], context, config, undefined)) {
       events.push(JSON.stringify(event));
       if (event.type === 'agent_end') {
         finalMessages = event.messages;
       }
     }
+    console.log(`[Automationen] Agent loop completed for run ${runId} (events=${events.length})`);
 
     const assistantError = getAssistantError(finalMessages);
     if (assistantError) {
@@ -261,6 +275,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       undefined,
       { titleOverride: piSessionTitle },
     );
+    console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
     await markAutomationRunFinished(run.id, {
       status: 'success',
       eventsLog: events,
@@ -272,6 +287,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         effectiveTargetOutputPath,
       },
     });
+    const duration = Date.now() - runStartTime;
+    console.log(`[Automationen] Run ${runId} completed successfully (duration=${duration}ms)`);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Automation run failed.';
     const retryAt = calculateRetryAt(run.attemptNumber);
@@ -301,6 +318,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         targetOutputPath: job.targetOutputPath,
         effectiveTargetOutputPath,
       });
+      const duration = Date.now() - runStartTime;
+      console.warn(`[Automationen] Run ${runId} failed, scheduling retry #${run.attemptNumber} at ${retryAt.toISOString()} (duration=${duration}ms): ${message}`);
       return;
     }
 
@@ -317,5 +336,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         effectiveTargetOutputPath,
       },
     });
+    const duration = Date.now() - runStartTime;
+    console.error(`[Automationen] Run ${runId} failed permanently (duration=${duration}ms): ${message}`);
   }
 }
