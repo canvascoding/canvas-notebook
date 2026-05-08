@@ -19,6 +19,7 @@ cmd_env() {
   fi
 
   if [[ "$do_sync" == "true" ]]; then
+    migrate_compose_file
     config_json_to_env
     sync_caddy
     compose up -d --force-recreate "$SERVICE"
