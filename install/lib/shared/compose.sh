@@ -24,6 +24,14 @@ run_compose() {
 
 compose_env_value() {
   local key="$1"
+  if [[ -f "$CONFIG_JSON_PATH" ]]; then
+    local val
+    val="$(config_json_read "env.${key}" 2>/dev/null || true)"
+    if [[ -n "$val" ]]; then
+      printf '%s\n' "$val"
+      return
+    fi
+  fi
   sed -n -E "/^[[:space:]]*${key}:/ {
     s|^[^:]*:[[:space:]]*||
     s|[[:space:]]+#.*$||
@@ -37,11 +45,28 @@ compose_env_value() {
 
 configured_base_url() {
   local url
-  url="$(compose_env_value BETTER_AUTH_BASE_URL)"
-  if [[ -z "$url" ]]; then
-    url="$(compose_env_value BASE_URL)"
+  url="$(config_json_read env.BETTER_AUTH_BASE_URL 2>/dev/null || true)"
+  if [[ -n "$url" ]]; then
+    printf '%s\n' "$url"
+    return
   fi
-  printf '%s\n' "$url"
+  url="$(config_json_read env.BASE_URL 2>/dev/null || true)"
+  if [[ -n "$url" ]]; then
+    printf '%s\n' "$url"
+    return
+  fi
+  local domain
+  domain="$(config_json_read domain 2>/dev/null || true)"
+  if [[ -n "$domain" ]]; then
+    printf 'https://%s\n' "$domain"
+    return
+  fi
+  url="$(compose_env_value BETTER_AUTH_BASE_URL)"
+  if [[ -n "$url" ]]; then
+    printf '%s\n' "$url"
+    return
+  fi
+  compose_env_value BASE_URL
 }
 
 configured_domain() {
@@ -50,14 +75,21 @@ configured_domain() {
   printf '%s\n' "$url" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1
 }
 
+ensure_env_file() {
+  if [[ ! -f "$CONFIG_ENV_PATH" ]]; then
+    config_json_to_env
+  fi
+}
+
 host_port() {
-  compose_optional port "$SERVICE" 3000 2>/dev/null | tail -1 | awk -F: '{print $NF}' || true
+  local port
+  port="$(config_json_read hostPort 2>/dev/null || true)"
+  printf '%s\n' "${port:-3456}"
 }
 
 health_url() {
   local port
   port="$(host_port)"
-  port="${port:-3456}"
   printf 'http://127.0.0.1:%s/api/health\n' "$port"
 }
 

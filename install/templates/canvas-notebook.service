@@ -8,7 +8,6 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=__INSTALL_DIR__
-EnvironmentFile=-/etc/canvas-notebook/manager.env
 Environment=CANVAS_MANAGER_LOG_DIR=/var/log/canvas-notebook
 ExecStart=__CLI_PATH__ start --no-banner
 ExecStop=__CLI_PATH__ stop --no-banner

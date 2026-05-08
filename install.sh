@@ -16,7 +16,7 @@ INSTALL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
 INSTALL_USER_HOME="$(getent passwd "$INSTALL_USER" 2>/dev/null | cut -d: -f6 || true)"
 INSTALL_USER_HOME="${INSTALL_USER_HOME:-${HOME:-/opt}}"
 DATA_DIR="${CANVAS_DATA_DIR:-${INSTALL_USER_HOME}/canvas-notebook-data}"
-MANAGER_CONFIG_FILE="/etc/canvas-notebook/manager.env"
+CONFIG_JSON_PATH="${CANVAS_CONFIG_JSON:-${INSTALL_DIR}/canvas-notebook-config.json}"
 CANVAS_SWAP_ENABLED_WAS_SET="${CANVAS_SWAP_ENABLED+x}"
 CANVAS_SWAP_SIZE_WAS_SET="${CANVAS_SWAP_SIZE+x}"
 CANVAS_SWAP_FILE_WAS_SET="${CANVAS_SWAP_FILE+x}"
@@ -39,27 +39,28 @@ cleanup_support_tmp() {
 trap cleanup_support_tmp EXIT
 
 load_existing_manager_config() {
-  if [[ ! -f "$MANAGER_CONFIG_FILE" ]]; then
+  local manager_env="/etc/canvas-notebook/manager.env"
+  if [[ ! -f "$manager_env" ]]; then
     return 0
   fi
 
   if [[ -z "$CANVAS_SWAP_ENABLED_WAS_SET" ]]; then
-    CANVAS_SWAP_ENABLED="$(awk -F= '/^CANVAS_SWAP_ENABLED=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+    CANVAS_SWAP_ENABLED="$(awk -F= '/^CANVAS_SWAP_ENABLED=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
   if [[ -z "$CANVAS_SWAP_SIZE_WAS_SET" ]]; then
-    CANVAS_SWAP_SIZE="$(awk -F= '/^CANVAS_SWAP_SIZE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+    CANVAS_SWAP_SIZE="$(awk -F= '/^CANVAS_SWAP_SIZE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
   if [[ -z "$CANVAS_SWAP_FILE_WAS_SET" ]]; then
-    CANVAS_SWAP_FILE="$(awk -F= '/^CANVAS_SWAP_FILE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+    CANVAS_SWAP_FILE="$(awk -F= '/^CANVAS_SWAP_FILE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
   CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-false}"
   CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
   CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
   if [[ -z "$CANVAS_AUTO_UPDATE_ENABLED_WAS_SET" ]]; then
-    CANVAS_AUTO_UPDATE_ENABLED="$(awk -F= '/^CANVAS_AUTO_UPDATE_ENABLED=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+    CANVAS_AUTO_UPDATE_ENABLED="$(awk -F= '/^CANVAS_AUTO_UPDATE_ENABLED=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
   if [[ -z "$CANVAS_AUTO_UPDATE_SCHEDULE_WAS_SET" ]]; then
-    CANVAS_AUTO_UPDATE_SCHEDULE="$(awk -F= '/^CANVAS_AUTO_UPDATE_SCHEDULE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$MANAGER_CONFIG_FILE")"
+    CANVAS_AUTO_UPDATE_SCHEDULE="$(awk -F= '/^CANVAS_AUTO_UPDATE_SCHEDULE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
   CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
   CANVAS_AUTO_UPDATE_SCHEDULE="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
@@ -91,7 +92,7 @@ source_libs() {
   # shellcheck source=install/lib/common.sh
   . "${SUPPORT_DIR}/lib/common.sh"
   # Shared libs are sourced by their respective installer modules:
-  # common.sh -> shared/output.sh, shared/utils.sh
+  # common.sh -> shared/output.sh, shared/utils.sh, shared/config_json.sh
   # docker.sh -> shared/docker.sh
   # swap.sh   -> shared/swap.sh
   # caddy.sh  -> shared/caddy.sh
@@ -159,65 +160,89 @@ install_compose_file() {
 configure_secrets() {
   local auth_secret internal_key
   section "Secrets"
-  if grep -qE '^[[:space:]]*BETTER_AUTH_SECRET:.*change-me-generate-with-openssl-rand-base64-32' "$COMPOSE_FILE"; then
-    auth_secret="$(openssl rand -base64 32)"
-    set_compose_env "$COMPOSE_FILE" BETTER_AUTH_SECRET "$auth_secret"
-    ok "Generated BETTER_AUTH_SECRET"
+  if [[ -f "$CONFIG_JSON_PATH" ]]; then
+    auth_secret="$(jq -r '.env.BETTER_AUTH_SECRET // empty' "$CONFIG_JSON_PATH")"
+    internal_key="$(jq -r '.env.CANVAS_INTERNAL_API_KEY // empty' "$CONFIG_JSON_PATH")"
   fi
-  if grep -qE '^[[:space:]]*CANVAS_INTERNAL_API_KEY:.*change-me-generate-with-openssl-rand-base64-32' "$COMPOSE_FILE"; then
+  if [[ -z "$auth_secret" ]]; then
+    auth_secret="$(openssl rand -base64 32)"
+    config_json_write env.BETTER_AUTH_SECRET "$auth_secret"
+    ok "Generated BETTER_AUTH_SECRET"
+  else
+    ok "BETTER_AUTH_SECRET already set"
+  fi
+  if [[ -z "$internal_key" ]]; then
     internal_key="$(openssl rand -base64 32)"
-    set_compose_env "$COMPOSE_FILE" CANVAS_INTERNAL_API_KEY "$internal_key"
+    config_json_write env.CANVAS_INTERNAL_API_KEY "$internal_key"
     ok "Generated CANVAS_INTERNAL_API_KEY"
+  else
+    ok "CANVAS_INTERNAL_API_KEY already set"
   fi
 }
 
 configure_compose_values() {
-  [[ -n "${ADMIN_EMAIL:-}" ]] && set_compose_env "$COMPOSE_FILE" BOOTSTRAP_ADMIN_EMAIL "$ADMIN_EMAIL" && ok "Set BOOTSTRAP_ADMIN_EMAIL"
-  [[ -n "${ADMIN_PASSWORD:-}" ]] && set_compose_env "$COMPOSE_FILE" BOOTSTRAP_ADMIN_PASSWORD "$ADMIN_PASSWORD" && ok "Set BOOTSTRAP_ADMIN_PASSWORD"
+  [[ -n "${ADMIN_EMAIL:-}" ]] && config_json_write env.BOOTSTRAP_ADMIN_EMAIL "$ADMIN_EMAIL" && ok "Set BOOTSTRAP_ADMIN_EMAIL"
+  [[ -n "${ADMIN_PASSWORD:-}" ]] && config_json_write env.BOOTSTRAP_ADMIN_PASSWORD "$ADMIN_PASSWORD" && ok "Set BOOTSTRAP_ADMIN_PASSWORD"
   if [[ -n "${BASE_URL:-}" ]]; then
-    set_compose_env "$COMPOSE_FILE" BETTER_AUTH_BASE_URL "$BASE_URL"
-    set_compose_env "$COMPOSE_FILE" BASE_URL "$BASE_URL"
+    config_json_write env.BETTER_AUTH_BASE_URL "$BASE_URL"
+    config_json_write env.BASE_URL "$BASE_URL"
     ok "Set BASE_URL / BETTER_AUTH_BASE_URL"
   fi
 
-  if compose_has_placeholders "$COMPOSE_FILE"; then
+  local has_placeholders=false
+  local email_val pw_val url_val
+  email_val="$(jq -r '.env.BOOTSTRAP_ADMIN_EMAIL // empty' "$CONFIG_JSON_PATH")"
+  pw_val="$(jq -r '.env.BOOTSTRAP_ADMIN_PASSWORD // empty' "$CONFIG_JSON_PATH")"
+  url_val="$(jq -r '.env.BETTER_AUTH_BASE_URL // empty' "$CONFIG_JSON_PATH")"
+  domain_val="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH")"
+
+  if [[ -z "$email_val" || "$email_val" == "admin@example.com" ]] || \
+     [[ -z "$pw_val" || "$pw_val" == "change-me" ]] || \
+     [[ -z "$url_val" && -z "$domain_val" ]]; then
+    has_placeholders=true
+  fi
+
+  if [[ "$has_placeholders" == "true" ]]; then
     if [[ "$NONINTERACTIVE" == "true" ]]; then
-      fail "Config still contains placeholder values. Required env vars: ADMIN_EMAIL, ADMIN_PASSWORD, BASE_URL (e.g. BASE_URL=https://canvas.example.com)"
+      fail "Config still contains placeholder values. Required: ADMIN_EMAIL, ADMIN_PASSWORD, BASE_URL"
     fi
     section "Configuration"
     echo
     info "Set at minimum:"
     info "  BOOTSTRAP_ADMIN_EMAIL    — your login email"
     info "  BOOTSTRAP_ADMIN_PASSWORD — your login password"
-    info "  BETTER_AUTH_BASE_URL     — public URL (e.g. https://canvas.example.com)"
+    info "  domain                   — public domain (e.g. app.example.com)"
     echo
+    info "Config file: ${CONFIG_JSON_PATH}"
 
     EDITOR_CMD="${EDITOR:-nano}"
     command -v "$EDITOR_CMD" >/dev/null 2>&1 || EDITOR_CMD="vi"
-    ask "  Press Enter to open ${COMPOSE_FILE} in ${EDITOR_CMD}, or Ctrl+C to abort: " _dummy ""
-    "$EDITOR_CMD" "$COMPOSE_FILE" </dev/tty
+    ask "  Press Enter to open ${CONFIG_JSON_PATH} in ${EDITOR_CMD}, or Ctrl+C to abort: " _dummy ""
+    "$EDITOR_CMD" "$CONFIG_JSON_PATH" </dev/tty
 
-    if compose_has_placeholders "$COMPOSE_FILE"; then
-      fail "Config still contains placeholder values. Edit ${COMPOSE_FILE} and re-run: bash install.sh"
+    email_val="$(jq -r '.env.BOOTSTRAP_ADMIN_EMAIL // empty' "$CONFIG_JSON_PATH")"
+    pw_val="$(jq -r '.env.BOOTSTRAP_ADMIN_PASSWORD // empty' "$CONFIG_JSON_PATH")"
+    domain_val="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH")"
+    if [[ -z "$email_val" || -z "$pw_val" || -z "$domain_val" ]]; then
+      fail "Config still contains placeholder values. Edit ${CONFIG_JSON_PATH} and re-run: bash install.sh"
     fi
   fi
 
-  ok "${COMPOSE_FILE} is configured"
-}
-
-configured_domain_from_compose() {
-  grep 'BETTER_AUTH_BASE_URL:' "$COMPOSE_FILE" | head -1 | sed 's/.*"\(.*\)"/\1/' | tr -d '[:space:]' | sed 's|^https\?://||' | cut -d/ -f1 | cut -d: -f1
+  ok "Configuration is set"
 }
 
 run_cli_update_only() {
   ensure_host_install
-  if [[ ! -f "$MANAGER_CONFIG_FILE" ]]; then
-    fail "Manager config not found at ${MANAGER_CONFIG_FILE}. Run the full installer first."
-  fi
 
   section "Loading existing config"
-  load_manager_config "$MANAGER_CONFIG_FILE"
-  ok "Loaded ${MANAGER_CONFIG_FILE}"
+  if [[ -f "$CONFIG_JSON_PATH" ]]; then
+    ok "Found ${CONFIG_JSON_PATH}"
+  elif [[ -f "/etc/canvas-notebook/manager.env" ]]; then
+    info "Migrating legacy config to config.json..."
+    config_json_migrate --force
+  else
+    config_json_init
+  fi
 
   install_management_cli
   install_systemd_service
@@ -234,8 +259,21 @@ run_prebuilt_install() {
   migrate_legacy_data
   install_caddy
   install_compose_file
+
+  config_json_init
+  if [[ -f "/etc/canvas-notebook/manager.env" ]]; then
+    info "Migrating legacy config..."
+    config_json_migrate --force
+  fi
+
   configure_secrets
   configure_compose_values
+
+  if [[ -n "$DATA_DIR" ]]; then
+    config_json_write dataDir "$DATA_DIR"
+  fi
+
+  config_json_to_env
   configure_data_bind_mount
   pull_image_if_needed
   start_canvas_container
@@ -244,7 +282,10 @@ run_prebuilt_install() {
   install_management_cli
   install_systemd_service
   install_update_timer
-  configure_caddy "$(configured_domain_from_compose)"
+
+  local domain
+  domain="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH" 2>/dev/null)"
+  configure_caddy "$domain"
 
   echo
   echo -e "${GREEN}${BOLD}Canvas Notebook is running.${RESET}"
@@ -258,6 +299,7 @@ run_prebuilt_install() {
   info "  canvas-notebook status"
   info "  canvas-notebook logs"
   info "  canvas-notebook env"
+  info "  canvas-notebook config-show"
   info "  canvas-notebook swap"
   info "  canvas-notebook caddy"
   info "  canvas-notebook diagnose"
@@ -292,6 +334,9 @@ fi
 load_existing_manager_config
 resolve_support_dir
 source_libs
+
+require_jq
+
 print_banner
 detect_mode
 

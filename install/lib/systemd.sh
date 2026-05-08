@@ -1,35 +1,36 @@
 #!/usr/bin/env bash
 
 install_manager_config() {
-  local config_dir config_path install_dir_q compose_path_q data_dir_q swap_enabled_q swap_size_q swap_file_q log_dir_q auto_update_enabled_q auto_update_schedule_q
-  config_dir="/etc/canvas-notebook"
-  config_path="${config_dir}/manager.env"
+  local config_json_path="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook-config.json"
 
-  printf -v install_dir_q '%q' "$INSTALL_DIR"
-  printf -v compose_path_q '%q' "$COMPOSE_FILE"
-  printf -v data_dir_q '%q' "$DATA_DIR"
-  printf -v swap_enabled_q '%q' "$CANVAS_SWAP_ENABLED"
-  printf -v swap_size_q '%q' "$CANVAS_SWAP_SIZE"
-  printf -v swap_file_q '%q' "$CANVAS_SWAP_FILE"
-  printf -v log_dir_q '%q' "/var/log/canvas-notebook"
-  printf -v auto_update_enabled_q '%q' "${CANVAS_AUTO_UPDATE_ENABLED:-true}"
-  printf -v auto_update_schedule_q '%q' "${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
+  require_jq
 
   section "Manager config"
-  run_root mkdir -p "$config_dir" /var/log/canvas-notebook
-  run_root tee "$config_path" > /dev/null <<EOF
-INSTALL_DIR=${install_dir_q}
-COMPOSE_FILE=${compose_path_q}
-DATA_DIR=${data_dir_q}
-CANVAS_SWAP_ENABLED=${swap_enabled_q}
-CANVAS_SWAP_SIZE=${swap_size_q}
-CANVAS_SWAP_FILE=${swap_file_q}
-SERVICE=canvas-notebook
-CANVAS_MANAGER_LOG_DIR=${log_dir_q}
-CANVAS_AUTO_UPDATE_ENABLED=${auto_update_enabled_q}
-CANVAS_AUTO_UPDATE_SCHEDULE=${auto_update_schedule_q}
-EOF
-  ok "Wrote ${config_path}"
+  if [[ ! -f "$config_json_path" ]]; then
+    run_root mkdir -p "$(dirname "$config_json_path")"
+    printf '%s\n' "$CONFIG_JSON_DEFAULTS" | run_root tee "$config_json_path" >/dev/null
+  fi
+
+  local install_dir_val data_dir_val
+  install_dir_val="${INSTALL_DIR:-/opt/canvas-notebook}"
+  data_dir_val="${DATA_DIR:-${HOME:-/opt}/canvas-notebook-data}"
+
+  _config_json_raw_write "$config_json_path" "dataDir" "\"$data_dir_val\""
+  _config_json_raw_write "$config_json_path" "swap.enabled" "\"${CANVAS_SWAP_ENABLED:-false}\""
+  _config_json_raw_write "$config_json_path" "swap.size" "\"${CANVAS_SWAP_SIZE:-2G}\""
+  _config_json_raw_write "$config_json_path" "swap.file" "\"${CANVAS_SWAP_FILE:-/swapfile}\""
+  _config_json_raw_write "$config_json_path" "autoUpdate.enabled" "\"${CANVAS_AUTO_UPDATE_ENABLED:-true}\""
+  _config_json_raw_write "$config_json_path" "autoUpdate.schedule" "\"${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}\""
+
+  ok "Wrote ${config_json_path}"
+}
+
+_config_json_raw_write() {
+  local file="$1" key="$2" json_value="$3" tmp
+  tmp="$(mktemp)"
+  jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$file" > "$tmp"
+  run_root cp "$tmp" "$file"
+  rm -f "$tmp"
 }
 
 install_management_cli() {
@@ -54,7 +55,7 @@ install_management_cli() {
 
   shared_dir="${INSTALL_DIR}/lib/shared"
   run_root mkdir -p "$shared_dir"
-  for _lib in output utils config logging compose caddy swap container docker ui; do
+  for _lib in output utils config_json config logging compose caddy swap container docker ui; do
     if [[ -f "${SUPPORT_DIR}/lib/shared/${_lib}.sh" ]]; then
       run_root install -m 644 "${SUPPORT_DIR}/lib/shared/${_lib}.sh" "${shared_dir}/"
     fi
@@ -69,6 +70,8 @@ install_management_cli() {
     fi
   done
   unset _cmd_file
+
+  require_jq
 
   ok "Installed management CLI: ${bin_path}"
   ok "Deployed shared libraries to ${shared_dir}"
@@ -114,8 +117,18 @@ install_update_timer() {
   timer_path="/etc/systemd/system/canvas-notebook-update.timer"
   service_path="/etc/systemd/system/canvas-notebook-update.service"
   cli_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
-  local update_enabled="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
-  local update_schedule="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
+  local config_json_path="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook-config.json"
+
+  require_jq
+
+  local update_enabled update_schedule
+  if [[ -f "$config_json_path" ]]; then
+    update_enabled="$(jq -r '.autoUpdate.enabled // true' "$config_json_path")"
+    update_schedule="$(jq -r '.autoUpdate.schedule // "*-*-* 04:00:00"' "$config_json_path")"
+  else
+    update_enabled="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
+    update_schedule="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
+  fi
 
   if ! command -v systemctl >/dev/null 2>&1; then
     warn "systemd not found — skipping auto-update timer installation."
@@ -137,15 +150,6 @@ install_update_timer() {
   run_root install -m 644 "$tmp_timer" "$timer_path"
   run_root install -m 644 "$tmp_service" "$service_path"
   rm -f "$tmp_timer" "$tmp_service"
-
-  run_root mkdir -p "$(dirname "$MANAGER_CONFIG_FILE")"
-  run_root touch "$MANAGER_CONFIG_FILE"
-  if ! grep -q "^CANVAS_AUTO_UPDATE_ENABLED=" "$MANAGER_CONFIG_FILE" 2>/dev/null; then
-    printf '%s="%s"\n' "CANVAS_AUTO_UPDATE_ENABLED" "$update_enabled" | run_root tee -a "$MANAGER_CONFIG_FILE" >/dev/null
-  fi
-  if ! grep -q "^CANVAS_AUTO_UPDATE_SCHEDULE=" "$MANAGER_CONFIG_FILE" 2>/dev/null; then
-    printf '%s="%s"\n' "CANVAS_AUTO_UPDATE_SCHEDULE" "$update_schedule" | run_root tee -a "$MANAGER_CONFIG_FILE" >/dev/null
-  fi
 
   run_root systemctl daemon-reload
 
