@@ -107,8 +107,6 @@ async function main() {
     CANVAS_TERMINAL_PORT: '3457',
     CANVAS_TERMINAL_USE_UNIX_SOCKET: 'false',
   };
-  const skillsBinDir = path.resolve(process.cwd(), childEnv.DATA || 'data', 'skills', 'bin');
-  childEnv.PATH = `${skillsBinDir}${path.delimiter}${childEnv.PATH || process.env.PATH || ''}`;
 
   if (!explicitPort && selectedPort !== requestedPort) {
     for (const key of URL_ENV_KEYS) {
@@ -132,16 +130,6 @@ async function main() {
   if (process.env.CANVAS_DEV_DRY_RUN === '1') {
     console.log(JSON.stringify({ port: selectedPort, envFile: childEnv.CANVAS_ENV_FILE, nextLockRemoved: !selectedPortBusy }, null, 2));
     process.exit(0);
-  }
-
-  console.log('[dev] Preparing skills runtime...');
-  const skillsSetup = spawnSync('node', ['scripts/prepare-skills-runtime.js'], {
-    cwd: process.cwd(),
-    env: childEnv,
-    stdio: 'inherit',
-  });
-  if (skillsSetup.status !== 0) {
-    process.exit(skillsSetup.status ?? 1);
   }
 
   // Track all child processes for cleanup
