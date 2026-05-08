@@ -16,9 +16,10 @@ install_docker() {
     fi
     curl -fsSL https://get.docker.com | sh >/dev/null
     ok "Docker installed"
-    if ! id -nG "${USER:-$(id -un)}" | grep -qw docker; then
-      run_root usermod -aG docker "${USER:-$(id -un)}"
-      warn "Added '${USER:-$(id -un)}' to the docker group — using sudo docker for this session."
+    local _docker_user="${SUDO_USER:-${USER:-$(id -un)}}"
+    if ! id -nG "$_docker_user" | grep -qw docker; then
+      run_root usermod -aG docker "$_docker_user"
+      warn "Added '$_docker_user' to the docker group — using sudo docker for this session."
     fi
   fi
 
