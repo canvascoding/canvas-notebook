@@ -87,7 +87,7 @@ export function ImagePreprocessDialog({
   const [perFileDimension, setPerFileDimension] = useState<Record<number, number | undefined>>({});
 
   const hasHeic = files.some((f) => f.isHeic);
-  const allHeic = files.every((f) => f.isHeic);
+  const _allHeic = files.every((f) => f.isHeic);
   const canSkip = !hasHeic;
 
   const effectiveGlobalQuality = globalCustomQuality ? globalCustomQualityValue : globalQuality;
