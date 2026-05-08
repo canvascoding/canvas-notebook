@@ -110,10 +110,11 @@ source_libs() {
 }
 
 print_banner() {
+  local _bi='\033[1m' _ri='\033[0m'
   echo
-  echo -e "${_OUT_BOLD}╔══════════════════════════════════════════╗${_OUT_RESET}"
-  echo -e "${_OUT_BOLD}║   Canvas Notebook  —  Installer          ║${_OUT_RESET}"
-  echo -e "${_OUT_BOLD}╚══════════════════════════════════════════╝${_OUT_RESET}"
+  echo -e "${_bi}╔══════════════════════════════════════════╗${_ri}"
+  echo -e "${_bi}║   Canvas Notebook  —  Installer          ║${_ri}"
+  echo -e "${_bi}╚══════════════════════════════════════════╝${_ri}"
   echo
 }
 
