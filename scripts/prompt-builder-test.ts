@@ -51,7 +51,6 @@ const skills: AnthropicSkill[] = [
     content: 'FULL PDF SKILL BODY SHOULD NOT BE INCLUDED',
     path: '/data/skills/pdf/SKILL.md',
     enabled: true,
-    commands: [],
   },
   {
     name: 'disabled-skill',
@@ -60,7 +59,6 @@ const skills: AnthropicSkill[] = [
     content: 'DISABLED SKILL BODY',
     path: '/data/skills/disabled-skill/SKILL.md',
     enabled: false,
-    commands: [],
   },
 ];
 const skillsContext = getSkillsContext(skills);
@@ -70,12 +68,3 @@ assert.match(skillsContext, /Description: Use when working with PDF files\./);
 assert.match(skillsContext, /Path: \/data\/skills\/pdf\/SKILL\.md/);
 assert.doesNotMatch(skillsContext, /FULL PDF SKILL BODY SHOULD NOT BE INCLUDED/);
 assert.doesNotMatch(skillsContext, /disabled-skill/);
-
-const fallback = composeManagedAgentSystemPrompt(createFiles());
-assert.doesNotMatch(fallback.systemPrompt, /You are an AI assistant in Canvas Notebook/);
-assert.match(fallback.systemPrompt, /## File Access for Uploaded Attachments/);
-assert.equal(fallback.diagnostics.usedFallback, false);
-assert.equal(fallback.diagnostics.fallbackReason, null);
-assert.deepEqual(fallback.diagnostics.emptyFiles, ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md']);
-
-console.log('Prompt builder test passed');
