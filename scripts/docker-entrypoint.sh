@@ -120,7 +120,7 @@ else
 fi
 
 # ─── Dynamic step count ───────────────────────────────────────────────────
-_step_total=3
+_step_total=2
 if [ "$auto_install" = "true" ]; then _step_total=$((_step_total+2)); fi
 if [ "$ollama_auto_install" = "true" ]; then _step_total=$((_step_total+1)); fi
 if [ "$qmd_enabled" = "true" ]; then _step_total=$((_step_total+3)); fi
@@ -164,16 +164,7 @@ if [ -n "${OLLAMA_MODELS:-}" ]; then
   prepare_writable_dir "${OLLAMA_MODELS}" >> "$STARTUP_LOG" 2>&1 || true
 fi
 
-# ─── Step 2: Skills runtime ───────────────────────────────────────────────
-step "Skills runtime"
-if node scripts/prepare-skills-runtime.js >> "$STARTUP_LOG" 2>&1; then
-  step_ok
-else
-  step_fail
-  fatal_startup "Skills runtime preparation failed."
-fi
-
-# ─── Step 3: Agent runtime bootstrap ─────────────────────────────────────
+# ─── Step 2: Agent runtime bootstrap ─────────────────────────────────────
 step "Agent runtime bootstrap"
 if npx tsx scripts/bootstrap-agent-runtime.ts >> "$STARTUP_LOG" 2>&1; then
   step_ok
