@@ -7,6 +7,7 @@ _SHARED_CONFIG_JSON_LOADED=1
 
 CONFIG_JSON_PATH="${CANVAS_CONFIG_JSON:-${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook-config.json}"
 CONFIG_ENV_PATH="${CANVAS_CONFIG_ENV:-${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook.env}"
+COMPOSE_ENV_PATH="${CANVAS_COMPOSE_ENV:-${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/.env}"
 
 CONFIG_JSON_DEFAULTS='{
   "domain": "",
@@ -178,7 +179,7 @@ config_json_show() {
 }
 
 config_json_to_env() {
-  local domain image host_port container_port data_dir env_file tmp
+  local domain image host_port container_port data_dir
   local port_internal hostname_env node_env data_env
 
   require_jq
@@ -197,9 +198,8 @@ config_json_to_env() {
   node_env="$(config_json_read env.NODE_ENV)"
   data_env="$(config_json_read env.DATA)"
 
-  env_file="${CONFIG_ENV_PATH}"
-
-  tmp="$(mktemp)"
+  local compose_tmp
+  compose_tmp="$(mktemp)"
   {
     printf '# Auto-generated from canvas-notebook-config.json — do not edit manually\n'
     printf '# Run: canvas-notebook env --sync to regenerate\n\n'
@@ -209,6 +209,16 @@ config_json_to_env() {
     if [[ -n "$data_dir" ]]; then
       printf 'DATA_DIR=%s\n' "$data_dir"
     fi
+  } > "$compose_tmp"
+  run_root cp "$compose_tmp" "$COMPOSE_ENV_PATH"
+  run_root chmod 644 "$COMPOSE_ENV_PATH"
+  rm -f "$compose_tmp"
+
+  local env_tmp
+  env_tmp="$(mktemp)"
+  {
+    printf '# Auto-generated from canvas-notebook-config.json — do not edit manually\n'
+    printf '# Run: canvas-notebook env --sync to regenerate\n\n'
     printf '\n# Domain\n'
     if [[ -n "$domain" ]]; then
       printf 'BETTER_AUTH_BASE_URL=https://%s\n' "$domain"
@@ -236,12 +246,13 @@ config_json_to_env() {
       sval="$(config_json_read "env.${sk}")"
       printf '%s=%s\n' "$sk" "$sval"
     done
-  } > "$tmp"
+  } > "$env_tmp"
+  run_root cp "$env_tmp" "$CONFIG_ENV_PATH"
+  run_root chmod 644 "$CONFIG_ENV_PATH"
+  rm -f "$env_tmp"
 
-  run_root cp "$tmp" "$env_file"
-  run_root chmod 644 "$env_file"
-  rm -f "$tmp"
-  ok "Generated ${env_file}"
+  ok "Generated ${COMPOSE_ENV_PATH} (Compose substitution vars)"
+  ok "Generated ${CONFIG_ENV_PATH} (container env vars)"
 }
 
 config_json_migrate() {
