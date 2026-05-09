@@ -151,7 +151,11 @@ EOCOMPOSE
     ok "Backed up existing file to ${backup}"
   fi
 
-  cp "$tmp" "$COMPOSE_FILE"
+  if [[ -w "$(dirname "$COMPOSE_FILE")" ]]; then
+    cp "$tmp" "$COMPOSE_FILE"
+  else
+    run_root cp "$tmp" "$COMPOSE_FILE"
+  fi
   rm -f "$tmp"
   ok "Updated ${COMPOSE_FILE} with container_name and env_file"
 }

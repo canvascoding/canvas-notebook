@@ -239,6 +239,7 @@ config_json_to_env() {
   } > "$tmp"
 
   run_root cp "$tmp" "$env_file"
+  run_root chmod 644 "$env_file"
   rm -f "$tmp"
   ok "Generated ${env_file}"
 }
