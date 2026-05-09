@@ -76,7 +76,7 @@ configured_domain() {
 }
 
 ensure_env_file() {
-  if [[ ! -f "$CONFIG_ENV_PATH" ]]; then
+  if [[ ! -f "$CONFIG_ENV_PATH" ]] || [[ ! -f "$COMPOSE_ENV_PATH" ]]; then
     config_json_to_env
   fi
 }
@@ -134,9 +134,6 @@ services:
       - "${HOST_PORT:-3456}:${CONTAINER_PORT:-3000}"
     env_file:
       - __INSTALL_DIR__/canvas-notebook.env
-    environment:
-      HOSTNAME: "0.0.0.0"
-      DATA: "/data"
     volumes:
       - ${DATA_DIR:-__DATA_DIR_DEFAULT__/data}:/data
     restart: unless-stopped

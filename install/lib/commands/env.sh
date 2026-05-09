@@ -34,7 +34,8 @@ cmd_env() {
 
   section "Environment"
   info "Config: ${CONFIG_JSON_PATH}"
-  info "Env file: ${CONFIG_ENV_PATH}"
+  info "Container env: ${CONFIG_ENV_PATH}"
+  info "Compose env: ${COMPOSE_ENV_PATH}"
   echo
   if [[ -f "$CONFIG_JSON_PATH" ]]; then
     printf '%-30s %s\n' "KEY" "VALUE"
