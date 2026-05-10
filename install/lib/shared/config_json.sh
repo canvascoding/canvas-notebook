@@ -35,7 +35,11 @@ CONFIG_JSON_DEFAULTS='{
     "DATA": "/data",
     "BOOTSTRAP_ADMIN_EMAIL": "",
     "BOOTSTRAP_ADMIN_PASSWORD": "",
-    "BOOTSTRAP_ADMIN_NAME": "Administrator"
+    "BOOTSTRAP_ADMIN_NAME": "Administrator",
+    "LOG_LEVEL": "info",
+    "ONBOARDING": true,
+    "ALLOW_SIGNUP": false,
+    "OLLAMA_CLI_AUTO_INSTALL": true
   }
 }'
 
@@ -176,27 +180,19 @@ config_json_show() {
   else
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" | jq '.'
   fi
-}
-
 config_json_to_env() {
-  local domain image host_port container_port data_dir
-  local port_internal hostname_env node_env data_env
-
   require_jq
 
   if [[ ! -f "$CONFIG_JSON_PATH" ]]; then
     config_json_init
   fi
 
+  local domain image host_port container_port data_dir
   domain="$(config_json_read domain)"
   image="$(config_json_read image)"
   host_port="$(config_json_read hostPort)"
   container_port="$(config_json_read containerPort)"
   data_dir="$(config_json_read dataDir)"
-  port_internal="$(config_json_read env.PORT)"
-  hostname_env="$(config_json_read env.HOSTNAME)"
-  node_env="$(config_json_read env.NODE_ENV)"
-  data_env="$(config_json_read env.DATA)"
 
   local compose_tmp
   compose_tmp="$(mktemp)"
@@ -219,33 +215,7 @@ config_json_to_env() {
   {
     printf '# Auto-generated from canvas-notebook-config.json — do not edit manually\n'
     printf '# Run: canvas-notebook env --sync to regenerate\n\n'
-    printf '\n# Domain\n'
-    if [[ -n "$domain" ]]; then
-      printf 'BETTER_AUTH_BASE_URL=https://%s\n' "$domain"
-      printf 'BASE_URL=https://%s\n' "$domain"
-    else
-      local auth_url base_url
-      auth_url="$(config_json_read env.BETTER_AUTH_BASE_URL)"
-      base_url="$(config_json_read env.BASE_URL)"
-      if [[ -n "$auth_url" ]]; then
-        printf 'BETTER_AUTH_BASE_URL=%s\n' "$auth_url"
-      fi
-      if [[ -n "$base_url" ]]; then
-        printf 'BASE_URL=%s\n' "$base_url"
-      fi
-    fi
-    printf '\n# Container environment\n'
-    printf 'PORT=%s\n' "${port_internal:-3000}"
-    printf 'HOSTNAME=%s\n' "${hostname_env:-0.0.0.0}"
-    printf 'NODE_ENV=%s\n' "${node_env:-production}"
-    printf 'DATA=%s\n' "${data_env:-/data}"
-    printf '\n# Secrets & credentials\n'
-    local secret_keys="BETTER_AUTH_SECRET CANVAS_INTERNAL_API_KEY BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BOOTSTRAP_ADMIN_NAME"
-    for sk in $secret_keys; do
-      local sval
-      sval="$(config_json_read "env.${sk}")"
-      printf '%s=%s\n' "$sk" "$sval"
-    done
+    jq -r '.env | to_entries[] | "\(.key)=\(.value)"' "$CONFIG_JSON_PATH"
   } > "$env_tmp"
   run_root cp "$env_tmp" "$CONFIG_ENV_PATH"
   run_root chmod 644 "$CONFIG_ENV_PATH"
