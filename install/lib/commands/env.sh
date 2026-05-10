@@ -48,13 +48,14 @@ cmd_env() {
     echo
     printf '%-30s %s\n' "ENV KEY" "VALUE"
     printf '%-30s %s\n' "-------------------------------" "-----------------------------------"
-    for key in BETTER_AUTH_SECRET CANVAS_INTERNAL_API_KEY BETTER_AUTH_BASE_URL BASE_URL PORT HOSTNAME NODE_ENV DATA BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD BOOTSTRAP_ADMIN_NAME; do
-      val="$(config_json_read "env.${key}")"
-      if [[ "$key" == *"SECRET"* || "$key" == *"PASSWORD"* || "$key" == *"API_KEY"* ]] && [[ -n "$val" ]]; then
-        val="${val:0:4}***"
+    local env_key env_val
+    while IFS= read -r env_key; do
+      env_val="$(config_json_read "env.${env_key}")"
+      if [[ "$env_key" == *"SECRET"* || "$env_key" == *"PASSWORD"* || "$env_key" == *"API_KEY"* ]] && [[ -n "$env_val" ]]; then
+        env_val="${env_val:0:4}***"
       fi
-      printf '%-30s %s\n' "$key" "${val:-(not set)}"
-    done
+      printf '%-30s %s\n' "$env_key" "${env_val:-(not set)}"
+    done < <(jq -r '.env | keys[]' "$CONFIG_JSON_PATH")
     echo
     printf '%-30s %s\n' "SWAP" "VALUE"
     printf '%-30s %s\n' "-------------------------------" "-----------------------------------"
