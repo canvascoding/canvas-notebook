@@ -10,11 +10,63 @@ interface PptxViewerProps {
 }
 
 type Previewer = ReturnType<typeof init> & {
+  load?: (data: ArrayBuffer) => Promise<unknown>;
+  preview: (data: ArrayBuffer) => Promise<unknown>;
+  renderSingleSlide?: (slideNumber: number) => void;
   renderNextSlide?: () => void;
   renderPreSlide?: () => void;
   currentIndex?: number;
-  pptx?: { slides?: unknown[] };
+  pptx?: { slides?: PptxSlide[] };
 };
+
+type PptxBackground = { type: string };
+
+type PptxSlideMaster = {
+  background?: PptxBackground;
+  nodes?: unknown[];
+};
+
+type PptxSlideLayout = {
+  background?: PptxBackground;
+  nodes?: unknown[];
+  slideMaster?: PptxSlideMaster;
+};
+
+type PptxSlide = {
+  background?: PptxBackground;
+  nodes?: unknown[];
+  slideLayout?: PptxSlideLayout;
+  slideMaster?: PptxSlideMaster;
+};
+
+const EMPTY_BACKGROUND: PptxBackground = { type: 'none' };
+
+function normalizePptxSlides(previewer: Previewer) {
+  previewer.pptx?.slides?.forEach((rawSlide) => {
+    const slide = rawSlide as PptxSlide;
+
+    slide.background ??= EMPTY_BACKGROUND;
+    slide.nodes ??= [];
+
+    slide.slideMaster ??= {
+      background: EMPTY_BACKGROUND,
+      nodes: [],
+    };
+    slide.slideMaster.background ??= EMPTY_BACKGROUND;
+    slide.slideMaster.nodes ??= [];
+
+    slide.slideLayout ??= {
+      background: EMPTY_BACKGROUND,
+      nodes: [],
+      slideMaster: slide.slideMaster,
+    };
+    slide.slideLayout.background ??= EMPTY_BACKGROUND;
+    slide.slideLayout.nodes ??= [];
+    slide.slideLayout.slideMaster ??= slide.slideMaster;
+    slide.slideLayout.slideMaster.background ??= EMPTY_BACKGROUND;
+    slide.slideLayout.slideMaster.nodes ??= [];
+  });
+}
 
 export function PptxViewer({ path }: PptxViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,7 +106,14 @@ export function PptxViewer({ path }: PptxViewerProps) {
           }) as Previewer;
 
           previewerRef.current = previewer;
-          await previewer.preview(arrayBuffer);
+          if (previewer.load && previewer.renderSingleSlide) {
+            await previewer.load(arrayBuffer);
+            normalizePptxSlides(previewer);
+            previewer.renderSingleSlide(0);
+          } else {
+            await previewer.preview(arrayBuffer);
+            normalizePptxSlides(previewer);
+          }
 
           // Hide the library's built-in nav buttons — we render our own
           containerRef.current.querySelectorAll<HTMLElement>(
