@@ -174,7 +174,7 @@ export function CodeEditor({ value, onChange, readOnly = false }: CodeEditorProp
           background-color: color-mix(in oklab, var(--accent) 36%, transparent);
         }
         .codemirror-wrapper .cm-selectionBackground {
-          background-color: color-mix(in oklab, var(--primary) 30%, transparent) !important;
+          background-color: color-mix(in oklab, var(--primary) 52%, transparent) !important;
         }
         .codemirror-wrapper .cm-cursor {
           border-left-color: var(--foreground);
