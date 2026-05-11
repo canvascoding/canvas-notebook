@@ -7,8 +7,12 @@ install_manager_config() {
 
   section "Manager config"
   if [[ ! -f "$config_json_path" ]]; then
-    run_root mkdir -p "$(dirname "$config_json_path")"
-    printf '%s\n' "$CONFIG_JSON_DEFAULTS" | run_root tee "$config_json_path" >/dev/null
+    _ensure_dir_writable "$(dirname "$config_json_path")"
+    local m_tmp
+    m_tmp="$(mktemp)"
+    printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$m_tmp"
+    _write_owned_file "$config_json_path" "$m_tmp"
+    rm -f "$m_tmp"
   fi
 
   local install_dir_val data_dir_val
@@ -29,7 +33,7 @@ _config_json_raw_write() {
   local file="$1" key="$2" json_value="$3" tmp
   tmp="$(mktemp)"
   jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$file" > "$tmp"
-  run_root cp "$tmp" "$file"
+  _write_owned_file "$file" "$tmp"
   rm -f "$tmp"
 }
 
@@ -54,19 +58,19 @@ install_management_cli() {
   fi
 
   shared_dir="${INSTALL_DIR}/lib/shared"
-  run_root mkdir -p "$shared_dir"
+  _ensure_dir_writable "$shared_dir"
   for _lib in output utils config_json config logging compose caddy swap container docker ui; do
     if [[ -f "${SUPPORT_DIR}/lib/shared/${_lib}.sh" ]]; then
-      run_root install -m 644 "${SUPPORT_DIR}/lib/shared/${_lib}.sh" "${shared_dir}/"
+      _write_owned_file "${shared_dir}/${_lib}.sh" "${SUPPORT_DIR}/lib/shared/${_lib}.sh"
     fi
   done
   unset _lib
 
   local commands_dir="${INSTALL_DIR}/lib/commands"
-  run_root mkdir -p "$commands_dir"
+  _ensure_dir_writable "$commands_dir"
   for _cmd_file in "${SUPPORT_DIR}/lib/commands/"*.sh; do
     if [[ -f "$_cmd_file" ]]; then
-      run_root install -m 644 "$_cmd_file" "${commands_dir}/"
+      _write_owned_file "${commands_dir}/$(basename "$_cmd_file")" "$_cmd_file"
     fi
   done
   unset _cmd_file
