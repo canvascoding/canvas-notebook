@@ -21,6 +21,7 @@ type SuitePageLayoutProps = {
   mainClassName?: string;
   titleClassName?: string;
   hintPage?: string;
+  hintEnabled?: boolean;
 };
 
 export function SuitePageLayout({
@@ -29,6 +30,7 @@ export function SuitePageLayout({
   mainClassName,
   titleClassName,
   hintPage,
+  hintEnabled = true,
 }: SuitePageLayoutProps) {
   const t = useTranslations('common');
   const pathname = usePathname();
@@ -92,5 +94,5 @@ export function SuitePageLayout({
     </div>
   );
 
-  return <HintProvider page={hintPage ?? ''}>{content}</HintProvider>;
+  return <HintProvider page={hintPage ?? ''} enabled={hintEnabled}>{content}</HintProvider>;
 }

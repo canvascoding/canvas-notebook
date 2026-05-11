@@ -2,11 +2,12 @@ import type { ReactNode } from 'react';
 
 import { StudioChatProvider } from '@/app/apps/studio/context/studio-chat-context';
 import { StudioShell } from '@/app/components/StudioShell';
+import { isOnboardingEnabled } from '@/app/lib/onboarding/status';
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
   return (
     <StudioChatProvider>
-      <StudioShell>{children}</StudioShell>
+      <StudioShell hintEnabled={isOnboardingEnabled()}>{children}</StudioShell>
     </StudioChatProvider>
   );
 }

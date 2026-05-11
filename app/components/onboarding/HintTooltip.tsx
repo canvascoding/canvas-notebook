@@ -329,13 +329,9 @@ export function HintTooltip({
       onDismiss();
     };
     targetEl.addEventListener('click', handleClick, true);
-    targetEl.addEventListener('pointerdown', (e: Event) => {
-      e.stopPropagation();
-    }, true);
 
     return () => {
       targetEl.removeEventListener('click', handleClick, true);
-      targetEl.removeEventListener('pointerdown', (e: Event) => { e.stopPropagation(); }, true);
       targetEl.classList.remove('onboarding-highlight-target');
       targetEl.style.zIndex = origZIndex;
       targetEl.style.transition = origTransition;
@@ -425,7 +421,7 @@ export function HintTooltip({
           50% { box-shadow: 0 0 0 6px rgba(245,158,11,0.7), 0 0 30px rgba(245,158,11,0.4); }
         }
       `}</style>
-      <div className="fixed inset-0 z-[100] bg-black/40 pointer-events-none" />
+      <div className="fixed inset-0 z-[100] bg-black/40" onClick={onDismiss} />
       <div
         ref={tooltipRef}
         className={`fixed z-[102] max-w-[320px] min-w-[200px] rounded-lg border-2 border-amber-500/60 bg-popover p-3 shadow-xl shadow-amber-500/10 ring-1 ring-amber-500/20 transition-opacity duration-200 ${
@@ -437,6 +433,7 @@ export function HintTooltip({
         }
         role="dialog"
         aria-label={title}
+        onClick={onDismiss}
       >
         {position && (
           <>
@@ -454,7 +451,7 @@ export function HintTooltip({
           <h4 className="text-sm font-semibold text-popover-foreground">{title}</h4>
           <button
             ref={closeBtnRef}
-            onClick={onDismiss}
+            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
             disabled={dismissing}
             className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Close"

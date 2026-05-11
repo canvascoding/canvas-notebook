@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, startTransition, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, startTransition, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { getPageDefinition } from './hint-config';
 
@@ -18,6 +18,7 @@ export function useHintSequence(page: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissing, setDismissing] = useState(false);
+  const dismissingRef = useRef(false);
 
   const pageDef = useMemo(() => getPageDefinition(page) ?? null, [page]);
 
@@ -46,7 +47,8 @@ export function useHintSequence(page: string) {
   }, [fetchState]);
 
   const dismissCurrent = useCallback(async () => {
-    if (!state?.currentHintKey || dismissing) return null;
+    if (!state?.currentHintKey || dismissingRef.current) return null;
+    dismissingRef.current = true;
     setDismissing(true);
     try {
       const res = await fetch('/api/user-hints', {
@@ -73,9 +75,10 @@ export function useHintSequence(page: string) {
       console.warn('[onboarding] Failed to dismiss hint:', err);
       return null;
     } finally {
+      dismissingRef.current = false;
       setDismissing(false);
     }
-  }, [state, dismissing]);
+  }, [state]);
 
   const completePage = useCallback(async () => {
     try {

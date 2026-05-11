@@ -7,6 +7,7 @@ import { requirePageSession } from '@/app/lib/auth-guards';
 import { HomeWorkspaceView } from '@/app/components/home/HomeWorkspaceView';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
+import { isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
@@ -18,10 +19,11 @@ const releaseTagUrl = `${repositoryUrl}/releases/tag/${releaseTag}`;
 
 export default async function Home() {
   const tHome = await getTranslations('home');
+  const onboardingEnabled = isOnboardingEnabled();
   await requirePageSession();
 
   return (
-    <HomeHintProvider>
+    <HomeHintProvider enabled={onboardingEnabled}>
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="flex h-full flex-col">
         <header className="sticky top-0 z-20 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">

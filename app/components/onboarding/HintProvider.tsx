@@ -6,6 +6,7 @@ import { HintTooltip } from './HintTooltip';
 
 interface HintProviderProps {
   page?: string;
+  enabled?: boolean;
   children: ReactNode;
 }
 
@@ -40,7 +41,7 @@ export function useHintContext() {
 const TARGET_POLL_ATTEMPTS = 10;
 const TARGET_POLL_INTERVAL_MS = 300;
 
-export function HintProvider({ page = '', children }: HintProviderProps) {
+function HintProviderInner({ page = '', children }: { page: string; children: ReactNode }) {
   const {
     state,
     loading,
@@ -132,4 +133,11 @@ export function HintProvider({ page = '', children }: HintProviderProps) {
       )}
     </HintContext.Provider>
   );
+}
+
+export function HintProvider({ page = '', enabled = true, children }: HintProviderProps) {
+  if (!enabled) {
+    return <>{children}</>;
+  }
+  return <HintProviderInner page={page}>{children}</HintProviderInner>;
 }
