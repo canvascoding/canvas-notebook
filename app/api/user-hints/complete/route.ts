@@ -3,6 +3,7 @@ import { db } from '@/app/lib/db';
 import { userHintState, pageOnboardingState } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { getPageDefinition } from '@/app/components/onboarding/hint-config';
+import { ensureUserExists } from '@/app/lib/db/ensure-user';
 
 export async function PATCH(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -11,6 +12,8 @@ export async function PATCH(request: NextRequest) {
   }
 
   const userId = session.user.id;
+  await ensureUserExists(userId, { name: session.user.name ?? undefined, email: session.user.email ?? undefined, image: session.user.image ?? undefined });
+
   const body = await request.json();
   const { page } = body;
 

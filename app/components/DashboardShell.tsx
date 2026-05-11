@@ -110,7 +110,7 @@ function MobileNotebookEmptyState({
   );
 }
 
-export function DashboardShell() {
+export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }) {
   const tNotebook = useTranslations('notebook');
   const tCommon = useTranslations('common');
   const tChat = useTranslations('chat');
@@ -398,7 +398,7 @@ export function DashboardShell() {
 
   return (
     <FileWatcherProvider>
-    <HintProvider page="notebook">
+    <HintProvider page="notebook" enabled={hintEnabled}>
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
       <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)]">
         <div className="relative mx-auto flex h-full items-center justify-between px-4">

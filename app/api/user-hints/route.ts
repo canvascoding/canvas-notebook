@@ -4,6 +4,7 @@ import { db } from '@/app/lib/db';
 import { userHintState, pageOnboardingState } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { getPageDefinition, getHintDefinition, ALL_PAGES } from '@/app/components/onboarding/hint-config';
+import { ensureUserExists } from '@/app/lib/db/ensure-user';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -87,6 +88,8 @@ export async function PATCH(request: NextRequest) {
   }
 
   const userId = session.user.id;
+  await ensureUserExists(userId, { name: session.user.name ?? undefined, email: session.user.email ?? undefined, image: session.user.image ?? undefined });
+
   const body = await request.json();
   const { hintKey } = body;
 
@@ -170,6 +173,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   const userId = session.user.id;
+  await ensureUserExists(userId, { name: session.user.name ?? undefined, email: session.user.email ?? undefined, image: session.user.image ?? undefined });
+
   const url = new URL(request.url);
   const page = url.searchParams.get('page');
 
