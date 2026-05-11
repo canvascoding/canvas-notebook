@@ -210,7 +210,7 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   
   // Different providers have different signatures:
   // - anthropic: loginAnthropic({ onAuth, onPrompt, onProgress, onManualCodeInput })
-  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress })
+  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress, onManualCodeInput })
   // - github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress })
   // All use options-based API now
   
@@ -310,7 +310,7 @@ async function run() {
     credentials = await ${loginFn}({
       onAuth: handleAuthUrl,
       onPrompt: handlePromptCode,
-      ${provider === 'anthropic' ? 'onManualCodeInput: handlePromptCode,' : ''}
+      ${provider === 'anthropic' || provider === 'openai-codex' ? 'onManualCodeInput: handlePromptCode,' : ''}
       onProgress: handleProgress
     });
 
