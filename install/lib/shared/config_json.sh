@@ -180,6 +180,8 @@ config_json_show() {
   else
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" | jq '.'
   fi
+}
+
 config_json_to_env() {
   require_jq
 
