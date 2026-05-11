@@ -173,8 +173,8 @@
     border-radius: 0 !important;
   }
   ::selection {
-    background: color-mix(in oklab, var(--primary) 28%, transparent);
-    color: var(--foreground);
+    background: color-mix(in oklab, var(--primary) 62%, transparent);
+    color: var(--primary-foreground);
   }
   :focus-visible {
     outline: 2px solid var(--ring);
