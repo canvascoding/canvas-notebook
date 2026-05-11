@@ -81,6 +81,7 @@ test.describe('OpenAI Codex OAuth E2E', () => {
     });
 
     await page.route('**/api/oauth/pi/initiate', async (route) => {
+      expect(route.request().postDataJSON()).toMatchObject({ provider: 'openai-codex' });
       await route.fulfill({
         json: {
           success: true,
@@ -139,8 +140,6 @@ test.describe('OpenAI Codex OAuth E2E', () => {
     await page.getByTestId('provider-select').selectOption('openai-codex');
     await expect(page.getByText('OAuth Authentication')).toBeVisible();
 
-    await page.getByTestId('pi-oauth-provider-select').click();
-    await page.getByText('OpenAI Codex', { exact: true }).click();
     await page.getByTestId('pi-oauth-connect-button').click();
 
     await expect(page.getByTestId('pi-oauth-auth-url')).toHaveValue(/auth\.openai\.com/);

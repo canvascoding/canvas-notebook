@@ -48,6 +48,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const completedFlowRef = useRef<string | null>(null);
+  const flowProviderRef = useRef<OAuthStatus | null>(null);
 
   const loadStatus = async () => {
     try {
@@ -73,17 +74,18 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   useEffect(() => {
     if (!activeProviderId || !providers.length) return;
     const match = providers.find(p => p.provider === activeProviderId);
-    if (match && !match.connected && !selectedProvider) {
-      startTransition(() => { setSelectedProvider(match); });
-    }
-  }, [activeProviderId, providers, selectedProvider]);
+    startTransition(() => {
+      setSelectedProvider(match && !match.connected ? match : null);
+      setError(null);
+    });
+  }, [activeProviderId, providers]);
 
   const resetDialogState = () => {
     setCode('');
     setFlowId('');
     setAuthUrl('');
     setInstructions('');
-    setSelectedProvider(null);
+    flowProviderRef.current = null;
     setIsPolling(false);
     setPendingMessage(null);
     setIsFinalizing(false);
@@ -223,7 +225,11 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   }, [successMessage]);
 
   const initiateAuth = async () => {
-    if (!selectedProvider) {
+    const providerToConnect = activeProviderId
+      ? providers.find(p => p.provider === activeProviderId && !p.connected) || null
+      : selectedProvider;
+
+    if (!providerToConnect) {
       setError(t('oauth.errors.selectProvider'));
       return;
     }
@@ -238,13 +244,15 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
     setCode('');
     setFlowId('');
     completedFlowRef.current = null;
+    flowProviderRef.current = providerToConnect;
+    setSelectedProvider(providerToConnect);
 
     try {
       const response = await fetch('/api/oauth/pi/initiate', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: selectedProvider.provider }),
+        body: JSON.stringify({ provider: providerToConnect.provider }),
       });
 
       const data = await response.json();
@@ -276,7 +284,9 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
       return;
     }
 
-    if (!flowId || !selectedProvider) {
+    const flowProvider = flowProviderRef.current || selectedProvider;
+
+    if (!flowId || !flowProvider) {
       setError(t('oauth.errors.missingFlowInfo'));
       return;
     }
@@ -292,7 +302,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           flowId,
-          provider: selectedProvider.provider,
+          provider: flowProvider.provider,
           code: code.trim(),
         }),
       });
@@ -309,7 +319,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
         return;
       }
 
-      await handleConnected(selectedProvider, data.message);
+      await handleConnected(flowProvider, data.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('oauth.errors.unknown'));
     } finally {
@@ -360,6 +370,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
     : providers;
   const availableProviders = visibleProviders.filter(p => !p.connected);
   const connectedProviders = visibleProviders.filter(p => p.connected);
+  const canConnect = activeProviderId ? availableProviders.length > 0 : Boolean(selectedProvider);
 
   return (
     <div className="space-y-4">
@@ -465,7 +476,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
             )}
               <Button
                 onClick={() => void initiateAuth()}
-                disabled={isLoading || !selectedProvider}
+                disabled={isLoading || !canConnect}
                 className={activeProviderId ? 'w-full' : 'h-10'}
                 data-testid="pi-oauth-connect-button"
               >
