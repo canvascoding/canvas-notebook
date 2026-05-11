@@ -54,12 +54,33 @@ require_jq() {
   fi
 }
 
+_write_owned_file() {
+  local dest="$1" src="$2"
+  if cp "$src" "$dest" 2>/dev/null; then
+    chmod 644 "$dest" 2>/dev/null || true
+  else
+    run_root cp "$src" "$dest"
+    run_root chown "$(id -u):$(id -g)" "$dest" 2>/dev/null || true
+    run_root chmod 644 "$dest"
+  fi
+}
+
+_ensure_dir_writable() {
+  local dir="$1"
+  if [[ ! -w "$dir" ]]; then
+    run_root chown "$(id -u):$(id -g)" "$dir"
+  fi
+}
+
 config_json_init() {
   require_jq
   if [[ ! -f "$CONFIG_JSON_PATH" ]]; then
-    run_root mkdir -p "$(dirname "$CONFIG_JSON_PATH")"
-    printf '%s\n' "$CONFIG_JSON_DEFAULTS" | run_root tee "$CONFIG_JSON_PATH" >/dev/null
-    run_root chown "$(id -u):$(id -g)" "$CONFIG_JSON_PATH" 2>/dev/null || true
+    _ensure_dir_writable "$(dirname "$CONFIG_JSON_PATH")"
+    local tmp
+    tmp="$(mktemp)"
+    printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$tmp"
+    _write_owned_file "$CONFIG_JSON_PATH" "$tmp"
+    rm -f "$tmp"
     ok "Created default config at ${CONFIG_JSON_PATH}"
   fi
 }
@@ -170,7 +191,7 @@ _config_json_write_raw() {
 
   tmp="$(mktemp)"
   jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$CONFIG_JSON_PATH" > "$tmp"
-  run_root cp "$tmp" "$CONFIG_JSON_PATH"
+  _write_owned_file "$CONFIG_JSON_PATH" "$tmp"
   rm -f "$tmp"
 }
 
@@ -208,8 +229,7 @@ config_json_to_env() {
       printf 'DATA_DIR=%s\n' "$data_dir"
     fi
   } > "$compose_tmp"
-  run_root cp "$compose_tmp" "$COMPOSE_ENV_PATH"
-  run_root chmod 644 "$COMPOSE_ENV_PATH"
+  _write_owned_file "$COMPOSE_ENV_PATH" "$compose_tmp"
   rm -f "$compose_tmp"
 
   local env_tmp
@@ -219,8 +239,7 @@ config_json_to_env() {
     printf '# Run: canvas-notebook env --sync to regenerate\n\n'
     jq -r '.env | to_entries[] | "\(.key)=\(.value)"' "$CONFIG_JSON_PATH"
   } > "$env_tmp"
-  run_root cp "$env_tmp" "$CONFIG_ENV_PATH"
-  run_root chmod 644 "$CONFIG_ENV_PATH"
+  _write_owned_file "$CONFIG_ENV_PATH" "$env_tmp"
   rm -f "$env_tmp"
 
   ok "Generated ${COMPOSE_ENV_PATH} (Compose substitution vars)"
@@ -244,8 +263,12 @@ config_json_migrate() {
 
   require_jq
 
-  run_root mkdir -p "$(dirname "$CONFIG_JSON_PATH")"
-  printf '%s\n' "$CONFIG_JSON_DEFAULTS" | run_root tee "$CONFIG_JSON_PATH" >/dev/null
+  _ensure_dir_writable "$(dirname "$CONFIG_JSON_PATH")"
+  local mig_tmp
+  mig_tmp="$(mktemp)"
+  printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$mig_tmp"
+  _write_owned_file "$CONFIG_JSON_PATH" "$mig_tmp"
+  rm -f "$mig_tmp"
 
   if [[ -f "$manager_env" ]]; then
     local key value

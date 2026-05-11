@@ -152,6 +152,7 @@ EOCOMPOSE
     cp "$tmp" "$COMPOSE_FILE"
   else
     run_root cp "$tmp" "$COMPOSE_FILE"
+    run_root chown "$(id -u):$(id -g)" "$COMPOSE_FILE" 2>/dev/null || true
   fi
   rm -f "$tmp"
   ok "Updated ${COMPOSE_FILE} with container_name and env_file"
