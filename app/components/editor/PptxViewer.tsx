@@ -1,84 +1,77 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { init } from 'pptx-preview';
+import Chart from 'chart.js/auto';
+import JSZip from 'jszip';
+import { PPTXViewer } from 'pptxviewjs';
 
 interface PptxViewerProps {
   path: string;
 }
 
-type Previewer = ReturnType<typeof init> & {
-  load?: (data: ArrayBuffer) => Promise<unknown>;
-  preview: (data: ArrayBuffer) => Promise<unknown>;
-  renderSingleSlide?: (slideNumber: number) => void;
-  renderNextSlide?: () => void;
-  renderPreSlide?: () => void;
-  currentIndex?: number;
-  pptx?: { slides?: PptxSlide[] };
-};
+const FALLBACK_SLIDE_RATIO = 16 / 9;
 
-type PptxBackground = { type: string };
+function exposePptxPeerDependencies() {
+  const globalScope = globalThis as typeof globalThis & {
+    Chart?: typeof Chart;
+    JSZip?: typeof JSZip;
+  };
 
-type PptxSlideMaster = {
-  background?: PptxBackground;
-  nodes?: unknown[];
-};
+  globalScope.Chart ??= Chart;
+  globalScope.JSZip ??= JSZip;
+}
 
-type PptxSlideLayout = {
-  background?: PptxBackground;
-  nodes?: unknown[];
-  slideMaster?: PptxSlideMaster;
-};
+function fitCanvasToContainer(canvas: HTMLCanvasElement, container: HTMLDivElement) {
+  const containerWidth = Math.max(container.clientWidth - 32, 280);
+  const maxWidth = window.innerWidth < 768 ? 640 : 960;
+  const cssWidth = Math.min(containerWidth, maxWidth);
+  const cssHeight = Math.floor(cssWidth / FALLBACK_SLIDE_RATIO);
+  const dpr = window.devicePixelRatio || 1;
 
-type PptxSlide = {
-  background?: PptxBackground;
-  nodes?: unknown[];
-  slideLayout?: PptxSlideLayout;
-  slideMaster?: PptxSlideMaster;
-};
-
-const EMPTY_BACKGROUND: PptxBackground = { type: 'none' };
-
-function normalizePptxSlides(previewer: Previewer) {
-  previewer.pptx?.slides?.forEach((rawSlide) => {
-    const slide = rawSlide as PptxSlide;
-
-    slide.background ??= EMPTY_BACKGROUND;
-    slide.nodes ??= [];
-
-    slide.slideMaster ??= {
-      background: EMPTY_BACKGROUND,
-      nodes: [],
-    };
-    slide.slideMaster.background ??= EMPTY_BACKGROUND;
-    slide.slideMaster.nodes ??= [];
-
-    slide.slideLayout ??= {
-      background: EMPTY_BACKGROUND,
-      nodes: [],
-      slideMaster: slide.slideMaster,
-    };
-    slide.slideLayout.background ??= EMPTY_BACKGROUND;
-    slide.slideLayout.nodes ??= [];
-    slide.slideLayout.slideMaster ??= slide.slideMaster;
-    slide.slideLayout.slideMaster.background ??= EMPTY_BACKGROUND;
-    slide.slideLayout.slideMaster.nodes ??= [];
-  });
+  canvas.width = Math.floor(cssWidth * dpr);
+  canvas.height = Math.floor(cssHeight * dpr);
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
 }
 
 export function PptxViewer({ path }: PptxViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const previewerRef = useRef<Previewer | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const viewerRef = useRef<PPTXViewer | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRendering, setIsRendering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [totalSlides, setTotalSlides] = useState(0);
 
+  const renderSlide = useCallback(async (slideIndex: number) => {
+    const viewer = viewerRef.current;
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!viewer || !canvas || !container) return;
+
+    fitCanvasToContainer(canvas, container);
+    setIsRendering(true);
+    try {
+      await viewer.renderSlide(slideIndex, canvas, { quality: 'high' });
+      setCurrentSlide(slideIndex);
+    } finally {
+      setIsRendering(false);
+    }
+  }, []);
+
   useEffect(() => {
+    let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
+
     const loadPptx = async () => {
       try {
+        setIsLoading(true);
+        setError(null);
+        exposePptxPeerDependencies();
+
         const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`, {
           credentials: 'include'
         });
@@ -89,71 +82,65 @@ export function PptxViewer({ path }: PptxViewerProps) {
 
         const arrayBuffer = await response.arrayBuffer();
 
-        if (containerRef.current) {
-          // destroy() does not clear the DOM, so we do it manually to prevent
-          // double renders (React 18 StrictMode double-invokes effects)
-          containerRef.current.innerHTML = '';
+        if (cancelled || !canvasRef.current || !containerRef.current) return;
 
-          const containerWidth = containerRef.current.clientWidth - 32;
-          const isMobileDevice = window.innerWidth < 768;
-          const baseWidth = isMobileDevice ? Math.min(containerWidth, 640) : 960;
-          const height = Math.floor(baseWidth / (16 / 9));
+        const viewer = new PPTXViewer({
+          canvas: canvasRef.current,
+          backgroundColor: '#ffffff',
+          enableThumbnails: false,
+          slideSizeMode: 'fit',
+          autoExposeGlobals: true,
+        });
 
-          const previewer = init(containerRef.current, {
-            width: baseWidth,
-            height: height,
-            mode: 'slide',
-          }) as Previewer;
+        viewerRef.current = viewer;
+        await viewer.loadFile(arrayBuffer);
+        if (cancelled) return;
 
-          previewerRef.current = previewer;
-          if (previewer.load && previewer.renderSingleSlide) {
-            await previewer.load(arrayBuffer);
-            normalizePptxSlides(previewer);
-            previewer.renderSingleSlide(0);
-          } else {
-            await previewer.preview(arrayBuffer);
-            normalizePptxSlides(previewer);
-          }
+        const count = viewer.getSlideCount();
+        setTotalSlides(count);
+        setCurrentSlide(0);
 
-          // Hide the library's built-in nav buttons — we render our own
-          containerRef.current.querySelectorAll<HTMLElement>(
-            '.pptx-preview-wrapper-next, .pptx-preview-wrapper-pagination'
-          ).forEach(el => { el.style.display = 'none'; });
+        if (count > 0) {
+          await renderSlide(0);
+        }
 
-          const count = previewer.pptx?.slides?.length ?? 0;
-          setTotalSlides(count);
-          setCurrentSlide(0);
+        if (!cancelled) {
           setIsLoading(false);
         }
+
+        resizeObserver = new ResizeObserver(() => {
+          void renderSlide(viewer.getCurrentSlideIndex());
+        });
+        resizeObserver.observe(containerRef.current);
       } catch (err) {
         console.error('[PptxViewer] Error loading PPTX:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load presentation');
-        setIsLoading(false);
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load presentation');
+          setIsLoading(false);
+        }
       }
     };
 
     loadPptx();
 
     return () => {
-      if (previewerRef.current) {
-        previewerRef.current.destroy();
-        previewerRef.current = null;
+      cancelled = true;
+      resizeObserver?.disconnect();
+      if (viewerRef.current) {
+        viewerRef.current.destroy();
+        viewerRef.current = null;
       }
     };
-  }, [path]);
+  }, [path, renderSlide]);
 
-  const nextSlide = () => {
-    const p = previewerRef.current;
-    if (!p || currentSlide >= totalSlides - 1) return;
-    p.renderNextSlide?.();
-    setCurrentSlide(idx => idx + 1);
+  const nextSlide = async () => {
+    if (currentSlide >= totalSlides - 1 || isRendering) return;
+    await renderSlide(currentSlide + 1);
   };
 
-  const prevSlide = () => {
-    const p = previewerRef.current;
-    if (!p || currentSlide <= 0) return;
-    p.renderPreSlide?.();
-    setCurrentSlide(idx => idx - 1);
+  const prevSlide = async () => {
+    if (currentSlide <= 0 || isRendering) return;
+    await renderSlide(currentSlide - 1);
   };
 
   if (error) {
@@ -179,9 +166,15 @@ export function PptxViewer({ path }: PptxViewerProps) {
 
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto p-2 sm:p-4"
+        className="flex flex-1 items-center justify-center overflow-auto p-2 sm:p-4"
         style={{ minHeight: '300px' }}
-      />
+      >
+        <canvas
+          ref={canvasRef}
+          className="block max-w-full bg-white shadow-sm"
+          aria-label="PowerPoint slide preview"
+        />
+      </div>
 
       {!isLoading && totalSlides > 0 && (
         <div className="flex items-center justify-center gap-2 sm:gap-4 p-2 sm:p-4 border-t border-border">
@@ -189,7 +182,7 @@ export function PptxViewer({ path }: PptxViewerProps) {
             variant="outline"
             size="sm"
             onClick={prevSlide}
-            disabled={currentSlide === 0}
+            disabled={currentSlide === 0 || isRendering}
             className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -203,7 +196,7 @@ export function PptxViewer({ path }: PptxViewerProps) {
             variant="outline"
             size="sm"
             onClick={nextSlide}
-            disabled={currentSlide >= totalSlides - 1}
+            disabled={currentSlide >= totalSlides - 1 || isRendering}
             className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
           >
             <ChevronRight className="h-4 w-4" />
