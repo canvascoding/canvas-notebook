@@ -75,10 +75,20 @@ install_management_cli() {
   done
   unset _cmd_file
 
+  local template_dir="${INSTALL_DIR}/templates"
+  _ensure_dir_writable "$template_dir"
+  for _tpl_file in "${SUPPORT_DIR}/templates/"*; do
+    if [[ -f "$_tpl_file" ]]; then
+      _write_owned_file "${template_dir}/$(basename "$_tpl_file")" "$_tpl_file"
+    fi
+  done
+  unset _tpl_file
+
   require_jq
 
   ok "Installed management CLI: ${bin_path}"
   ok "Deployed shared libraries to ${shared_dir}"
+  ok "Deployed templates to ${template_dir}"
   [[ -x "$fallback_bin_path" ]] && info "Also available as: ${fallback_bin_path}"
   info "Run: canvas-notebook help"
 }
@@ -97,9 +107,10 @@ install_systemd_service() {
 
   escaped_install_dir="$(sed_replacement_escape "$INSTALL_DIR")"
   escaped_cli_path="$(sed_replacement_escape "$cli_path")"
+  local template_dir="${SUPPORT_DIR:-${INSTALL_DIR:-/opt/canvas-notebook}}/templates"
   sed -e "s|__INSTALL_DIR__|${escaped_install_dir}|g" \
       -e "s|__CLI_PATH__|${escaped_cli_path}|g" \
-      "${SUPPORT_DIR}/templates/canvas-notebook.service" > "$tmp_service"
+      "${template_dir}/canvas-notebook.service" > "$tmp_service"
 
   section "System service"
   run_root install -m 644 "$tmp_service" "$service_path"
@@ -142,13 +153,15 @@ install_update_timer() {
   escaped_cli_path="$(sed_replacement_escape "$cli_path")"
   escaped_schedule="$(sed_replacement_escape "$update_schedule")"
 
+  local template_dir="${SUPPORT_DIR:-${INSTALL_DIR:-/opt/canvas-notebook}}/templates"
+
   tmp_timer="$(mktemp)"
   sed -e "s|__CANVAS_AUTO_UPDATE_SCHEDULE__|${escaped_schedule}|g" \
-      "${SUPPORT_DIR}/templates/canvas-notebook-update.timer" > "$tmp_timer"
+      "${template_dir}/canvas-notebook-update.timer" > "$tmp_timer"
 
   tmp_service="$(mktemp)"
   sed -e "s|__CLI_PATH__|${escaped_cli_path}|g" \
-      "${SUPPORT_DIR}/templates/canvas-notebook-update.service" > "$tmp_service"
+      "${template_dir}/canvas-notebook-update.service" > "$tmp_service"
 
   section "Auto-update timer"
   run_root install -m 644 "$tmp_timer" "$timer_path"

@@ -30,6 +30,15 @@ if [[ -n "$SHARED_DIR" ]]; then
     fi
   done
   unset _lib
+  _systemd_lib="${CLI_BIN_DIR}/../lib/systemd.sh"
+  if [[ ! -f "$_systemd_lib" ]]; then
+    _systemd_lib="${INSTALL_DIR}/lib/systemd.sh"
+  fi
+  if [[ -f "$_systemd_lib" ]]; then
+    # shellcheck source=/dev/null
+    . "$_systemd_lib"
+  fi
+  unset _systemd_lib
 else
   printf '✗ Canvas Notebook shared libraries not found.\n' >&2
   printf '  Run: canvas-notebook cli-update\n' >&2
