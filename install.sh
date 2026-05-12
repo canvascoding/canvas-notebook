@@ -287,7 +287,7 @@ run_prebuilt_install() {
 
   config_json_to_env
   configure_data_bind_mount
-  pull_image_if_needed "$DOCKER_COMPOSE" "$IMAGE" "$SERVICE" "$LOG_FILE"
+  pull_image_if_needed "${DOCKER_COMPOSE:-docker compose}" "$IMAGE" "${SERVICE:-canvas-notebook}" "${LOG_FILE:-}"
   start_canvas_container
   cleanup_docker_artifacts
   install_manager_config
