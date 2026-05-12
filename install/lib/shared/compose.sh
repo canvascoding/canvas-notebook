@@ -144,16 +144,11 @@ EOCOMPOSE
 
   if [[ -f "$COMPOSE_FILE" ]]; then
     local backup="${COMPOSE_FILE}.bak"
-    cp "$COMPOSE_FILE" "$backup"
+    _write_owned_file "$backup" "$COMPOSE_FILE"
     ok "Backed up existing file to ${backup}"
   fi
 
-  if [[ -w "$(dirname "$COMPOSE_FILE")" ]]; then
-    cp "$tmp" "$COMPOSE_FILE"
-  else
-    run_root cp "$tmp" "$COMPOSE_FILE"
-    run_root chown "$(id -u):$(id -g)" "$COMPOSE_FILE" 2>/dev/null || true
-  fi
+  _write_owned_file "$COMPOSE_FILE" "$tmp"
   rm -f "$tmp"
   ok "Updated ${COMPOSE_FILE} with container_name and env_file"
 }

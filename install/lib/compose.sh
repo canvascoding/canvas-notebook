@@ -26,6 +26,7 @@ prepare_install_dir() {
 
       if [[ ! -f "${target_dir}/${COMPOSE_FILE_NAME}" ]]; then
         cp "${LEGACY_COMPOSE_PATH}" "${target_dir}/${COMPOSE_FILE_NAME}"
+        _write_owned_file "${target_dir}/${COMPOSE_FILE_NAME}" "${LEGACY_COMPOSE_PATH}"
         ok "Migrated existing ${COMPOSE_FILE_NAME} to ${target_dir}"
       fi
     fi
@@ -73,6 +74,7 @@ migrate_legacy_data() {
   fi
 
   run_root mkdir -p "$(dirname "$DATA_DIR")"
+  run_root chown "$(id -u):$(id -g)" "$(dirname "$DATA_DIR")" 2>/dev/null || true
   mv "$LEGACY_DATA_PATH" "$DATA_DIR"
   ok "Migrated existing data directory to ${DATA_DIR}"
 }
