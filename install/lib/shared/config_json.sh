@@ -60,8 +60,18 @@ _install_user() {
   elif [[ "$(id -u)" -ne 0 ]]; then
     printf '%s:%s' "$(id -un)" "$(id -g)"
   else
+    local _dir="${CONFIG_JSON_PATH%/*}"
     local _owner
-    _owner="$(stat -c '%U:%G' "${CONFIG_JSON_PATH%/*}" 2>/dev/null || stat -f '%Su:%Sg' "${CONFIG_JSON_PATH%/*}" 2>/dev/null || printf 'root:root')"
+    _owner="$(stat -c '%U:%G' "$_dir" 2>/dev/null || stat -f '%Su:%Sg' "$_dir" 2>/dev/null || true)"
+    if [[ -z "$_owner" || "$_owner" == "root:root" ]]; then
+      local _home_owner
+      _home_owner="$(stat -c '%U:%G' "$HOME" 2>/dev/null || stat -f '%Su:%Sg' "$HOME" 2>/dev/null || true)"
+      if [[ -n "$_home_owner" && "$_home_owner" != "root:root" ]]; then
+        _owner="$_home_owner"
+      else
+        _owner="1000:1000"
+      fi
+    fi
     printf '%s' "$_owner"
   fi
 }
