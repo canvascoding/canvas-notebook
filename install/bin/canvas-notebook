@@ -45,25 +45,36 @@ if [[ -n "$SHARED_DIR" ]]; then
     local _cfg_files=("$CONFIG_JSON_PATH" "$CONFIG_ENV_PATH" "$COMPOSE_ENV_PATH" "$COMPOSE_FILE")
     for _f in "${_cfg_files[@]}"; do
       if [[ -f "$_f" ]] && [[ ! -r "$_f" ]]; then
-        sudo chown "$(id -u):$(id -g)" "$_f" 2>/dev/null || true
+        run_root chown "$(id -u):$(id -g)" "$_f" 2>/dev/null || true
+        run_root chmod 644 "$_f" 2>/dev/null || true
       fi
     done
     local _cfg_dirs=("$(dirname "$CONFIG_JSON_PATH")" "${INSTALL_DIR}/lib/shared" "${INSTALL_DIR}/lib/commands" "${INSTALL_DIR}/templates")
     for _d in "${_cfg_dirs[@]}"; do
       if [[ -d "$_d" ]] && [[ ! -w "$_d" ]]; then
-        sudo chown "$(id -u):$(id -g)" "$_d" 2>/dev/null || true
+        run_root chown "$(id -u):$(id -g)" "$_d" 2>/dev/null || true
+        run_root chmod 755 "$_d" 2>/dev/null || true
       fi
     done
     if [[ -d "${INSTALL_DIR}/lib/shared" ]] && [[ ! -r "${INSTALL_DIR}/lib/shared/config_json.sh" ]]; then
       for _f in "${INSTALL_DIR}/lib/shared/"*.sh; do
-        sudo chown "$(id -u):$(id -g)" "$_f" 2>/dev/null || true
+        run_root chown "$(id -u):$(id -g)" "$_f" 2>/dev/null || true
+        run_root chmod 644 "$_f" 2>/dev/null || true
       done
     fi
     if [[ -d "${INSTALL_DIR}/lib/commands" ]] && [[ ! -r "${INSTALL_DIR}/lib/commands/caddy.sh" ]]; then
       for _f in "${INSTALL_DIR}/lib/commands/"*.sh; do
-        sudo chown "$(id -u):$(id -g)" "$_f" 2>/dev/null || true
+        run_root chown "$(id -u):$(id -g)" "$_f" 2>/dev/null || true
+        run_root chmod 644 "$_f" 2>/dev/null || true
       done
     fi
+    for _f in "${_cfg_files[@]}"; do
+      if [[ -f "$_f" ]] && [[ ! -r "$_f" ]]; then
+        printf '✗ Permission denied: %s\n' "$_f" >&2
+        printf '  Run with sudo or fix ownership: sudo chown $(id -u):$(id -g) %s\n' "$_f" >&2
+        exit 1
+      fi
+    done
   }
   _fix_config_perms
   unset -f _fix_config_perms
