@@ -54,24 +54,38 @@ require_jq() {
   fi
 }
 
+_install_user() {
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    printf '%s:%s' "$SUDO_USER" "$(id -g "$SUDO_USER" 2>/dev/null || printf '0')"
+  elif [[ "$(id -u)" -ne 0 ]]; then
+    printf '%s:%s' "$(id -un)" "$(id -g)"
+  else
+    local _owner
+    _owner="$(stat -c '%U:%G' "${CONFIG_JSON_PATH%/*}" 2>/dev/null || stat -f '%Su:%Sg' "${CONFIG_JSON_PATH%/*}" 2>/dev/null || printf 'root:root')"
+    printf '%s' "$_owner"
+  fi
+}
+
 _write_owned_file() {
-  local dest="$1" src="$2"
+  local dest="$1" src="$2" owner
+  owner="$(_install_user)"
   if cp "$src" "$dest" 2>/dev/null; then
     chmod 644 "$dest" 2>/dev/null || true
   else
     run_root cp "$src" "$dest"
-    run_root chown "$(id -u):$(id -g)" "$dest" 2>/dev/null || true
+    run_root chown "$owner" "$dest" 2>/dev/null || true
     run_root chmod 644 "$dest"
   fi
 }
 
 _ensure_dir_writable() {
-  local dir="$1"
+  local dir="$1" owner
+  owner="$(_install_user)"
   if [[ ! -d "$dir" ]]; then
     run_root mkdir -p "$dir"
-    run_root chown "$(id -u):$(id -g)" "$dir"
+    run_root chown "$owner" "$dir"
   elif [[ ! -w "$dir" ]]; then
-    run_root chown "$(id -u):$(id -g)" "$dir"
+    run_root chown "$owner" "$dir"
   fi
 }
 
