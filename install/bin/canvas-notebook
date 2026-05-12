@@ -100,7 +100,7 @@ declare -A CMD_FILE=(
   [env]=env
   [swap]=swap           [swap-enable]=swap   [swap-disable]=swap
   [caddy]=caddy         [caddy-reload]=caddy [caddy-fix]=caddy
-  [auto-update-status]=auto_update [auto-update-enable]=auto_update [auto-update-disable]=auto_update
+  [auto-update-status]=auto_update [auto-update-enable]=auto_update [auto-update-disable]=auto_update [auto-update-sync]=auto_update
   [cli-update]=cli_update
   [config-show]=config_cmd [config-set]=config_cmd [config-migrate]=config_cmd
 )

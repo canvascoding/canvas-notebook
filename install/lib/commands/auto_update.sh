@@ -35,6 +35,14 @@ show_auto_update_status() {
     info "Timer is inactive (auto-update disabled)"
   fi
 
+  local config_true
+  config_true="$(is_false "$enabled_val" && printf 'false' || printf 'true')"
+  if [[ "$config_true" == "true" && "$timer_active" != "active" ]]; then
+    warn "Config says enabled but timer is inactive — run: canvas-notebook auto-update-enable"
+  elif [[ "$config_true" == "false" && "$timer_active" == "active" ]]; then
+    warn "Config says disabled but timer is active — run: canvas-notebook auto-update-disable"
+  fi
+
   printf '\n== Timer Unit ==\n'
   systemctl list-timers canvas-notebook-update.timer --no-pager 2>/dev/null || true
 
@@ -65,8 +73,6 @@ enable_auto_update() {
     fail "Auto-update timer unit not installed. Run: canvas-notebook cli-update first"
   fi
 
-  config_json_write autoUpdate.enabled true
-
   if [[ -n "$schedule_arg" ]]; then
     if ! printf '%s' "$schedule_arg" | grep -qE '^[*0-9]{1,2}-[*0-9]{1,2}-[*0-9]{1,2} [*0-9:,]+'; then
       fail "Invalid schedule format '${schedule_arg}'. Example: '*-*-* 04:00:00'"
@@ -87,6 +93,8 @@ enable_auto_update() {
   run_root systemctl start canvas-notebook-update.timer >/dev/null 2>&1 || \
     run_root systemctl restart canvas-notebook-update.timer >/dev/null
 
+  config_json_write autoUpdate.enabled true
+
   ok "Auto-update enabled (schedule: ${current_schedule})"
   info "View schedule: systemctl list-timers canvas-notebook-update.timer"
 }
@@ -96,14 +104,31 @@ disable_auto_update() {
     fail "systemd not found — auto-update timer requires systemd"
   fi
 
-  config_json_write autoUpdate.enabled false
-
   if [[ -f /etc/systemd/system/canvas-notebook-update.timer ]]; then
     run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true
     run_root systemctl disable canvas-notebook-update.timer >/dev/null 2>&1 || true
   fi
 
+  config_json_write autoUpdate.enabled false
+
   ok "Auto-update disabled"
+}
+
+sync_auto_update() {
+  local enabled_val timer_active
+  enabled_val="$(config_json_read autoUpdate.enabled)"
+  enabled_val="${enabled_val:-true}"
+  timer_active="$(systemctl is-active canvas-notebook-update.timer 2>/dev/null || true)"
+
+  if [[ "$(is_false "$enabled_val" && printf 'false' || printf 'true')" == "true" && "$timer_active" != "active" ]]; then
+    info "Config says enabled but timer inactive — enabling..."
+    enable_auto_update
+  elif [[ "$(is_false "$enabled_val" && printf 'false' || printf 'true')" == "false" && "$timer_active" == "active" ]]; then
+    info "Config says disabled but timer active — disabling..."
+    disable_auto_update
+  else
+    ok "Auto-update config and timer are in sync"
+  fi
 }
 
 cmd_auto_update_status() {
@@ -118,4 +143,9 @@ cmd_auto_update_enable() {
 cmd_auto_update_disable() {
   log_msg "auto-update-disable"
   disable_auto_update
+}
+
+cmd_auto_update_sync() {
+  log_msg "auto-update-sync"
+  sync_auto_update
 }
