@@ -70,7 +70,9 @@ Commands:
   auto-update-enable [--schedule "..."]
                Enable automatic image updates via systemd timer
   auto-update-disable
-               Disable automatic image updates
+                Disable automatic image updates
+  auto-update-sync
+                Sync timer state with config (fix inconsistencies)
   cleanup-logs
                Kill orphaned docker compose log followers
 
