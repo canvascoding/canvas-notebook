@@ -42,9 +42,9 @@ pull_size_mb() {
 }
 
 pull_image_if_needed() {
-  local compose_cmd="$1"
-  local image_ref="$2"
-  local service="$3"
+  local compose_cmd="${1:-compose}"
+  local image_ref="${2:-${IMAGE_REF:-${IMAGE:-}}}"
+  local service="${3:-${SERVICE:-canvas-notebook}}"
   local log_file="${4:-}"
 
   local remote_digest
