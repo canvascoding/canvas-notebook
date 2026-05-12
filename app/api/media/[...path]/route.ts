@@ -90,7 +90,7 @@ export async function GET(
         'Content-Length': chunksize.toString(),
         'Content-Type': contentType,
         'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'none'; script-src 'none'; frame-ancestors 'none'; sandbox",
+        'Content-Security-Policy': "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'none'; script-src 'none'; frame-ancestors 'self';",
       });
       const securityHeaders = createSecurityHeaders(filePath);
       securityHeaders.forEach((value, key) => headers.set(key, value));
@@ -104,7 +104,7 @@ export async function GET(
         'Content-Length': fileSize.toString(),
         'Content-Type': contentType,
         'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'none'; script-src 'none'; frame-ancestors 'none'; sandbox",
+        'Content-Security-Policy': "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'none'; script-src 'none'; frame-ancestors 'self';",
       });
       const securityHeaders = createSecurityHeaders(filePath);
       securityHeaders.forEach((value, key) => headers.set(key, value));
