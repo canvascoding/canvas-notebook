@@ -12,7 +12,7 @@ cmd_install() {
   config_json_to_env
 
   info "Phase 1/3: Image"
-  pull_image_if_needed "compose" "$IMAGE_REF" "$SERVICE" "$LOG_FILE"
+  pull_image_if_needed "compose" "$IMAGE_REF" "$SERVICE" "$LOG_FILE" "$COMPOSE_FILE"
   info "Phase 2/3: Container"
   recreate_container
   info "Phase 3/3: Health check"
@@ -33,7 +33,7 @@ cmd_update() {
   config_json_to_env
 
   info "Phase 1/3: Image"
-  pull_image_if_needed "compose" "$IMAGE_REF" "$SERVICE" "$LOG_FILE"
+  pull_image_if_needed "compose" "$IMAGE_REF" "$SERVICE" "$LOG_FILE" "$COMPOSE_FILE"
   info "Phase 2/3: Container"
   recreate_container
   info "Phase 3/3: Health check"

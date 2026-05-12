@@ -46,6 +46,7 @@ pull_image_if_needed() {
   local image_ref="${2:-${IMAGE_REF:-${IMAGE:-}}}"
   local service="${3:-${SERVICE:-canvas-notebook}}"
   local log_file="${4:-}"
+  local compose_file="${5:-${COMPOSE_FILE:-}}"
 
   local remote_digest
   remote_digest="$(remote_image_digest "$image_ref" || true)"
@@ -56,7 +57,11 @@ pull_image_if_needed() {
 
   local pull_log spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
   pull_log="$(mktemp)"
-  $compose_cmd pull "$service" >"$pull_log" 2>&1 &
+  if [[ -n "$compose_file" && -f "$compose_file" ]]; then
+    $compose_cmd -f "$compose_file" pull "$service" >"$pull_log" 2>&1 &
+  else
+    docker_cmd pull "$image_ref" >"$pull_log" 2>&1 &
+  fi
   local pull_pid=$!
   while kill -0 "$pull_pid" 2>/dev/null; do
     printf "\r  ${spin:$((i % ${#spin})):1} Pulling latest image..."
