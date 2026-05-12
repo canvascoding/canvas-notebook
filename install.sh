@@ -292,8 +292,7 @@ run_prebuilt_install() {
 
   config_json_to_env
   configure_data_bind_mount
-  pull_image_if_needed "${DOCKER_COMPOSE:-docker compose}" "$IMAGE" "${SERVICE:-canvas-notebook}" "${LOG_FILE:-}"
-  start_canvas_container
+  pull_image_if_needed "${DOCKER_COMPOSE:-docker compose}" "$IMAGE" "${SERVICE:-canvas-notebook}" "${LOG_FILE:-}" "${COMPOSE_FILE:-}"
   cleanup_docker_artifacts
   install_manager_config
   install_management_cli
@@ -305,21 +304,23 @@ run_prebuilt_install() {
   configure_caddy "$domain"
 
   echo
-  echo -e "${_OUT_GREEN}${_OUT_BOLD}Canvas Notebook is running.${_OUT_RESET}"
+  echo -e "${_OUT_GREEN}${_OUT_BOLD}Canvas Notebook image pulled and CLI installed.${_OUT_RESET}"
   echo
-  info "Auto-update is enabled — the image updates automatically every day."
-  info "Manage with: canvas-notebook auto-update-status | auto-update-enable | auto-update-disable"
+  if [[ "${SETUP_CADDY:-false}" != "true" ]]; then
+    info "If you set a domain with SETUP_CADDY=true, run: canvas-notebook caddy-reload"
+  fi
   echo
-  info "To update manually:"
-  info "  canvas-notebook update"
-  info "Useful management commands:"
-  info "  canvas-notebook status"
-  info "  canvas-notebook logs"
-  info "  canvas-notebook env"
-  info "  canvas-notebook config-show"
-  info "  canvas-notebook swap"
-  info "  canvas-notebook caddy"
-  info "  canvas-notebook diagnose"
+  echo -e "${_OUT_BOLD}Next step: start the container${_OUT_RESET}"
+  echo
+  info "  canvas-notebook start"
+  echo
+  echo -e "${_OUT_BOLD}Useful commands:${_OUT_RESET}"
+  info "  canvas-notebook status          Check container and health"
+  info "  canvas-notebook logs            Follow container logs"
+  info "  canvas-notebook env             Show configuration"
+  info "  canvas-notebook config-show     Show config.json"
+  info "  canvas-notebook update          Pull latest image and restart"
+  info "  canvas-notebook auto-update-status"
   echo
 }
 
