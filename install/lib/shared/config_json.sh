@@ -67,7 +67,10 @@ _write_owned_file() {
 
 _ensure_dir_writable() {
   local dir="$1"
-  if [[ ! -w "$dir" ]]; then
+  if [[ ! -d "$dir" ]]; then
+    run_root mkdir -p "$dir"
+    run_root chown "$(id -u):$(id -g)" "$dir"
+  elif [[ ! -w "$dir" ]]; then
     run_root chown "$(id -u):$(id -g)" "$dir"
   fi
 }
