@@ -16,6 +16,7 @@ import { getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
 type CreateSessionPayload = {
   title?: string;
   model?: string;
+  thinkingLevel?: string;
   agentId?: string;
   channelId?: string;
   channelSessionKey?: string;
@@ -274,8 +275,19 @@ export async function POST(request: NextRequest) {
       const piConfig = await readPiRuntimeConfig();
       const provider = piConfig.activeProvider;
       const providerConfig = piConfig.providers[provider];
-      const model = providerConfig?.model || 'unknown';
-      const thinkingLevel = providerConfig?.thinking || 'off';
+      const requestedModel = normalizeOptionalString(payload.model);
+      const requestedThinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
+
+      if (payload.thinkingLevel !== undefined && !requestedThinkingLevel) {
+        return NextResponse.json({ success: false, error: 'Invalid thinking level' }, { status: 400 });
+      }
+
+      if (requestedModel && !(await isValidProviderModel(provider, requestedModel))) {
+        return NextResponse.json({ success: false, error: 'Invalid model for active provider' }, { status: 400 });
+      }
+
+      const model = requestedModel || providerConfig?.model || 'unknown';
+      const thinkingLevel = requestedThinkingLevel || providerConfig?.thinking || 'off';
 
       const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
       const channelSessionKey = typeof payload.channelSessionKey === 'string' ? payload.channelSessionKey : null;

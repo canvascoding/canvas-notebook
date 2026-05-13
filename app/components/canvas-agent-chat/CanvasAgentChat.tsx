@@ -1649,6 +1649,11 @@ export default function CanvasAgentChat({
 
     const createSessionResponse = await fetch('/api/sessions', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: activeModel,
+        thinkingLevel: activeThinkingLevel,
+      }),
     });
 
     const createSessionPayload = await createSessionResponse.json().catch(() => null);
@@ -3227,18 +3232,6 @@ export default function CanvasAgentChat({
             {/* Right: Action Buttons */}
             <div className="ml-auto flex flex-wrap items-center gap-1.5">
               {!isMobile ? (
-                <ChatModelSelector
-                  sessionId={sessionId}
-                  activeModel={activeModel}
-                  activeProvider={activeProvider}
-                  thinkingLevel={activeThinkingLevel}
-                  agentConfig={agentConfig}
-                  disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle')}
-                  onModelChange={handleModelChange}
-                  onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
-                />
-              ) : null}
-              {!isMobile ? (
                 <span
                   data-testid="chat-context-meter"
                   title={contextTooltip}
@@ -3323,17 +3316,6 @@ export default function CanvasAgentChat({
                   <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                   <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                 </div>
-                <ChatModelSelector
-                  sessionId={sessionId}
-                  activeModel={activeModel}
-                  activeProvider={activeProvider}
-                  thinkingLevel={activeThinkingLevel}
-                  agentConfig={agentConfig}
-                  disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle')}
-                  compact
-                  onModelChange={handleModelChange}
-                  onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
-                />
                 {runtimeStatus?.includedSummary && (
                   <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {t('summary')}
@@ -4105,7 +4087,18 @@ export default function CanvasAgentChat({
         </div>
         <div className="mt-2 flex items-start justify-between gap-2">
           <div className="flex flex-col items-start gap-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <ChatModelSelector
+                sessionId={sessionId}
+                activeModel={activeModel}
+                activeProvider={activeProvider}
+                thinkingLevel={activeThinkingLevel}
+                agentConfig={agentConfig}
+                disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle')}
+                compact={isMobile}
+                onModelChange={handleModelChange}
+                onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
+              />
               <PlanModeToggle />
               <button
                 type="button"
