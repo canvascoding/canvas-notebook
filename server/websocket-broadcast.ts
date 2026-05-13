@@ -33,14 +33,17 @@ function getStore(): WebSocketStore {
 /**
  * Subscribe a WebSocket client to a session
  */
-export function subscribeToSession(sessionId: string, ws: WebSocket): void {
+export function subscribeToSession(sessionId: string, ws: WebSocket): boolean {
   const store = getStore();
   
   if (!store.connections.has(sessionId)) {
     store.connections.set(sessionId, new Set());
   }
   
-  store.connections.get(sessionId)!.add(ws);
+  const set = store.connections.get(sessionId)!;
+  const isNew = !set.has(ws);
+  set.add(ws);
+  return isNew;
 }
 
 /**
