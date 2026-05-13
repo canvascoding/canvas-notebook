@@ -150,9 +150,6 @@ async function start() {
   const interval = setInterval(() => {
     void tick();
   }, POLL_INTERVAL_MS);
-  if (typeof interval.unref === 'function') {
-    interval.unref();
-  }
 
   console.log('[Scheduler] Scheduler started successfully');
 }
