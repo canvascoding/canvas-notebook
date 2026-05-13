@@ -853,6 +853,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
 
   const piConfig = await readPiRuntimeConfig();
   const provider = sessionRecord?.provider || piConfig.activeProvider;
+  const providerThinkingLevel = piConfig.providers[provider]?.thinking || 'off';
+  const thinkingLevel = ((sessionRecord?.thinkingLevel || providerThinkingLevel) as ThinkingLevel);
   const model = sessionRecord
     ? await resolvePiModel(sessionRecord.provider, sessionRecord.model)
     : await resolveActivePiModel();
@@ -871,7 +873,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     initialState: {
       systemPrompt,
       model,
-      thinkingLevel: ((piConfig.providers[provider]?.thinking || 'off') as ThinkingLevel),
+      thinkingLevel,
       tools,
       messages: initialMessages,
     },
@@ -997,6 +999,29 @@ export async function getExistingPiRuntime(sessionId: string, userId: string) {
   const resolved = await runtime;
   resolved.touch();
   return resolved;
+}
+
+export async function invalidatePiRuntime(sessionId: string, userId: string) {
+  const store = getStore();
+  const key = getRuntimeKey(sessionId, userId);
+  const runtimePromise = store.runtimes.get(key);
+  store.runtimes.delete(key);
+
+  if (!runtimePromise) {
+    return false;
+  }
+
+  try {
+    const runtime = await runtimePromise;
+    if (runtime.getStatus().canAbort) {
+      await runtime.abort();
+    }
+    runtime.dispose();
+  } catch (error) {
+    console.warn('[LiveRuntime] Failed to dispose invalidated runtime:', error);
+  }
+
+  return true;
 }
 
 export async function getPiRuntimeStatus(sessionId: string, userId: string): Promise<PiRuntimeStatus | null> {

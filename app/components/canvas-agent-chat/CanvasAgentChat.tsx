@@ -63,6 +63,7 @@ import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
+import { ChatModelSelector } from '@/app/components/canvas-agent-chat/ChatModelSelector';
 import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
@@ -76,6 +77,7 @@ import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
 interface Attachment {
   name: string;
@@ -122,6 +124,8 @@ interface AISession {
   sessionId: string;
   title: string | null;
   model: string;
+  provider?: string | null;
+  thinkingLevel?: PiThinkingLevel | null;
   createdAt: string;
   engine?: 'legacy' | 'pi';
   lastMessageAt?: string | null;
@@ -174,7 +178,7 @@ type DiscoveryModel = {
 type AgentConfig = {
   piConfig: {
     activeProvider: string;
-    providers: Record<string, { model: string }>;
+    providers: Record<string, { model: string; thinking?: PiThinkingLevel }>;
   };
   discovery: Record<string, { models: DiscoveryModel[] }>;
 };
@@ -211,6 +215,7 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
 };
 
 const DEFAULT_MODEL_ID = 'pi';
+const DEFAULT_THINKING_LEVEL: PiThinkingLevel = 'off';
 const BOTTOM_LOCK_THRESHOLD_PX = 80;
 const MOBILE_TEXTAREA_BASE_HEIGHT_PX = 56;
 const DESKTOP_TEXTAREA_BASE_HEIGHT_PX = 72;
@@ -863,6 +868,8 @@ export default function CanvasAgentChat({
   const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
+  const [activeProvider, setActiveProvider] = useState('pi');
+  const [activeThinkingLevel, setActiveThinkingLevel] = useState<PiThinkingLevel>(DEFAULT_THINKING_LEVEL);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
@@ -1542,6 +1549,8 @@ export default function CanvasAgentChat({
       sessionId: nextSessionId,
       title: tempTitle,
       model: createSessionPayload.session.model || activeModel,
+      provider: createSessionPayload.session.provider || activeProvider,
+      thinkingLevel: createSessionPayload.session.thinkingLevel || activeThinkingLevel,
       createdAt: new Date().toISOString(),
       engine: createSessionPayload.session.engine || 'pi',
       lastMessageAt: new Date().toISOString(),
@@ -1569,7 +1578,7 @@ export default function CanvasAgentChat({
     // No need to subscribe here manually to avoid double subscription
 
     return nextSessionId;
-  }, [input, t, activeModel]);
+  }, [input, t, activeModel, activeProvider, activeThinkingLevel]);
 
   // Helper function to format tool arguments
   const formatToolArgs = useCallback((args: unknown): string => {
@@ -1972,9 +1981,14 @@ export default function CanvasAgentChat({
     setShowMobileActionPanel(false);
     if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
       const provider = agentConfig.piConfig.activeProvider;
-      setActiveModel(agentConfig.piConfig.providers[provider]?.model || DEFAULT_MODEL_ID);
+      const providerConfig = agentConfig.piConfig.providers[provider];
+      setActiveProvider(provider);
+      setActiveModel(providerConfig?.model || DEFAULT_MODEL_ID);
+      setActiveThinkingLevel(providerConfig?.thinking || DEFAULT_THINKING_LEVEL);
     } else {
+      setActiveProvider('pi');
       setActiveModel(DEFAULT_MODEL_ID);
+      setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
     }
     toolMessageIdsRef.current = {};
   }, [agentConfig, resetStreamConnection, isMobile, shouldShowHistoryAsOverlay]);
@@ -2041,7 +2055,14 @@ export default function CanvasAgentChat({
     userStartedNewChatRef.current = false;
     setShowMobileDetails(false);
     setShowMobileActionPanel(false);
+    const sessionProvider = session.provider || agentConfig?.piConfig?.activeProvider || 'pi';
+    setActiveProvider(sessionProvider);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
+    setActiveThinkingLevel(
+      session.thinkingLevel ||
+      agentConfig?.piConfig?.providers?.[sessionProvider]?.thinking ||
+      DEFAULT_THINKING_LEVEL,
+    );
     setHasMoreBefore(false);
     setOldestTimestamp(null);
     setOldestMessageId(null);
@@ -2147,7 +2168,7 @@ export default function CanvasAgentChat({
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [ensureSessionSubscribed, mapRawMessage, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
+  }, [agentConfig, ensureSessionSubscribed, mapRawMessage, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -2572,15 +2593,21 @@ export default function CanvasAgentChat({
   }, []);
 
   useEffect(() => {
+    if (sessionId) {
+      return;
+    }
     if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
       const provider = agentConfig.piConfig.activeProvider;
-      const model = agentConfig.piConfig.providers[provider]?.model;
+      const providerConfig = agentConfig.piConfig.providers[provider];
+      const model = providerConfig?.model;
       if (model) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
+        setActiveProvider(provider);
         setActiveModel(model);
+        setActiveThinkingLevel(providerConfig?.thinking || DEFAULT_THINKING_LEVEL);
       }
     }
-  }, [agentConfig]);
+  }, [agentConfig, sessionId]);
 
 
 
@@ -2712,6 +2739,30 @@ export default function CanvasAgentChat({
 
   // Poll runtime status only while the agent is active; fetch once on session switch
   const isAgentActive = runtimeStatus != null && runtimeStatus.phase !== 'idle';
+  const handleModelChange = useCallback((next: { model: string; thinkingLevel: PiThinkingLevel; provider: string }) => {
+    setActiveModel(next.model);
+    setActiveProvider(next.provider);
+    setActiveThinkingLevel(next.thinkingLevel);
+    setHistory((items) => items.map((item) => (
+      item.sessionId === sessionIdRef.current
+        ? { ...item, model: next.model, provider: next.provider, thinkingLevel: next.thinkingLevel }
+        : item
+    )));
+  }, []);
+
+  const invalidateRuntimeAfterModelChange = useCallback(async () => {
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId) {
+      return;
+    }
+    try {
+      await wsRequest('change_model', { sessionId: currentSessionId }, 5000);
+    } catch (error) {
+      console.warn('Runtime invalidation after model change did not complete over WebSocket', error);
+    }
+    await refreshRuntimeStatus(currentSessionId);
+  }, [refreshRuntimeStatus, wsRequest]);
+
   useEffect(() => {
     if (!sessionId) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -3037,6 +3088,18 @@ export default function CanvasAgentChat({
             {/* Right: Action Buttons */}
             <div className="ml-auto flex flex-wrap items-center gap-1.5">
               {!isMobile ? (
+                <ChatModelSelector
+                  sessionId={sessionId}
+                  activeModel={activeModel}
+                  activeProvider={activeProvider}
+                  thinkingLevel={activeThinkingLevel}
+                  agentConfig={agentConfig}
+                  disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle')}
+                  onModelChange={handleModelChange}
+                  onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
+                />
+              ) : null}
+              {!isMobile ? (
                 <span
                   data-testid="chat-context-meter"
                   title={contextTooltip}
@@ -3121,14 +3184,17 @@ export default function CanvasAgentChat({
                   <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                   <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                 </div>
-                <div
-                  data-testid="chat-model-badge"
-                  title={t('currentModelLabel', { model: activeModel })}
-                  className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] text-foreground"
-                >
-                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('modelLabel')}</span>
-                  <span className="max-w-[120px] truncate font-mono text-[9px]">{activeModel}</span>
-                </div>
+                <ChatModelSelector
+                  sessionId={sessionId}
+                  activeModel={activeModel}
+                  activeProvider={activeProvider}
+                  thinkingLevel={activeThinkingLevel}
+                  agentConfig={agentConfig}
+                  disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle')}
+                  compact
+                  onModelChange={handleModelChange}
+                  onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
+                />
                 {runtimeStatus?.includedSummary && (
                   <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {t('summary')}

@@ -9,6 +9,7 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import {
   getOrCreatePiRuntime,
   getPiRuntimeStatus,
+  invalidatePiRuntime,
   type PiRuntimeStatus,
 } from '@/app/lib/pi/live-runtime';
 import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
@@ -250,4 +251,8 @@ export async function getStatus(
   userId: string,
 ): Promise<PiRuntimeStatus | null> {
   return getPiRuntimeStatus(sessionId, userId);
+}
+
+export async function invalidateRuntime(sessionId: string, userId: string): Promise<boolean> {
+  return invalidatePiRuntime(sessionId, userId);
 }

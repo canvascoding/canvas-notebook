@@ -40,6 +40,7 @@ export async function createTelegramSession(chatId: string, userId: string): Pro
     userId,
     provider: piConfig.activeProvider,
     model: model.id,
+    thinkingLevel: piConfig.providers[piConfig.activeProvider]?.thinking || 'off',
     channelId: 'telegram',
     channelSessionKey: `telegram:${chatId}`,
     title: DEFAULT_PI_SESSION_TITLE,
