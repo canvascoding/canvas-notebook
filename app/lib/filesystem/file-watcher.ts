@@ -42,7 +42,7 @@ class FileWatcherService {
   private initialized: boolean = false;
   private clientLastActive: Map<string, number> = new Map();
   private staleCheckInterval: NodeJS.Timeout | null = null;
-  private readonly STALE_TIMEOUT_MS = 90_000;
+  private readonly STALE_TIMEOUT_MS = 30_000;
 
   constructor() {
     this.ensureInitialized();
@@ -333,7 +333,7 @@ class FileWatcherService {
           this.clientLastActive.delete(clientId);
         }
       }
-    }, 60_000);
+    }, 15_000);
   }
 
   private stopStaleCheck(): void {

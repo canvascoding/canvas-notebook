@@ -115,13 +115,13 @@ async function userOwnsSession(sessionId: string, userId: string): Promise<boole
   return Boolean(ownedSession);
 }
 
-function subscribeConnectionToSession(connection: WebSocketConnection, sessionId: string): void {
+function subscribeConnectionToSession(connection: WebSocketConnection, sessionId: string): boolean {
   if (connection.sessionId && connection.sessionId !== sessionId) {
     unsubscribeFromSession(connection.sessionId, connection.ws);
   }
 
   connection.sessionId = sessionId;
-  subscribeToSession(sessionId, connection.ws);
+  return subscribeToSession(sessionId, connection.ws);
 }
 
 // Connection State
@@ -303,9 +303,11 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      subscribeConnectionToSession(connection, message.sessionId);
+      const isNew = subscribeConnectionToSession(connection, message.sessionId);
 
-      console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
+      if (isNew) {
+        console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
+      }
       sendWs(ws, {
         type: 'subscribe_result',
         requestId: message.requestId,

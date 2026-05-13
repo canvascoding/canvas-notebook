@@ -9,7 +9,7 @@ const SSE_HEADERS = {
   'X-Accel-Buffering': 'no',
 };
 
-const clientIds = new Map<Request, string>();
+const activeConnections = new Map<string, { clientId: string; abortController: AbortController }>();
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -20,8 +20,18 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const userId = session.user.id;
+
+  const existing = activeConnections.get(userId);
+  if (existing) {
+    existing.abortController.abort();
+    activeConnections.delete(userId);
+    console.log(`[FileWatcher SSE] Evicted previous connection for user ${userId}`);
+  }
+
   const clientId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-  clientIds.set(request, clientId);
+  const abortController = new AbortController();
+  activeConnections.set(userId, { clientId, abortController });
 
   const stream = new ReadableStream({
     start(controller) {
@@ -68,12 +78,27 @@ export async function GET(request: NextRequest) {
         }
       }, 30000);
 
-      request.signal.addEventListener('abort', () => {
+      const onAbort = () => {
         clearInterval(heartbeatInterval);
         unsubscribe();
-        clientIds.delete(request);
+        if (activeConnections.get(userId)?.clientId === clientId) {
+          activeConnections.delete(userId);
+        }
         console.log(`[FileWatcher SSE] Client ${clientId} disconnected`);
-      });
+      };
+
+      request.signal.addEventListener('abort', onAbort, { once: true });
+      abortController.signal.addEventListener('abort', () => {
+        try {
+          request.signal.removeEventListener('abort', onAbort);
+        } catch {}
+        clearInterval(heartbeatInterval);
+        unsubscribe();
+        if (activeConnections.get(userId)?.clientId === clientId) {
+          activeConnections.delete(userId);
+        }
+        console.log(`[FileWatcher SSE] Client ${clientId} evicted`);
+      }, { once: true });
     },
 
     cancel() {
