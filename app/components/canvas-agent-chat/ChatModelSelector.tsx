@@ -74,7 +74,7 @@ export function ChatModelSelector({
   }, [activeProvider, agentConfig]);
 
   const activeModelName = models.find((model) => model.id === activeModel)?.name || activeModel;
-  const canChange = Boolean(sessionId) && !disabled && !pending;
+  const canChange = !disabled && !pending;
 
   useEffect(() => {
     if (!saved) {
@@ -85,13 +85,23 @@ export function ChatModelSelector({
   }, [saved]);
 
   async function patchSession(next: { model?: string; thinkingLevel?: PiThinkingLevel }) {
-    if (!sessionId || pending) {
+    if (pending) {
       return;
     }
 
     const nextModel = next.model || activeModel;
     const nextThinkingLevel = next.thinkingLevel || thinkingLevel;
     if (nextModel === activeModel && nextThinkingLevel === thinkingLevel) {
+      return;
+    }
+
+    if (!sessionId) {
+      onModelChange({
+        model: nextModel,
+        thinkingLevel: nextThinkingLevel,
+        provider: activeProvider,
+      });
+      setSaved(true);
       return;
     }
 
