@@ -108,7 +108,9 @@ config_json_init() {
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$tmp"
     _write_owned_file "$CONFIG_JSON_PATH" "$tmp"
     rm -f "$tmp"
-    ok "Created default config at ${CONFIG_JSON_PATH}"
+    if [[ "${OUTPUT_JSON:-false}" != "true" && "${NO_BANNER:-false}" != "true" ]]; then
+      ok "Created default config at ${CONFIG_JSON_PATH}"
+    fi
   fi
 }
 
