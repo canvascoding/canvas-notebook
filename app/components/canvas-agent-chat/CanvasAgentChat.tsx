@@ -1846,7 +1846,7 @@ export default function CanvasAgentChat({
   }, []);
 
   const handleControlAction = useCallback(async (
-    action: 'send' | 'steer' | 'replace',
+    action: 'send' | 'steer' | 'follow_up' | 'replace',
     override?: { text: string; attachments: Attachment[] },
   ) => {
     const rawText = override?.text ?? input.trim();
@@ -1875,7 +1875,20 @@ export default function CanvasAgentChat({
     const targetSessionId = await ensureSession(rawText);
     setOptimisticRuntimePhase('streaming', targetSessionId);
     
-    const optimisticMessageId = appendOptimisticUserMessage(rawText, messageAttachments, 'pending', undefined, userMessage);
+    const isBusySend = action === 'send' && runtimeStatus?.phase !== 'idle';
+    const optimisticStatus: ChatMessage['status'] = action === 'follow_up'
+      ? 'queued_follow_up'
+      : action === 'steer' || isBusySend
+        ? 'queued_steering'
+        : action === 'replace'
+          ? 'aborting'
+          : 'pending';
+    const optimisticQueueKind = action === 'follow_up'
+      ? 'follow_up'
+      : action === 'steer' || isBusySend
+        ? 'steer'
+        : undefined;
+    const optimisticMessageId = appendOptimisticUserMessage(rawText, messageAttachments, optimisticStatus, optimisticQueueKind, userMessage);
     
     const activeFilePath = currentFile?.path ?? null;
 
@@ -1904,7 +1917,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, runtimeStatus?.phase, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -1914,17 +1927,9 @@ export default function CanvasAgentChat({
     }
   }, [appendSystemMessage, handleControlAction, t]);
 
-  const handleSteer = useCallback(async () => {
+  const handleQueue = useCallback(async () => {
     try {
-      await handleControlAction('steer');
-    } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }, [appendSystemMessage, handleControlAction, t]);
-
-  const handleNowSend = useCallback(async () => {
-    try {
-      await handleControlAction('replace');
+      await handleControlAction('follow_up');
     } catch (error) {
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
@@ -2820,6 +2825,7 @@ export default function CanvasAgentChat({
   }, [composerWidth, syncTextareaHeight]);
 
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
+  const isRuntimeBusy = Boolean(runtimeStatus && runtimeStatus.phase !== 'idle');
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
   const contextCompactLabel = runtimeStatus
     ? t('contextCompactLabel', {
@@ -3828,64 +3834,37 @@ export default function CanvasAgentChat({
 
         {isMobile ? (
           <>
-            {showMobileActionPanel && totalQueuedMessages > 0 ? (
+            {showMobileActionPanel && isRuntimeBusy ? (
               <div data-testid="chat-mobile-action-panel" className="mb-2 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  data-testid="chat-steer"
-                  onClick={() => void handleSteer()}
+                  data-testid="chat-queue"
+                  onClick={() => void handleQueue()}
                   disabled={!hasComposerContent || isWebSocketUnavailable}
-                className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                  {t('steerAction')}
+                  className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {t('queueAction')}
                 </button>
                 <button
                   type="button"
-                  data-testid="chat-send-now"
-                  onClick={() => void handleNowSend()}
-                  disabled={!hasComposerContent || isWebSocketUnavailable}
-                className="border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                  {t('sendNow')}
-                </button>
-                <button
-                  type="button"
-                  data-testid="chat-compact-mobile"
-                  onClick={() => void handleCompact()}
-                  disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                  {t('compactCanvas')}
-                </button>
-                <button
-                  type="button"
-                onClick={() => setShowMobileActionPanel(false)}
-                className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
-              >
+                  onClick={() => setShowMobileActionPanel(false)}
+                  className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+                >
                   {t('close')}
                 </button>
               </div>
             ) : null}
           </>
-        ) : totalQueuedMessages > 0 ? (
+        ) : isRuntimeBusy ? (
           <div className="mb-2 flex flex-wrap gap-2">
             <button
               type="button"
-              data-testid="chat-steer"
-              onClick={() => void handleSteer()}
+              data-testid="chat-queue"
+              onClick={() => void handleQueue()}
               disabled={!hasComposerContent || isWebSocketUnavailable}
               className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {t('steerAction')}
-            </button>
-            <button
-              type="button"
-              data-testid="chat-send-now"
-              onClick={() => void handleNowSend()}
-              disabled={!hasComposerContent || isWebSocketUnavailable}
-              className="border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t('sendNow')}
+              {t('queueAction')}
             </button>
           </div>
         ) : null}
@@ -3929,7 +3908,7 @@ export default function CanvasAgentChat({
               />
             ) : null}
           </div>
-          {isMobile && totalQueuedMessages > 0 ? (
+          {isMobile && isRuntimeBusy ? (
             <button
               type="button"
               data-testid="chat-mobile-action-toggle"
@@ -3937,9 +3916,11 @@ export default function CanvasAgentChat({
               className="relative border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
               title={t('quickActions')}
             >
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
-                {totalQueuedMessages}
-              </span>
+              {totalQueuedMessages > 0 ? (
+                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                  {totalQueuedMessages}
+                </span>
+              ) : null}
               {showMobileActionPanel ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
             </button>
           ) : null}
@@ -3949,6 +3930,7 @@ export default function CanvasAgentChat({
             onClick={() => void handleSend()}
             className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
             disabled={!hasComposerContent || isWebSocketUnavailable}
+            title={isRuntimeBusy ? t('steerAction') : t('sendAction')}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
               <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
