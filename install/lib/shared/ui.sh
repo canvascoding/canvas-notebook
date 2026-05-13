@@ -29,7 +29,7 @@ Usage:
 
 Commands:
   help       Show this help
-  version    Show CLI version
+  version    Show CLI, pulled image, and running container build info
   install    Pull the image and start/recreate the container
   update     Pull the latest image, recreate the container, and wait until healthy
   start      Start the container and wait until healthy

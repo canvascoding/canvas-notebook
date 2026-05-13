@@ -32,6 +32,10 @@ sed_replacement_escape() {
   printf '%s' "$1" | sed 's/[&|]/\\&/g'
 }
 
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
 set_compose_env() {
   local file="$1" key="$2" value="$3" quoted escaped
   quoted="$(yaml_double_quote "$value")"

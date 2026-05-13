@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 
-json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
-
 status_json() {
-  local cid url healthy service_active container_json install_dir_json compose_file_json data_dir_json log_file_json service_active_json
+  local cid url healthy service_active container_json image_json install_dir_json compose_file_json data_dir_json log_file_json service_active_json
 
   ensure_log_file
   url="$(health_url)"
@@ -17,8 +13,9 @@ status_json() {
   cid="$(container_id)"
   container_json="null"
   if [[ -n "$cid" ]]; then
-    container_json="$(docker_cmd inspect --format '{"id":"{{.Id}}","name":"{{.Name}}","status":"{{.State.Status}}","running":{{.State.Running}},"restarting":{{.State.Restarting}},"oomKilled":{{.State.OOMKilled}},"exitCode":{{.State.ExitCode}},"restartCount":{{.RestartCount}}}' "$cid" 2>/dev/null || printf 'null')"
+    container_json="$(docker_cmd inspect --format '{"id":"{{.Id}}","name":"{{.Name}}","status":"{{.State.Status}}","running":{{.State.Running}},"restarting":{{.State.Restarting}},"oomKilled":{{.State.OOMKilled}},"exitCode":{{.State.ExitCode}},"restartCount":{{.RestartCount}},"image":"{{.Config.Image}}","imageId":"{{.Image}}","startedAt":"{{.State.StartedAt}}"}' "$cid" 2>/dev/null || printf 'null')"
   fi
+  image_json="$(image_build_json "$IMAGE_REF" "$cid")"
 
   service_active="unknown"
   if command -v systemctl >/dev/null 2>&1; then
@@ -31,8 +28,8 @@ status_json() {
   log_file_json="$(json_escape "$LOG_FILE")"
   service_active_json="$(json_escape "$service_active")"
 
-  printf '{"healthy":%s,"serviceActive":"%s","installDir":"%s","composeFile":"%s","dataDir":"%s","managerLog":"%s","container":%s}\n' \
-    "$healthy" "$service_active_json" "$install_dir_json" "$compose_file_json" "$data_dir_json" "$log_file_json" "$container_json"
+  printf '{"healthy":%s,"serviceActive":"%s","installDir":"%s","composeFile":"%s","dataDir":"%s","managerLog":"%s","image":%s,"container":%s}\n' \
+    "$healthy" "$service_active_json" "$install_dir_json" "$compose_file_json" "$data_dir_json" "$log_file_json" "$image_json" "$container_json"
 }
 
 diagnose_json() {
@@ -71,6 +68,9 @@ diagnose() {
 
   printf '\n== Docker compose ==\n'
   compose_optional ps || true
+
+  printf '\n== Image / build ==\n'
+  print_build_info "$IMAGE_REF" "$cid"
 
   if [[ -n "$cid" ]]; then
     printf '\n== Container state ==\n'
