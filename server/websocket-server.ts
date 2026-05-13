@@ -58,7 +58,8 @@ type ClientMessage =
       context?: ChatRequestContext;
     }
   | { type: 'control'; requestId?: string; sessionId: string; action: ControlAction; message?: AgentMessage }
-  | { type: 'get_status'; requestId?: string; sessionId: string };
+  | { type: 'get_status'; requestId?: string; sessionId: string }
+  | { type: 'change_model'; requestId?: string; sessionId: string };
 
 /**
  * Messages pushed from this server to connected browser clients.
@@ -76,6 +77,7 @@ type ServerMessage =
   | { type: 'subscribe_result'; requestId?: string; success: boolean; sessionId?: string; error?: string }
   | { type: 'send_message_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'control_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
+  | { type: 'change_model_result'; requestId?: string; success: boolean; error?: string }
   | { type: 'status_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
   | { type: 'session_updated'; sessionId: string; lastMessageAt: string; title?: string }
@@ -425,6 +427,33 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       } catch (error) {
         sendWs(ws, {
           type: 'control_result',
+          requestId: message.requestId,
+          success: false,
+          error: getErrorMessage(error),
+        });
+      }
+      break;
+    }
+
+    case 'change_model': {
+      if (!message.sessionId) {
+        sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: false, error: 'sessionId required' });
+        return;
+      }
+
+      if (!(await userOwnsSession(message.sessionId, userId))) {
+        console.warn(`[WebSocket] User ${userId} attempted to change model for unauthorized session ${message.sessionId}`);
+        sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: false, error: 'Session not found' });
+        return;
+      }
+
+      try {
+        const runtimeService = await getRuntimeService();
+        await runtimeService.invalidateRuntime(message.sessionId, userId);
+        sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: true });
+      } catch (error) {
+        sendWs(ws, {
+          type: 'change_model_result',
           requestId: message.requestId,
           success: false,
           error: getErrorMessage(error),

@@ -90,6 +90,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       user_id TEXT NOT NULL,
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
+      thinking_level TEXT,
       title TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -485,6 +486,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'pi_sessions', {
     last_message_at: 'INTEGER',
     last_viewed_at: 'INTEGER',
+    thinking_level: 'TEXT',
   });
 
   addColumns(sqlite, 'automation_jobs', {

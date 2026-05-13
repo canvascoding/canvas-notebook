@@ -51,8 +51,11 @@ export async function GET(request: NextRequest) {
     console.log(`[agents/config] GET: activeProvider=${piConfig.activeProvider}, providers=${JSON.stringify(Object.keys(piConfig.providers))}`);
     const discovery = Object.fromEntries(
       providers.map(p => {
-        // For Ollama, pass the custom model if configured
-        const customModel = p === 'ollama' ? piConfig.providers.ollama?.ollamaCustomModel : undefined;
+        const customModel = p === 'ollama'
+          ? piConfig.providers.ollama?.ollamaCustomModel
+          : p === 'openai-compatible'
+            ? piConfig.providers['openai-compatible']?.openaiCompatibleCustomModel
+            : undefined;
         return [p, { 
           models: getPiModels(p, customModel).map(m => ({
             id: m.id,

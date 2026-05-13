@@ -9,6 +9,9 @@ import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
 import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
+import { getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
+import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
 
 type CreateSessionPayload = {
   title?: string;
@@ -24,7 +27,11 @@ type RenameSessionPayload = {
   markAsRead?: boolean;
   markAllAsRead?: boolean;
   lastMessageAt?: string;
+  model?: string;
+  thinkingLevel?: string;
 };
+
+const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 function resolveRequestedModel(value: unknown): AgentId | null {
   if (typeof value !== 'string') {
@@ -47,6 +54,39 @@ function normalizeTitle(value: unknown, fallback: string): string {
     return fallback;
   }
   return trimmed.slice(0, 120);
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeThinkingLevel(value: unknown): PiThinkingLevel | null {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return null;
+  }
+  return THINKING_LEVELS.has(normalized as PiThinkingLevel) ? normalized as PiThinkingLevel : null;
+}
+
+function getProviderCustomModel(piConfig: Awaited<ReturnType<typeof readPiRuntimeConfig>>, provider: string): string | undefined {
+  const providerConfig = piConfig.providers[provider];
+  if (provider === OLLAMA_PROVIDER_ID && providerConfig?.ollamaModelSource === 'custom') {
+    return providerConfig.ollamaCustomModel?.trim() || undefined;
+  }
+  if (provider === OPENAI_COMPATIBLE_PROVIDER_ID && providerConfig?.openaiCompatibleModelSource === 'custom') {
+    return providerConfig.openaiCompatibleCustomModel?.trim() || undefined;
+  }
+  return undefined;
+}
+
+async function isValidProviderModel(provider: string, model: string): Promise<boolean> {
+  const piConfig = await readPiRuntimeConfig();
+  const customModel = getProviderCustomModel(piConfig, provider);
+  return getPiModels(provider, customModel).some((candidate) => candidate.id === model);
 }
 
 function hasUnreadPiResponse(lastMessageAt: Date | null, lastViewedAt: Date | null): boolean {
@@ -143,6 +183,7 @@ export async function GET(request: NextRequest) {
           userId: piSessions.userId,
           title: piSessions.title,
           model: piSessions.model,
+          thinkingLevel: piSessions.thinkingLevel,
           provider: piSessions.provider,
           channelId: piSessions.channelId,
           createdAt: piSessions.createdAt,
@@ -179,6 +220,8 @@ export async function GET(request: NextRequest) {
         userId: item.userId,
         title: item.title,
         model: item.model,
+        provider: 'provider' in item ? item.provider : null,
+        thinkingLevel: 'thinkingLevel' in item ? item.thinkingLevel : null,
         engine: item.engine,
         createdAt: item.createdAt,
         lastMessageAt: item.lastMessageAt,
@@ -230,7 +273,9 @@ export async function POST(request: NextRequest) {
     if (engine === 'pi') {
       const piConfig = await readPiRuntimeConfig();
       const provider = piConfig.activeProvider;
-      const model = piConfig.providers[provider]?.model || 'unknown';
+      const providerConfig = piConfig.providers[provider];
+      const model = providerConfig?.model || 'unknown';
+      const thinkingLevel = providerConfig?.thinking || 'off';
 
       const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
       const channelSessionKey = typeof payload.channelSessionKey === 'string' ? payload.channelSessionKey : null;
@@ -242,6 +287,7 @@ export async function POST(request: NextRequest) {
           userId: session.user.id,
           provider,
           model,
+          thinkingLevel,
           title,
           channelId,
           channelSessionKey,
@@ -309,6 +355,12 @@ export async function PATCH(request: NextRequest) {
     const title = typeof payload.title === 'string' ? payload.title.trim() : '';
     const markAsRead = typeof payload.markAsRead === 'boolean' ? payload.markAsRead : false;
     const markAllAsRead = typeof payload.markAllAsRead === 'boolean' ? payload.markAllAsRead : false;
+    const requestedModel = normalizeOptionalString(payload.model);
+    const requestedThinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
+
+    if (payload.thinkingLevel !== undefined && !requestedThinkingLevel) {
+      return NextResponse.json({ success: false, error: 'Invalid thinking level' }, { status: 400 });
+    }
 
     // Handle mark all as read
     if (markAllAsRead && !sessionId) {
@@ -326,6 +378,43 @@ export async function PATCH(request: NextRequest) {
 
     if (!sessionId) {
       return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
+    }
+
+    if (requestedModel || requestedThinkingLevel) {
+      const piSession = await db.query.piSessions.findFirst({
+        where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)),
+      });
+
+      if (!piSession) {
+        return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
+      }
+
+      if (requestedModel && !(await isValidProviderModel(piSession.provider, requestedModel))) {
+        return NextResponse.json({ success: false, error: 'Invalid model for session provider' }, { status: 400 });
+      }
+
+      const runtimeStatus = await getStatus(sessionId, session.user.id);
+      if (runtimeStatus && runtimeStatus.phase !== 'idle') {
+        return NextResponse.json({ success: false, error: 'Model can only be changed while the agent is idle' }, { status: 409 });
+      }
+
+      const updateValues = {
+        ...(requestedModel ? { model: requestedModel } : {}),
+        ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
+        updatedAt: new Date(),
+      };
+      const updatedPi = await db
+        .update(piSessions)
+        .set(updateValues)
+        .where(eq(piSessions.id, piSession.id))
+        .returning();
+
+      await invalidateRuntime(sessionId, session.user.id);
+
+      return NextResponse.json({
+        success: true,
+        session: updatedPi[0],
+      });
     }
 
     // Handle mark as read
