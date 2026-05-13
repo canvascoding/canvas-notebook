@@ -465,8 +465,12 @@
     "willSendAfterStop": "Will send after the current chain stops.",
     "runningTool": "Running tool...",
     "agentWorking": "Agent is working...",
+    "toolWorking": "Working…",
     "auto": "Auto",
     "toolInput": "Input",
+    "toolOutput": "Output",
+    "toolTechnicalName": "Tool",
+    "copied": "Copied",
     "fileReferences": "Files",
     "openFile": "Open",
     "scrollToBottom": "Scroll to bottom",
@@ -1010,6 +1014,16 @@
       }
     },
     "agentPanel": {
+      "chatDisplay": {
+        "title": "Chat Display",
+        "description": "Choose how much background activity appears in the chat.",
+        "minimal": "Minimal",
+        "minimalDescription": "Hide tool calls and only show a quiet activity indicator while the agent works.",
+        "subtle": "Subtle",
+        "subtleDescription": "Show compact readable badges. Click a badge when you need details.",
+        "verbose": "Verbose",
+        "verboseDescription": "Show full tool call details with input and output for debugging."
+      },
       "doctor": {
         "title": "Doctor",
         "description": "System check for providers and connectivity.",
