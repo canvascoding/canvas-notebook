@@ -212,7 +212,7 @@ export function createStudioGenerateImageTool(
       style_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved styles to apply as reference images (max 3).', maxItems: 3 })),
       preset_id: Type.Optional(Type.String({ description: 'ID of a studio preset to apply (lighting, camera, background settings).' })),
       aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 1:1 (default), 16:9, 9:16, 4:3, 3:4.' })),
-      count: Type.Optional(Type.Number({ description: 'Number of image variations (1-4). Default: 4.' })),
+      count: Type.Optional(Type.Number({ description: 'Number of image variations (1-4). Default: 1.' })),
       provider: Type.Optional(Type.String({ description: 'Provider: gemini or openai. Default: gemini.' })),
       model: Type.Optional(Type.String({ description: 'Model ID. Options: gemini-3.1-flash-image-preview (default, best quality & features), gemini-3-pro-image-preview (pro quality & reasoning, Nano Banana Pro), gemini-2.5-flash-image (fast & affordable), gpt-image-2 (when provider is openai). If omitted, defaults to the best model for the selected provider.' })),
       image_size: Type.Optional(Type.String({ description: 'Image resolution for Gemini 3.x models. Options: "512" (0.5K, only gemini-3.1-flash), "1K" (default), "2K", "4K". Not supported by gemini-2.5-flash-image. Default: "1K".' })),
