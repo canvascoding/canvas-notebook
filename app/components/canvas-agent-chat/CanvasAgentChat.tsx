@@ -26,6 +26,8 @@ import {
   Pencil,
   Sparkles,
   Wrench,
+  Terminal,
+  FolderOpen,
   Lightbulb,
   CircleHelp,
   Megaphone,
@@ -36,6 +38,17 @@ import {
   FolderTree,
   Settings,
   Search,
+  Globe,
+  Paintbrush,
+  Video,
+  Package,
+  UserRound,
+  Palette,
+  ListChecks,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  Copy,
   Eye,
   EyeOff,
   ArrowLeft,
@@ -54,6 +67,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
 import { useLocale } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -73,6 +87,8 @@ import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
+import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
+import { getToolDisplayInfo, type ToolDisplayTone } from '@/app/lib/pi/tool-display';
 
 import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
@@ -223,6 +239,21 @@ const MOBILE_TEXTAREA_MAX_HEIGHT_PX = 192;
 const DESKTOP_TEXTAREA_MAX_HEIGHT_PX = 256;
 const MOBILE_TEXTAREA_MAX_VIEWPORT_RATIO = 0.3;
 const DESKTOP_TEXTAREA_MAX_VIEWPORT_RATIO = 0.35;
+
+const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?: string }>> = {
+  command: Terminal,
+  file: FolderOpen,
+  search: Search,
+  web: Globe,
+  image: Paintbrush,
+  video: Video,
+  data: Package,
+  person: UserRound,
+  style: Palette,
+  list: ListChecks,
+  automation: RefreshCw,
+  default: Settings,
+};
 
 function hasUnreadAssistantResponse(lastMessageAt?: string | null, lastViewedAt?: string | null): boolean {
   if (!lastMessageAt) {
@@ -767,6 +798,105 @@ function StreamingMessageIndicator() {
   );
 }
 
+function ToolCallPill({
+  message,
+  onMediaClick,
+}: {
+  message: ChatMessage;
+  onMediaClick?: (mediaUrl: string) => void;
+}) {
+  const t = useTranslations('chat');
+  const tCommon = useTranslations('common');
+  const locale = useLocale();
+  const [copied, setCopied] = useState(false);
+  const display = getToolDisplayInfo(message.toolName, locale);
+  const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
+  const isRunning = message.status === 'sending' || message.status === 'aborting';
+  const isError = message.status === 'error';
+  const bodyContent =
+    contentToString(message.content) ||
+    (isRunning ? t('runningTool') : t('noOutputYet'));
+  const toolStatusLabel = getToolStatusLabel(message, t);
+
+  const copyDetails = async () => {
+    const sections = [
+      message.toolName ? `${t('toolTechnicalName')}: ${message.toolName}` : null,
+      message.toolArgs ? `${t('toolInput')}\n${message.toolArgs}` : null,
+      bodyContent ? `${t('toolOutput')}\n${bodyContent}` : null,
+    ].filter(Boolean);
+
+    try {
+      await navigator.clipboard.writeText(sections.join('\n\n'));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div key={message.id} data-testid="chat-tool-subtle" className="flex justify-start py-0.5">
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={`group inline-flex max-w-[90%] items-center gap-2 rounded-full border px-2.5 py-1 text-xs shadow-sm transition-colors ${
+              isError
+                ? 'border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15'
+                : isRunning
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300'
+                  : 'border-border/70 bg-background/85 text-muted-foreground hover:border-primary/30 hover:bg-accent hover:text-foreground'
+            }`}
+            aria-label={`${display.label}: ${toolStatusLabel}`}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 truncate font-medium">{display.label}</span>
+            {isRunning ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            ) : isError ? (
+              <XCircle className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+            )}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[min(92vw,520px)] p-0">
+          <div className="border-b border-border/70 px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Icon className="h-4 w-4 text-muted-foreground" />
+                  <span className="truncate">{display.label}</span>
+                </div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                  <span>{toolStatusLabel}</span>
+                  {message.toolName ? <span className="font-mono">{message.toolName}</span> : null}
+                </div>
+              </div>
+              <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void copyDetails()}>
+                <Copy className="mr-1 h-3.5 w-3.5" />
+                {copied ? t('copied') : tCommon('copy')}
+              </Button>
+            </div>
+          </div>
+          <div className="max-h-[420px] space-y-3 overflow-y-auto p-3">
+            {message.toolArgs ? (
+              <div className="rounded-md border border-border/70 bg-muted/35 p-2">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolInput')}</div>
+                <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/85">{message.toolArgs}</pre>
+              </div>
+            ) : null}
+            <div className="rounded-md border border-border/70 bg-background p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolOutput')}</div>
+              <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 function StarterPromptButton({
   prompt,
   onSelect,
@@ -813,6 +943,7 @@ export default function CanvasAgentChat({
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
+  const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
@@ -822,6 +953,7 @@ export default function CanvasAgentChat({
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
   const { planningMode, togglePlanningMode } = usePlanModeStore();
+  const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
 
   // Container width detection for history layout
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2827,6 +2959,7 @@ export default function CanvasAgentChat({
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const isRuntimeBusy = Boolean(runtimeStatus && runtimeStatus.phase !== 'idle');
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
+  const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
   const contextCompactLabel = runtimeStatus
     ? t('contextCompactLabel', {
         percent: runtimeStatus.contextUsagePercent,
@@ -3083,10 +3216,10 @@ export default function CanvasAgentChat({
               )}
               
               {/* Active Tool Badge */}
-              {!isMobile && runtimeStatus?.activeTool && (
+              {!isMobile && runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
                 <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
                   <Wrench size={10} />
-                  {runtimeStatus.activeTool.name}
+                  {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolDisplay?.label}
                 </span>
               )}
             </div>
@@ -3206,10 +3339,10 @@ export default function CanvasAgentChat({
                     {t('summary')}
                   </span>
                 )}
-                {runtimeStatus?.activeTool && (
+                {runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
                   <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
                     <Wrench size={9} />
-                    {runtimeStatus.activeTool.name}
+                    {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolDisplay?.label}
                   </span>
                 )}
               </div>
@@ -3601,6 +3734,20 @@ export default function CanvasAgentChat({
             const isCompactBreak = message.type === 'compact_break';
             const isStreamingAssistant = isAssistant && message.status === 'sending';
 
+            if (isTool && toolVerbosity === 'minimal') {
+              return null;
+            }
+
+            if (isTool && toolVerbosity === 'subtle') {
+              return (
+                <ToolCallPill
+                  key={message.id}
+                  message={message}
+                  onMediaClick={onMediaClick}
+                />
+              );
+            }
+
             if (isCompactBreak) {
               return (
                 <div key={message.id} data-testid="chat-compaction-break" className="flex items-center gap-3 py-1">
@@ -3760,6 +3907,21 @@ export default function CanvasAgentChat({
               </div>
             );
           })}
+          {toolVerbosity === 'minimal' && runtimeStatus?.phase === 'running_tool' ? (
+            <div data-testid="chat-minimal-tool-activity" className="flex justify-start px-1 py-1">
+              <div className="inline-flex min-h-7 items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-3 text-muted-foreground/80">
+                {[0, 160, 320].map((delay) => (
+                  <span
+                    key={delay}
+                    aria-hidden="true"
+                    className="chat-streaming-dot h-1.5 w-1.5 rounded-full bg-current"
+                    style={{ animationDelay: `${delay}ms` }}
+                  />
+                ))}
+                <span className="sr-only">{t('toolWorking')}</span>
+              </div>
+            </div>
+          ) : null}
           <div ref={messagesEndRef} />
         </div>
 
@@ -3820,7 +3982,11 @@ export default function CanvasAgentChat({
           <div data-testid="chat-queue-panel" className="mb-2 border border-border bg-muted/50 p-2 text-xs">
             <div className="mb-1 flex items-center gap-2 font-medium text-foreground">
               <span>{t('queuedCount', { count: totalQueuedMessages })}</span>
-              {runtimeStatus.activeTool ? <span className="text-muted-foreground">{t('activeToolPrefix')} {runtimeStatus.activeTool.name}</span> : null}
+              {runtimeStatus.activeTool && toolVerbosity !== 'minimal' ? (
+                <span className="text-muted-foreground">
+                  {t('activeToolPrefix')} {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolDisplay?.label}
+                </span>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-2 text-muted-foreground">
               {queuePreview.map((entry) => (

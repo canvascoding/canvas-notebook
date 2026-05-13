@@ -464,8 +464,12 @@
     "willSendAfterStop": "Wird gesendet, sobald die aktuelle Kette stoppt.",
     "runningTool": "Tool läuft...",
     "agentWorking": "Agent arbeitet...",
+    "toolWorking": "Arbeitet…",
     "auto": "Auto",
     "toolInput": "Input",
+    "toolOutput": "Output",
+    "toolTechnicalName": "Tool",
+    "copied": "Kopiert",
     "fileReferences": "Dateien",
     "openFile": "Öffnen",
     "scrollToBottom": "Nach unten scrollen",
@@ -1009,6 +1013,16 @@
       }
     },
     "agentPanel": {
+      "chatDisplay": {
+        "title": "Chat-Anzeige",
+        "description": "Lege fest, wie viel Hintergrundaktivität im Chat sichtbar ist.",
+        "minimal": "Minimal",
+        "minimalDescription": "Tool-Aufrufe ausblenden und nur eine ruhige Aktivitätsanzeige zeigen, während der Agent arbeitet.",
+        "subtle": "Kompakt",
+        "subtleDescription": "Kompakte, lesbare Badges anzeigen. Für Details kann ein Badge angeklickt werden.",
+        "verbose": "Detailliert",
+        "verboseDescription": "Vollständige Tool-Details mit Input und Output zum Debuggen anzeigen."
+      },
       "doctor": {
         "title": "Doctor",
         "description": "System-Check für Provider und Konnektivität.",
