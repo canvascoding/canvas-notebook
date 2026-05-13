@@ -760,7 +760,7 @@ async function executeStudioGenerationProcessing(
         },
       );
     } else {
-      const count = Math.min(Math.max(parsedMeta.count || 4, 1), MAX_IMAGE_COUNT);
+      const count = Math.min(Math.max(parsedMeta.count || 1, 1), MAX_IMAGE_COUNT);
       outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
         quality: parsedMeta.quality,
         outputFormat: parsedMeta.outputFormat,
