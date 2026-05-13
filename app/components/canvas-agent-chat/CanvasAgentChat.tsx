@@ -189,6 +189,7 @@ type DiscoveryModel = {
   id: string;
   name: string;
   supportsVision?: boolean;
+  reasoning?: boolean;
 };
 
 type AgentConfig = {

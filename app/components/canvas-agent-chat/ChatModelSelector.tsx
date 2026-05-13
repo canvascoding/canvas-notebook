@@ -19,6 +19,7 @@ type DiscoveryModel = {
   id: string;
   name: string;
   supportsVision?: boolean;
+  reasoning?: boolean;
 };
 
 type AgentConfig = {
@@ -74,6 +75,7 @@ export function ChatModelSelector({
   }, [activeProvider, agentConfig]);
 
   const activeModelName = models.find((model) => model.id === activeModel)?.name || activeModel;
+  const providerSupportsThinking = models.some((model) => model.reasoning);
   const canChange = !disabled && !pending;
 
   useEffect(() => {
@@ -187,47 +189,49 @@ export function ChatModelSelector({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild disabled={!canChange}>
-          <button
-            type="button"
-            data-testid="chat-thinking-selector"
-            title={error || `Thinking / ${thinkingLevel}`}
-            className={cn(
-              'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/40 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
-              compact ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-0.5 text-[10px]',
-              error && 'border-destructive/40 bg-destructive/10 text-destructive',
-            )}
-          >
-            {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3 text-emerald-500" /> : <Brain className="h-3 w-3 text-muted-foreground" />}
-            <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Thinking</span>
-            <span className="font-mono text-[9px]">{thinkingLevel}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-[min(88vw,220px)]">
-          <DropdownMenuLabel className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
-            <span>Thinking</span>
-            {saved ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={thinkingLevel}
-            onValueChange={(value) => void patchSession({ thinkingLevel: value as PiThinkingLevel })}
-          >
-            {THINKING_LEVELS.map((level) => (
-              <DropdownMenuRadioItem key={level.value} value={level.value} className="py-1.5 text-xs">
-                {level.label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-          {error ? (
-            <>
-              <DropdownMenuSeparator />
-              <div className="px-2 py-1.5 text-[11px] text-destructive">{error}</div>
-            </>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {providerSupportsThinking ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild disabled={!canChange}>
+            <button
+              type="button"
+              data-testid="chat-thinking-selector"
+              title={error || `Thinking / ${thinkingLevel}`}
+              className={cn(
+                'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/40 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
+                compact ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-0.5 text-[10px]',
+                error && 'border-destructive/40 bg-destructive/10 text-destructive',
+              )}
+            >
+              {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3 text-emerald-500" /> : <Brain className="h-3 w-3 text-muted-foreground" />}
+              <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Thinking</span>
+              <span className="font-mono text-[9px]">{thinkingLevel}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[min(88vw,220px)]">
+            <DropdownMenuLabel className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
+              <span>Thinking</span>
+              {saved ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={thinkingLevel}
+              onValueChange={(value) => void patchSession({ thinkingLevel: value as PiThinkingLevel })}
+            >
+              {THINKING_LEVELS.map((level) => (
+                <DropdownMenuRadioItem key={level.value} value={level.value} className="py-1.5 text-xs">
+                  {level.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            {error ? (
+              <>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1.5 text-[11px] text-destructive">{error}</div>
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   );
 }

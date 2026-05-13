@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
           models: getPiModels(p, customModel).map(m => ({
             id: m.id,
             name: m.name,
+            reasoning: Boolean(m.reasoning),
           })),
         }];
       })
