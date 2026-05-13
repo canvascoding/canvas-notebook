@@ -207,6 +207,10 @@ export async function sendMessage(
   const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
 
   if (prepared.promptMessage) {
+    if (prepared.status.canAbort) {
+      return prepared.runtimeInstance.queueSteering(prepared.promptMessage);
+    }
+
     prepared.runtimeInstance.startPrompt(prepared.promptMessage);
   }
 

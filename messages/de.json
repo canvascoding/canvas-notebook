@@ -435,7 +435,7 @@
     "newChatShort": "Neu",
     "viewSkills": "Skills anzeigen",
     "skills": "Skills",
-    "queuedCount": "{count} queued",
+    "queuedCount": "{count} in Queue",
     "summary": "Zusammenfassung",
     "stop": "Stop",
     "compact": "Compact",
@@ -474,6 +474,8 @@
     "activeToolPrefix": "Aktiv:",
     "imageMessage": "Bildnachricht",
     "steerAction": "Steuern",
+    "sendAction": "Senden",
+    "queueAction": "Einreihen",
     "sendNow": "Jetzt senden",
     "compactCanvas": "Canvas compact",
     "close": "Schließen",
@@ -526,8 +528,8 @@
     "composerPlaceholderMobile": "Frag nach Kampagnen, Dateien oder Skills...",
     "composerPlaceholderCompact": "Frag nach Projekt, Dateien oder Skills. Mit @ referenzierst du Dateien und mit / Skills.",
     "composerPlaceholderDefault": "Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien und mit / Skills.",
-    "composerHintBusyMobile": "Neue Nachricht wird eingereiht. Weitere Aktionen findest du im Schnellmenü.",
-    "composerHintBusyDesktop": "Senden reiht die Nachricht als Folgeaktion ein. Nutze Steuern, um nach dem aktuellen Tool-Schritt zu unterbrechen, oder Jetzt senden, um die laufende Kette zuerst zu stoppen.",
+    "composerHintBusyMobile": "Senden steuert den laufenden Agent. Im Schnellmenü kannst du die Nachricht für später einreihen.",
+    "composerHintBusyDesktop": "Senden steuert den laufenden Agent sofort. Einreihen sendet die Nachricht nach dem aktuellen Lauf.",
     "composerHintIdle": "Tippe @ für Dateien, / für Skills oder wähle unten eine schnelle Aktion.",
     "starterPrompts": {
       "sm-campaign": {
