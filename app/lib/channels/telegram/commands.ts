@@ -73,7 +73,7 @@ async function handleStartCommand(ctx: Context): Promise<void> {
     await createBinding(result.userId, 'telegram', chatId, userName);
 
     const sessionId = await resolveTelegramSession(chatId, result.userId);
-    await ctx.reply(`Willkommen! Dein Account ist jetzt verknüpft. Session: ${sessionId.slice(0, 12)}…\n\nVerfügbare Commands:\n${COMMANDS_LIST.join('\n')}`);
+    await ctx.reply(`Willkommen! Dein Account ist jetzt verknüpft. Session: ${sessionId}\n\nVerfügbare Commands:\n${COMMANDS_LIST.join('\n')}`);
   } catch (error) {
     await replyCommandError(ctx, error);
   }
@@ -91,7 +91,7 @@ async function handleNewCommand(ctx: Context): Promise<void> {
     }
 
     const sessionId = await createTelegramSession(chatId, binding.userId);
-    await ctx.reply(`Neue Session erstellt: ${sessionId.slice(0, 12)}…`);
+    await ctx.reply(`Neue Session erstellt: ${sessionId}`);
   } catch (error) {
     await replyCommandError(ctx, error);
   }
@@ -152,11 +152,24 @@ async function handleSessionsCommand(ctx: Context): Promise<void> {
       return;
     }
 
+    const TELEGRAM_MAX_MSG_LENGTH = 4096;
     const lines = sessions.map((s) => {
       const title = s.title ?? '(ohne Titel)';
-      return `• ${s.sessionId.slice(0, 12)}… — ${title}`;
+      return `• ${s.sessionId} — ${title}`;
     });
-    await ctx.reply(`Deine Sessions:\n${lines.join('\n')}\n\nMit /switch SESSION_ID wechseln.`);
+    const footer = '\n\nMit /switch SESSION_ID wechseln.';
+    const maxContentLength = TELEGRAM_MAX_MSG_LENGTH - 'Deine Sessions:\n'.length - footer.length;
+    const includedLines: string[] = [];
+    let currentLength = 0;
+    for (const line of lines) {
+      const addLength = line.length + 1;
+      if (currentLength + addLength > maxContentLength) break;
+      includedLines.push(line);
+      currentLength += addLength;
+    }
+    const omitted = lines.length - includedLines.length;
+    const suffix = omitted > 0 ? `\n… und ${omitted} weitere.` : '';
+    await ctx.reply(`Deine Sessions:\n${includedLines.join('\n')}${suffix}${footer}`);
   } catch (error) {
     await replyCommandError(ctx, error);
   }
@@ -181,7 +194,7 @@ async function handleSwitchCommand(ctx: Context): Promise<void> {
 
     const success = await switchTelegramSession(chatId, binding.userId, targetSessionId);
     if (success) {
-      await ctx.reply(`Gewechselt zu Session: ${targetSessionId.slice(0, 12)}…`);
+      await ctx.reply(`Gewechselt zu Session: ${targetSessionId}`);
     } else {
       await ctx.reply('Session nicht gefunden oder gehört dir nicht.');
     }
@@ -204,10 +217,10 @@ async function handleStatusCommand(ctx: Context): Promise<void> {
     const sessionId = await resolveTelegramSession(chatId, binding.userId);
     const status = await getStatus(sessionId, binding.userId);
     if (!status) {
-      await ctx.reply(`Aktive Session: ${sessionId.slice(0, 12)}…\nStatus: Keine Runtime aktiv.`);
+      await ctx.reply(`Aktive Session: ${sessionId}\nStatus: Keine Runtime aktiv.`);
       return;
     }
-    await ctx.reply(`Aktive Session: ${sessionId.slice(0, 12)}…\nPhase: ${status.phase}\nContext: ${status.contextWindow ?? 'N/A'}`);
+    await ctx.reply(`Aktive Session: ${sessionId}\nPhase: ${status.phase}\nContext: ${status.contextWindow ?? 'N/A'}`);
   } catch (error) {
     await replyCommandError(ctx, error);
   }
