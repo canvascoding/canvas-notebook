@@ -116,9 +116,12 @@ install_systemd_service() {
   run_root install -m 644 "$tmp_service" "$service_path"
   rm -f "$tmp_service"
 
+  info "Reloading systemd daemon..."
   run_root systemctl daemon-reload
   if [[ "${CLI_UPDATE_ONLY:-false}" != "true" ]]; then
+    info "Enabling ${SYSTEMD_SERVICE}..."
     run_root systemctl enable "$SYSTEMD_SERVICE" 2>&1
+    info "Starting ${SYSTEMD_SERVICE}..."
     run_root systemctl start "$SYSTEMD_SERVICE"
     ok "Installed and enabled ${SYSTEMD_SERVICE}"
     info "Service logs: journalctl -u ${SYSTEMD_SERVICE}"
@@ -168,6 +171,7 @@ install_update_timer() {
   run_root install -m 644 "$tmp_service" "$service_path"
   rm -f "$tmp_timer" "$tmp_service"
 
+  info "Reloading systemd daemon..."
   run_root systemctl daemon-reload
 
   if is_false "$update_enabled"; then
@@ -176,7 +180,9 @@ install_update_timer() {
     ok "Auto-update timer installed (disabled)"
   else
     run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true
+    info "Enabling auto-update timer..."
     run_root systemctl enable canvas-notebook-update.timer 2>&1
+    info "Starting auto-update timer..."
     if ! run_root systemctl start canvas-notebook-update.timer 2>&1; then
       warn "Auto-update timer enabled but could not be started immediately"
       warn "It will activate on the next scheduled run or after a reboot."

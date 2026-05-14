@@ -74,7 +74,8 @@ pull_image_if_needed() {
   layers=$(count_pull_layers "$pull_log")
   size_msg=$(pull_size_mb "$pull_log")
   if [[ -n "$log_file" ]]; then
-    ensure_log_file
+    mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+    touch "$log_file" 2>/dev/null || true
     cat "$pull_log" >> "$log_file" 2>/dev/null || true
   fi
   rm -f "$pull_log"

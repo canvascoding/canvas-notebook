@@ -28,3 +28,25 @@ info()    { echo -e "${_OUT_CYAN}  $*${_OUT_RESET}"; }
 warn()    { echo -e "${_OUT_YELLOW}! $*${_OUT_RESET}" >&2; }
 fail()    { echo -e "${_OUT_RED}✗ $*${_OUT_RESET}" >&2; exit 1; }
 section() { echo; echo -e "${_OUT_YELLOW}$*${_OUT_RESET}"; }
+
+spinner_step() {
+  local msg="$1"; shift
+  local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0 tmp rc
+  tmp="$(mktemp)"
+  "$@" >"$tmp" 2>&1 &
+  local pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    printf "\r  ${spin:$((i % ${#spin})):1} %s" "$msg"
+    i=$((i + 1))
+    sleep 0.08
+  done
+  wait "$pid" || rc=$?
+  if [[ -n "${rc:-}" ]] && [[ "$rc" -ne 0 ]]; then
+    printf "\r  ✗ %s\n" "$msg"
+    cat "$tmp"
+    rm -f "$tmp"
+    return "$rc"
+  fi
+  printf "\r  ✓ %s\n" "$msg"
+  rm -f "$tmp"
+}

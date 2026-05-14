@@ -367,3 +367,5 @@ elif [[ "$MODE_CHOICE" == "2" ]]; then
 else
   fail "Invalid choice. Run the script again and enter 1 or 2."
 fi
+
+exit 0

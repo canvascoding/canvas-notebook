@@ -20,8 +20,7 @@ enable_canvas_swap() {
     ok "Swap already enabled at ${CANVAS_SWAP_FILE}"
   else
     if [[ ! -f "$CANVAS_SWAP_FILE" ]]; then
-      run_root fallocate -l "$CANVAS_SWAP_SIZE" "$CANVAS_SWAP_FILE"
-      ok "Created ${CANVAS_SWAP_SIZE} swapfile at ${CANVAS_SWAP_FILE}"
+      spinner_step "Creating ${CANVAS_SWAP_SIZE} swapfile..." run_root fallocate -l "$CANVAS_SWAP_SIZE" "$CANVAS_SWAP_FILE"
     fi
     run_root chmod 600 "$CANVAS_SWAP_FILE"
     run_root mkswap "$CANVAS_SWAP_FILE" >/dev/null
