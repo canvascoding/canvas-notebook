@@ -16,7 +16,7 @@ CONFIG_JSON_DEFAULTS='{
   "containerPort": 3000,
   "dataDir": "",
   "swap": {
-    "enabled": false,
+    "enabled": true,
     "size": "2G",
     "file": "/swapfile"
   },

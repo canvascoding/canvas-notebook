@@ -7,7 +7,7 @@
 configure_swap() {
   if is_false "$CANVAS_SWAP_ENABLED"; then
     section "Swap"
-    ok "Skipped; set CANVAS_SWAP_ENABLED=true to let Canvas manage a host swapfile."
+    ok "Skipped; set CANVAS_SWAP_ENABLED=false to disable swap."
   else
     enable_canvas_swap
   fi
