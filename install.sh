@@ -58,7 +58,7 @@ load_existing_manager_config() {
   if [[ -z "$CANVAS_SWAP_FILE_WAS_SET" ]]; then
     CANVAS_SWAP_FILE="$(awk -F= '/^CANVAS_SWAP_FILE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
-  CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-false}"
+CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-true}"
   CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
   CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
   if [[ -z "$CANVAS_AUTO_UPDATE_ENABLED_WAS_SET" ]]; then
