@@ -24,6 +24,22 @@ remove_domain_from_main_caddyfile() {
   rm -f "$tmpfile" "${tmpfile}.clean"
 }
 
+remove_default_caddy_site() {
+  local caddyfile="$1"
+  if [[ ! -f "$caddyfile" ]]; then return; fi
+  if ! grep -qE '^:[0-9]+[[:space:]]*\{' "$caddyfile" 2>/dev/null; then return; fi
+  local tmpfile
+  tmpfile="$(mktemp)"
+  sed '/^:[0-9]*[[:space:]]*{/,/^}/d' "$caddyfile" > "$tmpfile"
+  sed '/^$/N;/^\n$/d' "$tmpfile" > "${tmpfile}.clean"
+  if ! run_root cp "${tmpfile}.clean" "$caddyfile"; then
+    rm -f "$tmpfile" "${tmpfile}.clean"
+    return
+  fi
+  rm -f "$tmpfile" "${tmpfile}.clean"
+  ok "Removed default Caddy site from ${caddyfile}"
+}
+
 write_caddy_site_config() {
   local domain="$1" canvas_caddyfile="$2"
   printf '%s {\n    reverse_proxy localhost:3456 {\n        header_up X-Forwarded-Port 443\n    }\n}\n' "$domain" | run_root tee "$canvas_caddyfile" >/dev/null
@@ -46,6 +62,7 @@ sync_caddy() {
     return 0
   fi
 
+  remove_default_caddy_site "$caddyfile"
   remove_domain_from_main_caddyfile "$domain" "$caddyfile"
   run_root mkdir -p /etc/caddy/conf.d
   write_caddy_site_config "$domain" "$canvas_caddyfile"
@@ -95,6 +112,11 @@ caddy_fix() {
   if [[ -f "$caddyfile" ]]; then
     local escaped_domain
     escaped_domain="$(printf '%s' "$domain" | sed 's/[.[\*^$]/\\&/g')"
+    if grep -qE '^:[0-9]+[[:space:]]*\{' "$caddyfile" 2>/dev/null; then
+      info "Removing default site from ${caddyfile}"
+      remove_default_caddy_site "$caddyfile"
+      fixed_something=true
+    fi
     if grep -q "^${escaped_domain}[[:space:]]*{" "$caddyfile" 2>/dev/null; then
       info "Removing duplicate domain definition from ${caddyfile}"
       remove_domain_from_main_caddyfile "$domain" "$caddyfile"

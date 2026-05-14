@@ -142,7 +142,17 @@ detect_mode() {
 
   if [[ "$NONINTERACTIVE" == "true" ]]; then
     MODE_CHOICE="${INSTALL_MODE:-1}"
-    SETUP_CADDY="${SETUP_CADDY:-false}"
+    if [[ -z "${SETUP_CADDY:-}" ]]; then
+      local _domain_candidate
+      _domain_candidate="${BASE_URL:-}"
+      _domain_candidate="$(printf '%s' "$_domain_candidate" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1)"
+      if is_real_domain "$_domain_candidate"; then
+        SETUP_CADDY=true
+        info "Auto-enabled Caddy setup (domain detected: ${_domain_candidate})"
+      else
+        SETUP_CADDY=false
+      fi
+    fi
     info "Non-interactive mode — INSTALL_MODE=${MODE_CHOICE}, SETUP_CADDY=${SETUP_CADDY}"
   else
     echo "How would you like to install Canvas Notebook?"
