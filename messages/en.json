@@ -470,6 +470,7 @@
     "toolInput": "Input",
     "toolOutput": "Output",
     "toolTechnicalName": "Tool",
+    "copy": "Copy",
     "copied": "Copied",
     "fileReferences": "Files",
     "openFile": "Open",

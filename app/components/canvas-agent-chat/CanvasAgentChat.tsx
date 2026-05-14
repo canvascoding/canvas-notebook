@@ -68,6 +68,7 @@ import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation
 import { useLocale } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -807,8 +808,8 @@ function ToolCallPill({
   onMediaClick?: (mediaUrl: string) => void;
 }) {
   const t = useTranslations('chat');
-  const tCommon = useTranslations('common');
   const locale = useLocale();
+  const isMobile = useIsMobile();
   const [copied, setCopied] = useState(false);
   const display = getToolDisplayInfo(message.toolName, locale);
   const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
@@ -835,65 +836,112 @@ function ToolCallPill({
     }
   };
 
+  const renderTrigger = () => (
+    <button
+      type="button"
+      className={`group inline-flex max-w-[90%] items-center gap-2 rounded-full border px-2.5 py-1 text-xs shadow-sm transition-colors ${
+        isError
+          ? 'border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15'
+          : isRunning
+            ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300'
+            : 'border-border/70 bg-background/85 text-muted-foreground hover:border-primary/30 hover:bg-accent hover:text-foreground'
+      }`}
+      aria-label={`${display.label}: ${toolStatusLabel}`}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 truncate font-medium">{display.label}</span>
+      {isRunning ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+      ) : isError ? (
+        <XCircle className="h-3.5 w-3.5 shrink-0" />
+      ) : (
+        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+      )}
+    </button>
+  );
+
+  const detailsPanel = (
+    <>
+      <div className="shrink-0 border-b border-border/70 px-3 py-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {isMobile ? (
+                <DialogTitle className="truncate text-sm font-semibold leading-normal">{display.label}</DialogTitle>
+              ) : (
+                <span className="truncate">{display.label}</span>
+              )}
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              {isMobile ? (
+                <DialogDescription asChild>
+                  <span>{toolStatusLabel}</span>
+                </DialogDescription>
+              ) : (
+                <span>{toolStatusLabel}</span>
+              )}
+              {message.toolName ? <span className="font-mono">{message.toolName}</span> : null}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button type="button" size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => void copyDetails()}>
+              <Copy className="mr-1 h-3.5 w-3.5" />
+              {copied ? t('copied') : t('copy')}
+            </Button>
+            {isMobile ? (
+              <DialogClose asChild>
+                <Button type="button" size="sm" variant="ghost" className="h-8 px-2 text-xs">
+                  <X className="mr-1 h-3.5 w-3.5" />
+                  {t('close')}
+                </Button>
+              </DialogClose>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
+        {message.toolArgs ? (
+          <div className="rounded-md border border-border/70 bg-muted/35 p-2">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolInput')}</div>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/85">{message.toolArgs}</pre>
+          </div>
+        ) : null}
+        <div className="rounded-md border border-border/70 bg-background p-2">
+          <div className="mb-1 border-b border-border/70 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolOutput')}</div>
+          <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div key={message.id} data-testid="chat-tool-subtle" className="flex justify-start py-0.5">
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={`group inline-flex max-w-[90%] items-center gap-2 rounded-full border px-2.5 py-1 text-xs shadow-sm transition-colors ${
-              isError
-                ? 'border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15'
-                : isRunning
-                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300'
-                  : 'border-border/70 bg-background/85 text-muted-foreground hover:border-primary/30 hover:bg-accent hover:text-foreground'
-            }`}
-            aria-label={`${display.label}: ${toolStatusLabel}`}
+      {isMobile ? (
+        <Dialog>
+          <DialogTrigger asChild>{renderTrigger()}</DialogTrigger>
+          <DialogContent
+            layout="viewport"
+            showCloseButton={false}
+            className="bg-background"
           >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 truncate font-medium">{display.label}</span>
-            {isRunning ? (
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-            ) : isError ? (
-              <XCircle className="h-3.5 w-3.5 shrink-0" />
-            ) : (
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
-            )}
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-[min(92vw,520px)] p-0">
-          <div className="border-b border-border/70 px-3 py-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Icon className="h-4 w-4 text-muted-foreground" />
-                  <span className="truncate">{display.label}</span>
-                </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                  <span>{toolStatusLabel}</span>
-                  {message.toolName ? <span className="font-mono">{message.toolName}</span> : null}
-                </div>
-              </div>
-              <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void copyDetails()}>
-                <Copy className="mr-1 h-3.5 w-3.5" />
-                {copied ? t('copied') : tCommon('copy')}
-              </Button>
-            </div>
-          </div>
-          <div className="max-h-[420px] space-y-3 overflow-y-auto p-3">
-            {message.toolArgs ? (
-              <div className="rounded-md border border-border/70 bg-muted/35 p-2">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolInput')}</div>
-                <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/85">{message.toolArgs}</pre>
-              </div>
-            ) : null}
-            <div className="rounded-md border border-border/70 bg-background p-2">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolOutput')}</div>
-              <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
+            {detailsPanel}
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <Popover>
+          <PopoverTrigger asChild>{renderTrigger()}</PopoverTrigger>
+          <PopoverContent
+            side="top"
+            align="start"
+            collisionPadding={16}
+            sticky="always"
+            className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(calc(100vw-2rem),560px)] flex-col overflow-hidden p-0"
+          >
+            {detailsPanel}
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   );
 }
