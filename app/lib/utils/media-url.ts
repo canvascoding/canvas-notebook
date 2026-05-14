@@ -30,6 +30,19 @@ export function toMediaUrl(filePath: string) {
   return `/api/media/${encodedPath}`;
 }
 
+export function toHtmlPreviewUrl(filePath: string) {
+  const encodedPath = filePath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+
+  if (filePath.startsWith('studio/') || filePath.startsWith('studio-gen-') || filePath.startsWith('user-uploads/studio-references/') || filePath.startsWith('presets/') || filePath.startsWith('products/') || filePath.startsWith('personas/') || filePath.startsWith('styles/') || filePath.startsWith('references/')) {
+    return `/api/studio/media/preview/${encodedPath}`;
+  }
+
+  return `/api/media/preview/${encodedPath}`;
+}
+
 interface PreviewUrlOptions {
   preset?: 'default' | 'mini';
 }
