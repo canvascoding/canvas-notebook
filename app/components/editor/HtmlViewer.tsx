@@ -1,7 +1,7 @@
 'use client';
 
 import { CodeEditor } from './CodeEditor';
-import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 
 interface HtmlViewerProps {
   path: string;
@@ -13,7 +13,7 @@ interface HtmlViewerProps {
 }
 
 export function HtmlViewer({ path, value, onChange, viewMode, refreshKey, lastSavedAt }: HtmlViewerProps) {
-  const previewUrl = toMediaUrl(path);
+  const previewUrl = toHtmlPreviewUrl(path);
 
   if (viewMode === 'code') {
     return <CodeEditor value={value} onChange={onChange} readOnly={false} />;

@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 
 interface ShareMarkdownDialogProps {
   open: boolean;
@@ -149,7 +149,7 @@ export function ShareMarkdownDialog({
               {kind === 'html' ? (
                 <iframe
                   ref={iframeRef}
-                  src={toMediaUrl(filePath)}
+                  src={toHtmlPreviewUrl(filePath)}
                   className="w-full h-full"
                   sandbox="allow-scripts allow-same-origin"
                   title={t('previewTitle', { fileName })}
