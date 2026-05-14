@@ -14,17 +14,27 @@ install_caddy() {
 
       local _gpg_tmp
       _gpg_tmp="$(mktemp)"
-      spinner_step "Adding Caddy GPG key..." bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' -o '$_gpg_tmp' && run_root gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg '$_gpg_tmp'"
-      rc=$?
-      rm -f "$_gpg_tmp"
-      if [[ $rc -ne 0 ]]; then
-        fail "Failed to add Caddy GPG key. Check your internet connection and try again."
+      spinner_step "Downloading Caddy GPG key..." curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' -o "$_gpg_tmp"
+      if [[ ! -s "$_gpg_tmp" ]]; then
+        rm -f "$_gpg_tmp"
+        fail "Failed to download Caddy GPG key. Check your internet connection and try again."
       fi
-
-      spinner_step "Adding Caddy repository..." bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | run_root tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null"
+      spinner_step "Importing Caddy GPG key..." run_root gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg "$_gpg_tmp"
       if [[ $? -ne 0 ]]; then
-        fail "Failed to add Caddy apt repository. Check your internet connection."
+        rm -f "$_gpg_tmp"
+        fail "Failed to import Caddy GPG key. The key file may be corrupted or gpg may have issues."
       fi
+      rm -f "$_gpg_tmp"
+
+      local _repo_tmp
+      _repo_tmp="$(mktemp)"
+      spinner_step "Adding Caddy repository..." curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o "$_repo_tmp"
+      if [[ ! -s "$_repo_tmp" ]]; then
+        rm -f "$_repo_tmp"
+        fail "Failed to download Caddy apt repository. Check your internet connection."
+      fi
+      run_root cp "$_repo_tmp" /etc/apt/sources.list.d/caddy-stable.list
+      rm -f "$_repo_tmp"
 
       spinner_step "Updating package lists..." run_root apt-get update -qq
       if [[ $? -ne 0 ]]; then
