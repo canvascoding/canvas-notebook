@@ -10,14 +10,42 @@ install_caddy() {
     if command -v caddy >/dev/null 2>&1; then
       ok "Caddy already installed"
     else
-      info "Installing Caddy..."
-      run_root apt-get install -y debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1 || true
-      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-        | run_root gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-        | run_root tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
-      run_root apt-get update -qq >/dev/null
-      run_root apt-get install -y caddy >/dev/null
+      info "Installing prerequisites (debian-keyring, apt-transport-https)..."
+      if ! run_root apt-get install -y debian-keyring debian-archive-keyring apt-transport-https 2>&1; then
+        warn "Could not install all prerequisite packages — continuing anyway"
+      fi
+
+      info "Adding Caddy GPG key..."
+      local _gpg_tmp
+      _gpg_tmp="$(mktemp)"
+      if ! curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' -o "$_gpg_tmp"; then
+        rm -f "$_gpg_tmp"
+        fail "Failed to download Caddy GPG key. Check your internet connection and try again."
+      fi
+      if ! run_root gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg "$_gpg_tmp" 2>&1; then
+        rm -f "$_gpg_tmp"
+        fail "Failed to import Caddy GPG key. The key file may be corrupted or gpg may have issues."
+      fi
+      rm -f "$_gpg_tmp"
+      ok "Caddy GPG key added"
+
+      info "Adding Caddy apt repository..."
+      if ! curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+        | run_root tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null; then
+        fail "Failed to add Caddy apt repository. Check your internet connection."
+      fi
+      ok "Caddy repository added"
+
+      info "Updating package lists (this may take a moment)..."
+      if ! run_root apt-get update -qq 2>&1; then
+        fail "apt-get update failed after adding Caddy repo. Check your network connection and try:\n  sudo apt-get update\n  sudo apt-get install -y caddy"
+      fi
+      ok "Package lists updated"
+
+      info "Installing Caddy package..."
+      if ! run_root apt-get install -y caddy 2>&1; then
+        fail "Failed to install Caddy package. Try manually:\n  sudo apt-get install -y caddy"
+      fi
       ok "Caddy installed"
     fi
   else
