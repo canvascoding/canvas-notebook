@@ -392,11 +392,12 @@ export function FileEditor() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 w-6 p-0"
+              className="h-6 px-2 gap-1.5 text-xs"
               onClick={() => setShareOpen(true)}
               title="Export / Share"
             >
               <Share2 className="h-3.5 w-3.5" />
+              <span>{t('share')}</span>
             </Button>
           )}
           {saveError ? (
