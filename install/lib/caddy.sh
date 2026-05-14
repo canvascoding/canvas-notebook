@@ -50,14 +50,22 @@ detect_public_ip() {
 
 configure_caddy() {
   local domain="$1" caddyfile canvas_caddyfile include_line server_ip
-  if [[ "$SETUP_CADDY" != "true" ]]; then return; fi
-
   caddyfile="/etc/caddy/Caddyfile"
   canvas_caddyfile="/etc/caddy/conf.d/canvas-notebook.caddy"
   include_line="import /etc/caddy/conf.d/*.caddy"
 
+  if [[ "$SETUP_CADDY" != "true" ]]; then
+    if ! command -v caddy >/dev/null 2>&1; then
+      return
+    fi
+    if ! is_real_domain "$domain"; then
+      return
+    fi
+  fi
+
   section "Public access"
   if is_real_domain "$domain"; then
+    remove_default_caddy_site "$caddyfile"
     remove_domain_from_main_caddyfile "$domain" "$caddyfile"
     run_root mkdir -p /etc/caddy/conf.d
     write_caddy_site_config "$domain" "$canvas_caddyfile"
