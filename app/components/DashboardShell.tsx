@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/sheet';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { LogoutButton } from '@/app/components/LogoutButton';
+
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
@@ -530,7 +530,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           <div className="relative z-50 flex items-center gap-1.5 md:gap-4">
             <AppLauncher />
             <ThemeToggle />
-            <LogoutButton />
           </div>
         </div>
       </header>

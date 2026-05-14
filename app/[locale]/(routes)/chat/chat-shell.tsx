@@ -10,7 +10,7 @@ import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat'
 
 
 import { ThemeToggle } from '@/app/components/ThemeToggle';
-import { LogoutButton } from '@/app/components/LogoutButton';
+
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 
@@ -34,7 +34,6 @@ export function ChatShell() {
             <div className="flex items-center gap-1.5 md:gap-4">
               <AppLauncher />
               <ThemeToggle />
-              <LogoutButton />
             </div>
         </div>
       </header>

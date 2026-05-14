@@ -7,7 +7,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { cn } from '@/lib/utils';
-import { LogoutButton } from '@/app/components/LogoutButton';
+
 
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -84,7 +84,6 @@ export function SuitePageLayout({
             <div className="ml-auto flex items-center gap-2 md:gap-3">
               <AppLauncher />
               <ThemeToggle />
-              <LogoutButton />
             </div>
           </div>
         </header>
