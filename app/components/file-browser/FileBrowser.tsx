@@ -22,7 +22,7 @@ import { getDroppedFiles } from '@/app/lib/drop-traverse';
 import { FilePreviewDialog } from '@/app/components/files/FilePreviewDialog';
 import { Link } from '@/i18n/navigation';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
-import { LogoutButton } from '@/app/components/LogoutButton';
+
 
 import { AppLauncher } from '@/app/components/AppLauncher';
 
@@ -320,8 +320,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
           <div className="flex items-center gap-1.5 md:gap-4">
             <AppLauncher />
             <ThemeToggle />
-
-            <LogoutButton />
           </div>
         </div>
       </header>

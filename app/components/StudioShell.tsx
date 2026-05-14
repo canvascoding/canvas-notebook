@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl';
 import { Link, usePathname } from '@/i18n/navigation';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
-import { LogoutButton } from '@/app/components/LogoutButton';
+
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { useStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
@@ -293,7 +293,6 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
               <AppLauncher />
               {chatModeControl}
               <ThemeToggle />
-              <LogoutButton />
             </div>
           </div>
         </header>

@@ -71,7 +71,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 
 
 import { ThemeToggle } from '@/app/components/ThemeToggle';
-import { LogoutButton } from '@/app/components/LogoutButton';
+
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -3120,7 +3120,6 @@ export default function CanvasAgentChat({
               <Link href="/usage">{t('usage')}</Link>
             </Button>
 
-            <LogoutButton />
           </div>
         </div>
       </header>
