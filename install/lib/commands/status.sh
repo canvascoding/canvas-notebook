@@ -99,18 +99,21 @@ diagnose() {
 
   printf '\n== Caddy configuration health ==\n'
   if [[ -f "/etc/caddy/Caddyfile" ]] && is_real_domain "$diag_domain"; then
-    local escaped_domain dup_count
-    escaped_domain="$(printf '%s' "$diag_domain" | sed 's/[.[\*^$]/\\&/g')"
-    dup_count="$(grep -c "^${escaped_domain}[[:space:]]*{" /etc/caddy/Caddyfile 2>/dev/null || printf '0')"
-    if [[ "$dup_count" -gt 0 ]]; then
-      warn "Duplicate site definition: '${diag_domain}' found in /etc/caddy/Caddyfile (${dup_count} occurrence(s))"
-      warn "This causes 'ambiguous site definition' errors in Caddy."
+    if ! grep -q 'X-Forwarded-Port' /etc/caddy/Caddyfile 2>/dev/null; then
+      warn "Missing X-Forwarded-Port header in /etc/caddy/Caddyfile"
+      warn "This can cause redirect loops to port 3000 instead of 443."
       caddy_issues=$((caddy_issues + 1))
     fi
 
-    if [[ -f "/etc/caddy/conf.d/canvas-notebook.caddy" ]] && ! grep -q 'X-Forwarded-Port' /etc/caddy/conf.d/canvas-notebook.caddy 2>/dev/null; then
-      warn "Missing X-Forwarded-Port header in /etc/caddy/conf.d/canvas-notebook.caddy"
-      warn "This can cause redirect loops to port 3000 instead of 443."
+    if grep -qE '^:[0-9]+[[:space:]]*\{' /etc/caddy/Caddyfile 2>/dev/null; then
+      warn "Default Caddy site (port :80) still present in /etc/caddy/Caddyfile"
+      warn "This will serve a static page instead of your app. Run: canvas-notebook caddy-fix"
+      caddy_issues=$((caddy_issues + 1))
+    fi
+
+    if [[ -f "/etc/caddy/conf.d/canvas-notebook.caddy" ]]; then
+      warn "Legacy conf.d config found at /etc/caddy/conf.d/canvas-notebook.caddy"
+      warn "This is no longer needed. Run: canvas-notebook caddy-fix"
       caddy_issues=$((caddy_issues + 1))
     fi
 

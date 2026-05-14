@@ -59,10 +59,8 @@ detect_public_ip() {
 }
 
 configure_caddy() {
-  local domain="$1" caddyfile canvas_caddyfile include_line server_ip
-  caddyfile="/etc/caddy/Caddyfile"
-  canvas_caddyfile="/etc/caddy/conf.d/canvas-notebook.caddy"
-  include_line="import /etc/caddy/conf.d/*.caddy"
+  local domain="$1" server_ip
+  local caddyfile="/etc/caddy/Caddyfile"
 
   if [[ "$SETUP_CADDY" != "true" ]]; then
     if ! command -v caddy >/dev/null 2>&1; then
@@ -75,21 +73,18 @@ configure_caddy() {
 
   section "Public access"
   if is_real_domain "$domain"; then
-    remove_default_caddy_site "$caddyfile"
-    remove_domain_from_main_caddyfile "$domain" "$caddyfile"
-    run_root mkdir -p /etc/caddy/conf.d
-    write_caddy_site_config "$domain" "$canvas_caddyfile"
-    if [[ ! -f "$caddyfile" ]]; then
-      printf '%s\n' "$include_line" | run_root tee "$caddyfile" >/dev/null
-    elif ! grep -Fxq "$include_line" "$caddyfile"; then
-      printf '\n%s\n' "$include_line" | run_root tee -a "$caddyfile" >/dev/null
+    spinner_step "Writing Caddy config..." write_caddy_config "$domain"
+
+    if command -v caddy >/dev/null 2>&1; then
+      if ! run_root caddy validate --config "$caddyfile" 2>&1; then
+        warn "Caddyfile validation failed — check your Caddy config manually."
+        warn "You can fix this later by editing ${caddyfile} and running: sudo systemctl reload caddy"
+        return 0
+      fi
     fi
-    if ! run_root caddy validate --config "$caddyfile" 2>&1; then
-      warn "Caddyfile validation failed — check your Caddy config manually."
-      warn "You can fix this later by editing ${caddyfile} and running: sudo systemctl reload caddy"
-      return 0
+    if ! run_root systemctl reload caddy 2>&1 && ! run_root systemctl restart caddy 2>&1; then
+      warn "Could not reload or restart Caddy. Check: sudo systemctl status caddy"
     fi
-    run_root systemctl reload caddy || run_root systemctl restart caddy
     ok "Caddy configured — https://${domain} -> localhost:3456"
     info "Let's Encrypt certificate will be obtained automatically on the first request."
 
