@@ -61,7 +61,9 @@ sync_caddy() {
       return 0
     fi
   fi
-  run_root systemctl reload caddy >/dev/null 2>&1 || run_root systemctl restart caddy >/dev/null 2>&1 || warn "Could not reload Caddy."
+  if ! run_root systemctl reload caddy 2>&1 && ! run_root systemctl restart caddy 2>&1; then
+    warn "Could not reload or restart Caddy. Check: sudo systemctl status caddy"
+  fi
   ok "Caddy synced for https://${domain}"
 }
 
@@ -140,7 +142,9 @@ caddy_fix() {
     fi
   fi
 
-  run_root systemctl reload caddy >/dev/null 2>&1 || run_root systemctl restart caddy >/dev/null 2>&1 || warn "Could not reload Caddy."
+  if ! run_root systemctl reload caddy 2>&1 && ! run_root systemctl restart caddy 2>&1; then
+    warn "Could not reload or restart Caddy. Check: sudo systemctl status caddy"
+  fi
 
   if [[ "$fixed_something" == "true" ]]; then
     ok "Caddy configuration fixed and reloaded"

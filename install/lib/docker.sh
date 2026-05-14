@@ -14,7 +14,10 @@ install_docker() {
       run_root apt-get update -qq
       run_root apt-get install -y curl
     fi
-    curl -fsSL https://get.docker.com | sh >/dev/null
+    info "Downloading and running Docker install script..."
+    if ! curl -fsSL https://get.docker.com | sh 2>&1; then
+      fail "Docker installation script failed. Check your network connection and try manually:\n  curl -fsSL https://get.docker.com | sh"
+    fi
     ok "Docker installed"
     local _docker_user="${SUDO_USER:-${USER:-$(id -un)}}"
     if ! id -nG "$_docker_user" | grep -qw docker; then

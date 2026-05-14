@@ -89,9 +89,14 @@ enable_auto_update() {
 
   install_update_timer
 
-  run_root systemctl enable canvas-notebook-update.timer >/dev/null
-  run_root systemctl start canvas-notebook-update.timer >/dev/null 2>&1 || \
-    run_root systemctl restart canvas-notebook-update.timer >/dev/null
+  run_root systemctl enable canvas-notebook-update.timer 2>&1
+  if ! run_root systemctl start canvas-notebook-update.timer 2>&1; then
+    info "Start failed, trying restart..."
+    if ! run_root systemctl restart canvas-notebook-update.timer 2>&1; then
+      warn "Could not start auto-update timer immediately"
+      warn "It will activate on the next scheduled run or after a reboot."
+    fi
+  fi
 
   config_json_write autoUpdate.enabled true
 
