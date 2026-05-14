@@ -7,6 +7,18 @@ import path from 'path';
 
 const PDF_TIMEOUT_MS = 30_000;
 
+function getInternalRenderOrigin(requestUrl: string) {
+  const url = new URL(requestUrl);
+  const localHosts = new Set(['0.0.0.0', '::', '[::]', 'localhost', '127.0.0.1']);
+
+  if (localHosts.has(url.hostname)) {
+    const port = url.port || process.env.PORT || '3000';
+    return `http://127.0.0.1:${port}`;
+  }
+
+  return url.origin;
+}
+
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -34,7 +46,7 @@ export async function POST(request: NextRequest) {
 
     await getFileStats(filePath);
 
-    const origin = new URL(request.url).origin;
+    const origin = getInternalRenderOrigin(request.url);
     const fileName = path.basename(filePath, ext);
     const cookie = request.headers.get('cookie');
     const headers = cookie ? { cookie } : undefined;
