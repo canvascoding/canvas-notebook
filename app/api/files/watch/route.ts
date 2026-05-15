@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
     }
 
     const watcher = getFileWatcher();
-    watcher.syncDirs(clientId, dirs);
+    await watcher.syncDirs(clientId, dirs);
 
     return NextResponse.json({ success: true, watchedDirs: watcher.getSubscribedDirs() });
   } catch (error) {
