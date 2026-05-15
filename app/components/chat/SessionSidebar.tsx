@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import {
@@ -68,6 +68,10 @@ export function SessionSidebar({
   const [searchQuery, setSearchQuery] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const activeVisibleSessionRef = useRef<{ sessionId: string | null; hasActiveEvent: boolean }>({
+    sessionId: null,
+    hasActiveEvent: false,
+  });
 
   const totalUnreadCount = useMemo(() => history.filter((s) => s.hasUnread).length, [history]);
 
@@ -109,6 +113,20 @@ export function SessionSidebar({
   }, [fetchHistory]);
 
   useEffect(() => {
+    const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; isVisible: boolean }>) => {
+      activeVisibleSessionRef.current = {
+        sessionId: event.detail.isVisible ? event.detail.sessionId : null,
+        hasActiveEvent: true,
+      };
+    };
+
+    window.addEventListener('chat-active-session-changed', handleActiveSessionChanged as EventListener);
+    return () => {
+      window.removeEventListener('chat-active-session-changed', handleActiveSessionChanged as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, lastMessageAt, title } = event.detail;
       let sessionFound = false;
@@ -120,10 +138,13 @@ export function SessionSidebar({
         }
 
         sessionFound = true;
-        const isCurrentSession = currentSessionId === sessionId;
-        const nextLastViewedAt = isCurrentSession ? lastMessageAt : (session.lastViewedAt ?? null);
-        const unread = !isCurrentSession && hasUnreadAssistantResponse(lastMessageAt, nextLastViewedAt);
-        console.log(`[SessionSidebar] Unread calc: sessionId=${sessionId}, isCurrentSession=${isCurrentSession}, lastMessageAt=${lastMessageAt}, prevLastViewedAt=${session.lastViewedAt}, nextLastViewedAt=${nextLastViewedAt}, hasUnread=${unread}`);
+        const activeVisibleSession = activeVisibleSessionRef.current;
+        const isCurrentVisibleSession = activeVisibleSession.hasActiveEvent
+          ? activeVisibleSession.sessionId === sessionId
+          : currentSessionId === sessionId;
+        const nextLastViewedAt = isCurrentVisibleSession ? lastMessageAt : (session.lastViewedAt ?? null);
+        const unread = !isCurrentVisibleSession && hasUnreadAssistantResponse(lastMessageAt, nextLastViewedAt);
+        console.log(`[SessionSidebar] Unread calc: sessionId=${sessionId}, isCurrentVisibleSession=${isCurrentVisibleSession}, lastMessageAt=${lastMessageAt}, prevLastViewedAt=${session.lastViewedAt}, nextLastViewedAt=${nextLastViewedAt}, hasUnread=${unread}`);
 
         return {
           ...session,

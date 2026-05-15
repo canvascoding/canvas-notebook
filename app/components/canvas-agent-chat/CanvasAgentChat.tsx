@@ -1420,16 +1420,44 @@ export default function CanvasAgentChat({
       const res = await fetch('/api/sessions');
       const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
       if (data?.success) {
+        const currentVisibleSessionId = surfaceVisibleRef.current ? sessionIdRef.current : null;
         const sessions = applyResolvedTitles(data.sessions || []);
-        setHistory(sessions);
-        setLatestSession(sessions[0] || null);
+        const activeVisibleUnreadSession = currentVisibleSessionId
+          ? sessions.find((session: AISession) => session.sessionId === currentVisibleSessionId && session.hasUnread)
+          : null;
+        const visibleSessions = activeVisibleUnreadSession
+          ? sessions.map((session: AISession) => (
+              session.sessionId === currentVisibleSessionId
+                ? {
+                    ...session,
+                    hasUnread: false,
+                    lastViewedAt: session.lastMessageAt || new Date().toISOString(),
+                  }
+                : session
+            ))
+          : sessions;
+
+        if (activeVisibleUnreadSession && currentVisibleSessionId) {
+          setHasUnreadInCurrentSession(false);
+          setShowUnreadBanner(false);
+          void fetch('/api/sessions', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: currentVisibleSessionId, markAsRead: true }),
+          }).catch((error) => {
+            console.error('Failed to mark active session as read after history refresh', error);
+          });
+        }
+
+        setHistory(visibleSessions);
+        setLatestSession(visibleSessions[0] || null);
         
         // Calculate total unread count
-        const unreadCount = sessions.filter((s: AISession) => s.hasUnread).length;
+        const unreadCount = visibleSessions.filter((s: AISession) => s.hasUnread).length;
         setTotalUnreadCount(unreadCount);
 
         if (sessionIdRef.current) {
-          const currentSession = sessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
+          const currentSession = visibleSessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
           if (currentSession) {
             setSessionTitle(resolveSessionTitle(currentSession.sessionId, currentSession.title));
           }
