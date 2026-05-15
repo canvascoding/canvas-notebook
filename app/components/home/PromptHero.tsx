@@ -5,7 +5,7 @@ import { getPathname } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { Send, Paperclip, X, Image as ImageIcon, FileText, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
-import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 
@@ -281,6 +281,7 @@ export function PromptHero() {
     setIsSubmitting(true);
 
     try {
+      window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
       const data = {
         prompt: normalizedPrompt,
         attachments: attachments,
