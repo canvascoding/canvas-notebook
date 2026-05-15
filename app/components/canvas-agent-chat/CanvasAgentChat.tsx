@@ -2832,6 +2832,7 @@ export default function CanvasAgentChat({
 
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
+    if (!agentConfig) return;
 
     const queueInitialPrompt = async (promptText: string, promptAttachments: Attachment[]) => {
       initialPromptConsumedRef.current = true;
@@ -2867,7 +2868,7 @@ export default function CanvasAgentChat({
       window.sessionStorage.removeItem(initialPromptStorageKey);
       void queueInitialPrompt(storedData.trim(), []);
     }
-  }, [appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, t]);
+  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, t]);
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;
