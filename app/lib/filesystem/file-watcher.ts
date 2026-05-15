@@ -74,9 +74,17 @@ class FileWatcherService {
     };
   }
 
-  public subscribeDir(clientId: string, dirPath: string): void {
+  public async subscribeDir(clientId: string, dirPath: string): Promise<void> {
     if (!this.clients.has(clientId)) return;
     if (this.shouldIgnore(dirPath)) return;
+
+    const fullPath = this.toFullPath(dirPath);
+    try {
+      const stat = await fs.stat(fullPath);
+      if (!stat.isDirectory()) return;
+    } catch {
+      return;
+    }
 
     if (!this.subscriptions.has(dirPath)) {
       this.subscriptions.set(dirPath, new Set());
@@ -118,7 +126,7 @@ class FileWatcherService {
     }
   }
 
-  public syncDirs(clientId: string, dirPaths: string[]): void {
+  public async syncDirs(clientId: string, dirPaths: string[]): Promise<void> {
     if (!this.clients.has(clientId)) return;
     this.clientLastActive.set(clientId, Date.now());
 
@@ -132,11 +140,11 @@ class FileWatcherService {
     const desired = new Set(dirPaths);
     desired.add('.');
 
-    for (const dir of desired) {
-      if (!current.has(dir)) {
-        this.subscribeDir(clientId, dir);
-      }
-    }
+    await Promise.all(
+      Array.from(desired)
+        .filter((dir) => !current.has(dir))
+        .map((dir) => this.subscribeDir(clientId, dir))
+    );
 
     for (const dir of current) {
       if (!desired.has(dir)) {
@@ -153,6 +161,13 @@ class FileWatcherService {
     const fullPath = this.toFullPath(relativeDir);
 
     if (this.watchers.has(fullPath)) return;
+
+    try {
+      const stat = await fs.stat(fullPath);
+      if (!stat.isDirectory()) return;
+    } catch {
+      return;
+    }
 
     try {
       const watcher = fsWatch(
