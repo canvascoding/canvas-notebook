@@ -2920,6 +2920,7 @@ export default function CanvasAgentChat({
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
       return;
     }
+    if (initialPromptConsumedRef.current) return;
     if (resolvedRequestedSessionId) return;
     if (userStartedNewChatRef.current) return;
     if (sessionId) return;
