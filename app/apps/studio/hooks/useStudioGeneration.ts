@@ -11,16 +11,20 @@ import type {
 } from '../types/generation';
 
 const POLL_INTERVAL_MS = 10_000;
+const GENERATIONS_PAGE_SIZE = 48;
 
 interface UseStudioGenerationReturn {
   generations: StudioGeneration[];
   currentGeneration: StudioGeneration | null;
   loading: boolean;
+  loadingMore: boolean;
   error: string | null;
   isPolling: boolean;
   activeGenerationId: string | null;
   recentlyCompletedIds: Set<string>;
+  hasMoreGenerations: boolean;
   fetchGenerations: () => Promise<void>;
+  loadMoreGenerations: () => Promise<void>;
   fetchGeneration: (id: string, options?: { silent?: boolean }) => Promise<StudioGeneration | null>;
   generate: (payload: StudioGeneratePayload) => Promise<StudioGeneration | null>;
   deleteGeneration: (id: string) => Promise<boolean>;
@@ -50,6 +54,21 @@ async function parseJsonResponse(response: Response) {
 function mergeGenerationLists(current: StudioGeneration[], next: StudioGeneration): StudioGeneration[] {
   const remaining = current.filter((generation) => generation.id !== next.id);
   return [next, ...remaining].sort((a, b) => {
+    const left = new Date(b.createdAt).getTime();
+    const right = new Date(a.createdAt).getTime();
+    return left - right;
+  });
+}
+
+function mergeGenerationPages(current: StudioGeneration[], next: StudioGeneration[]): StudioGeneration[] {
+  const byId = new Map<string, StudioGeneration>();
+  for (const generation of current) {
+    byId.set(generation.id, generation);
+  }
+  for (const generation of next) {
+    byId.set(generation.id, generation);
+  }
+  return Array.from(byId.values()).sort((a, b) => {
     const left = new Date(b.createdAt).getTime();
     const right = new Date(a.createdAt).getTime();
     return left - right;
@@ -113,9 +132,11 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
   const [generations, setGenerations] = useState<StudioGeneration[]>([]);
   const [currentGeneration, setCurrentGeneration] = useState<StudioGeneration | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeGenerationId, setActiveGenerationId] = useState<string | null>(null);
   const [recentlyCompletedIds, setRecentlyCompletedIds] = useState<Set<string>>(new Set());
+  const [hasMoreGenerations, setHasMoreGenerations] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -192,10 +213,11 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/studio/generations');
+      const response = await fetch(`/api/studio/generations?limit=${GENERATIONS_PAGE_SIZE}&offset=0`);
       const data = await parseJsonResponse(response);
       const nextGenerations = (data.generations ?? []) as StudioGeneration[];
       setGenerations(nextGenerations);
+      setHasMoreGenerations(Boolean(data.hasMore));
       setCurrentGeneration((current) => {
         if (!current) {
           return nextGenerations[0] ?? null;
@@ -208,6 +230,27 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       setLoading(false);
     }
   }, []);
+
+  const loadMoreGenerations = useCallback(async () => {
+    if (loadingMore || !hasMoreGenerations) {
+      return;
+    }
+
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const loadedServerGenerationCount = generations.filter((generation) => !generation.id.startsWith('temp-')).length;
+      const response = await fetch(`/api/studio/generations?limit=${GENERATIONS_PAGE_SIZE}&offset=${loadedServerGenerationCount}`);
+      const data = await parseJsonResponse(response);
+      const nextGenerations = (data.generations ?? []) as StudioGeneration[];
+      setGenerations((current) => mergeGenerationPages(current, nextGenerations));
+      setHasMoreGenerations(Boolean(data.hasMore));
+    } catch (err) {
+      setError(toErrorMessage(err, 'Failed to load more generations'));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [generations, hasMoreGenerations, loadingMore]);
 
   const generate = useCallback(async (payload: StudioGeneratePayload) => {
     setLoading(true);
@@ -431,11 +474,14 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     generations,
     currentGeneration,
     loading,
+    loadingMore,
     error,
     isPolling: activeGenerationId !== null,
     activeGenerationId,
     recentlyCompletedIds,
+    hasMoreGenerations,
     fetchGenerations,
+    loadMoreGenerations,
     fetchGeneration,
     generate,
     deleteGeneration,

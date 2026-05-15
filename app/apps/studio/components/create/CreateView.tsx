@@ -139,7 +139,14 @@ export function CreateView() {
   const stylesHook = useStudioStyles();
   const presetsHook = useStudioPresets();
   const batchActions = useStudioBatchActions();
-  const { fetchGenerations, generations, recentlyCompletedIds } = generationHook;
+  const {
+    fetchGenerations,
+    generations,
+    recentlyCompletedIds,
+    hasMoreGenerations,
+    loadingMore,
+    loadMoreGenerations,
+  } = generationHook;
   const { fetchProducts, products } = productsHook;
   const { fetchPersonas, personas } = personasHook;
   const { fetchStyles, styles } = stylesHook;
@@ -451,7 +458,12 @@ export function CreateView() {
               sortOrder={sortOrder}
               selectionEnabled={selectionEnabled}
               selectedOutputIds={selectedOutputIds}
+              hasMoreGenerations={hasMoreGenerations}
+              loadingMoreGenerations={loadingMore}
               onToggleSelectOutput={handleToggleOutputSelect}
+              onLoadMoreGenerations={() => {
+                void loadMoreGenerations();
+              }}
               onOutputOpen={({ generation, output }) => {
                 setSelectedGenerationId(generation.id);
                 setSelectedOutputId(output.id);

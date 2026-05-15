@@ -302,7 +302,7 @@ export async function GET(request: NextRequest) {
         status: 304,
         headers: {
           ETag: etag,
-          'Cache-Control': 'private, max-age=300',
+          'Cache-Control': 'private, max-age=86400, immutable',
         },
       });
     }
@@ -310,7 +310,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(body, {
       headers: {
         'Content-Type': getContentType(format),
-        'Cache-Control': 'private, max-age=300',
+        'Cache-Control': 'private, max-age=86400, immutable',
         ETag: etag,
       },
     });

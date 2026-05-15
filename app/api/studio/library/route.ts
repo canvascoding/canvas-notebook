@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [products, personas, generations] = await Promise.all([
+    const [products, personas, generationResult] = await Promise.all([
       listProducts(session.user.id),
       listPersonas(session.user.id),
       listStudioGenerations(session.user.id),
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       products,
       personas,
       presets,
-      generations,
+      generations: generationResult.generations,
     });
   } catch (error) {
     console.error('[Studio Library] Error:', error);
