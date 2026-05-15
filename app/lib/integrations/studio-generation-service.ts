@@ -17,7 +17,7 @@ import {
   studioGenerationPersonas,
   studioGenerationStyles,
 } from '@/app/lib/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, count } from 'drizzle-orm';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import {
@@ -1158,11 +1158,34 @@ async function generateStudioSeedanceVideo(
   }];
 }
 
-export async function listStudioGenerations(userId: string) {
-  const generations = await db.select()
+export interface ListStudioGenerationsOptions {
+  limit?: number;
+  offset?: number;
+}
+
+export async function listStudioGenerations(userId: string, options: ListStudioGenerationsOptions = {}) {
+  const limit = options.limit && options.limit > 0 ? options.limit : undefined;
+  const offset = options.offset && options.offset > 0 ? options.offset : undefined;
+
+  let query = db.select()
     .from(studioGenerations)
     .where(eq(studioGenerations.userId, userId))
-    .orderBy(desc(studioGenerations.createdAt));
+    .orderBy(desc(studioGenerations.createdAt))
+    .$dynamic();
+
+  if (limit) {
+    query = query.limit(limit);
+  }
+  if (offset) {
+    query = query.offset(offset);
+  }
+
+  const [generations, totalResult] = await Promise.all([
+    query,
+    db.select({ count: count() })
+      .from(studioGenerations)
+      .where(eq(studioGenerations.userId, userId)),
+  ]);
 
   const results = await Promise.all(generations.map(async (gen) => {
     const outputs = await db.select()
@@ -1193,7 +1216,13 @@ export async function listStudioGenerations(userId: string) {
     };
   }));
 
-  return results;
+  return {
+    generations: results,
+    total: totalResult[0]?.count ?? results.length,
+    limit: limit ?? null,
+    offset: offset ?? 0,
+    hasMore: typeof limit === 'number' ? (offset ?? 0) + results.length < (totalResult[0]?.count ?? results.length) : false,
+  };
 }
 
 export async function getStudioGeneration(generationId: string, userId: string) {

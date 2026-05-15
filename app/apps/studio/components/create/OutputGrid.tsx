@@ -5,6 +5,7 @@ import type { StudioGeneration, StudioGenerationOutput } from '../../types/gener
 import { OutputErrorCard } from './OutputErrorCard';
 import { OutputProcessingSkeleton } from './OutputProcessingSkeleton';
 import { OutputThumbnail } from './OutputThumbnail';
+import { Button } from '@/components/ui/button';
 
 export type OutputMediaFilter = 'all' | 'image' | 'video' | 'favorites' | 'generating' | 'failed';
 export type OutputDateFilter = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'older';
@@ -19,7 +20,10 @@ interface OutputGridProps {
   sortOrder?: OutputSortOrder;
   selectionEnabled?: boolean;
   selectedOutputIds?: string[];
+  hasMoreGenerations?: boolean;
+  loadingMoreGenerations?: boolean;
   onToggleSelectOutput?: (outputId: string, selected: boolean) => void;
+  onLoadMoreGenerations?: () => void;
   onOutputOpen: (selection: { generation: StudioGeneration; output: StudioGenerationOutput }) => void;
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
@@ -37,7 +41,10 @@ export function OutputGrid({
   sortOrder = 'newest',
   selectionEnabled = false,
   selectedOutputIds = [],
+  hasMoreGenerations = false,
+  loadingMoreGenerations = false,
   onToggleSelectOutput,
+  onLoadMoreGenerations,
   onOutputOpen,
   onToggleFavorite,
   onCreateVariation,
@@ -246,6 +253,19 @@ export function OutputGrid({
           </div>
         </section>
       ))}
+
+      {hasMoreGenerations ? (
+        <div className="flex justify-center py-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onLoadMoreGenerations}
+            disabled={loadingMoreGenerations}
+          >
+            {loadingMoreGenerations ? 'Loading...' : 'Load more'}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

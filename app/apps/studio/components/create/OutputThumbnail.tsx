@@ -94,6 +94,8 @@ export const OutputThumbnail = memo(function OutputThumbnail({
                 className="h-full w-full object-cover"
                 src={toPreviewUrl(filePath, 400)}
                 alt={filePath}
+                loading="lazy"
+                decoding="async"
               />
               <div className="absolute inset-0 flex items-center justify-center bg-black/25">
                 <Play className="h-10 w-10 text-white fill-white/90 drop-shadow-lg" />
@@ -102,8 +104,10 @@ export const OutputThumbnail = memo(function OutputThumbnail({
           ) : (
             <img
               className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-              src={mediaUrl}
+              src={toPreviewUrl(filePath, 400, { preset: 'mini' })}
               alt={filePath}
+              loading="lazy"
+              decoding="async"
             />
           )
         ) : (
