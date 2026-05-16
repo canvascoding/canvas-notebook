@@ -22,6 +22,7 @@ async function main() {
   await fs.writeFile(path.join(tempRoot, 'secrets', 'Canvas-Agents.env'), '', 'utf8');
 
   const { writeMcpConfigRaw } = await import('../app/lib/mcp/config');
+  const { closeAllMcpServers } = await import('../app/lib/mcp/manager');
   const { createMcpProxyTool } = await import('../app/lib/mcp/proxy-tool');
 
   await writeMcpConfigRaw(JSON.stringify({
@@ -105,6 +106,7 @@ async function main() {
   assert.match(getText(missingEnv), /^Error: Missing MCP environment variable/);
   assert.match(getText(missingEnv), /settings\?tab=integrations/);
 
+  await closeAllMcpServers();
   console.log('mcp-proxy-test: ok');
 }
 
