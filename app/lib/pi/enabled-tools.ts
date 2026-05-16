@@ -7,6 +7,7 @@ const LEGACY_TOOL_NAMES = new Set(['filesystem', 'terminal', 'web-search']);
  * They can be explicitly enabled in the Agent Settings panel.
  */
 export const DISABLED_BY_DEFAULT_TOOL_NAMES = new Set<string>([
+  'mcp',
 ]);
 
 function normalizeToolNames(toolNames: Iterable<string>): string[] {
