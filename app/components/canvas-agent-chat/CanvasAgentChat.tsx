@@ -1607,6 +1607,32 @@ export default function CanvasAgentChat({
     ]);
   }, []);
 
+  const resolveNewSessionSelection = useCallback(() => {
+    const configProvider = agentConfig?.piConfig?.activeProvider;
+    const configProviderSettings = configProvider ? agentConfig?.piConfig?.providers?.[configProvider] : undefined;
+
+    if (
+      configProvider &&
+      configProviderSettings?.model &&
+      (activeProvider === 'pi' || activeProvider === configProvider)
+    ) {
+      const configModels = agentConfig?.discovery?.[configProvider]?.models || [];
+      const activeModelIsValidForProvider = configModels.some((model) => model.id === activeModel);
+
+      return {
+        provider: configProvider,
+        model: activeModelIsValidForProvider ? activeModel : configProviderSettings.model,
+        thinkingLevel: activeModelIsValidForProvider ? activeThinkingLevel : (configProviderSettings.thinking || DEFAULT_THINKING_LEVEL),
+      };
+    }
+
+    return {
+      provider: activeProvider,
+      model: activeModel,
+      thinkingLevel: activeThinkingLevel,
+    };
+  }, [activeModel, activeProvider, activeThinkingLevel, agentConfig]);
+
   const appendCompactionBreak = useCallback((kind: 'manual' | 'automatic', timestamp: string, omittedMessageCount: number) => {
     if (lastCompactionMarkerRef.current === timestamp) {
       return;
@@ -1724,12 +1750,14 @@ export default function CanvasAgentChat({
       return sessionIdRef.current;
     }
 
+    const sessionSelection = resolveNewSessionSelection();
+
     const createSessionResponse = await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: activeModel,
-        thinkingLevel: activeThinkingLevel,
+        model: sessionSelection.model,
+        thinkingLevel: sessionSelection.thinkingLevel,
       }),
     });
 
@@ -1739,7 +1767,14 @@ export default function CanvasAgentChat({
     }
 
     const nextSessionId = createSessionPayload.session.sessionId as string;
+    const createdProvider = createSessionPayload.session.provider || sessionSelection.provider;
+    const createdModel = createSessionPayload.session.model || sessionSelection.model;
+    const createdThinkingLevel = createSessionPayload.session.thinkingLevel || sessionSelection.thinkingLevel;
+
     setSessionId(nextSessionId);
+    setActiveProvider(createdProvider);
+    setActiveModel(createdModel);
+    setActiveThinkingLevel(createdThinkingLevel);
 
     const tempTitle = getOptimisticSessionTitle(preferredTitle ?? input, createSessionPayload.session.title || t('newChatTitle'));
     setSessionTitle(tempTitle);
@@ -1762,9 +1797,9 @@ export default function CanvasAgentChat({
       id: Date.now(), // temporary id for local state
       sessionId: nextSessionId,
       title: tempTitle,
-      model: createSessionPayload.session.model || activeModel,
-      provider: createSessionPayload.session.provider || activeProvider,
-      thinkingLevel: createSessionPayload.session.thinkingLevel || activeThinkingLevel,
+      model: createdModel,
+      provider: createdProvider,
+      thinkingLevel: createdThinkingLevel,
       createdAt: new Date().toISOString(),
       engine: createSessionPayload.session.engine || 'pi',
       lastMessageAt: new Date().toISOString(),
@@ -1792,7 +1827,7 @@ export default function CanvasAgentChat({
     // No need to subscribe here manually to avoid double subscription
 
     return nextSessionId;
-  }, [input, t, activeModel, activeProvider, activeThinkingLevel]);
+  }, [input, resolveNewSessionSelection, t]);
 
   // Helper function to format tool arguments
   const formatToolArgs = useCallback((args: unknown): string => {
