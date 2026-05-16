@@ -9,6 +9,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { readMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
+import { getValidMcpAccessToken } from '@/app/lib/mcp/oauth';
 import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -201,7 +202,14 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   if (entry.transport === 'http') {
     const url = entry.config.url?.trim();
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
-    await withTimeout(client.connect(new StreamableHTTPClientTransport(new URL(url))), timeoutMs, signal);
+    const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash);
+    await withTimeout(client.connect(new StreamableHTTPClientTransport(new URL(url), accessToken ? {
+      requestInit: {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    } : undefined)), timeoutMs, signal);
     return client;
   }
 

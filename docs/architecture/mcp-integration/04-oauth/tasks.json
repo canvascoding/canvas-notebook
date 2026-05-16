@@ -8,81 +8,170 @@
       "id": "mcp-04-01",
       "title": "Add OAuth foundation",
       "description": "Follow the Pi MCP adapter and official SDK patterns for PKCE, discovery, Dynamic Client Registration, and proxy auth actions.",
-      "status": "pending",
-      "planRefs": ["plan.md:7", "plan.md:9", "plan.md:10", "plan.md:11", "plan.md:12", "plan.md:14"],
-      "dependencies": ["mcp-03-10"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:7",
+        "plan.md:9",
+        "plan.md:10",
+        "plan.md:11",
+        "plan.md:12",
+        "plan.md:14"
+      ],
+      "dependencies": [
+        "mcp-03-10"
+      ]
     },
     {
       "id": "mcp-04-02",
       "title": "Implement secure token storage",
       "description": "Store per-server token and client metadata outside mcp.json under /data/canvas-agent/mcp-oauth with strict permissions.",
-      "status": "pending",
-      "planRefs": ["plan.md:17", "plan.md:19", "plan.md:21", "plan.md:22", "plan.md:23", "plan.md:24", "plan.md:26", "plan.md:27"],
-      "dependencies": ["mcp-04-01"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:17",
+        "plan.md:19",
+        "plan.md:21",
+        "plan.md:22",
+        "plan.md:23",
+        "plan.md:24",
+        "plan.md:26",
+        "plan.md:27"
+      ],
+      "dependencies": [
+        "mcp-04-01"
+      ]
     },
     {
       "id": "mcp-04-03",
       "title": "Bind tokens to server config",
       "description": "Persist server identity, config hash, client metadata, scopes, and expiry so changed server configs require re-auth.",
-      "status": "pending",
-      "planRefs": ["plan.md:29", "plan.md:31", "plan.md:34", "plan.md:39", "plan.md:41"],
-      "dependencies": ["mcp-04-02"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:29",
+        "plan.md:31",
+        "plan.md:34",
+        "plan.md:39",
+        "plan.md:41"
+      ],
+      "dependencies": [
+        "mcp-04-02"
+      ]
     },
     {
       "id": "mcp-04-04",
       "title": "Add OAuth callback route",
       "description": "Implement a Next.js callback route on the existing app server and construct redirect URIs from BASE_URL or request origin.",
-      "status": "pending",
-      "planRefs": ["plan.md:43", "plan.md:45", "plan.md:47", "plan.md:48", "plan.md:49", "plan.md:51"],
-      "dependencies": ["mcp-04-02"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:43",
+        "plan.md:45",
+        "plan.md:47",
+        "plan.md:48",
+        "plan.md:49",
+        "plan.md:51"
+      ],
+      "dependencies": [
+        "mcp-04-02"
+      ]
     },
     {
       "id": "mcp-04-05",
       "title": "Add proxy auth actions",
       "description": "Expose auth_status, auth_start, auth_finish if needed, and auth_clear through the mcp proxy tool.",
-      "status": "pending",
-      "planRefs": ["plan.md:53", "plan.md:55", "plan.md:57", "plan.md:58", "plan.md:59", "plan.md:60", "plan.md:62", "plan.md:63"],
-      "dependencies": ["mcp-04-04"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:53",
+        "plan.md:55",
+        "plan.md:57",
+        "plan.md:58",
+        "plan.md:59",
+        "plan.md:60",
+        "plan.md:62",
+        "plan.md:63"
+      ],
+      "dependencies": [
+        "mcp-04-04"
+      ]
     },
     {
       "id": "mcp-04-06",
       "title": "Implement token refresh",
       "description": "Refresh tokens before OAuth MCP calls, persist refreshed tokens atomically, and require re-auth when refresh fails.",
-      "status": "pending",
-      "planRefs": ["plan.md:65", "plan.md:67", "plan.md:69", "plan.md:70", "plan.md:71", "plan.md:72", "plan.md:74"],
-      "dependencies": ["mcp-04-03"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:65",
+        "plan.md:67",
+        "plan.md:69",
+        "plan.md:70",
+        "plan.md:71",
+        "plan.md:72",
+        "plan.md:74"
+      ],
+      "dependencies": [
+        "mcp-04-03"
+      ]
     },
     {
       "id": "mcp-04-07",
       "title": "Apply OAuth security requirements",
       "description": "Keep access tokens out of mcp.json, model content, and logs; validate state; and store short-lived auth state server-side.",
-      "status": "pending",
-      "planRefs": ["plan.md:76", "plan.md:78", "plan.md:79", "plan.md:80", "plan.md:81", "plan.md:82"],
-      "dependencies": ["mcp-04-05", "mcp-04-06"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:76",
+        "plan.md:78",
+        "plan.md:79",
+        "plan.md:80",
+        "plan.md:81",
+        "plan.md:82"
+      ],
+      "dependencies": [
+        "mcp-04-05",
+        "mcp-04-06"
+      ]
     },
     {
       "id": "mcp-04-08",
       "title": "Limit Settings impact",
       "description": "Keep raw JSON as source of truth and only add minimal auth status or clear controls if needed.",
-      "status": "pending",
-      "planRefs": ["plan.md:84", "plan.md:86", "plan.md:87", "plan.md:88"],
-      "dependencies": ["mcp-04-07"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:84",
+        "plan.md:86",
+        "plan.md:87",
+        "plan.md:88"
+      ],
+      "dependencies": [
+        "mcp-04-07"
+      ]
     },
     {
       "id": "mcp-04-09",
       "title": "Add OAuth tests",
       "description": "Cover PKCE state, callback validation, token permissions, refresh success and failure, and config hash mismatch.",
-      "status": "pending",
-      "planRefs": ["plan.md:90", "plan.md:92", "plan.md:95", "plan.md:100"],
-      "dependencies": ["mcp-04-07"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:90",
+        "plan.md:92",
+        "plan.md:95",
+        "plan.md:100"
+      ],
+      "dependencies": [
+        "mcp-04-07"
+      ]
     },
     {
       "id": "mcp-04-10",
       "title": "Verify Step 4 implementation",
       "description": "Run npm build and browser checks if Settings auth controls are added.",
-      "status": "pending",
-      "planRefs": ["plan.md:102", "plan.md:103", "plan.md:105", "plan.md:107"],
-      "dependencies": ["mcp-04-09"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:102",
+        "plan.md:103",
+        "plan.md:105",
+        "plan.md:107"
+      ],
+      "dependencies": [
+        "mcp-04-09"
+      ]
     }
   ]
 }
