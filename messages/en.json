@@ -952,6 +952,18 @@
         "saveEnvFile": "Failed to save env file."
       }
     },
+    "mcpConfig": {
+      "title": "MCP Configuration",
+      "description": "Configure Model Context Protocol servers for the agent.",
+      "loading": "Loading MCP configuration...",
+      "secretNote": "Do not paste API keys or OAuth tokens here. Reference environment variables managed in this tab instead.",
+      "save": "Save MCP config",
+      "saved": "MCP configuration saved.",
+      "errors": {
+        "load": "Failed to load MCP configuration.",
+        "save": "Failed to save MCP configuration."
+      }
+    },
     "connectedApps": {
       "title": "Connected Apps",
       "description": "Connect external apps via Composio to give your agent access to 500+ integrations.",

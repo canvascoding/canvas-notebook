@@ -12,6 +12,7 @@ import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSetti
 import { ConnectedAppsPanel } from '@/app/components/settings/ConnectedAppsPanel';
 import { ChannelsPanel } from '@/app/components/settings/ChannelsPanel';
 import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
+import { CodeEditor } from '@/app/components/editor/CodeEditor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -54,6 +55,21 @@ type ScopeEditorState = {
   secretVisibilityById: Record<string, boolean>;
 };
 
+type McpConfigState = {
+  path: string;
+  exists: boolean;
+  rawContent: string;
+};
+
+type McpEditorState = {
+  state: McpConfigState | null;
+  rawContent: string;
+  isLoading: boolean;
+  isSaving: boolean;
+  error: string | null;
+  success: string | null;
+};
+
 type ScopeCardConfig = {
   scope: EnvScope;
   emptyPath: string;
@@ -76,6 +92,15 @@ const INITIAL_SCOPE_STATE = (scope: EnvScope): ScopeEditorState => ({
   success: null,
   secretVisibilityById: {},
 });
+
+const INITIAL_MCP_STATE: McpEditorState = {
+  state: null,
+  rawContent: '',
+  isLoading: true,
+  isSaving: false,
+  error: null,
+  success: null,
+};
 
 const SCOPE_CARDS: ScopeCardConfig[] = [
   {
@@ -310,6 +335,71 @@ function EnvEditorCard(props: {
   );
 }
 
+function McpConfigCard(props: {
+  editor: McpEditorState;
+  onLoad: () => Promise<void>;
+  onRawChange: (value: string) => void;
+  onSave: () => Promise<void>;
+}) {
+  const t = useTranslations('settings');
+  const { editor, onLoad, onRawChange, onSave } = props;
+
+  return (
+    <Card id="onboarding-settings-mcp-config">
+      <CardHeader className="px-4 sm:px-6">
+        <CardTitle>{t('mcpConfig.title')}</CardTitle>
+        <CardDescription>
+          {t('mcpConfig.description')} {t('envCard.fileLocatedAt')}{' '}
+          <span className="break-all font-mono">{editor.state?.path || '/data/canvas-agent/mcp.json'}</span>.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
+        {editor.isLoading ? (
+          <div className="flex items-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {t('mcpConfig.loading')}
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{t('envCard.fileLabel')}: mcp.json</span>
+              <span>•</span>
+              <span>{t('envCard.formatLabel')}: JSON</span>
+              <span>•</span>
+              <span>{t('envCard.permissionsLabel')}: 0600</span>
+            </div>
+
+            <p className="text-sm text-muted-foreground">{t('mcpConfig.secretNote')}</p>
+
+            {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
+            {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
+
+            <div className="h-[420px] overflow-hidden rounded-md border border-input bg-background">
+              <CodeEditor
+                value={editor.rawContent}
+                onChange={onRawChange}
+                path="mcp.json"
+                readOnly={editor.isSaving}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => void onSave()} disabled={editor.isSaving || editor.isLoading}>
+                {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {t('mcpConfig.save')}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => void onLoad()} disabled={editor.isSaving}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                {t('envCard.reload')}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function IntegrationsSettingsClient({ isAdmin = false, userName = '', userEmail = '' }: { isAdmin?: boolean; userName?: string; userEmail?: string }) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
@@ -325,6 +415,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
     integrations: INITIAL_SCOPE_STATE('integrations'),
     agents: INITIAL_SCOPE_STATE('agents'),
   });
+  const [mcpEditor, setMcpEditor] = useState<McpEditorState>(INITIAL_MCP_STATE);
 
   const loadState = useCallback(async (scope: EnvScope) => {
     setEditors((current) => ({
@@ -374,11 +465,50 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
     }
   }, [t]);
 
+  const loadMcpConfig = useCallback(async () => {
+    setMcpEditor((current) => ({
+      ...current,
+      isLoading: true,
+      error: null,
+    }));
+
+    try {
+      const response = await fetch('/api/integrations/mcp-config', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('mcpConfig.errors.load'));
+      }
+
+      const nextState: McpConfigState = payload.data;
+      setMcpEditor((current) => ({
+        ...current,
+        state: nextState,
+        rawContent: nextState.rawContent,
+        isLoading: false,
+        error: null,
+        success: null,
+      }));
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : t('mcpConfig.errors.load');
+      setMcpEditor((current) => ({
+        ...current,
+        isLoading: false,
+        error: message,
+      }));
+    }
+  }, [t]);
+
   useEffect(() => {
     startTransition(() => {
-      void Promise.all(SCOPE_CARDS.map((card) => loadState(card.scope)));
+      void Promise.all([
+        ...SCOPE_CARDS.map((card) => loadState(card.scope)),
+        loadMcpConfig(),
+      ]);
     });
-  }, [loadState]);
+  }, [loadMcpConfig, loadState]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -449,6 +579,47 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
           isSaving: false,
           error: message,
         },
+      }));
+    }
+  };
+
+  const saveMcpConfig = async () => {
+    setMcpEditor((current) => ({
+      ...current,
+      isSaving: true,
+      error: null,
+      success: null,
+    }));
+
+    try {
+      const response = await fetch('/api/integrations/mcp-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          rawContent: mcpEditor.rawContent,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || t('mcpConfig.errors.save'));
+      }
+
+      const nextState: McpConfigState = result.data;
+      setMcpEditor((current) => ({
+        ...current,
+        state: nextState,
+        rawContent: nextState.rawContent,
+        isSaving: false,
+        error: null,
+        success: t('mcpConfig.saved'),
+      }));
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : t('mcpConfig.errors.save');
+      setMcpEditor((current) => ({
+        ...current,
+        isSaving: false,
+        error: message,
       }));
     }
   };
@@ -562,6 +733,13 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
     });
   };
 
+  const setMcpRawContent = (value: string) => {
+    setMcpEditor((current) => ({
+      ...current,
+      rawContent: value,
+    }));
+  };
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
       <Tabs
@@ -599,6 +777,12 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
 
         <TabsContent value="integrations" className="space-y-4" id="onboarding-settings-integrations">
           <ConnectedAppsPanel />
+          <McpConfigCard
+            editor={mcpEditor}
+            onLoad={loadMcpConfig}
+            onRawChange={setMcpRawContent}
+            onSave={saveMcpConfig}
+          />
           {SCOPE_CARDS.map((card) => (
             <EnvEditorCard
               key={card.scope}
