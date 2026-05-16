@@ -9,6 +9,7 @@ import {
   listMcpTools,
   startMcpIdleCleanup,
 } from '@/app/lib/mcp/manager';
+import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth } from '@/app/lib/mcp/oauth';
 
 type McpAction =
   | 'list_servers'
@@ -16,7 +17,10 @@ type McpAction =
   | 'list_tools'
   | 'search_tools'
   | 'describe_tool'
-  | 'call_tool';
+  | 'call_tool'
+  | 'auth_status'
+  | 'auth_start'
+  | 'auth_clear';
 
 type McpProxyParams = {
   action: McpAction;
@@ -208,6 +212,34 @@ async function handleCallTool(
   );
 }
 
+async function handleAuthStatus(serverName: string): Promise<AgentToolResult<unknown>> {
+  const status = await getMcpOAuthStatus(serverName);
+  return textResult(
+    status.authorized
+      ? `MCP server "${serverName}" is authorized${status.expiresAt ? ` until ${status.expiresAt}` : ''}.`
+      : `MCP server "${serverName}" is not authorized${status.reason ? `: ${status.reason}` : '.'}`,
+    status,
+  );
+}
+
+async function handleAuthStart(serverName: string): Promise<AgentToolResult<unknown>> {
+  const started = await startMcpOAuth(serverName);
+  return textResult(
+    [
+      `Open this URL to authorize MCP server "${serverName}":`,
+      started.authorizationUrl,
+      '',
+      `Redirect URI: ${started.redirectUri}`,
+    ].join('\n'),
+    { server: serverName, ...started },
+  );
+}
+
+async function handleAuthClear(serverName: string): Promise<AgentToolResult<unknown>> {
+  await clearMcpOAuth(serverName);
+  return textResult(`OAuth credentials cleared for MCP server "${serverName}".`, { server: serverName, cleared: true });
+}
+
 export function createMcpProxyTool(): AgentTool {
   startMcpIdleCleanup();
 
@@ -224,6 +256,9 @@ export function createMcpProxyTool(): AgentTool {
         Type.Literal('search_tools'),
         Type.Literal('describe_tool'),
         Type.Literal('call_tool'),
+        Type.Literal('auth_status'),
+        Type.Literal('auth_start'),
+        Type.Literal('auth_clear'),
       ], { description: 'MCP proxy action to perform.' }),
       server: Type.Optional(Type.String({ description: 'Configured MCP server name.' })),
       query: Type.Optional(Type.String({ description: 'Search query for search_tools.' })),
@@ -259,6 +294,21 @@ export function createMcpProxyTool(): AgentTool {
             if (!server) throw new Error('call_tool requires server.');
             if (!tool) throw new Error('call_tool requires tool.');
             return await handleCallTool(server, tool, p.arguments || {}, signal);
+          }
+          case 'auth_status': {
+            const server = normalizeServerName(p.server);
+            if (!server) throw new Error('auth_status requires server.');
+            return await handleAuthStatus(server);
+          }
+          case 'auth_start': {
+            const server = normalizeServerName(p.server);
+            if (!server) throw new Error('auth_start requires server.');
+            return await handleAuthStart(server);
+          }
+          case 'auth_clear': {
+            const server = normalizeServerName(p.server);
+            if (!server) throw new Error('auth_clear requires server.');
+            return await handleAuthClear(server);
           }
           default:
             return errorResult(`Unsupported MCP action "${String((p as { action?: unknown }).action)}".`);
