@@ -63,11 +63,42 @@ type McpConfigState = {
 
 type McpEditorState = {
   state: McpConfigState | null;
+  status: McpStatusState | null;
   rawContent: string;
   isLoading: boolean;
   isSaving: boolean;
+  isStatusLoading: boolean;
   error: string | null;
   success: string | null;
+};
+
+type McpStatusState = {
+  servers: Array<{
+    name: string;
+    transport: string;
+    connected: boolean;
+    activeCalls: number;
+    cachedToolCount: number;
+    cacheRefreshedAt: string | null;
+    lastError: string | null;
+  }>;
+  directTools: Array<{
+    name: string;
+    label: string;
+    description: string;
+  }>;
+  warnings: Array<{
+    server: string;
+    tool?: string;
+    message: string;
+  }>;
+  oauth: Array<{
+    serverName: string;
+    authorized: boolean;
+    requiresAuth: boolean;
+    expiresAt: string | null;
+    reason?: string;
+  }>;
 };
 
 type ScopeCardConfig = {
@@ -95,9 +126,11 @@ const INITIAL_SCOPE_STATE = (scope: EnvScope): ScopeEditorState => ({
 
 const INITIAL_MCP_STATE: McpEditorState = {
   state: null,
+  status: null,
   rawContent: '',
   isLoading: true,
   isSaving: false,
+  isStatusLoading: false,
   error: null,
   success: null,
 };
@@ -338,11 +371,12 @@ function EnvEditorCard(props: {
 function McpConfigCard(props: {
   editor: McpEditorState;
   onLoad: () => Promise<void>;
+  onLoadStatus: () => Promise<void>;
   onRawChange: (value: string) => void;
   onSave: () => Promise<void>;
 }) {
   const t = useTranslations('settings');
-  const { editor, onLoad, onRawChange, onSave } = props;
+  const { editor, onLoad, onLoadStatus, onRawChange, onSave } = props;
 
   return (
     <Card id="onboarding-settings-mcp-config">
@@ -373,6 +407,60 @@ function McpConfigCard(props: {
 
             {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
             {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
+
+            <div className="rounded-md border border-border bg-muted/20 p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-medium">{t('mcpConfig.statusTitle')}</h3>
+                <Button type="button" variant="outline" size="sm" onClick={() => void onLoadStatus()} disabled={editor.isStatusLoading || editor.isSaving}>
+                  {editor.isStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  {t('mcpConfig.refreshStatus')}
+                </Button>
+              </div>
+              {!editor.status || editor.status.servers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('mcpConfig.noServers')}</p>
+              ) : (
+                <div className="space-y-2">
+                  {editor.status.servers.map((server) => {
+                    const oauth = editor.status?.oauth.find((entry) => entry.serverName === server.name);
+                    return (
+                      <div key={server.name} className="rounded-md border border-border bg-background p-3 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{server.name}</span>
+                          <span className="text-muted-foreground">{server.transport}</span>
+                          <span className={server.connected ? 'text-primary' : 'text-muted-foreground'}>
+                            {server.connected ? t('mcpConfig.connected') : t('mcpConfig.disconnected')}
+                          </span>
+                          {oauth?.requiresAuth && (
+                            <span className={oauth.authorized ? 'text-primary' : 'text-destructive'}>
+                              {oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {t('mcpConfig.cachedTools')}: {server.cachedToolCount}
+                          {server.activeCalls > 0 ? ` · ${t('mcpConfig.activeCalls')}: ${server.activeCalls}` : ''}
+                          {server.lastError ? ` · ${t('mcpConfig.lastError')}: ${server.lastError}` : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {editor.status?.directTools && editor.status.directTools.length > 0 && (
+                <div className="mt-3 text-xs text-muted-foreground">
+                  {t('mcpConfig.directTools')}: {editor.status.directTools.map((tool) => tool.name).join(', ')}
+                </div>
+              )}
+              {editor.status?.warnings && editor.status.warnings.length > 0 && (
+                <div className="mt-3 space-y-1 text-xs text-destructive">
+                  {editor.status.warnings.map((warning, index) => (
+                    <p key={`${warning.server}-${warning.tool || 'server'}-${index}`}>
+                      {warning.server}{warning.tool ? `.${warning.tool}` : ''}: {warning.message}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="h-[420px] overflow-hidden rounded-md border border-input bg-background">
               <CodeEditor
@@ -501,14 +589,45 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
     }
   }, [t]);
 
+  const loadMcpStatus = useCallback(async () => {
+    setMcpEditor((current) => ({
+      ...current,
+      isStatusLoading: true,
+    }));
+
+    try {
+      const response = await fetch('/api/integrations/mcp-status', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('mcpConfig.errors.status'));
+      }
+      setMcpEditor((current) => ({
+        ...current,
+        status: payload.data,
+        isStatusLoading: false,
+      }));
+    } catch (statusError) {
+      const message = statusError instanceof Error ? statusError.message : t('mcpConfig.errors.status');
+      setMcpEditor((current) => ({
+        ...current,
+        isStatusLoading: false,
+        error: message,
+      }));
+    }
+  }, [t]);
+
   useEffect(() => {
     startTransition(() => {
       void Promise.all([
         ...SCOPE_CARDS.map((card) => loadState(card.scope)),
         loadMcpConfig(),
+        loadMcpStatus(),
       ]);
     });
-  }, [loadMcpConfig, loadState]);
+  }, [loadMcpConfig, loadMcpStatus, loadState]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -614,6 +733,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         error: null,
         success: t('mcpConfig.saved'),
       }));
+      void loadMcpStatus();
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : t('mcpConfig.errors.save');
       setMcpEditor((current) => ({
@@ -780,6 +900,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
           <McpConfigCard
             editor={mcpEditor}
             onLoad={loadMcpConfig}
+            onLoadStatus={loadMcpStatus}
             onRawChange={setMcpRawContent}
             onSave={saveMcpConfig}
           />

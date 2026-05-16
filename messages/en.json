@@ -957,11 +957,23 @@
       "description": "Configure Model Context Protocol servers for the agent.",
       "loading": "Loading MCP configuration...",
       "secretNote": "Do not paste API keys or OAuth tokens here. Reference environment variables managed in this tab instead.",
+      "statusTitle": "Configured servers",
+      "refreshStatus": "Refresh status",
+      "noServers": "No MCP servers configured.",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "oauthAuthorized": "OAuth authorized",
+      "oauthRequired": "OAuth required",
+      "cachedTools": "Cached tools",
+      "activeCalls": "Active calls",
+      "lastError": "Last error",
+      "directTools": "Direct tools",
       "save": "Save MCP config",
       "saved": "MCP configuration saved.",
       "errors": {
         "load": "Failed to load MCP configuration.",
-        "save": "Failed to save MCP configuration."
+        "save": "Failed to save MCP configuration.",
+        "status": "Failed to load MCP status."
       }
     },
     "connectedApps": {

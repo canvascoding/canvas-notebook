@@ -956,11 +956,23 @@
       "description": "Konfiguriere Model-Context-Protocol-Server für den Agenten.",
       "loading": "Lade MCP-Konfiguration...",
       "secretNote": "Füge hier keine API-Keys oder OAuth-Tokens ein. Referenziere stattdessen Umgebungsvariablen, die in diesem Tab verwaltet werden.",
+      "statusTitle": "Konfigurierte Server",
+      "refreshStatus": "Status aktualisieren",
+      "noServers": "Keine MCP-Server konfiguriert.",
+      "connected": "Verbunden",
+      "disconnected": "Getrennt",
+      "oauthAuthorized": "OAuth autorisiert",
+      "oauthRequired": "OAuth erforderlich",
+      "cachedTools": "Gecachte Tools",
+      "activeCalls": "Aktive Aufrufe",
+      "lastError": "Letzter Fehler",
+      "directTools": "Direkte Tools",
       "save": "MCP-Konfiguration speichern",
       "saved": "MCP-Konfiguration gespeichert.",
       "errors": {
         "load": "MCP-Konfiguration konnte nicht geladen werden.",
-        "save": "MCP-Konfiguration konnte nicht gespeichert werden."
+        "save": "MCP-Konfiguration konnte nicht gespeichert werden.",
+        "status": "MCP-Status konnte nicht geladen werden."
       }
     },
     "connectedApps": {
