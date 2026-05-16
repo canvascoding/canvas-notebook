@@ -18,6 +18,27 @@ export interface McpConfigState {
   rawContent: string;
 }
 
+export type McpServerConfig = {
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  transport?: string;
+  timeoutMs?: number;
+  [key: string]: unknown;
+};
+
+export type McpConfig = {
+  settings?: {
+    toolPrefix?: string;
+    idleTimeout?: number;
+    [key: string]: unknown;
+  };
+  mcpServers: Record<string, McpServerConfig>;
+  [key: string]: unknown;
+};
+
 export class McpConfigValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -41,7 +62,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-export function parseAndValidateMcpConfig(rawContent: string): unknown {
+export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
   let parsed: unknown;
 
   try {
@@ -83,7 +104,7 @@ export function parseAndValidateMcpConfig(rawContent: string): unknown {
     }
   }
 
-  return parsed;
+  return parsed as McpConfig;
 }
 
 export async function ensureMcpConfigExists(): Promise<{ filePath: string; created: boolean }> {
@@ -127,6 +148,11 @@ export async function readMcpConfigState(): Promise<McpConfigState> {
     exists: !created,
     rawContent,
   };
+}
+
+export async function readMcpConfig(): Promise<McpConfig> {
+  const state = await readMcpConfigState();
+  return parseAndValidateMcpConfig(state.rawContent);
 }
 
 export async function writeMcpConfigRaw(rawContent: string): Promise<McpConfigState> {

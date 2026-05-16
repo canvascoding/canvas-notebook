@@ -56,6 +56,7 @@ import {
   studioPresets,
 } from '@/app/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 
 
 const execAsync = promisify(exec);
@@ -977,6 +978,7 @@ export function createRipgrepTool(): AgentTool {
  */
 
 export const piTools: AgentTool[] = [
+  createMcpProxyTool(),
   createWebFetchTool(),
   createRipgrepTool(),
   {
@@ -1186,7 +1188,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP';
 
 export type PiToolMetadata = {
   name: string;
@@ -1437,6 +1439,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
 }
 
 function getToolGroup(toolName: string): PiToolGroup {
+  if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
   if (toolName.startsWith('studio_')) return 'Studio';
   if (toolName.includes('automation_job')) return 'Automation';
   if (toolName.startsWith('COMPOSIO_') || toolName === 'composio_execute') return 'Composio';
@@ -1494,6 +1497,9 @@ if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
   }
   if (group === 'Composio') {
     notes.push('May call external apps via Composio. Requires COMPOSIO_API_KEY and connected app accounts.');
+  }
+  if (group === 'MCP') {
+    notes.push('May start configured MCP servers and call external tools. Requires /data/canvas-agent/mcp.json.');
   }
 
   return notes.length > 0 ? notes : ['Read-only or low-side-effect utility under normal use.'];
