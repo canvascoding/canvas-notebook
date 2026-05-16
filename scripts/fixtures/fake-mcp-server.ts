@@ -1,6 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { appendFileSync } from 'node:fs';
+
+if (process.env.MCP_START_FILE) {
+  appendFileSync(process.env.MCP_START_FILE, `${Date.now()}\n`, 'utf8');
+}
 
 const server = new McpServer({
   name: 'canvas-fake-mcp-server',

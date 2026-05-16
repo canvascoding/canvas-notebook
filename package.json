@@ -18,6 +18,7 @@
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts",
     "test:mcp:config": "tsx scripts/mcp-config-test.ts",
     "test:mcp:proxy": "tsx scripts/mcp-proxy-test.ts",
+    "test:mcp:manager": "tsx scripts/mcp-manager-test.ts",
     "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
     "test:browser-start": "node scripts/browser-start-test.mjs",
