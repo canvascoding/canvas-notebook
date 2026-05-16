@@ -951,6 +951,18 @@
         "saveEnvFile": "Env-Datei konnte nicht gespeichert werden."
       }
     },
+    "mcpConfig": {
+      "title": "MCP-Konfiguration",
+      "description": "Konfiguriere Model-Context-Protocol-Server für den Agenten.",
+      "loading": "Lade MCP-Konfiguration...",
+      "secretNote": "Füge hier keine API-Keys oder OAuth-Tokens ein. Referenziere stattdessen Umgebungsvariablen, die in diesem Tab verwaltet werden.",
+      "save": "MCP-Konfiguration speichern",
+      "saved": "MCP-Konfiguration gespeichert.",
+      "errors": {
+        "load": "MCP-Konfiguration konnte nicht geladen werden.",
+        "save": "MCP-Konfiguration konnte nicht gespeichert werden."
+      }
+    },
     "connectedApps": {
       "title": "Verbundene Apps",
       "description": "Verbinde externe Apps über Composio, um dem Agenten Zugang zu 500+ Integrationen zu geben.",

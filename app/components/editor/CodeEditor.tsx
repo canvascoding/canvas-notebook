@@ -22,6 +22,7 @@ interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   readOnly?: boolean;
+  path?: string;
 }
 
 // Get CodeMirror language extension based on file path
@@ -87,12 +88,13 @@ function getLanguageExtension(path: string) {
   }
 }
 
-export function CodeEditor({ value, onChange, readOnly = false }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEditorProps) {
   const { currentFile } = useFileStore();
   const { resolvedTheme } = useTheme();
+  const languagePath = path || currentFile?.path;
 
-  const extensions = currentFile
-    ? [getLanguageExtension(currentFile.path), EditorView.lineWrapping]
+  const extensions = languagePath
+    ? [getLanguageExtension(languagePath), EditorView.lineWrapping]
     : [EditorView.lineWrapping];
 
   useEffect(() => {
