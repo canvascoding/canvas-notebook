@@ -33,7 +33,7 @@ WORKDIR /app
 ARG APP_USER=node
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 unzip zip git make python3 python3-pip python3-venv ripgrep \
+  && apt-get install -y --no-install-recommends sudo ffmpeg curl zstd ca-certificates sqlite3 unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
      fonts-noto-color-emoji \
