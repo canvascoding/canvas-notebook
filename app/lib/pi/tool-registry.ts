@@ -57,6 +57,7 @@ import {
 } from '@/app/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
+import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
 
 
 const execAsync = promisify(exec);
@@ -1518,7 +1519,11 @@ export async function buildPiToolRegistryAsync(userId?: string): Promise<AgentTo
   const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
   const composioConfigured = await isComposioConfigured();
   const composioTools = composioConfigured ? createComposioTools() : [];
-  return [...coreTools, ...userScopedTools, ...composioTools];
+  const directMcpTools = await buildDirectMcpTools().then((result) => result.tools).catch((error) => {
+    console.error('[ToolRegistry] Error building direct MCP tools:', error);
+    return [];
+  });
+  return [...coreTools, ...userScopedTools, ...composioTools, ...directMcpTools];
 }
 
 export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {

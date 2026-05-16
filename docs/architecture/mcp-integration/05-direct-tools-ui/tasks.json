@@ -8,65 +8,128 @@
       "id": "mcp-05-01",
       "title": "Design opt-in direct tool config",
       "description": "Keep the proxy as default and support explicit directTools arrays for selected MCP tools.",
-      "status": "pending",
-      "planRefs": ["plan.md:8", "plan.md:10", "plan.md:16", "plan.md:18", "plan.md:21", "plan.md:32", "plan.md:33"],
-      "dependencies": ["mcp-04-10"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:8",
+        "plan.md:10",
+        "plan.md:16",
+        "plan.md:18",
+        "plan.md:21",
+        "plan.md:32",
+        "plan.md:33"
+      ],
+      "dependencies": [
+        "mcp-04-10"
+      ]
     },
     {
       "id": "mcp-05-02",
       "title": "Implement safe direct tool naming",
       "description": "Generate deterministic collision-safe names, sanitize invalid names, and skip conflicts with validation warnings.",
-      "status": "pending",
-      "planRefs": ["plan.md:35", "plan.md:37", "plan.md:40", "plan.md:41", "plan.md:42", "plan.md:44"],
-      "dependencies": ["mcp-05-01"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:35",
+        "plan.md:37",
+        "plan.md:40",
+        "plan.md:41",
+        "plan.md:42",
+        "plan.md:44"
+      ],
+      "dependencies": [
+        "mcp-05-01"
+      ]
     },
     {
       "id": "mcp-05-03",
       "title": "Use cached metadata for direct tools",
       "description": "Build direct tool schemas from Step 3 metadata and avoid hanging agent startup on slow MCP servers.",
-      "status": "pending",
-      "planRefs": ["plan.md:46", "plan.md:48", "plan.md:49", "plan.md:50"],
-      "dependencies": ["mcp-05-02"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:46",
+        "plan.md:48",
+        "plan.md:49",
+        "plan.md:50"
+      ],
+      "dependencies": [
+        "mcp-05-02"
+      ]
     },
     {
       "id": "mcp-05-04",
       "title": "Integrate direct tools with provider filtering",
       "description": "Expose direct MCP tools through existing tool metadata and allow provider-level enable/disable behavior.",
-      "status": "pending",
-      "planRefs": ["plan.md:52", "plan.md:54", "plan.md:55", "plan.md:57"],
-      "dependencies": ["mcp-05-03"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:52",
+        "plan.md:54",
+        "plan.md:55",
+        "plan.md:57"
+      ],
+      "dependencies": [
+        "mcp-05-03"
+      ]
     },
     {
       "id": "mcp-05-05",
       "title": "Add structured MCP Settings panel",
       "description": "Add server list, status, transport type, tool count, errors, test, refresh, OAuth controls, and a link to raw JSON.",
-      "status": "pending",
-      "planRefs": ["plan.md:59", "plan.md:61", "plan.md:64", "plan.md:72", "plan.md:74"],
-      "dependencies": ["mcp-05-04"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:59",
+        "plan.md:61",
+        "plan.md:64",
+        "plan.md:72",
+        "plan.md:74"
+      ],
+      "dependencies": [
+        "mcp-05-04"
+      ]
     },
     {
       "id": "mcp-05-06",
       "title": "Add UI safety warnings",
       "description": "Warn about mutating tools, broad OAuth scopes, inline secret-looking config values, and large direct schemas.",
-      "status": "pending",
-      "planRefs": ["plan.md:76", "plan.md:78", "plan.md:80", "plan.md:83", "plan.md:85"],
-      "dependencies": ["mcp-05-05"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:76",
+        "plan.md:78",
+        "plan.md:80",
+        "plan.md:83",
+        "plan.md:85"
+      ],
+      "dependencies": [
+        "mcp-05-05"
+      ]
     },
     {
       "id": "mcp-05-07",
       "title": "Add direct tool and UI tests",
       "description": "Cover direct tool naming, collisions, provider filtering, metadata output, status rendering, and OAuth controls where present.",
-      "status": "pending",
-      "planRefs": ["plan.md:87", "plan.md:89", "plan.md:91", "plan.md:96"],
-      "dependencies": ["mcp-05-06"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:87",
+        "plan.md:89",
+        "plan.md:91",
+        "plan.md:96"
+      ],
+      "dependencies": [
+        "mcp-05-06"
+      ]
     },
     {
       "id": "mcp-05-08",
       "title": "Verify Step 5 implementation",
       "description": "Run browser checks or Playwright for UI changes and run npm build.",
-      "status": "pending",
-      "planRefs": ["plan.md:98", "plan.md:99", "plan.md:101", "plan.md:103"],
-      "dependencies": ["mcp-05-07"]
+      "status": "completed",
+      "planRefs": [
+        "plan.md:98",
+        "plan.md:99",
+        "plan.md:101",
+        "plan.md:103"
+      ],
+      "dependencies": [
+        "mcp-05-07"
+      ]
     }
   ]
 }
