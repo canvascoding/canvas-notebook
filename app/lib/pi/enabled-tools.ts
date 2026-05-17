@@ -6,9 +6,7 @@ const LEGACY_TOOL_NAMES = new Set(['filesystem', 'terminal', 'web-search']);
  * Tools that are disabled by default for new users.
  * They can be explicitly enabled in the Agent Settings panel.
  */
-export const DISABLED_BY_DEFAULT_TOOL_NAMES = new Set<string>([
-  'mcp',
-]);
+export const DISABLED_BY_DEFAULT_TOOL_NAMES = new Set<string>();
 
 function normalizeToolNames(toolNames: Iterable<string>): string[] {
   const seen = new Set<string>();

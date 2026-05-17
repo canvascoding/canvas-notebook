@@ -51,11 +51,11 @@ async function main() {
   assert.match(getText(status), /fake: configured \(stdio\)/);
 
   const listTools = await tool.execute('list-tools', { action: 'list_tools', server: 'fake' });
-  assert.match(getText(listTools), /echo/);
-  assert.match(getText(listTools), /sum/);
+  assert.match(getText(listTools), /Tool: `fake\.echo`/);
+  assert.match(getText(listTools), /Tool: `fake\.sum`/);
 
   const searchTools = await tool.execute('search-tools', { action: 'search_tools', query: 'numbers' });
-  assert.match(getText(searchTools), /fake\.sum/);
+  assert.match(getText(searchTools), /Tool: `fake\.sum`/);
 
   const describeTool = await tool.execute('describe-tool', { action: 'describe_tool', server: 'fake', tool: 'echo' });
   assert.match(getText(describeTool), /Input schema:/);

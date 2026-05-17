@@ -67,9 +67,12 @@ function resolveMcpTarget(serverValue: string | undefined, toolValue: string | u
   return { server, tool };
 }
 
-function formatToolSummary(tool: Tool): string {
-  const description = tool.description ? `: ${tool.description}` : '';
-  return `- ${tool.name}${description}`;
+function formatToolListItem(serverName: string, tool: Tool): string {
+  return [
+    `- Tool: \`${serverName}.${tool.name}\``,
+    `  Name: \`${tool.name}\``,
+    `  Description: ${tool.description || 'n/a'}`,
+  ].join('\n');
 }
 
 function formatJson(value: unknown): string {
@@ -133,9 +136,9 @@ async function handleListTools(serverName: string, signal?: AbortSignal): Promis
   return textResult(
     [
       `MCP tools for "${serverName}":`,
-      ...tools.map(formatToolSummary),
+      ...tools.map((tool) => formatToolListItem(serverName, tool)),
       '',
-      `Use describe_tool with tool "${serverName}.tool-name" to inspect input fields, then call_tool with server "${serverName}", tool "tool-name", and arguments { ... }.`,
+      `Use describe_tool with a listed Tool value like \`${serverName}.tool-name\` to inspect input fields. Then call_tool with that Tool value and arguments { ... }.`,
     ].join('\n'),
     { server: serverName, tools },
   );
@@ -171,7 +174,7 @@ async function handleSearchTools(query: string, serverName?: string, signal?: Ab
   }
 
   const visibleMatches = matches.slice(0, MAX_SEARCH_RESULTS);
-  const lines = visibleMatches.map(({ server, tool }) => `- ${server}.${formatToolSummary(tool).slice(2)}`);
+  const lines = visibleMatches.map(({ server, tool }) => formatToolListItem(server, tool));
   if (errors.length > 0) {
     lines.push(...errors.map((error) => `- ${error.server}: Error: ${error.error}`));
   }
@@ -182,7 +185,7 @@ async function handleSearchTools(query: string, serverName?: string, signal?: Ab
           `MCP tool search results for "${query}":`,
           ...lines,
           '',
-          'Next step: use describe_tool with the fully-qualified tool name, for example { "action": "describe_tool", "tool": "Canva.generate-design" }. To execute it, put tool inputs inside "arguments".',
+          'Next step: use describe_tool with the exact Tool value, for example { "action": "describe_tool", "tool": "Canva.generate-design" }. To execute it, use call_tool with the same Tool value and put inputs inside "arguments".',
         ].join('\n')
       : `No MCP tools matched "${query}".`,
     { query, matches: visibleMatches, errors, truncated: matches.length > visibleMatches.length },
