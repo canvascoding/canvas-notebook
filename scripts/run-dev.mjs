@@ -98,8 +98,15 @@ async function main() {
   const terminalToken = randomBytes(32).toString('hex');
   console.log(`[dev] Terminal service token: ${terminalToken.substring(0, 8)}...`);
 
+  const existingNodeOptions = process.env.NODE_OPTIONS || '';
+  const maxOldSpaceFlag = '--max-old-space-size=4096';
+  const nodeOptions = existingNodeOptions.includes(maxOldSpaceFlag)
+    ? existingNodeOptions
+    : [existingNodeOptions, maxOldSpaceFlag].filter(Boolean).join(' ');
+
   const childEnv = {
     ...process.env,
+    NODE_OPTIONS: nodeOptions,
     CANVAS_ENV_FILE: configuredEnvFile,
     CANVAS_APP_ROOT: process.cwd(),
     PORT: String(selectedPort),
