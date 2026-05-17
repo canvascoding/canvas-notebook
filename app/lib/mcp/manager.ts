@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
-import { readMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
+import { isMcpServerEnabled, readMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import { getValidMcpAccessToken } from '@/app/lib/mcp/oauth';
 import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
 
@@ -31,6 +31,7 @@ type ManagedConnection = {
   lastSuccessfulToolListAt?: number;
   lastError?: string;
   processPid?: number | null;
+  stderrTail?: string;
 };
 
 type McpCacheFile = {
@@ -69,6 +70,19 @@ function getErrorMessage(error: unknown): string {
 function logMcp(level: 'info' | 'warn' | 'error', message: string, details: Record<string, unknown> = {}): void {
   const payload = Object.keys(details).length > 0 ? ` ${JSON.stringify(details)}` : '';
   console[level](`[MCP] ${message}${payload}`);
+}
+
+function appendStderrTail(entry: ManagedConnection, chunk: string): void {
+  const next = `${entry.stderrTail || ''}${entry.stderrTail ? '\n' : ''}${chunk}`.trim();
+  entry.stderrTail = next.length > 4000 ? next.slice(-4000) : next;
+}
+
+function enhanceMcpError(entry: ManagedConnection, error: unknown): Error {
+  const baseMessage = getErrorMessage(error);
+  if (!entry.stderrTail || baseMessage.includes('Recent server stderr:')) {
+    return error instanceof Error ? error : new Error(baseMessage);
+  }
+  return new Error(`${baseMessage}\n\nRecent server stderr:\n${entry.stderrTail}`);
 }
 
 function summarizeCommand(config: McpServerConfig): { command?: string; args?: string[]; cwd?: string } {
@@ -218,10 +232,16 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
       const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
       const trimmed = text.trim();
       if (trimmed) {
+        appendStderrTail(entry, trimmed);
         logMcp('warn', 'Server stderr', { server: entry.serverName, pid: transport.pid, message: trimmed });
       }
     });
-    await withTimeout(client.connect(transport), timeoutMs, signal);
+    try {
+      await withTimeout(client.connect(transport), timeoutMs, signal);
+    } catch (error) {
+      await client.close().catch(() => undefined);
+      throw enhanceMcpError(entry, error);
+    }
     entry.processPid = transport.pid;
     logMcp('info', 'Connected stdio server', { server: entry.serverName, pid: transport.pid });
     return client;
@@ -232,13 +252,18 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
     logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url, timeoutMs });
     const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash);
-    await withTimeout(client.connect(new StreamableHTTPClientTransport(new URL(url), accessToken ? {
-      requestInit: {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
+    try {
+      await withTimeout(client.connect(new StreamableHTTPClientTransport(new URL(url), accessToken ? {
+        requestInit: {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
         },
-      },
-    } : undefined)), timeoutMs, signal);
+      } : undefined)), timeoutMs, signal);
+    } catch (error) {
+      await client.close().catch(() => undefined);
+      throw error;
+    }
     logMcp('info', 'Connected HTTP server', { server: entry.serverName, url, authenticated: Boolean(accessToken) });
     return client;
   }
@@ -250,6 +275,7 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal): P
   const config = await readMcpConfig();
   const serverConfig = config.mcpServers[serverName];
   if (!serverConfig) throw new Error(`Unknown MCP server "${serverName}".`);
+  if (!isMcpServerEnabled(serverConfig)) throw new Error(`MCP server "${serverName}" is disabled.`);
 
   const configHash = hashMcpServerConfig(serverConfig);
   const key = getEntryKey(serverName, configHash);
@@ -311,8 +337,9 @@ async function withManagedConnection<T>(
     entry.lastError = undefined;
     return result;
   } catch (error) {
-    entry.lastError = getErrorMessage(error);
-    throw error;
+    const enhanced = enhanceMcpError(entry, error);
+    entry.lastError = enhanced.message;
+    throw enhanced;
   } finally {
     entry.activeCalls = Math.max(0, entry.activeCalls - 1);
     entry.lastUsedAt = Date.now();
@@ -366,6 +393,7 @@ export async function listConfiguredMcpServers() {
     name,
     transport: getServerTransport(serverConfig),
     configHash: hashMcpServerConfig(serverConfig),
+    enabled: isMcpServerEnabled(serverConfig),
     configured: true,
   }));
 }
@@ -374,6 +402,7 @@ export async function listMcpTools(serverName: string, options: { preferCache?: 
   const config = await readMcpConfig();
   const serverConfig = config.mcpServers[serverName];
   if (!serverConfig) throw new Error(`Unknown MCP server "${serverName}".`);
+  if (!isMcpServerEnabled(serverConfig)) throw new Error(`MCP server "${serverName}" is disabled.`);
   const configHash = hashMcpServerConfig(serverConfig);
 
   if (options.preferCache) {
@@ -425,6 +454,16 @@ export async function cleanupIdleMcpServers(now = Date.now()): Promise<number> {
   return closed;
 }
 
+export async function closeMcpServer(serverName: string): Promise<void> {
+  const store = getStore();
+  for (const [key, entry] of store.entries) {
+    if (entry.serverName !== serverName) continue;
+    logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
+    await entry.client?.close().catch(() => undefined);
+    store.entries.delete(key);
+  }
+}
+
 export async function closeAllMcpServers(): Promise<void> {
   const store = getStore();
   for (const entry of store.entries.values()) {
@@ -457,11 +496,13 @@ export async function getMcpRuntimeStatus(serverName?: string) {
         name,
         transport: getServerTransport(serverConfig),
         configHash,
-        connected: Boolean(managed?.client),
+        enabled: isMcpServerEnabled(serverConfig),
+        connected: isMcpServerEnabled(serverConfig) && Boolean(managed?.client),
         activeCalls: managed?.activeCalls || 0,
         lastUsedAt: managed?.lastUsedAt ? new Date(managed.lastUsedAt).toISOString() : null,
         lastSuccessfulToolListAt: managed?.lastSuccessfulToolListAt ? new Date(managed.lastSuccessfulToolListAt).toISOString() : null,
         lastError: managed?.lastError || null,
+        stderrTail: managed?.stderrTail || null,
         cachedToolCount: cached?.tools.length || 0,
         cacheRefreshedAt: cached?.lastRefreshedAt || null,
       };

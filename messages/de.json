@@ -959,8 +959,13 @@
       "statusTitle": "Konfigurierte Server",
       "refreshStatus": "Status aktualisieren",
       "noServers": "Keine MCP-Server konfiguriert.",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
       "connected": "Verbunden",
       "disconnected": "Getrennt",
+      "enable": "Aktivieren",
+      "disable": "Deaktivieren",
+      "testConnection": "Verbindung testen",
       "oauthAuthorized": "OAuth autorisiert",
       "oauthRequired": "OAuth erforderlich",
       "cachedTools": "Gecachte Tools",
@@ -969,10 +974,14 @@
       "directTools": "Direkte Tools",
       "save": "MCP-Konfiguration speichern",
       "saved": "MCP-Konfiguration gespeichert.",
+      "enabledSaved": "{server} aktiviert.",
+      "disabledSaved": "{server} deaktiviert.",
+      "testSucceeded": "{server} Verbindungstest erfolgreich ({count} Tools).",
       "errors": {
         "load": "MCP-Konfiguration konnte nicht geladen werden.",
         "save": "MCP-Konfiguration konnte nicht gespeichert werden.",
-        "status": "MCP-Status konnte nicht geladen werden."
+        "status": "MCP-Status konnte nicht geladen werden.",
+        "action": "MCP-Server konnte nicht aktualisiert werden."
       }
     },
     "connectedApps": {

@@ -960,8 +960,13 @@
       "statusTitle": "Configured servers",
       "refreshStatus": "Refresh status",
       "noServers": "No MCP servers configured.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
       "connected": "Connected",
       "disconnected": "Disconnected",
+      "enable": "Enable",
+      "disable": "Disable",
+      "testConnection": "Test connection",
       "oauthAuthorized": "OAuth authorized",
       "oauthRequired": "OAuth required",
       "cachedTools": "Cached tools",
@@ -970,10 +975,14 @@
       "directTools": "Direct tools",
       "save": "Save MCP config",
       "saved": "MCP configuration saved.",
+      "enabledSaved": "{server} enabled.",
+      "disabledSaved": "{server} disabled.",
+      "testSucceeded": "{server} connection test succeeded ({count} tools).",
       "errors": {
         "load": "Failed to load MCP configuration.",
         "save": "Failed to save MCP configuration.",
-        "status": "Failed to load MCP status."
+        "status": "Failed to load MCP status.",
+        "action": "Failed to update MCP server."
       }
     },
     "connectedApps": {

@@ -68,6 +68,7 @@ type McpEditorState = {
   isLoading: boolean;
   isSaving: boolean;
   isStatusLoading: boolean;
+  activeServerAction: string | null;
   error: string | null;
   success: string | null;
 };
@@ -76,11 +77,13 @@ type McpStatusState = {
   servers: Array<{
     name: string;
     transport: string;
+    enabled: boolean;
     connected: boolean;
     activeCalls: number;
     cachedToolCount: number;
     cacheRefreshedAt: string | null;
     lastError: string | null;
+    stderrTail: string | null;
   }>;
   directTools: Array<{
     name: string;
@@ -131,6 +134,7 @@ const INITIAL_MCP_STATE: McpEditorState = {
   isLoading: true,
   isSaving: false,
   isStatusLoading: false,
+  activeServerAction: null,
   error: null,
   success: null,
 };
@@ -372,11 +376,12 @@ function McpConfigCard(props: {
   editor: McpEditorState;
   onLoad: () => Promise<void>;
   onLoadStatus: () => Promise<void>;
+  onServerAction: (server: string, action: 'enable' | 'disable' | 'test') => Promise<void>;
   onRawChange: (value: string) => void;
   onSave: () => Promise<void>;
 }) {
   const t = useTranslations('settings');
-  const { editor, onLoad, onLoadStatus, onRawChange, onSave } = props;
+  const { editor, onLoad, onLoadStatus, onServerAction, onRawChange, onSave } = props;
 
   return (
     <Card id="onboarding-settings-mcp-config">
@@ -427,6 +432,9 @@ function McpConfigCard(props: {
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{server.name}</span>
                           <span className="text-muted-foreground">{server.transport}</span>
+                          <span className={server.enabled ? 'text-primary' : 'text-muted-foreground'}>
+                            {server.enabled ? t('mcpConfig.enabled') : t('mcpConfig.disabled')}
+                          </span>
                           <span className={server.connected ? 'text-primary' : 'text-muted-foreground'}>
                             {server.connected ? t('mcpConfig.connected') : t('mcpConfig.disconnected')}
                           </span>
@@ -435,6 +443,28 @@ function McpConfigCard(props: {
                               {oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}
                             </span>
                           )}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void onServerAction(server.name, server.enabled ? 'disable' : 'enable')}
+                            disabled={Boolean(editor.activeServerAction) || editor.isSaving}
+                          >
+                            {editor.activeServerAction === `${server.name}:${server.enabled ? 'disable' : 'enable'}` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {server.enabled ? t('mcpConfig.disable') : t('mcpConfig.enable')}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void onServerAction(server.name, 'test')}
+                            disabled={!server.enabled || Boolean(editor.activeServerAction) || editor.isSaving}
+                          >
+                            {editor.activeServerAction === `${server.name}:test` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {t('mcpConfig.testConnection')}
+                          </Button>
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {t('mcpConfig.cachedTools')}: {server.cachedToolCount}
@@ -618,6 +648,49 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
       }));
     }
   }, [t]);
+
+  const runMcpServerAction = useCallback(async (server: string, action: 'enable' | 'disable' | 'test') => {
+    setMcpEditor((current) => ({
+      ...current,
+      activeServerAction: `${server}:${action}`,
+      error: null,
+      success: null,
+    }));
+
+    try {
+      const response = await fetch('/api/integrations/mcp-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ server, action }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('mcpConfig.errors.action'));
+      }
+
+      const successKey = action === 'test'
+        ? 'mcpConfig.testSucceeded'
+        : action === 'enable'
+          ? 'mcpConfig.enabledSaved'
+          : 'mcpConfig.disabledSaved';
+
+      setMcpEditor((current) => ({
+        ...current,
+        activeServerAction: null,
+        success: t(successKey, { server, count: payload.data?.toolCount ?? 0 }),
+      }));
+      await Promise.all([loadMcpConfig(), loadMcpStatus()]);
+    } catch (actionError) {
+      const message = actionError instanceof Error ? actionError.message : t('mcpConfig.errors.action');
+      setMcpEditor((current) => ({
+        ...current,
+        activeServerAction: null,
+        error: message,
+      }));
+      await loadMcpStatus();
+    }
+  }, [loadMcpConfig, loadMcpStatus, t]);
 
   useEffect(() => {
     startTransition(() => {
@@ -901,6 +974,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
             editor={mcpEditor}
             onLoad={loadMcpConfig}
             onLoadStatus={loadMcpStatus}
+            onServerAction={runMcpServerAction}
             onRawChange={setMcpRawContent}
             onSave={saveMcpConfig}
           />

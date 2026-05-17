@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { McpConfigValidationError, setMcpServerEnabled } from '@/app/lib/mcp/config';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
-import { getMcpRuntimeStatus } from '@/app/lib/mcp/manager';
+import { closeMcpServer, getMcpRuntimeStatus, listMcpTools } from '@/app/lib/mcp/manager';
 import { getMcpOAuthStatus } from '@/app/lib/mcp/oauth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+
+type McpStatusAction = 'enable' | 'disable' | 'test';
+
+type McpStatusPostPayload = {
+  action?: McpStatusAction;
+  server?: string;
+};
 
 async function requireSession(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -45,6 +53,52 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[API] integrations/mcp-status GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to read MCP status';
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const unauthorized = await requireSession(request);
+  if (unauthorized) return unauthorized;
+
+  try {
+    const limited = rateLimit(request, {
+      limit: 30,
+      windowMs: 60_000,
+      keyPrefix: 'integrations-mcp-status-post',
+    });
+    if (!limited.ok) return limited.response;
+
+    const payload = (await request.json().catch(() => ({}))) as McpStatusPostPayload;
+    const server = typeof payload.server === 'string' ? payload.server.trim() : '';
+    if (!server) {
+      return NextResponse.json({ success: false, error: 'MCP server is required' }, { status: 400 });
+    }
+
+    if (payload.action === 'enable') {
+      await setMcpServerEnabled(server, true);
+      return NextResponse.json({ success: true, data: { server, enabled: true } });
+    }
+
+    if (payload.action === 'disable') {
+      await setMcpServerEnabled(server, false);
+      await closeMcpServer(server);
+      return NextResponse.json({ success: true, data: { server, enabled: false } });
+    }
+
+    if (payload.action === 'test') {
+      const tools = await listMcpTools(server);
+      return NextResponse.json({ success: true, data: { server, toolCount: tools.length } });
+    }
+
+    return NextResponse.json({ success: false, error: 'Unsupported MCP status action' }, { status: 400 });
+  } catch (error) {
+    if (error instanceof McpConfigValidationError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
+
+    console.error('[API] integrations/mcp-status POST error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update MCP status';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
