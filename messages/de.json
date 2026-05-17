@@ -966,6 +966,9 @@
       "enable": "Aktivieren",
       "disable": "Deaktivieren",
       "testConnection": "Verbindung testen",
+      "authorize": "Autorisieren",
+      "reauthorize": "Neu autorisieren",
+      "clearAuth": "Auth löschen",
       "oauthAuthorized": "OAuth autorisiert",
       "oauthRequired": "OAuth erforderlich",
       "cachedTools": "Gecachte Tools",
@@ -977,6 +980,8 @@
       "enabledSaved": "{server} aktiviert.",
       "disabledSaved": "{server} deaktiviert.",
       "testSucceeded": "{server} Verbindungstest erfolgreich ({count} Tools).",
+      "authorizationStarted": "Autorisierung für {server} gestartet. Schließe den Browser-Login ab und teste dann die Verbindung.",
+      "authCleared": "OAuth-Zugangsdaten für {server} gelöscht.",
       "errors": {
         "load": "MCP-Konfiguration konnte nicht geladen werden.",
         "save": "MCP-Konfiguration konnte nicht gespeichert werden.",

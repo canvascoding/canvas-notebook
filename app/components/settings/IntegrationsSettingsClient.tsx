@@ -372,11 +372,13 @@ function EnvEditorCard(props: {
   );
 }
 
+type McpServerAction = 'enable' | 'disable' | 'test' | 'authorize' | 'clear_auth';
+
 function McpConfigCard(props: {
   editor: McpEditorState;
   onLoad: () => Promise<void>;
   onLoadStatus: () => Promise<void>;
-  onServerAction: (server: string, action: 'enable' | 'disable' | 'test') => Promise<void>;
+  onServerAction: (server: string, action: McpServerAction) => Promise<void>;
   onRawChange: (value: string) => void;
   onSave: () => Promise<void>;
 }) {
@@ -465,6 +467,30 @@ function McpConfigCard(props: {
                             {editor.activeServerAction === `${server.name}:test` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             {t('mcpConfig.testConnection')}
                           </Button>
+                          {oauth?.requiresAuth && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void onServerAction(server.name, 'authorize')}
+                              disabled={!server.enabled || Boolean(editor.activeServerAction) || editor.isSaving}
+                            >
+                              {editor.activeServerAction === `${server.name}:authorize` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                              {oauth.authorized ? t('mcpConfig.reauthorize') : t('mcpConfig.authorize')}
+                            </Button>
+                          )}
+                          {oauth?.authorized && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void onServerAction(server.name, 'clear_auth')}
+                              disabled={Boolean(editor.activeServerAction) || editor.isSaving}
+                            >
+                              {editor.activeServerAction === `${server.name}:clear_auth` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                              {t('mcpConfig.clearAuth')}
+                            </Button>
+                          )}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {t('mcpConfig.cachedTools')}: {server.cachedToolCount}
@@ -649,7 +675,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
     }
   }, [t]);
 
-  const runMcpServerAction = useCallback(async (server: string, action: 'enable' | 'disable' | 'test') => {
+  const runMcpServerAction = useCallback(async (server: string, action: McpServerAction) => {
     setMcpEditor((current) => ({
       ...current,
       activeServerAction: `${server}:${action}`,
@@ -669,11 +695,19 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         throw new Error(payload.error || t('mcpConfig.errors.action'));
       }
 
+      if (action === 'authorize' && typeof payload.data?.authorizationUrl === 'string') {
+        window.open(payload.data.authorizationUrl, '_blank', 'noopener,noreferrer');
+      }
+
       const successKey = action === 'test'
         ? 'mcpConfig.testSucceeded'
         : action === 'enable'
           ? 'mcpConfig.enabledSaved'
-          : 'mcpConfig.disabledSaved';
+          : action === 'disable'
+            ? 'mcpConfig.disabledSaved'
+            : action === 'authorize'
+              ? 'mcpConfig.authorizationStarted'
+              : 'mcpConfig.authCleared';
 
       setMcpEditor((current) => ({
         ...current,

@@ -56,6 +56,10 @@ async function main() {
     () => parseAndValidateMcpConfig('{ "settings": {}, "mcpServers": { "bad": { "enabled": "yes" } } }'),
     /enabled/,
   );
+  assert.throws(
+    () => parseAndValidateMcpConfig('{ "settings": {}, "mcpServers": { "bad": { "auth": "token" } } }'),
+    /auth/,
+  );
 
   const validConfig = {
     settings: {
@@ -66,6 +70,7 @@ async function main() {
     mcpServers: {
       example: {
         enabled: false,
+        auth: 'none',
         command: 'node',
         args: ['server.js'],
         extraFutureField: {

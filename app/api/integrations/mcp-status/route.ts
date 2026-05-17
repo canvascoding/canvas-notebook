@@ -4,10 +4,10 @@ import { auth } from '@/app/lib/auth';
 import { McpConfigValidationError, setMcpServerEnabled } from '@/app/lib/mcp/config';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
 import { closeMcpServer, getMcpRuntimeStatus, listMcpTools } from '@/app/lib/mcp/manager';
-import { getMcpOAuthStatus } from '@/app/lib/mcp/oauth';
+import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth } from '@/app/lib/mcp/oauth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-type McpStatusAction = 'enable' | 'disable' | 'test';
+type McpStatusAction = 'enable' | 'disable' | 'test' | 'authorize' | 'clear_auth';
 
 type McpStatusPostPayload = {
   action?: McpStatusAction;
@@ -89,6 +89,17 @@ export async function POST(request: NextRequest) {
     if (payload.action === 'test') {
       const tools = await listMcpTools(server);
       return NextResponse.json({ success: true, data: { server, toolCount: tools.length } });
+    }
+
+    if (payload.action === 'authorize') {
+      const started = await startMcpOAuth(server, request.headers.get('origin'));
+      return NextResponse.json({ success: true, data: { server, ...started } });
+    }
+
+    if (payload.action === 'clear_auth') {
+      await clearMcpOAuth(server);
+      await closeMcpServer(server);
+      return NextResponse.json({ success: true, data: { server, authorized: false } });
     }
 
     return NextResponse.json({ success: false, error: 'Unsupported MCP status action' }, { status: 400 });
