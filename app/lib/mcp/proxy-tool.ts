@@ -28,9 +28,11 @@ type McpProxyParams = {
   query?: string;
   tool?: string;
   arguments?: Record<string, unknown>;
+  [key: string]: unknown;
 };
 
 const MAX_SEARCH_RESULTS = 20;
+const PROXY_PARAM_KEYS = new Set(['action', 'server', 'query', 'tool', 'arguments']);
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown MCP error';
@@ -46,6 +48,23 @@ function normalizeServerName(value: string | undefined): string {
 
 function normalizeToolName(value: string | undefined): string {
   return value?.trim() || '';
+}
+
+function resolveMcpTarget(serverValue: string | undefined, toolValue: string | undefined) {
+  const server = normalizeServerName(serverValue);
+  const tool = normalizeToolName(toolValue);
+  const separatorIndex = tool.indexOf('.');
+
+  if (separatorIndex > 0) {
+    const qualifiedServer = tool.slice(0, separatorIndex).trim();
+    const qualifiedTool = tool.slice(separatorIndex + 1).trim();
+    if (server && server !== qualifiedServer) {
+      throw new Error(`MCP tool "${tool}" belongs to server "${qualifiedServer}", but server "${server}" was provided.`);
+    }
+    return { server: server || qualifiedServer, tool: qualifiedTool };
+  }
+
+  return { server, tool };
 }
 
 function formatToolSummary(tool: Tool): string {
@@ -112,7 +131,12 @@ async function handleListTools(serverName: string, signal?: AbortSignal): Promis
   }
 
   return textResult(
-    [`MCP tools for "${serverName}":`, ...tools.map(formatToolSummary)].join('\n'),
+    [
+      `MCP tools for "${serverName}":`,
+      ...tools.map(formatToolSummary),
+      '',
+      `Use describe_tool with tool "${serverName}.tool-name" to inspect input fields, then call_tool with server "${serverName}", tool "tool-name", and arguments { ... }.`,
+    ].join('\n'),
     { server: serverName, tools },
   );
 }
@@ -153,7 +177,14 @@ async function handleSearchTools(query: string, serverName?: string, signal?: Ab
   }
 
   return textResult(
-    lines.length > 0 ? [`MCP tool search results for "${query}":`, ...lines].join('\n') : `No MCP tools matched "${query}".`,
+    lines.length > 0
+      ? [
+          `MCP tool search results for "${query}":`,
+          ...lines,
+          '',
+          'Next step: use describe_tool with the fully-qualified tool name, for example { "action": "describe_tool", "tool": "Canva.generate-design" }. To execute it, put tool inputs inside "arguments".',
+        ].join('\n')
+      : `No MCP tools matched "${query}".`,
     { query, matches: visibleMatches, errors, truncated: matches.length > visibleMatches.length },
   );
 }
@@ -212,6 +243,26 @@ async function handleCallTool(
   );
 }
 
+function buildCallArguments(params: McpProxyParams): Record<string, unknown> {
+  const explicitArgs = params.arguments;
+  if (explicitArgs !== undefined && !isPlainObject(explicitArgs)) {
+    throw new Error('call_tool arguments must be a JSON object.');
+  }
+
+  const passthroughArgs: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (!PROXY_PARAM_KEYS.has(key)) {
+      passthroughArgs[key] = value;
+    }
+  }
+
+  if (params.query !== undefined) {
+    passthroughArgs.query = params.query;
+  }
+
+  return { ...passthroughArgs, ...(explicitArgs || {}) };
+}
+
 async function handleAuthStatus(serverName: string): Promise<AgentToolResult<unknown>> {
   const status = await getMcpOAuthStatus(serverName);
   return textResult(
@@ -247,7 +298,7 @@ export function createMcpProxyTool(): AgentTool {
     name: 'mcp',
     label: 'Using MCP',
     description:
-      'Gateway to configured Model Context Protocol servers. Use search_tools or list_tools to discover MCP tools, describe_tool to inspect schemas, and call_tool to execute a selected MCP tool.',
+      'Gateway to configured Model Context Protocol servers. Use search_tools or list_tools to discover tools, describe_tool to inspect input schemas, and call_tool to execute a selected tool. Tools may be addressed as "Server.tool" (for example "Canva.generate-design"). For call_tool, put MCP tool inputs inside the "arguments" object; top-level inputs such as "query" are also forwarded for compatibility.',
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal('list_servers'),
@@ -260,10 +311,10 @@ export function createMcpProxyTool(): AgentTool {
         Type.Literal('auth_start'),
         Type.Literal('auth_clear'),
       ], { description: 'MCP proxy action to perform.' }),
-      server: Type.Optional(Type.String({ description: 'Configured MCP server name.' })),
-      query: Type.Optional(Type.String({ description: 'Search query for search_tools.' })),
-      tool: Type.Optional(Type.String({ description: 'MCP tool name for describe_tool or call_tool.' })),
-      arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'JSON arguments for call_tool.' })),
+      server: Type.Optional(Type.String({ description: 'Configured MCP server name. Optional when tool is fully-qualified as "Server.tool".' })),
+      query: Type.Optional(Type.String({ description: 'Search query for search_tools. For call_tool, this is forwarded as a tool argument named "query".' })),
+      tool: Type.Optional(Type.String({ description: 'MCP tool name for describe_tool or call_tool. Can be plain ("generate-design") with server, or fully-qualified ("Canva.generate-design").' })),
+      arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: 'Preferred JSON arguments for call_tool, exactly matching the MCP tool input schema returned by describe_tool.' })),
     }),
     executionMode: 'sequential',
     execute: async (_toolCallId, params, signal) => {
@@ -282,18 +333,16 @@ export function createMcpProxyTool(): AgentTool {
           case 'search_tools':
             return await handleSearchTools(p.query || '', normalizeServerName(p.server) || undefined, signal);
           case 'describe_tool': {
-            const server = normalizeServerName(p.server);
-            const tool = normalizeToolName(p.tool);
-            if (!server) throw new Error('describe_tool requires server.');
+            const { server, tool } = resolveMcpTarget(p.server, p.tool);
+            if (!server) throw new Error('describe_tool requires server, or use a fully-qualified tool like "Canva.generate-design".');
             if (!tool) throw new Error('describe_tool requires tool.');
             return await handleDescribeTool(server, tool, signal);
           }
           case 'call_tool': {
-            const server = normalizeServerName(p.server);
-            const tool = normalizeToolName(p.tool);
-            if (!server) throw new Error('call_tool requires server.');
+            const { server, tool } = resolveMcpTarget(p.server, p.tool);
+            if (!server) throw new Error('call_tool requires server, or use a fully-qualified tool like "Canva.generate-design".');
             if (!tool) throw new Error('call_tool requires tool.');
-            return await handleCallTool(server, tool, p.arguments || {}, signal);
+            return await handleCallTool(server, tool, buildCallArguments(p), signal);
           }
           case 'auth_status': {
             const server = normalizeServerName(p.server);

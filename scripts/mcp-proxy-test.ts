@@ -61,6 +61,9 @@ async function main() {
   assert.match(getText(describeTool), /Input schema:/);
   assert.match(getText(describeTool), /message/);
 
+  const describeQualifiedTool = await tool.execute('describe-qualified-tool', { action: 'describe_tool', tool: 'fake.echo' });
+  assert.match(getText(describeQualifiedTool), /MCP tool "fake\.echo"/);
+
   const callEcho = await tool.execute('call-echo', {
     action: 'call_tool',
     server: 'fake',
@@ -68,6 +71,13 @@ async function main() {
     arguments: { message: 'hello' },
   });
   assert.match(getText(callEcho), /from-integrations:hello/);
+
+  const callEchoWithTopLevelArguments = await tool.execute('call-echo-top-level', {
+    action: 'call_tool',
+    tool: 'fake.echo',
+    message: 'from-top-level',
+  });
+  assert.match(getText(callEchoWithTopLevelArguments), /from-integrations:from-top-level/);
 
   const callSum = await tool.execute('call-sum', {
     action: 'call_tool',
