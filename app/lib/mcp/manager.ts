@@ -47,6 +47,8 @@ type McpCacheFile = {
 type McpManagerStore = {
   entries: Map<string, ManagedConnection>;
   cleanupStarted: boolean;
+  shutdownHooksStarted: boolean;
+  shuttingDown: boolean;
 };
 
 const globalStore = globalThis as typeof globalThis & {
@@ -58,6 +60,8 @@ function getStore(): McpManagerStore {
     globalStore.__canvasMcpManagerStore = {
       entries: new Map(),
       cleanupStarted: false,
+      shutdownHooksStarted: false,
+      shuttingDown: false,
     };
   }
   return globalStore.__canvasMcpManagerStore;
@@ -517,8 +521,40 @@ export async function closeAllMcpServers(): Promise<void> {
   store.entries.clear();
 }
 
+function startMcpShutdownHooks(): void {
+  if (process.env.NEXT_PHASE === 'phase-production-build') return;
+
+  const store = getStore();
+  if (store.shutdownHooksStarted) return;
+  store.shutdownHooksStarted = true;
+
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (store.shuttingDown) return;
+    store.shuttingDown = true;
+    logMcp('info', 'Shutdown signal received, closing MCP servers', { signal });
+    void closeAllMcpServers()
+      .catch((error) => {
+        logMcp('error', 'Error while closing MCP servers during shutdown', { signal, error: getErrorMessage(error) });
+      })
+      .finally(() => {
+        process.exit(signal === 'SIGINT' ? 130 : 143);
+      });
+  };
+
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+  process.once('beforeExit', () => {
+    if (store.entries.size === 0) return;
+    logMcp('info', 'Process beforeExit, closing MCP servers');
+    void closeAllMcpServers().catch((error) => {
+      logMcp('error', 'Error while closing MCP servers before exit', { error: getErrorMessage(error) });
+    });
+  });
+}
+
 export function startMcpIdleCleanup(): void {
   const store = getStore();
+  startMcpShutdownHooks();
   if (store.cleanupStarted) return;
   store.cleanupStarted = true;
   setInterval(() => {
