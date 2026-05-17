@@ -113,6 +113,8 @@ type McpPairDraft = {
   id: string;
   key: string;
   value: string;
+  storeInEnv: boolean;
+  envKey: string;
 };
 
 type McpServerDraft = {
@@ -239,7 +241,24 @@ function createMcpPairDraft(entry?: Partial<McpPairDraft>): McpPairDraft {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     key: entry?.key || '',
     value: entry?.value || '',
+    storeInEnv: Boolean(entry?.storeInEnv),
+    envKey: entry?.envKey || '',
   };
+}
+
+function normalizeEnvKeyPart(value: string): string {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function makeMcpEnvKey(serverName: string, key: string): string {
+  const server = normalizeEnvKeyPart(serverName) || 'SERVER';
+  const name = normalizeEnvKeyPart(key) || 'VALUE';
+  return `MCP_${server}_${name}`;
+}
+
+function parseEnvReference(value: string): string | null {
+  const match = value.trim().match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/u);
+  return match?.[1] || null;
 }
 
 function parseMcpConfigFile(rawContent: string): McpConfigFile {
@@ -255,10 +274,18 @@ function parseMcpConfigFile(rawContent: string): McpConfigFile {
 
 function toMcpServerDraft(name: string, serverConfig: Record<string, unknown> = {}): McpServerDraft {
   const env = serverConfig.env && typeof serverConfig.env === 'object' && !Array.isArray(serverConfig.env)
-    ? Object.entries(serverConfig.env as Record<string, unknown>).map(([key, value]) => createMcpPairDraft({ key, value: typeof value === 'string' ? value : String(value ?? '') }))
+    ? Object.entries(serverConfig.env as Record<string, unknown>).map(([key, value]) => {
+      const stringValue = typeof value === 'string' ? value : String(value ?? '');
+      const envKey = parseEnvReference(stringValue);
+      return createMcpPairDraft({ key, value: envKey ? '' : stringValue, storeInEnv: Boolean(envKey), envKey: envKey || makeMcpEnvKey(name, key) });
+    })
     : [];
   const headers = serverConfig.headers && typeof serverConfig.headers === 'object' && !Array.isArray(serverConfig.headers)
-    ? Object.entries(serverConfig.headers as Record<string, unknown>).map(([key, value]) => createMcpPairDraft({ key, value: typeof value === 'string' ? value : String(value ?? '') }))
+    ? Object.entries(serverConfig.headers as Record<string, unknown>).map(([key, value]) => {
+      const stringValue = typeof value === 'string' ? value : String(value ?? '');
+      const envKey = parseEnvReference(stringValue);
+      return createMcpPairDraft({ key, value: envKey ? '' : stringValue, storeInEnv: Boolean(envKey), envKey: envKey || makeMcpEnvKey(name, key) });
+    })
     : [];
   const headersFromEnv = serverConfig.headersFromEnv && typeof serverConfig.headersFromEnv === 'object' && !Array.isArray(serverConfig.headersFromEnv)
     ? Object.entries(serverConfig.headersFromEnv as Record<string, unknown>).map(([key, value]) => createMcpPairDraft({ key, value: typeof value === 'string' ? value : String(value ?? '') }))
@@ -285,11 +312,24 @@ function createBlankMcpServerDraft(): McpServerDraft {
   return toMcpServerDraft('', { enabled: false, command: '', args: [''], env: {}, envPassthrough: [''], cwd: '' });
 }
 
-function pairsToRecord(pairs: McpPairDraft[]): Record<string, string> | undefined {
+function pairsToRecord(pairs: McpPairDraft[], options: { envReference?: boolean } = {}): Record<string, string> | undefined {
   const entries = pairs
-    .map((pair) => [pair.key.trim(), pair.value] as const)
-    .filter(([key]) => key.length > 0);
+    .map((pair) => {
+      const key = pair.key.trim();
+      const value = options.envReference && pair.storeInEnv && pair.envKey.trim()
+        ? `\${${pair.envKey.trim()}}`
+        : pair.value;
+      return [key, value] as const;
+    })
+    .filter(([key, value]) => key.length > 0 && value.length > 0);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function collectMcpEnvEntries(draft: McpServerDraft): Array<{ key: string; value: string }> {
+  const pairs = draft.mode === 'stdio' ? draft.env : draft.headers;
+  return pairs
+    .filter((pair) => pair.storeInEnv && pair.envKey.trim() && pair.value)
+    .map((pair) => ({ key: pair.envKey.trim(), value: pair.value }));
 }
 
 function draftToMcpServerConfig(draft: McpServerDraft): Record<string, unknown> {
@@ -299,7 +339,7 @@ function draftToMcpServerConfig(draft: McpServerDraft): Record<string, unknown> 
       url: draft.url.trim(),
       auth: draft.auth,
       ...(draft.bearerTokenEnv.trim() ? { bearerTokenEnv: draft.bearerTokenEnv.trim() } : {}),
-      ...(pairsToRecord(draft.headers) ? { headers: pairsToRecord(draft.headers) } : {}),
+      ...(pairsToRecord(draft.headers, { envReference: true }) ? { headers: pairsToRecord(draft.headers, { envReference: true }) } : {}),
       ...(pairsToRecord(draft.headersFromEnv) ? { headersFromEnv: pairsToRecord(draft.headersFromEnv) } : {}),
     };
   }
@@ -308,7 +348,7 @@ function draftToMcpServerConfig(draft: McpServerDraft): Record<string, unknown> 
     enabled: draft.enabled,
     command: draft.command.trim(),
     args: draft.args.map((arg) => arg.trim()).filter(Boolean),
-    ...(pairsToRecord(draft.env) ? { env: pairsToRecord(draft.env) } : {}),
+    ...(pairsToRecord(draft.env, { envReference: true }) ? { env: pairsToRecord(draft.env, { envReference: true }) } : {}),
     ...(draft.envPassthrough.map((value) => value.trim()).filter(Boolean).length > 0 ? { envPassthrough: draft.envPassthrough.map((value) => value.trim()).filter(Boolean) } : {}),
     ...(draft.cwd.trim() ? { cwd: draft.cwd.trim() } : {}),
   };
@@ -563,12 +603,40 @@ function McpConfigCard(props: {
   const renderPairRows = (field: 'env' | 'headers' | 'headersFromEnv', keyPlaceholder: string, valuePlaceholder: string) => (
     <div className="space-y-2">
       {serverDraft[field].map((entry, index) => (
-        <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
-          <Input value={entry.key} onChange={(event) => updatePair(field, index, { key: event.target.value })} placeholder={keyPlaceholder} />
-          <Input value={entry.value} onChange={(event) => updatePair(field, index, { value: event.target.value })} placeholder={valuePlaceholder} />
-          <Button type="button" variant="ghost" size="icon" onClick={() => removePair(field, index)}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
+        <div key={entry.id} className="space-y-2 rounded-md border border-border p-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+            <Input value={entry.key} onChange={(event) => updatePair(field, index, { key: event.target.value, envKey: entry.envKey || makeMcpEnvKey(serverDraft.name, event.target.value) })} placeholder={keyPlaceholder} />
+            <Input
+              value={entry.value}
+              onChange={(event) => updatePair(field, index, { value: event.target.value })}
+              placeholder={entry.storeInEnv ? t('mcpConfig.secretValuePlaceholder') : valuePlaceholder}
+              type={entry.storeInEnv ? 'password' : 'text'}
+              disabled={field === 'headersFromEnv'}
+            />
+            <Button type="button" variant="ghost" size="icon" onClick={() => removePair(field, index)}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+          {field !== 'headersFromEnv' && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <label className="flex items-center gap-2">
+                <Switch
+                  size="sm"
+                  checked={entry.storeInEnv}
+                  onCheckedChange={(checked) => updatePair(field, index, { storeInEnv: checked, envKey: entry.envKey || makeMcpEnvKey(serverDraft.name, entry.key) })}
+                />
+                {t('mcpConfig.storeInIntegrationsEnv')}
+              </label>
+              {entry.storeInEnv && (
+                <Input
+                  className="h-8 max-w-xs"
+                  value={entry.envKey || makeMcpEnvKey(serverDraft.name, entry.key)}
+                  onChange={(event) => updatePair(field, index, { envKey: event.target.value })}
+                  placeholder="MCP_SERVER_TOKEN"
+                />
+              )}
+            </div>
+          )}
         </div>
       ))}
       <Button type="button" variant="secondary" className="w-full" onClick={() => updateServerDraft({ [field]: [...serverDraft[field], createMcpPairDraft()] } as Partial<McpServerDraft>)}>
@@ -651,6 +719,28 @@ function McpConfigCard(props: {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void onServerAction(serverName, 'test')}
+                              disabled={!enabled || Boolean(editor.activeServerAction) || editor.isSaving}
+                            >
+                              {editor.activeServerAction === `${serverName}:test` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                              {t('mcpConfig.testConnection')}
+                            </Button>
+                            {oauth?.requiresAuth && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void onServerAction(serverName, 'authorize')}
+                                disabled={!enabled || Boolean(editor.activeServerAction) || editor.isSaving}
+                              >
+                                {editor.activeServerAction === `${serverName}:authorize` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                {oauth.authorized ? t('mcpConfig.reauthorize') : t('mcpConfig.authorize')}
+                              </Button>
+                            )}
                             <Button type="button" variant="ghost" size="icon" onClick={() => startEditServer(serverName)} title={t('mcpConfig.editServer')}>
                               <Settings className="h-4 w-4" />
                             </Button>
@@ -1123,6 +1213,41 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
 
   const saveMcpServer = async (draft: McpServerDraft, originalName?: string) => {
     try {
+      const envEntries = collectMcpEnvEntries(draft);
+      if (envEntries.length > 0) {
+        const currentEntries = editors.integrations.state?.entries.map((entry) => ({ key: entry.key, value: entry.value })) || [];
+        const nextEntriesByKey = new Map(currentEntries.map((entry) => [entry.key, entry]));
+        for (const entry of envEntries) {
+          nextEntriesByKey.set(entry.key, entry);
+        }
+        const response = await fetch('/api/integrations/env', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            scope: 'integrations',
+            mode: 'kv',
+            entries: Array.from(nextEntriesByKey.values()),
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || t('envCard.errors.saveEnvFile'));
+        }
+        const nextState: EnvState = result.data;
+        const nextDraftEntries = toDraftEntries('integrations', nextState.entries);
+        setEditors((current) => ({
+          ...current,
+          integrations: {
+            ...current.integrations,
+            state: nextState,
+            draftEntries: nextDraftEntries,
+            rawContent: nextState.rawContent,
+            secretVisibilityById: buildHiddenState(nextDraftEntries),
+          },
+        }));
+      }
+
       const rawContent = updateMcpConfigRawServer(mcpEditor.rawContent, draft, originalName);
       setMcpEditor((current) => ({
         ...current,

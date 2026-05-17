@@ -984,6 +984,8 @@
       "addVariable": "Add variable",
       "keyPlaceholder": "Key",
       "valuePlaceholder": "Value",
+      "secretValuePlaceholder": "Secret value",
+      "storeInIntegrationsEnv": "Store value in Canvas-Integrations.env",
       "rawJson": "Raw mcp.json",
       "enabled": "Enabled",
       "disabled": "Disabled",
