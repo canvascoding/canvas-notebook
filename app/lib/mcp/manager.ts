@@ -30,6 +30,7 @@ type ManagedConnection = {
   lastUsedAt: number;
   lastSuccessfulToolListAt?: number;
   lastError?: string;
+  processPid?: number | null;
 };
 
 type McpCacheFile = {
@@ -63,6 +64,19 @@ function getStore(): McpManagerStore {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown MCP error';
+}
+
+function logMcp(level: 'info' | 'warn' | 'error', message: string, details: Record<string, unknown> = {}): void {
+  const payload = Object.keys(details).length > 0 ? ` ${JSON.stringify(details)}` : '';
+  console[level](`[MCP] ${message}${payload}`);
+}
+
+function summarizeCommand(config: McpServerConfig): { command?: string; args?: string[]; cwd?: string } {
+  return {
+    command: config.command,
+    args: Array.isArray(config.args) ? config.args.filter((arg): arg is string => typeof arg === 'string') : undefined,
+    cwd: typeof config.cwd === 'string' && config.cwd.trim() ? config.cwd : undefined,
+  };
 }
 
 function stableStringify(value: unknown): string {
@@ -188,6 +202,11 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   if (entry.transport === 'stdio') {
     const command = entry.config.command?.trim();
     if (!command) throw new Error(`MCP server "${entry.serverName}" is missing command.`);
+    logMcp('info', 'Starting stdio server', {
+      server: entry.serverName,
+      timeoutMs,
+      ...summarizeCommand(entry.config),
+    });
     const transport = new StdioClientTransport({
       command,
       args: Array.isArray(entry.config.args) ? entry.config.args.filter((arg): arg is string => typeof arg === 'string') : [],
@@ -195,13 +214,23 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
       cwd: typeof entry.config.cwd === 'string' && entry.config.cwd.trim() ? entry.config.cwd : undefined,
       stderr: 'pipe',
     });
+    transport.stderr?.on('data', (chunk) => {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      const trimmed = text.trim();
+      if (trimmed) {
+        logMcp('warn', 'Server stderr', { server: entry.serverName, pid: transport.pid, message: trimmed });
+      }
+    });
     await withTimeout(client.connect(transport), timeoutMs, signal);
+    entry.processPid = transport.pid;
+    logMcp('info', 'Connected stdio server', { server: entry.serverName, pid: transport.pid });
     return client;
   }
 
   if (entry.transport === 'http') {
     const url = entry.config.url?.trim();
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
+    logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url, timeoutMs });
     const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash);
     await withTimeout(client.connect(new StreamableHTTPClientTransport(new URL(url), accessToken ? {
       requestInit: {
@@ -210,6 +239,7 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
         },
       },
     } : undefined)), timeoutMs, signal);
+    logMcp('info', 'Connected HTTP server', { server: entry.serverName, url, authenticated: Boolean(accessToken) });
     return client;
   }
 
@@ -237,6 +267,7 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal): P
       lastUsedAt: Date.now(),
     };
     store.entries.set(key, entry);
+    logMcp('info', 'Registered server config', { server: serverName, transport: entry.transport, configHash });
   }
 
   entry.lastUsedAt = Date.now();
@@ -249,6 +280,11 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal): P
       })
       .catch((error) => {
         entry.lastError = getErrorMessage(error);
+        logMcp('error', 'Connection failed', {
+          server: entry.serverName,
+          transport: entry.transport,
+          error: entry.lastError,
+        });
         throw error;
       })
       .finally(() => {
@@ -346,9 +382,11 @@ export async function listMcpTools(serverName: string, options: { preferCache?: 
   }
 
   return withManagedConnection(serverName, async (entry, client) => {
+    logMcp('info', 'Listing tools', { server: serverName });
     const result = await withTimeout(client.listTools(), getTimeoutMs(entry.config), options.signal);
     entry.lastSuccessfulToolListAt = Date.now();
     await writeCachedTools(serverName, entry.configHash, result.tools);
+    logMcp('info', 'Listed tools', { server: serverName, count: result.tools.length });
     return result.tools;
   }, options.signal);
 }
@@ -360,7 +398,10 @@ export async function callMcpTool(
   signal?: AbortSignal,
 ): Promise<CallToolResult> {
   return withManagedConnection(serverName, async (entry, client) => {
-    return await withTimeout(client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal) as CallToolResult;
+    logMcp('info', 'Calling tool', { server: serverName, tool: toolName });
+    const result = await withTimeout(client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal) as CallToolResult;
+    logMcp(result.isError ? 'warn' : 'info', 'Tool call finished', { server: serverName, tool: toolName, isError: Boolean(result.isError) });
+    return result;
   }, signal);
 }
 
@@ -373,8 +414,10 @@ export async function cleanupIdleMcpServers(now = Date.now()): Promise<number> {
   for (const [key, entry] of store.entries) {
     if (!entry.client || entry.activeCalls > 0) continue;
     if (idleTimeoutMs > 0 && now - entry.lastUsedAt < idleTimeoutMs) continue;
+    logMcp('info', 'Closing idle server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     await entry.client.close().catch(() => undefined);
     entry.client = undefined;
+    entry.processPid = undefined;
     store.entries.delete(key);
     closed += 1;
   }
@@ -385,6 +428,7 @@ export async function cleanupIdleMcpServers(now = Date.now()): Promise<number> {
 export async function closeAllMcpServers(): Promise<void> {
   const store = getStore();
   for (const entry of store.entries.values()) {
+    logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     await entry.client?.close().catch(() => undefined);
   }
   store.entries.clear();
