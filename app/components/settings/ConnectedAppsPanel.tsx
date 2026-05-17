@@ -56,6 +56,8 @@ export function ConnectedAppsPanel() {
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [dialogToolkit, setDialogToolkit] = useState<ToolkitInfo | null>(null);
   const [availablePage, setAvailablePage] = useState(1);
+  const [connectedSearchQuery, setConnectedSearchQuery] = useState('');
+  const [connectedPage, setConnectedPage] = useState(1);
   const PAGE_SIZE = 30;
 
   const loadStatus = useCallback(async () => {
@@ -203,6 +205,7 @@ export function ConnectedAppsPanel() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('disconnectError'));
+      setConnectedPage(1);
       void loadStatus();
       void loadToolkits();
     } catch (err) {
@@ -251,7 +254,18 @@ export function ConnectedAppsPanel() {
     );
   }
 
-  const connectedToolkits = toolkits.filter((tk) => tk.connected);
+  const connectedToolkits = toolkits
+    .filter((tk) => tk.connected)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const filteredConnected = connectedSearchQuery
+    ? connectedToolkits.filter(
+        (tk) =>
+          tk.name.toLowerCase().includes(connectedSearchQuery.toLowerCase()) ||
+          tk.slug.toLowerCase().includes(connectedSearchQuery.toLowerCase())
+      )
+    : connectedToolkits;
+  const pagedConnected = connectedSearchQuery ? filteredConnected : filteredConnected.slice(0, connectedPage * PAGE_SIZE);
+  const hasMoreConnected = !connectedSearchQuery && filteredConnected.length > pagedConnected.length;
   const availableToolkits = toolkits.filter((tk) => !tk.connected);
   const filteredAvailable = searchQuery
     ? availableToolkits.filter(
@@ -345,63 +359,88 @@ export function ConnectedAppsPanel() {
         {!needsApiKey && (
           <div>
             <h3 className="mb-3 text-sm font-semibold">{t('connectedApps')}</h3>
+            {connectedToolkits.length > 0 && (
+              <div className="mb-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder={t('searchApps')}
+                    value={connectedSearchQuery}
+                    onChange={(e) => { setConnectedSearchQuery(e.target.value); setConnectedPage(1); }}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+            )}
             {connectedToolkits.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('noConnections')}</p>
+            ) : filteredConnected.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('noResults')}</p>
             ) : (
-              <div className="space-y-2">
-                {connectedToolkits.map((tk) => (
-                  <div
-                    key={tk.slug}
-                    className="flex cursor-pointer flex-col gap-2 rounded border border-border p-3 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
-                    onClick={() => setDialogToolkit(tk)}
-                  >
-                    <div className="flex items-center gap-3">
-                      {tk.logo ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={tk.logo} alt={tk.name} className="h-6 w-6" />
-                      ) : (
-                        <div className="flex h-6 w-6 items-center justify-center rounded bg-muted text-xs font-bold">
-                          {tk.name.charAt(0).toUpperCase()}
+              <>
+                <div className="space-y-2">
+                  {pagedConnected.map((tk) => (
+                    <div
+                      key={tk.slug}
+                      className="flex cursor-pointer flex-col gap-2 rounded border border-border p-3 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+                      onClick={() => setDialogToolkit(tk)}
+                    >
+                      <div className="flex items-center gap-3">
+                        {tk.logo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={tk.logo} alt={tk.name} className="h-6 w-6" />
+                        ) : (
+                          <div className="flex h-6 w-6 items-center justify-center rounded bg-muted text-xs font-bold">
+                            {tk.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{tk.name}</p>
+                          <p className="text-xs text-muted-foreground">{tk.slug}</p>
                         </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{tk.name}</p>
-                        <p className="text-xs text-muted-foreground">{tk.slug}</p>
+                      </div>
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        {statusBadge(tk.connectedAccountStatus || 'ACTIVE')}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleRefresh(tk.slug)}
+                          disabled={actionInProgress === `refresh-${tk.slug}`}
+                        >
+                          {actionInProgress === `refresh-${tk.slug}` ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="mr-1 h-3 w-3" />
+                          )}
+                          {t('refresh')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => void handleDisconnect(tk.slug)}
+                          disabled={actionInProgress === `disconnect-${tk.slug}`}
+                        >
+                          {actionInProgress === `disconnect-${tk.slug}` ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <Unlink className="mr-1 h-3 w-3" />
+                          )}
+                          {t('disconnect')}
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                      {statusBadge(tk.connectedAccountStatus || 'ACTIVE')}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleRefresh(tk.slug)}
-                        disabled={actionInProgress === `refresh-${tk.slug}`}
-                      >
-                        {actionInProgress === `refresh-${tk.slug}` ? (
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        ) : (
-                          <RefreshCw className="mr-1 h-3 w-3" />
-                        )}
-                        {t('refresh')}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => void handleDisconnect(tk.slug)}
-                        disabled={actionInProgress === `disconnect-${tk.slug}`}
-                      >
-                        {actionInProgress === `disconnect-${tk.slug}` ? (
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        ) : (
-                          <Unlink className="mr-1 h-3 w-3" />
-                        )}
-                        {t('disconnect')}
-                      </Button>
-                    </div>
+                  ))}
+                </div>
+                {hasMoreConnected && (
+                  <div className="flex justify-center pt-3">
+                    <Button variant="outline" size="sm" onClick={() => setConnectedPage((p) => p + 1)}>
+                      <ChevronDown className="mr-1 h-3 w-3" />
+                      {t('loadMore')} ({filteredConnected.length - pagedConnected.length} {t('remaining')})
+                    </Button>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         )}

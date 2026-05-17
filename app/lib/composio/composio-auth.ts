@@ -29,14 +29,13 @@ export async function initiateConnection(toolkit: string): Promise<{ redirectUrl
 }
 
 export async function disconnectTool(toolkit: string): Promise<void> {
-  const composio = await getComposio();
-  if (!composio) throw new Error('Composio not configured');
-
-  const userId = getComposioUserId();
-  const { items: accounts } = await composio.connectedAccounts.list({ userIds: [userId] });
+  const accounts = await getConnectedAccounts();
   const account = accounts.find((a) => a.toolkit?.slug === toolkit);
+
   if (account) {
-    await composio.connectedAccounts.delete(account.id);
+    const composio = await getComposio();
+    if (!composio) throw new Error('Composio not configured');
+    await composio.connectedAccounts.delete((account as { id: string }).id);
   }
 }
 
@@ -60,8 +59,19 @@ export async function getConnectedAccounts() {
   if (!composio) return [];
 
   const userId = getComposioUserId();
-  const { items } = await composio.connectedAccounts.list({ userIds: [userId] });
-  return items;
+  const allItems: Array<{ id: string; toolkit?: { slug?: string; name?: string }; status?: string; createdAt?: string; [key: string]: unknown }> = [];
+  let cursor: string | undefined;
+
+  do {
+    const params: Record<string, unknown> = { userIds: [userId], limit: 100 };
+    if (cursor) params.cursor = cursor;
+    const result = await composio.connectedAccounts.list(params as Parameters<typeof composio.connectedAccounts.list>[0]);
+    const items = Array.isArray(result.items) ? result.items : [];
+    allItems.push(...(items as typeof allItems));
+    cursor = ((result as Record<string, unknown>).nextCursor as string | undefined) ?? undefined;
+  } while (cursor);
+
+  return allItems;
 }
 
 export async function getToolkitsWithStatus() {
