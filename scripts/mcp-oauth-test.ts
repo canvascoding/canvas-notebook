@@ -44,6 +44,7 @@ async function main() {
       const form = await readForm(req);
       res.setHeader('Content-Type', 'application/json');
       if (form.get('grant_type') === 'refresh_token') {
+        assert.equal(req.headers.authorization, `Basic ${Buffer.from('dynamic-client:dynamic-secret').toString('base64')}`);
         refreshCalls += 1;
         res.end(JSON.stringify({
           access_token: 'refreshed-token',
