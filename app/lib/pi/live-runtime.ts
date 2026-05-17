@@ -30,6 +30,7 @@ import { and, eq } from 'drizzle-orm';
 
 const IDLE_TTL_MS = 15 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
+const MAX_RUNTIME_INSTANCES = 20;
 
 function getStudioOutputReferencePaths(outputFilePath: string) {
   const normalizedOutputPath = outputFilePath.replace(/^\/+/, '');
@@ -280,6 +281,10 @@ class LivePiRuntime {
 
   isExpired(now: number) {
     return !this.agent.state.isStreaming && !this.isRunning && now - this.lastAccessAt > IDLE_TTL_MS;
+  }
+
+  getLastAccessAt() {
+    return this.lastAccessAt;
   }
 
   hasPendingReplace() {
@@ -934,14 +939,34 @@ function getStore(): RuntimeStore {
     store.cleanupStarted = true;
     setInterval(() => {
       const now = Date.now();
-      for (const [key, runtimePromise] of store.runtimes.entries()) {
-        void runtimePromise.then((runtime) => {
-          if (runtime.isExpired(now)) {
-            runtime.dispose();
+      const resolved: Array<{ key: string; runtime: LivePiRuntime }> = [];
+      void Promise.allSettled(
+        [...store.runtimes.entries()].map(async ([key, runtimePromise]) => {
+          try {
+            const runtime = await runtimePromise;
+            if (runtime.isExpired(now)) {
+              runtime.dispose();
+              store.runtimes.delete(key);
+            } else {
+              resolved.push({ key, runtime });
+            }
+          } catch {
             store.runtimes.delete(key);
           }
-        });
-      }
+        }),
+      ).then(() => {
+        if (store.runtimes.size > MAX_RUNTIME_INSTANCES) {
+          resolved.sort((a, b) => a.runtime.getLastAccessAt() - b.runtime.getLastAccessAt());
+          const excess = store.runtimes.size - MAX_RUNTIME_INSTANCES;
+          for (let i = 0; i < excess; i++) {
+            const entry = resolved[i];
+            if (entry) {
+              store.runtimes.delete(entry.key);
+              try { entry.runtime.dispose(); } catch { /* ignore */ }
+            }
+          }
+        }
+      });
     }, CLEANUP_INTERVAL_MS).unref?.();
   }
 

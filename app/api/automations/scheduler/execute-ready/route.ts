@@ -3,6 +3,8 @@ import { dispatchAutomationRunExecution } from '@/app/lib/automations/dispatch';
 import { listExecutableAutomationRuns } from '@/app/lib/automations/store';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   const isValid = isValidCanvasInternalToken(request.headers.get('x-canvas-internal-token'));
   if (!isValid) {
@@ -25,6 +27,10 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error(`[Scheduler API] Failed to execute run ${run.id}:`, error);
       }
+    }
+
+    if (executed.length > 0) {
+      console.log(`[Scheduler API] Executed ${executed.length} ready run(s)`);
     }
 
     return NextResponse.json({ success: true, executed });

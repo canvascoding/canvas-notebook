@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listDueAutomationJobs, scheduleAutomationJobRun, advanceAutomationJobSchedule } from '@/app/lib/automations/store';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   const isValid = isValidCanvasInternalToken(request.headers.get('x-canvas-internal-token'));
   if (!isValid) {
@@ -24,6 +26,10 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.warn(`[Scheduler API] Failed to queue job ${job.id}:`, error instanceof Error ? error.message : error);
       }
+    }
+
+    if (queued.length > 0) {
+      console.log(`[Scheduler API] Queued ${queued.length} due job(s)`);
     }
 
     return NextResponse.json({ success: true, queued });
