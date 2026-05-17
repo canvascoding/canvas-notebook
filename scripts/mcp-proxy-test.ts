@@ -56,6 +56,15 @@ async function main() {
 
   const searchTools = await tool.execute('search-tools', { action: 'search_tools', query: 'numbers' });
   assert.match(getText(searchTools), /Tool: `fake\.sum`/);
+  assert.match(getText(searchTools), /Match: score/);
+
+  const fuzzyServerSearch = await tool.execute('search-tools-fuzzy-server', {
+    action: 'search_tools',
+    server: 'fkae',
+    query: 'numbers arithmetic',
+  });
+  assert.match(getText(fuzzyServerSearch), /Server "fkae" was not found exactly/);
+  assert.match(getText(fuzzyServerSearch), /Tool: `fake\.sum`/);
 
   const describeTool = await tool.execute('describe-tool', { action: 'describe_tool', server: 'fake', tool: 'echo' });
   assert.match(getText(describeTool), /Input schema:/);
