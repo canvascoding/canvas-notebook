@@ -63,9 +63,12 @@ export type McpOAuthStartResult = {
 };
 
 class McpOAuthError extends Error {
-  constructor(message: string) {
+  status?: number;
+
+  constructor(message: string, status?: number) {
     super(message);
     this.name = 'McpOAuthError';
+    this.status = status;
   }
 }
 
@@ -340,7 +343,7 @@ async function exchangeToken(params: URLSearchParams, tokenUrl: string, clientSe
   }
   const response = await fetch(tokenUrl, { method: 'POST', headers, body: params });
   if (!response.ok) {
-    throw new McpOAuthError(`OAuth token endpoint returned status ${response.status}.`);
+    throw new McpOAuthError(`OAuth token endpoint returned status ${response.status}.`, response.status);
   }
   return await response.json() as {
     access_token?: string;
@@ -349,6 +352,19 @@ async function exchangeToken(params: URLSearchParams, tokenUrl: string, clientSe
     token_type?: string;
     scope?: string;
   };
+}
+
+async function resolveClientSecretForRefresh(serverName: string, oauth: OAuthServerConfig | null, clientId: string): Promise<string | undefined> {
+  if (oauth?.clientSecret) {
+    return oauth.clientSecret;
+  }
+
+  const storedClient = await readJsonIfExists<{ clientId?: string; clientSecret?: string }>(getOAuthClientPath(serverName));
+  if (storedClient?.clientId === clientId) {
+    return storedClient.clientSecret;
+  }
+
+  return undefined;
 }
 
 export async function completeMcpOAuthCallback(code: string, state: string): Promise<OAuthTokenRecord> {
@@ -412,13 +428,22 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
 
   const oauth = getOAuthConfig(serverConfig);
   const endpoints = await resolveOAuthEndpoints(oauth || {}, serverConfig);
+  const clientSecret = await resolveClientSecretForRefresh(serverName, oauth, token.clientId);
   const params = new URLSearchParams();
   params.set('grant_type', 'refresh_token');
   params.set('refresh_token', token.refreshToken);
   params.set('client_id', token.clientId);
-  const clientSecret = oauth?.clientSecret;
   if (clientSecret) params.set('client_secret', clientSecret);
-  const refreshed = await exchangeToken(params, endpoints.tokenUrl, clientSecret);
+  let refreshed: Awaited<ReturnType<typeof exchangeToken>>;
+  try {
+    refreshed = await exchangeToken(params, endpoints.tokenUrl, clientSecret);
+  } catch (error) {
+    if (error instanceof McpOAuthError && (error.status === 400 || error.status === 401)) {
+      await fs.rm(tokenPath, { force: true }).catch(() => undefined);
+      throw new McpOAuthError(`OAuth token for MCP server "${serverName}" could not be refreshed. Reauthorize the server in Settings > Integrations.`);
+    }
+    throw error;
+  }
   if (!refreshed.access_token) {
     throw new McpOAuthError('OAuth refresh response is missing access_token.');
   }
