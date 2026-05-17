@@ -11,6 +11,7 @@ const externalPackages = [
   '@mariozechner/pi-ai',
   '@mariozechner/pi-agent-core',
   '@eigenpal/docx-js-editor',
+  'file-type',
 ];
 
 const sentryTunnelRoute = process.env.SENTRY_TUNNEL_ROUTE?.trim() || undefined;

@@ -1,0 +1,164 @@
+{
+  "version": "1.0",
+  "integrationStep": "02-proxy-tool",
+  "title": "MCP Proxy Tool Runtime",
+  "plan": "plan.md",
+  "tasks": [
+    {
+      "id": "mcp-02-01",
+      "title": "Select and install MCP TypeScript SDK",
+      "description": "Use the official MCP TypeScript SDK, preferring the stable v1 package line for the first runtime integration.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:8",
+        "plan.md:10",
+        "plan.md:11"
+      ],
+      "dependencies": [
+        "mcp-01-09"
+      ]
+    },
+    {
+      "id": "mcp-02-02",
+      "title": "Load server definitions from mcp.json",
+      "description": "Reuse the Step 1 config helper to read MCP server definitions from /data/canvas-agent/mcp.json.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:12",
+        "plan.md:43",
+        "plan.md:45"
+      ],
+      "dependencies": [
+        "mcp-02-01"
+      ]
+    },
+    {
+      "id": "mcp-02-03",
+      "title": "Implement one Pi-compatible mcp proxy tool",
+      "description": "Register one AgentTool named mcp with MCP group metadata and structured model/UI results.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:23",
+        "plan.md:25",
+        "plan.md:27",
+        "plan.md:41"
+      ],
+      "dependencies": [
+        "mcp-02-02"
+      ]
+    },
+    {
+      "id": "mcp-02-04",
+      "title": "Support proxy actions",
+      "description": "Implement list_servers, list_tools, search_tools, describe_tool, call_tool, and status actions.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:32",
+        "plan.md:34",
+        "plan.md:35",
+        "plan.md:36",
+        "plan.md:37",
+        "plan.md:38",
+        "plan.md:39"
+      ],
+      "dependencies": [
+        "mcp-02-03"
+      ]
+    },
+    {
+      "id": "mcp-02-05",
+      "title": "Support initial non-OAuth transports",
+      "description": "Support stdio MCP servers first and reserve HTTP fields while limiting HTTP to unauthenticated endpoints in this step.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:13",
+        "plan.md:43",
+        "plan.md:45",
+        "plan.md:47",
+        "plan.md:61"
+      ],
+      "dependencies": [
+        "mcp-02-03"
+      ]
+    },
+    {
+      "id": "mcp-02-06",
+      "title": "Implement env reference expansion",
+      "description": "Resolve ${NAME} references from centralized integration env, agent env, and process.env fallback without hardcoding secrets.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:63",
+        "plan.md:65",
+        "plan.md:66",
+        "plan.md:68",
+        "plan.md:69",
+        "plan.md:70",
+        "plan.md:72"
+      ],
+      "dependencies": [
+        "mcp-02-02"
+      ]
+    },
+    {
+      "id": "mcp-02-07",
+      "title": "Integrate with existing tool filtering",
+      "description": "Ensure getPiTools remains the authority for exposing or hiding the mcp proxy tool for each provider.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:74",
+        "plan.md:76",
+        "plan.md:77"
+      ],
+      "dependencies": [
+        "mcp-02-03"
+      ]
+    },
+    {
+      "id": "mcp-02-08",
+      "title": "Handle aborts, timeouts, and safe errors",
+      "description": "Honor Pi abort signals, bound long-running calls, and return safe model-readable errors without leaking secrets or stack traces.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:79",
+        "plan.md:80",
+        "plan.md:82",
+        "plan.md:84",
+        "plan.md:94"
+      ],
+      "dependencies": [
+        "mcp-02-04",
+        "mcp-02-05"
+      ]
+    },
+    {
+      "id": "mcp-02-09",
+      "title": "Add fake MCP server tests",
+      "description": "Use a local fake server to test config loading, startup, tool listing, schema description, tool calls, and error surfacing.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:96",
+        "plan.md:98",
+        "plan.md:101",
+        "plan.md:106"
+      ],
+      "dependencies": [
+        "mcp-02-08"
+      ]
+    },
+    {
+      "id": "mcp-02-10",
+      "title": "Verify Step 2 implementation",
+      "description": "Run npm build and avoid container builds unless explicitly requested.",
+      "status": "completed",
+      "planRefs": [
+        "plan.md:108",
+        "plan.md:109",
+        "plan.md:111",
+        "plan.md:113"
+      ],
+      "dependencies": [
+        "mcp-02-09"
+      ]
+    }
+  ]
+}

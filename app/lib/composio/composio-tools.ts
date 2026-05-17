@@ -3,6 +3,7 @@ import 'server-only';
 import { Type } from 'typebox';
 import { getComposio } from './composio-client';
 import { getComposioSession, getComposioUserId } from './composio-session';
+import { getConnectedAccounts } from './composio-auth';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 const COMPOSIO_TOOL_DESCRIPTIONS = {
@@ -209,7 +210,6 @@ export function createComposioManageConnectionsTool(): AgentTool {
           return textResult(JSON.stringify({ error: 'Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.' }));
         }
 
-        const userId = getComposioUserId();
         const action = p.action;
         const toolkit = p.toolkit;
 
@@ -227,17 +227,17 @@ export function createComposioManageConnectionsTool(): AgentTool {
           }
 
           case 'disconnect': {
-            const { items: accounts } = await composio.connectedAccounts.list({ userIds: [userId] });
+            const accounts = await getConnectedAccounts();
             const account = accounts.find((a) => a.toolkit?.slug === toolkit);
             if (account) {
-              await composio.connectedAccounts.delete(account.id);
+              await composio.connectedAccounts.delete((account as { id: string }).id);
               return textResult(JSON.stringify({ success: true, message: `${toolkit} disconnected successfully.` }));
             }
             return textResult(JSON.stringify({ error: `No connected account found for ${toolkit}.` }));
           }
 
           case 'status': {
-            const { items: accounts } = await composio.connectedAccounts.list({ userIds: [userId] });
+            const accounts = await getConnectedAccounts();
             const account = accounts.find((a) => a.toolkit?.slug === toolkit);
             if (account) {
               return textResult(JSON.stringify({

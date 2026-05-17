@@ -26,6 +26,8 @@ import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
+const MAX_EVENTS_LOG = 500;
+const MAX_EVENT_JSON_LENGTH = 10_000;
 const EMPTY_USAGE = {
   input: 0,
   output: 0,
@@ -252,7 +254,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
     console.log(`[Automationen] Starting agent loop for run ${runId} (provider=${provider}, model=${model.id})`);
     for await (const event of agentLoop([promptMessage], context, config, undefined)) {
-      events.push(JSON.stringify(event));
+      if (events.length < MAX_EVENTS_LOG) {
+        const json = JSON.stringify(event);
+        events.push(json.length > MAX_EVENT_JSON_LENGTH ? json.slice(0, MAX_EVENT_JSON_LENGTH) + '...[truncated]' : json);
+      }
       if (event.type === 'agent_end') {
         finalMessages = event.messages;
       }
