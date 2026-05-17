@@ -33,6 +33,25 @@ type McpProxyParams = {
 
 const MAX_SEARCH_RESULTS = 20;
 const PROXY_PARAM_KEYS = new Set(['action', 'server', 'query', 'tool', 'arguments']);
+const MIN_STRONG_SEARCH_SCORE = 6;
+const SYNONYM_GROUPS = [
+  ['create', 'creates', 'creating', 'generate', 'generates', 'generation', 'generating', 'make', 'build', 'draft', 'write', 'produce', 'erstellen', 'generieren'],
+  ['search', 'find', 'lookup', 'list', 'browse', 'discover', 'suchen', 'finden', 'auflisten'],
+  ['edit', 'update', 'change', 'modify', 'fix', 'translate', 'bearbeiten', 'aendern', 'aktualisieren'],
+  ['delete', 'remove', 'clear', 'loeschen', 'entfernen'],
+  ['image', 'picture', 'photo', 'asset', 'media', 'bild', 'foto'],
+  ['document', 'doc', 'text', 'memo', 'report', 'dokument', 'bericht'],
+  ['presentation', 'slides', 'deck', 'praesentation', 'folien'],
+  ['poster', 'post', 'social', 'flyer', 'design', 'graphic', 'grafik', 'plakat', 'beitrag'],
+];
+const SYNONYMS = new Map(SYNONYM_GROUPS.flatMap((group) => group.map((token) => [token, group] as const)));
+
+type SearchMatch = {
+  server: string;
+  tool: Tool;
+  score: number;
+  reasons: string[];
+};
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown MCP error';
@@ -48,6 +67,120 @@ function normalizeServerName(value: string | undefined): string {
 
 function normalizeToolName(value: string | undefined): string {
   return value?.trim() || '';
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase();
+}
+
+function tokenizeSearchText(value: string): string[] {
+  const seen = new Set<string>();
+  const tokens = normalizeSearchText(value)
+    .split(/[^a-z0-9]+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+
+  return tokens.filter((token) => {
+    if (seen.has(token)) return false;
+    seen.add(token);
+    return true;
+  });
+}
+
+function expandSearchTokens(tokens: string[]): string[] {
+  const expanded = new Set<string>();
+  for (const token of tokens) {
+    expanded.add(token);
+    for (const synonym of SYNONYMS.get(token) || []) {
+      expanded.add(synonym);
+    }
+  }
+  return Array.from(expanded);
+}
+
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > 2) return 3;
+
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[b.length];
+}
+
+function tokensContainFuzzy(tokens: Set<string>, queryToken: string): boolean {
+  if (queryToken.length < 4) return false;
+  for (const token of tokens) {
+    if (token.length >= 4 && editDistance(token, queryToken) <= 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function scoreMcpToolSearch(serverName: string, tool: Tool, queryTokens: string[]): SearchMatch | null {
+  const expandedQueryTokens = expandSearchTokens(queryTokens);
+  const serverTokens = new Set(tokenizeSearchText(serverName));
+  const toolTokens = new Set(tokenizeSearchText(tool.name));
+  const descriptionTokens = new Set(tokenizeSearchText(tool.description || ''));
+  const fullName = normalizeSearchText(`${serverName}.${tool.name}`);
+  const reasons = new Set<string>();
+  let score = 0;
+  let matchedOriginalTokens = 0;
+
+  for (const token of expandedQueryTokens) {
+    if (fullName === token || fullName.includes(token)) {
+      score += 14;
+      reasons.add(`matched tool id "${token}"`);
+    }
+    if (serverTokens.has(token)) {
+      score += 8;
+      reasons.add(`matched server "${token}"`);
+    }
+    if (toolTokens.has(token)) {
+      score += 10;
+      reasons.add(`matched tool name "${token}"`);
+    } else if (tokensContainFuzzy(toolTokens, token)) {
+      score += 6;
+      reasons.add(`near tool-name match "${token}"`);
+    }
+    if (descriptionTokens.has(token)) {
+      score += 3;
+      reasons.add(`matched description "${token}"`);
+    } else if (tokensContainFuzzy(descriptionTokens, token)) {
+      score += 1;
+      reasons.add(`near description match "${token}"`);
+    }
+  }
+
+  for (const token of queryTokens) {
+    if (serverTokens.has(token) || toolTokens.has(token) || descriptionTokens.has(token)) {
+      matchedOriginalTokens += 1;
+    }
+  }
+  if (matchedOriginalTokens > 1) {
+    score += matchedOriginalTokens * 2;
+    reasons.add(`matched ${matchedOriginalTokens} query terms`);
+  }
+
+  return score > 0 ? { server: serverName, tool, score, reasons: Array.from(reasons).slice(0, 4) } : null;
 }
 
 function resolveMcpTarget(serverValue: string | undefined, toolValue: string | undefined) {
@@ -72,6 +205,13 @@ function formatToolListItem(serverName: string, tool: Tool): string {
     `- Tool: \`${serverName}.${tool.name}\``,
     `  Name: \`${tool.name}\``,
     `  Description: ${tool.description || 'n/a'}`,
+  ].join('\n');
+}
+
+function formatToolSearchItem(match: SearchMatch): string {
+  return [
+    formatToolListItem(match.server, match.tool),
+    `  Match: score ${match.score}${match.reasons.length > 0 ? ` (${match.reasons.join('; ')})` : ''}`,
   ].join('\n');
 }
 
@@ -145,27 +285,30 @@ async function handleListTools(serverName: string, signal?: AbortSignal): Promis
 }
 
 async function handleSearchTools(query: string, serverName?: string, signal?: AbortSignal): Promise<AgentToolResult<unknown>> {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) {
+  const queryTokens = tokenizeSearchText(query);
+  if (queryTokens.length === 0) {
     throw new Error('search_tools requires query.');
   }
 
   const configuredServers = await listConfiguredMcpServers();
-  const serverNames = serverName ? [serverName] : configuredServers.map((server) => server.name);
-  const configuredSet = new Set(configuredServers.map((server) => server.name));
-  const matches: Array<{ server: string; tool: Tool }> = [];
+  const normalizedServerName = normalizeSearchText(serverName || '');
+  const exactServer = configuredServers.find((server) => normalizeSearchText(server.name) === normalizedServerName);
+  const serverNames = exactServer
+    ? [exactServer.name]
+    : configuredServers.map((server) => server.name);
+  const serverWarning = serverName && !exactServer
+    ? `Server "${serverName}" was not found exactly. Searching all configured servers instead.`
+    : null;
+  const matches: SearchMatch[] = [];
   const errors: Array<{ server: string; error: string }> = [];
 
   for (const currentServerName of serverNames) {
-    if (!configuredSet.has(currentServerName)) {
-      throw new Error(`Unknown MCP server "${currentServerName}".`);
-    }
     try {
       const tools = await listMcpTools(currentServerName, { preferCache: true, signal });
       for (const tool of tools) {
-        const haystack = `${tool.name}\n${tool.description || ''}`.toLowerCase();
-        if (haystack.includes(normalizedQuery)) {
-          matches.push({ server: currentServerName, tool });
+        const match = scoreMcpToolSearch(currentServerName, tool, queryTokens);
+        if (match) {
+          matches.push(match);
         }
       }
     } catch (error) {
@@ -173,22 +316,43 @@ async function handleSearchTools(query: string, serverName?: string, signal?: Ab
     }
   }
 
-  const visibleMatches = matches.slice(0, MAX_SEARCH_RESULTS);
-  const lines = visibleMatches.map(({ server, tool }) => formatToolListItem(server, tool));
+  matches.sort((a, b) => b.score - a.score || `${a.server}.${a.tool.name}`.localeCompare(`${b.server}.${b.tool.name}`));
+  const strongMatches = matches.filter((match) => match.score >= MIN_STRONG_SEARCH_SCORE);
+  const visibleMatches = (strongMatches.length > 0 ? strongMatches : matches).slice(0, MAX_SEARCH_RESULTS);
+  const lines = visibleMatches.map(formatToolSearchItem);
   if (errors.length > 0) {
     lines.push(...errors.map((error) => `- ${error.server}: Error: ${error.error}`));
   }
 
+  const header = strongMatches.length > 0
+    ? `Top MCP tool matches for "${query}":`
+    : matches.length > 0
+      ? `No strong MCP tool matches for "${query}". Closest candidates:`
+      : `No MCP tools matched "${query}".`;
+
   return textResult(
     lines.length > 0
       ? [
-          `MCP tool search results for "${query}":`,
+          header,
+          ...(serverWarning ? [serverWarning] : []),
           ...lines,
           '',
           'Next step: use describe_tool with the exact Tool value, for example { "action": "describe_tool", "tool": "Canva.generate-design" }. To execute it, use call_tool with the same Tool value and put inputs inside "arguments".',
         ].join('\n')
-      : `No MCP tools matched "${query}".`,
-    { query, matches: visibleMatches, errors, truncated: matches.length > visibleMatches.length },
+      : [
+          header,
+          ...(serverWarning ? [serverWarning] : []),
+          ...errors.map((error) => `- ${error.server}: Error: ${error.error}`),
+        ].join('\n'),
+    {
+      query,
+      queryTokens,
+      matches: visibleMatches,
+      errors,
+      truncated: matches.length > visibleMatches.length,
+      searchedServers: serverNames,
+      serverWarning,
+    },
   );
 }
 
