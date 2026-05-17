@@ -16,6 +16,8 @@ type OAuthServerConfig = {
   redirectUri?: string;
 };
 
+type OAuthEndpoints = Required<Pick<OAuthServerConfig, 'authorizationUrl' | 'tokenUrl'>> & Pick<OAuthServerConfig, 'registrationUrl'>;
+
 type OAuthStateRecord = {
   state: string;
   serverName: string;
@@ -142,6 +144,9 @@ function getOAuthConfig(serverConfig: McpServerConfig): OAuthServerConfig | null
   if (serverConfig.auth === 'oauth') {
     return {};
   }
+  if (typeof serverConfig.url === 'string' && serverConfig.url.trim() && serverConfig.auth !== 'none') {
+    return {};
+  }
   return null;
 }
 
@@ -150,21 +155,8 @@ function getOriginFromRequest(requestOrigin: string | null | undefined): string 
   return (configured || requestOrigin || 'http://localhost:3000').replace(/\/+$/u, '');
 }
 
-async function resolveOAuthEndpoints(oauth: OAuthServerConfig): Promise<Required<Pick<OAuthServerConfig, 'authorizationUrl' | 'tokenUrl'>> & Pick<OAuthServerConfig, 'registrationUrl'>> {
-  if (oauth.authorizationUrl && oauth.tokenUrl) {
-    return {
-      authorizationUrl: oauth.authorizationUrl,
-      tokenUrl: oauth.tokenUrl,
-      registrationUrl: oauth.registrationUrl,
-    };
-  }
-
-  if (!oauth.issuer) {
-    throw new McpOAuthError('OAuth MCP server requires oauth.authorizationUrl and oauth.tokenUrl, or oauth.issuer for discovery.');
-  }
-
-  const issuer = oauth.issuer.replace(/\/+$/u, '');
-  const response = await fetch(`${issuer}/.well-known/oauth-authorization-server`);
+async function readAuthorizationServerMetadata(metadataUrl: string): Promise<OAuthEndpoints> {
+  const response = await fetch(metadataUrl);
   if (!response.ok) {
     throw new McpOAuthError(`OAuth discovery failed with status ${response.status}.`);
   }
@@ -181,6 +173,28 @@ async function resolveOAuthEndpoints(oauth: OAuthServerConfig): Promise<Required
     tokenUrl: metadata.token_endpoint,
     registrationUrl: metadata.registration_endpoint,
   };
+}
+
+async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: McpServerConfig): Promise<OAuthEndpoints> {
+  if (oauth.authorizationUrl && oauth.tokenUrl) {
+    return {
+      authorizationUrl: oauth.authorizationUrl,
+      tokenUrl: oauth.tokenUrl,
+      registrationUrl: oauth.registrationUrl,
+    };
+  }
+
+  if (!oauth.issuer) {
+    const serverUrl = typeof serverConfig?.url === 'string' ? serverConfig.url.trim() : '';
+    if (serverUrl) {
+      const origin = new URL(serverUrl).origin;
+      return await readAuthorizationServerMetadata(`${origin}/.well-known/oauth-authorization-server`);
+    }
+    throw new McpOAuthError('OAuth MCP server requires oauth.authorizationUrl and oauth.tokenUrl, oauth.issuer, or an HTTP url for discovery.');
+  }
+
+  const issuer = oauth.issuer.replace(/\/+$/u, '');
+  return await readAuthorizationServerMetadata(`${issuer}/.well-known/oauth-authorization-server`);
 }
 
 async function resolveClient(serverName: string, oauth: OAuthServerConfig, redirectUri: string, registrationUrl?: string): Promise<{ clientId: string; clientSecret?: string }> {
@@ -273,7 +287,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
   const { serverConfig, oauth, configHash } = await resolveServerForOAuth(serverName);
   const origin = getOriginFromRequest(requestOrigin);
   const redirectUri = oauth.redirectUri || `${origin}/api/mcp/oauth/callback`;
-  const endpoints = await resolveOAuthEndpoints(oauth);
+  const endpoints = await resolveOAuthEndpoints(oauth, serverConfig);
   const client = await resolveClient(serverName, oauth, redirectUri, endpoints.registrationUrl);
   const pkce = createPkcePair();
   const state = base64Url(crypto.randomBytes(24));
@@ -394,7 +408,7 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
   }
 
   const oauth = getOAuthConfig(serverConfig);
-  const endpoints = await resolveOAuthEndpoints(oauth || {});
+  const endpoints = await resolveOAuthEndpoints(oauth || {}, serverConfig);
   const params = new URLSearchParams();
   params.set('grant_type', 'refresh_token');
   params.set('refresh_token', token.refreshToken);

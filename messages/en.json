@@ -967,6 +967,9 @@
       "enable": "Enable",
       "disable": "Disable",
       "testConnection": "Test connection",
+      "authorize": "Authorize",
+      "reauthorize": "Reauthorize",
+      "clearAuth": "Clear auth",
       "oauthAuthorized": "OAuth authorized",
       "oauthRequired": "OAuth required",
       "cachedTools": "Cached tools",
@@ -978,6 +981,8 @@
       "enabledSaved": "{server} enabled.",
       "disabledSaved": "{server} disabled.",
       "testSucceeded": "{server} connection test succeeded ({count} tools).",
+      "authorizationStarted": "Authorization started for {server}. Complete the browser login, then test the connection.",
+      "authCleared": "OAuth credentials cleared for {server}.",
       "errors": {
         "load": "Failed to load MCP configuration.",
         "save": "Failed to save MCP configuration.",

@@ -30,6 +30,16 @@ async function main() {
       res.end(JSON.stringify({ client_id: 'dynamic-client', client_secret: 'dynamic-secret' }));
       return;
     }
+    if (req.url === '/.well-known/oauth-authorization-server' && req.method === 'GET') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        issuer: baseUrl,
+        authorization_endpoint: `${baseUrl}/authorize`,
+        token_endpoint: `${baseUrl}/token`,
+        registration_endpoint: `${baseUrl}/register`,
+      }));
+      return;
+    }
     if (req.url === '/token' && req.method === 'POST') {
       const form = await readForm(req);
       res.setHeader('Content-Type', 'application/json');
@@ -118,6 +128,18 @@ async function main() {
     const proxy = createMcpProxyTool();
     const proxyStatus = await proxy.execute('auth-status', { action: 'auth_status', server: 'remote' });
     assert.match((proxyStatus.content[0] as { text: string }).text, /authorized/);
+
+    const discoveredConfig = {
+      url: `${baseUrl}/mcp`,
+    };
+    await writeMcpConfigRaw(JSON.stringify({
+      settings: { toolPrefix: 'server', idleTimeout: 10 },
+      mcpServers: { discovered: discoveredConfig },
+    }, null, 2));
+    const discovered = await startMcpOAuth('discovered', 'http://localhost:3000');
+    const discoveredUrl = new URL(discovered.authorizationUrl);
+    assert.equal(discoveredUrl.origin + discoveredUrl.pathname, `${baseUrl}/authorize`);
+    assert.equal(discoveredUrl.searchParams.get('client_id'), 'dynamic-client');
 
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },

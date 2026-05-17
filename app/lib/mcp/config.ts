@@ -25,6 +25,7 @@ export type McpServerConfig = {
   env?: Record<string, string>;
   cwd?: string;
   url?: string;
+  auth?: 'oauth' | 'none' | string;
   transport?: string;
   timeoutMs?: number;
   [key: string]: unknown;
@@ -109,6 +110,9 @@ export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
     }
     if ('enabled' in serverConfig && typeof serverConfig.enabled !== 'boolean') {
       throw new McpConfigValidationError(`MCP server "${serverName}" field "enabled" must be a boolean.`);
+    }
+    if ('auth' in serverConfig && serverConfig.auth !== 'oauth' && serverConfig.auth !== 'none') {
+      throw new McpConfigValidationError(`MCP server "${serverName}" field "auth" must be "oauth" or "none".`);
     }
   }
 
