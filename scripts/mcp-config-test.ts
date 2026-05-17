@@ -17,6 +17,7 @@ async function main() {
     parseAndValidateMcpConfig,
     readMcpConfigState,
     resolveMcpConfigPath,
+    setMcpServerEnabled,
     writeMcpConfigRaw,
   } = await import('../app/lib/mcp/config');
 
@@ -51,6 +52,10 @@ async function main() {
     () => parseAndValidateMcpConfig('{ "settings": { "idleTimeout": -1 }, "mcpServers": {} }'),
     /idleTimeout/,
   );
+  assert.throws(
+    () => parseAndValidateMcpConfig('{ "settings": {}, "mcpServers": { "bad": { "enabled": "yes" } } }'),
+    /enabled/,
+  );
 
   const validConfig = {
     settings: {
@@ -60,6 +65,7 @@ async function main() {
     },
     mcpServers: {
       example: {
+        enabled: false,
         command: 'node',
         args: ['server.js'],
         extraFutureField: {
@@ -75,6 +81,9 @@ async function main() {
   assert.equal(updated.rawContent, `${validRaw}\n`);
   assert.deepEqual(JSON.parse(updated.rawContent), validConfig);
   assert.equal(await modeOf(configPath), 0o600);
+
+  const enabled = await setMcpServerEnabled('example', true);
+  assert.equal(JSON.parse(enabled.rawContent).mcpServers.example.enabled, true);
 
   console.log('mcp-config-test: ok');
 }

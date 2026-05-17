@@ -2,7 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 
 import { callMcpTool, listMcpTools } from '@/app/lib/mcp/manager';
-import { readMcpConfig } from '@/app/lib/mcp/config';
+import { isMcpServerEnabled, readMcpConfig } from '@/app/lib/mcp/config';
 
 export type DirectMcpToolWarning = {
   server: string;
@@ -75,6 +75,7 @@ export async function buildDirectMcpTools(): Promise<DirectMcpToolBuildResult> {
   const usedNames = new Set<string>();
 
   for (const [serverName, serverConfig] of Object.entries(config.mcpServers)) {
+    if (!isMcpServerEnabled(serverConfig)) continue;
     const directTools = Array.isArray(serverConfig.directTools)
       ? serverConfig.directTools.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
       : [];

@@ -19,6 +19,7 @@ export interface McpConfigState {
 }
 
 export type McpServerConfig = {
+  enabled?: boolean;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -44,6 +45,10 @@ export class McpConfigValidationError extends Error {
     super(message);
     this.name = 'McpConfigValidationError';
   }
+}
+
+export function isMcpServerEnabled(config: McpServerConfig): boolean {
+  return config.enabled !== false;
 }
 
 export function resolveMcpConfigPath(): string {
@@ -101,6 +106,9 @@ export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
     }
     if (!isPlainObject(serverConfig)) {
       throw new McpConfigValidationError(`MCP server "${serverName}" must be an object.`);
+    }
+    if ('enabled' in serverConfig && typeof serverConfig.enabled !== 'boolean') {
+      throw new McpConfigValidationError(`MCP server "${serverName}" field "enabled" must be a boolean.`);
     }
   }
 
@@ -169,4 +177,20 @@ export async function writeMcpConfigRaw(rawContent: string): Promise<McpConfigSt
   await fs.chmod(filePath, 0o600).catch(() => undefined);
 
   return readMcpConfigState();
+}
+
+export async function setMcpServerEnabled(serverName: string, enabled: boolean): Promise<McpConfigState> {
+  const state = await readMcpConfigState();
+  const config = parseAndValidateMcpConfig(state.rawContent);
+  const serverConfig = config.mcpServers[serverName];
+  if (!serverConfig) {
+    throw new McpConfigValidationError(`Unknown MCP server "${serverName}".`);
+  }
+
+  config.mcpServers[serverName] = {
+    ...serverConfig,
+    enabled,
+  };
+
+  return writeMcpConfigRaw(JSON.stringify(config, null, 2));
 }
