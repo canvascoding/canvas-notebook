@@ -25,6 +25,7 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
 
+  const { getDefaultEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
   const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateVideoTool, piTools } = await import('../app/lib/pi/tool-registry');
 
   const studioCalls: StudioGenerateRequest[] = [];
@@ -107,6 +108,8 @@ async function main() {
 
   // Verify skill tools are no longer registered in the tool registry
   const allTools = buildPiToolRegistry();
+  const defaultEnabledTools = getDefaultEnabledToolNames(allTools.map((tool) => tool.name));
+  assert.equal(defaultEnabledTools.has('mcp'), true);
   assert.equal(allTools.every((tool) => !['browser_start', 'browser_nav', 'brave_search', 'transcribe'].includes(tool.name)), true);
   assert.equal(allTools.some((tool) => tool.name === 'image_generation'), false);
   assert.equal(allTools.some((tool) => tool.name === 'video_generation'), false);
