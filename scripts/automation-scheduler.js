@@ -9,10 +9,16 @@
  */
 
 const POLL_INTERVAL_MS = 15_000;
+const POLL_MAX_INTERVAL_MS = 120_000;
+const POLL_BACKOFF_FACTOR = 2;
+const IDLE_TICKS_BEFORE_BACKOFF = 3;
 const STARTUP_HEALTH_TIMEOUT_MS = 60_000;
 
 let started = false;
 let activeTick = null;
+let currentInterval = POLL_INTERVAL_MS;
+let consecutiveIdleTicks = 0;
+let timer = null;
 
 function getBaseUrl() {
   // Scheduler runs inside the container, so it should connect to localhost:3000
@@ -54,7 +60,7 @@ async function queueDueScheduledJobs() {
   const token = await getInternalToken();
   if (!token) {
     console.warn('[Scheduler] CANVAS_INTERNAL_API_KEY is missing. Skipping queue-due tick.');
-    return;
+    return [];
   }
 
   try {
@@ -69,14 +75,16 @@ async function queueDueScheduledJobs() {
     if (!response.ok) {
       const error = await response.text();
       console.warn(`[Scheduler] Failed to queue due jobs: ${response.status} - ${error}`);
-    } else {
-      const result = await response.json();
-      if (result.queued && result.queued.length > 0) {
-        console.log(`[Scheduler] Queued ${result.queued.length} due job(s)`);
-      }
+      return [];
     }
+    const result = await response.json();
+    if (result.queued && result.queued.length > 0) {
+      console.log(`[Scheduler] Queued ${result.queued.length} due job(s)`);
+    }
+    return result.queued || [];
   } catch (error) {
     console.warn('[Scheduler] Error queuing due jobs:', error instanceof Error ? error.message : error);
+    return [];
   }
 }
 
@@ -85,7 +93,7 @@ async function executeReadyRuns() {
   const token = await getInternalToken();
   if (!token) {
     console.warn('[Scheduler] CANVAS_INTERNAL_API_KEY is missing. Skipping execute-ready tick.');
-    return;
+    return [];
   }
 
   try {
@@ -100,14 +108,16 @@ async function executeReadyRuns() {
     if (!response.ok) {
       const error = await response.text();
       console.warn(`[Scheduler] Failed to execute ready runs: ${response.status} - ${error}`);
-    } else {
-      const result = await response.json();
-      if (result.executed && result.executed.length > 0) {
-        console.log(`[Scheduler] Executed ${result.executed.length} ready run(s)`);
-      }
+      return [];
     }
+    const result = await response.json();
+    if (result.executed && result.executed.length > 0) {
+      console.log(`[Scheduler] Executed ${result.executed.length} ready run(s)`);
+    }
+    return result.executed || [];
   } catch (error) {
     console.warn('[Scheduler] Error executing ready runs:', error instanceof Error ? error.message : error);
+    return [];
   }
 }
 
@@ -117,17 +127,48 @@ async function tick() {
   }
 
   activeTick = (async () => {
-    await queueDueScheduledJobs();
-    await executeReadyRuns();
+    const queuedResult = await queueDueScheduledJobs();
+    const executedResult = await executeReadyRuns();
+    const hadWork = (queuedResult && queuedResult.length > 0) || (executedResult && executedResult.length > 0);
+
+    if (hadWork) {
+      consecutiveIdleTicks = 0;
+    } else {
+      consecutiveIdleTicks++;
+    }
+
+    scheduleNextTick();
   })()
     .catch((error) => {
       console.error('[Scheduler] Tick failed:', error);
+      consecutiveIdleTicks++;
+      scheduleNextTick();
     })
     .finally(() => {
       activeTick = null;
     });
 
   return activeTick;
+}
+
+function scheduleNextTick() {
+  if (timer) {
+    clearTimeout(timer);
+  }
+
+  if (consecutiveIdleTicks >= IDLE_TICKS_BEFORE_BACKOFF) {
+    const nextInterval = Math.min(currentInterval * POLL_BACKOFF_FACTOR, POLL_MAX_INTERVAL_MS);
+    if (nextInterval !== currentInterval) {
+      console.log(`[Scheduler] No work for ${consecutiveIdleTicks} ticks, backing off to ${nextInterval}ms`);
+      currentInterval = nextInterval;
+    }
+  } else {
+    currentInterval = POLL_INTERVAL_MS;
+  }
+
+  timer = setTimeout(() => {
+    void tick();
+  }, currentInterval);
 }
 
 async function start() {
@@ -137,19 +178,14 @@ async function start() {
 
   console.log('[Scheduler] Starting automation scheduler...');
   console.log(`[Scheduler] Base URL: ${getBaseUrl()}`);
-  console.log(`[Scheduler] Poll interval: ${POLL_INTERVAL_MS}ms`);
+  console.log(`[Scheduler] Poll interval: ${POLL_INTERVAL_MS}ms (backoff up to ${POLL_MAX_INTERVAL_MS}ms)`);
 
   await waitForBaseUrlReady();
 
   started = true;
 
-  // Run first tick immediately
+  // Run first tick immediately, it will schedule subsequent ticks
   await tick();
-
-  // Then schedule regular ticks
-  const interval = setInterval(() => {
-    void tick();
-  }, POLL_INTERVAL_MS);
 
   console.log('[Scheduler] Scheduler started successfully');
 }
