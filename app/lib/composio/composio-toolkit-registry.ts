@@ -33,7 +33,47 @@ const HIDDEN_TOOLKIT_SLUGS = new Set([
 ]);
 
 let toolkitCache: { data: ToolkitInfo[]; expires: number } | null = null;
+let rawToolkitCache: { data: unknown[]; expires: number } | null = null;
 const toolsCache = new Map<string, { data: ToolkitToolInfo[]; expires: number }>();
+
+const MAX_TOOLS_CACHE_SIZE = 50;
+
+function cleanupExpiredToolsEntries() {
+  const now = Date.now();
+  for (const [key, entry] of toolsCache) {
+    if (entry.expires <= now) {
+      toolsCache.delete(key);
+    }
+  }
+  if (toolsCache.size > MAX_TOOLS_CACHE_SIZE) {
+    const entries = [...toolsCache.entries()].sort((a, b) => a[1].expires - b[1].expires);
+    const excess = entries.length - MAX_TOOLS_CACHE_SIZE;
+    for (let i = 0; i < excess; i++) {
+      toolsCache.delete(entries[i][0]);
+    }
+  }
+}
+
+export async function getAvailableToolkitsRaw(): Promise<unknown[]> {
+  const now = Date.now();
+  if (rawToolkitCache && rawToolkitCache.expires > now) {
+    return rawToolkitCache.data;
+  }
+
+  const composio = await getComposio();
+  if (!composio) return [];
+
+  try {
+    const response = await composio.toolkits.get({});
+    const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
+    console.log(`[Composio] Fetched ${rawItems.length} raw toolkits`);
+    rawToolkitCache = { data: rawItems, expires: now + CACHE_TTL_MS };
+    return rawItems;
+  } catch (error) {
+    console.error('[Composio] Failed to fetch raw toolkits:', error);
+    return [];
+  }
+}
 
 export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
   const now = Date.now();
@@ -45,18 +85,18 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
   if (!composio) return [];
 
   try {
-    const [response, connectedAccounts] = await Promise.all([
-      composio.toolkits.get({}),
+    const [rawItems, connectedAccounts] = await Promise.all([
+      getAvailableToolkitsRaw(),
       getConnectedAccounts(),
     ]);
 
-    const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
-
-    console.log(`[Composio] Fetched ${rawItems.length} toolkits, ${connectedAccounts.length} connected accounts`);
-    for (const a of connectedAccounts) {
-      const acc = a as Record<string, unknown>;
-      const slug = (acc.toolkit as Record<string, unknown> | undefined)?.slug;
-      console.log(`[Composio] Connected account: slug=${slug}, status=${acc.status}, id=${acc.id}`);
+    console.log(`[Composio] Processing ${rawItems.length} toolkits, ${connectedAccounts.length} connected accounts`);
+    if (connectedAccounts.length > 0) {
+      for (const a of connectedAccounts) {
+        const acc = a as Record<string, unknown>;
+        const slug = (acc.toolkit as Record<string, unknown> | undefined)?.slug;
+        console.log(`[Composio] Connected account: slug=${slug}, status=${acc.status}, id=${acc.id}`);
+      }
     }
 
     const connectedBySlug = new Map<string, Record<string, unknown>>();
@@ -81,7 +121,6 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
         const slug = String(t.slug ?? '');
         const account = connectedBySlug.get(slug);
 
-        // Connected only if: has active OAuth account for this user
         const hasActiveConnection = account?.status === 'ACTIVE';
 
         return {
@@ -106,6 +145,8 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
 }
 
 export async function getToolkitTools(toolkitSlug: string): Promise<ToolkitToolInfo[]> {
+  cleanupExpiredToolsEntries();
+
   const now = Date.now();
   const cached = toolsCache.get(toolkitSlug);
   if (cached && cached.expires > now) {
@@ -142,5 +183,6 @@ export async function getToolkitTools(toolkitSlug: string): Promise<ToolkitToolI
 
 export function clearToolkitCache(): void {
   toolkitCache = null;
+  rawToolkitCache = null;
   toolsCache.clear();
 }

@@ -2,13 +2,13 @@ import 'server-only';
 
 import { getComposio } from './composio-client';
 import { getComposioSession, getComposioUserId } from './composio-session';
+import { getAvailableToolkitsRaw } from './composio-toolkit-registry';
 
 export async function initiateConnection(toolkit: string): Promise<{ redirectUrl: string | null; noAuth?: boolean }> {
   const composio = await getComposio();
   if (!composio) throw new Error('Composio not configured');
 
-  const response = await composio.toolkits.get({});
-  const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
+  const rawItems = await getAvailableToolkitsRaw();
   const toolkitInfo = rawItems.find((item) => {
     const t = item as Record<string, unknown>;
     return t.slug === toolkit;
