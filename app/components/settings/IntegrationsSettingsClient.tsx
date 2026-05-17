@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Eye, EyeOff, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Eye, EyeOff, Loader2, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
 
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
@@ -13,9 +13,12 @@ import { ConnectedAppsPanel } from '@/app/components/settings/ConnectedAppsPanel
 import { ChannelsPanel } from '@/app/components/settings/ChannelsPanel';
 import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
 import { CodeEditor } from '@/app/components/editor/CodeEditor';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHintContext } from '@/app/components/onboarding/HintProvider';
 
@@ -102,6 +105,36 @@ type McpStatusState = {
     expiresAt: string | null;
     reason?: string;
   }>;
+};
+
+type McpTransportMode = 'stdio' | 'http';
+
+type McpPairDraft = {
+  id: string;
+  key: string;
+  value: string;
+};
+
+type McpServerDraft = {
+  name: string;
+  enabled: boolean;
+  mode: McpTransportMode;
+  command: string;
+  args: string[];
+  env: McpPairDraft[];
+  envPassthrough: string[];
+  cwd: string;
+  url: string;
+  auth: 'oauth' | 'none';
+  bearerTokenEnv: string;
+  headers: McpPairDraft[];
+  headersFromEnv: McpPairDraft[];
+};
+
+type McpConfigFile = {
+  settings?: Record<string, unknown>;
+  mcpServers: Record<string, Record<string, unknown>>;
+  [key: string]: unknown;
 };
 
 type ScopeCardConfig = {
@@ -199,6 +232,105 @@ function toDraftEntries(scope: EnvScope, entries: EnvEntry[]): DraftEntry[] {
 
 function buildHiddenState(entries: DraftEntry[]): Record<string, boolean> {
   return Object.fromEntries(entries.map((entry) => [entry.id, false])) as Record<string, boolean>;
+}
+
+function createMcpPairDraft(entry?: Partial<McpPairDraft>): McpPairDraft {
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    key: entry?.key || '',
+    value: entry?.value || '',
+  };
+}
+
+function parseMcpConfigFile(rawContent: string): McpConfigFile {
+  const parsed = JSON.parse(rawContent || '{}') as Partial<McpConfigFile>;
+  return {
+    ...parsed,
+    settings: parsed.settings || { toolPrefix: 'server', idleTimeout: 10 },
+    mcpServers: parsed.mcpServers && typeof parsed.mcpServers === 'object' && !Array.isArray(parsed.mcpServers)
+      ? parsed.mcpServers
+      : {},
+  } as McpConfigFile;
+}
+
+function toMcpServerDraft(name: string, serverConfig: Record<string, unknown> = {}): McpServerDraft {
+  const env = serverConfig.env && typeof serverConfig.env === 'object' && !Array.isArray(serverConfig.env)
+    ? Object.entries(serverConfig.env as Record<string, unknown>).map(([key, value]) => createMcpPairDraft({ key, value: typeof value === 'string' ? value : String(value ?? '') }))
+    : [];
+  const headers = serverConfig.headers && typeof serverConfig.headers === 'object' && !Array.isArray(serverConfig.headers)
+    ? Object.entries(serverConfig.headers as Record<string, unknown>).map(([key, value]) => createMcpPairDraft({ key, value: typeof value === 'string' ? value : String(value ?? '') }))
+    : [];
+  const headersFromEnv = serverConfig.headersFromEnv && typeof serverConfig.headersFromEnv === 'object' && !Array.isArray(serverConfig.headersFromEnv)
+    ? Object.entries(serverConfig.headersFromEnv as Record<string, unknown>).map(([key, value]) => createMcpPairDraft({ key, value: typeof value === 'string' ? value : String(value ?? '') }))
+    : [];
+
+  return {
+    name,
+    enabled: serverConfig.enabled !== false,
+    mode: typeof serverConfig.command === 'string' && serverConfig.command.trim() ? 'stdio' : 'http',
+    command: typeof serverConfig.command === 'string' ? serverConfig.command : '',
+    args: Array.isArray(serverConfig.args) ? serverConfig.args.filter((arg): arg is string => typeof arg === 'string') : [],
+    env,
+    envPassthrough: Array.isArray(serverConfig.envPassthrough) ? serverConfig.envPassthrough.filter((value): value is string => typeof value === 'string') : [],
+    cwd: typeof serverConfig.cwd === 'string' ? serverConfig.cwd : '',
+    url: typeof serverConfig.url === 'string' ? serverConfig.url : '',
+    auth: serverConfig.auth === 'none' ? 'none' : 'oauth',
+    bearerTokenEnv: typeof serverConfig.bearerTokenEnv === 'string' ? serverConfig.bearerTokenEnv : '',
+    headers,
+    headersFromEnv,
+  };
+}
+
+function createBlankMcpServerDraft(): McpServerDraft {
+  return toMcpServerDraft('', { enabled: false, command: '', args: [''], env: {}, envPassthrough: [''], cwd: '' });
+}
+
+function pairsToRecord(pairs: McpPairDraft[]): Record<string, string> | undefined {
+  const entries = pairs
+    .map((pair) => [pair.key.trim(), pair.value] as const)
+    .filter(([key]) => key.length > 0);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function draftToMcpServerConfig(draft: McpServerDraft): Record<string, unknown> {
+  if (draft.mode === 'http') {
+    return {
+      enabled: draft.enabled,
+      url: draft.url.trim(),
+      auth: draft.auth,
+      ...(draft.bearerTokenEnv.trim() ? { bearerTokenEnv: draft.bearerTokenEnv.trim() } : {}),
+      ...(pairsToRecord(draft.headers) ? { headers: pairsToRecord(draft.headers) } : {}),
+      ...(pairsToRecord(draft.headersFromEnv) ? { headersFromEnv: pairsToRecord(draft.headersFromEnv) } : {}),
+    };
+  }
+
+  return {
+    enabled: draft.enabled,
+    command: draft.command.trim(),
+    args: draft.args.map((arg) => arg.trim()).filter(Boolean),
+    ...(pairsToRecord(draft.env) ? { env: pairsToRecord(draft.env) } : {}),
+    ...(draft.envPassthrough.map((value) => value.trim()).filter(Boolean).length > 0 ? { envPassthrough: draft.envPassthrough.map((value) => value.trim()).filter(Boolean) } : {}),
+    ...(draft.cwd.trim() ? { cwd: draft.cwd.trim() } : {}),
+  };
+}
+
+function updateMcpConfigRawServer(rawContent: string, draft: McpServerDraft, originalName?: string): string {
+  const config = parseMcpConfigFile(rawContent);
+  const nextName = draft.name.trim();
+  if (!nextName) throw new Error('MCP server name is required.');
+  if (draft.mode === 'stdio' && !draft.command.trim()) throw new Error('MCP stdio command is required.');
+  if (draft.mode === 'http' && !draft.url.trim()) throw new Error('MCP HTTP URL is required.');
+  if (originalName && originalName !== nextName) {
+    delete config.mcpServers[originalName];
+  }
+  config.mcpServers[nextName] = draftToMcpServerConfig(draft);
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+function deleteMcpConfigRawServer(rawContent: string, serverName: string): string {
+  const config = parseMcpConfigFile(rawContent);
+  delete config.mcpServers[serverName];
+  return `${JSON.stringify(config, null, 2)}\n`;
 }
 
 function EnvEditorCard(props: {
@@ -379,11 +511,72 @@ function McpConfigCard(props: {
   onLoad: () => Promise<void>;
   onLoadStatus: () => Promise<void>;
   onServerAction: (server: string, action: McpServerAction) => Promise<void>;
+  onSaveServer: (draft: McpServerDraft, originalName?: string) => Promise<void>;
+  onDeleteServer: (server: string) => Promise<void>;
   onRawChange: (value: string) => void;
   onSave: () => Promise<void>;
 }) {
   const t = useTranslations('settings');
-  const { editor, onLoad, onLoadStatus, onServerAction, onRawChange, onSave } = props;
+  const { editor, onLoad, onLoadStatus, onServerAction, onSaveServer, onDeleteServer, onRawChange, onSave } = props;
+  const [mcpView, setMcpView] = useState<'list' | 'form'>('list');
+  const [editingServerName, setEditingServerName] = useState<string | undefined>();
+  const [serverDraft, setServerDraft] = useState<McpServerDraft>(() => createBlankMcpServerDraft());
+  const config = (() => {
+    try {
+      return parseMcpConfigFile(editor.rawContent);
+    } catch {
+      return { settings: {}, mcpServers: {} } as McpConfigFile;
+    }
+  })();
+  const configuredServers = Object.entries(config.mcpServers);
+
+  const startAddServer = () => {
+    setEditingServerName(undefined);
+    setServerDraft(createBlankMcpServerDraft());
+    setMcpView('form');
+  };
+
+  const startEditServer = (serverName: string) => {
+    setEditingServerName(serverName);
+    setServerDraft(toMcpServerDraft(serverName, config.mcpServers[serverName]));
+    setMcpView('form');
+  };
+
+  const updateServerDraft = (patch: Partial<McpServerDraft>) => {
+    setServerDraft((current) => ({ ...current, ...patch }));
+  };
+
+  const updatePair = (field: 'env' | 'headers' | 'headersFromEnv', index: number, patch: Partial<McpPairDraft>) => {
+    setServerDraft((current) => ({
+      ...current,
+      [field]: current[field].map((entry, entryIndex) => entryIndex === index ? { ...entry, ...patch } : entry),
+    }));
+  };
+
+  const removePair = (field: 'env' | 'headers' | 'headersFromEnv', index: number) => {
+    setServerDraft((current) => ({
+      ...current,
+      [field]: current[field].filter((_entry, entryIndex) => entryIndex !== index),
+    }));
+  };
+
+  const renderPairRows = (field: 'env' | 'headers' | 'headersFromEnv', keyPlaceholder: string, valuePlaceholder: string) => (
+    <div className="space-y-2">
+      {serverDraft[field].map((entry, index) => (
+        <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+          <Input value={entry.key} onChange={(event) => updatePair(field, index, { key: event.target.value })} placeholder={keyPlaceholder} />
+          <Input value={entry.value} onChange={(event) => updatePair(field, index, { value: event.target.value })} placeholder={valuePlaceholder} />
+          <Button type="button" variant="ghost" size="icon" onClick={() => removePair(field, index)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="secondary" className="w-full" onClick={() => updateServerDraft({ [field]: [...serverDraft[field], createMcpPairDraft()] } as Partial<McpServerDraft>)}>
+        <Plus className="mr-2 h-4 w-4" />
+        {field === 'headers' ? t('mcpConfig.addHeader') : field === 'headersFromEnv' ? t('mcpConfig.addVariable') : t('mcpConfig.addEnvVar')}
+      </Button>
+    </div>
+  );
 
   return (
     <Card id="onboarding-settings-mcp-config">
@@ -415,128 +608,204 @@ function McpConfigCard(props: {
             {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
             {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
 
-            <div className="rounded-md border border-border bg-muted/20 p-3">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-medium">{t('mcpConfig.statusTitle')}</h3>
-                <Button type="button" variant="outline" size="sm" onClick={() => void onLoadStatus()} disabled={editor.isStatusLoading || editor.isSaving}>
-                  {editor.isStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                  {t('mcpConfig.refreshStatus')}
-                </Button>
-              </div>
-              {!editor.status || editor.status.servers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('mcpConfig.noServers')}</p>
-              ) : (
-                <div className="space-y-2">
-                  {editor.status.servers.map((server) => {
-                    const oauth = editor.status?.oauth.find((entry) => entry.serverName === server.name);
-                    return (
-                      <div key={server.name} className="rounded-md border border-border bg-background p-3 text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{server.name}</span>
-                          <span className="text-muted-foreground">{server.transport}</span>
-                          <span className={server.enabled ? 'text-primary' : 'text-muted-foreground'}>
-                            {server.enabled ? t('mcpConfig.enabled') : t('mcpConfig.disabled')}
-                          </span>
-                          <span className={server.connected ? 'text-primary' : 'text-muted-foreground'}>
-                            {server.connected ? t('mcpConfig.connected') : t('mcpConfig.disconnected')}
-                          </span>
-                          {oauth?.requiresAuth && (
-                            <span className={oauth.authorized ? 'text-primary' : 'text-destructive'}>
-                              {oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void onServerAction(server.name, server.enabled ? 'disable' : 'enable')}
-                            disabled={Boolean(editor.activeServerAction) || editor.isSaving}
-                          >
-                            {editor.activeServerAction === `${server.name}:${server.enabled ? 'disable' : 'enable'}` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {server.enabled ? t('mcpConfig.disable') : t('mcpConfig.enable')}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void onServerAction(server.name, 'test')}
-                            disabled={!server.enabled || Boolean(editor.activeServerAction) || editor.isSaving}
-                          >
-                            {editor.activeServerAction === `${server.name}:test` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {t('mcpConfig.testConnection')}
-                          </Button>
-                          {oauth?.requiresAuth && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void onServerAction(server.name, 'authorize')}
-                              disabled={!server.enabled || Boolean(editor.activeServerAction) || editor.isSaving}
-                            >
-                              {editor.activeServerAction === `${server.name}:authorize` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                              {oauth.authorized ? t('mcpConfig.reauthorize') : t('mcpConfig.authorize')}
+            {mcpView === 'list' ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold">{t('mcpConfig.serversTitle')}</h3>
+                    <p className="text-sm text-muted-foreground">{t('mcpConfig.serversDescription')}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" onClick={() => void onLoadStatus()} disabled={editor.isStatusLoading || editor.isSaving}>
+                      {editor.isStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                      {t('mcpConfig.refreshStatus')}
+                    </Button>
+                    <Button type="button" onClick={startAddServer}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      {t('mcpConfig.addServer')}
+                    </Button>
+                  </div>
+                </div>
+
+                {configuredServers.length === 0 ? (
+                  <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">{t('mcpConfig.noServers')}</div>
+                ) : (
+                  <div className="overflow-hidden rounded-md border border-border">
+                    {configuredServers.map(([serverName, serverConfig]) => {
+                      const status = editor.status?.servers.find((entry) => entry.name === serverName);
+                      const oauth = editor.status?.oauth.find((entry) => entry.serverName === serverName);
+                      const draft = toMcpServerDraft(serverName, serverConfig);
+                      const enabled = status?.enabled ?? draft.enabled;
+                      return (
+                        <div key={serverName} className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 last:border-b-0">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium">{serverName}</span>
+                              <Badge variant="outline">{draft.mode === 'stdio' ? 'stdio' : 'http'}</Badge>
+                              {status?.connected && <Badge>{t('mcpConfig.connected')}</Badge>}
+                              {oauth?.requiresAuth && <Badge variant={oauth.authorized ? 'default' : 'destructive'}>{oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}</Badge>}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}
+                              {status?.lastError ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button type="button" variant="ghost" size="icon" onClick={() => startEditServer(serverName)} title={t('mcpConfig.editServer')}>
+                              <Settings className="h-4 w-4" />
                             </Button>
-                          )}
-                          {oauth?.authorized && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void onServerAction(server.name, 'clear_auth')}
+                            <Switch
+                              checked={enabled}
+                              onCheckedChange={(checked) => void onServerAction(serverName, checked ? 'enable' : 'disable')}
                               disabled={Boolean(editor.activeServerAction) || editor.isSaving}
-                            >
-                              {editor.activeServerAction === `${server.name}:clear_auth` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                              {t('mcpConfig.clearAuth')}
+                              aria-label={enabled ? t('mcpConfig.disable') : t('mcpConfig.enable')}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <details className="rounded-md border border-border p-3">
+                  <summary className="cursor-pointer text-sm font-medium">{t('mcpConfig.rawJson')}</summary>
+                  <div className="mt-3 h-[360px] overflow-hidden rounded-md border border-input bg-background">
+                    <CodeEditor value={editor.rawContent} onChange={onRawChange} path="mcp.json" readOnly={editor.isSaving} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button type="button" onClick={() => void onSave()} disabled={editor.isSaving || editor.isLoading}>
+                      {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {t('mcpConfig.save')}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => void onLoad()} disabled={editor.isSaving}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      {t('envCard.reload')}
+                    </Button>
+                  </div>
+                </details>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <Button type="button" variant="ghost" onClick={() => setMcpView('list')}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    {t('mcpConfig.backToServers')}
+                  </Button>
+                  {editingServerName && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void onDeleteServer(editingServerName).then(() => setMcpView('list')).catch(() => undefined)}
+                      disabled={editor.isSaving}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {t('mcpConfig.deleteServer')}
+                    </Button>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-2xl font-semibold">{t('mcpConfig.customTitle')}</h3>
+                  <a className="mt-2 inline-flex items-center text-sm text-primary" href="https://modelcontextprotocol.io/docs" target="_blank" rel="noreferrer">
+                    {t('mcpConfig.docs')}
+                    <ExternalLink className="ml-1 h-3.5 w-3.5" />
+                  </a>
+                </div>
+
+                <div className="rounded-md border border-border p-4">
+                  <Label htmlFor="mcp-server-name">{t('mcpConfig.name')}</Label>
+                  <Input id="mcp-server-name" className="mt-2" value={serverDraft.name} onChange={(event) => updateServerDraft({ name: event.target.value })} placeholder={t('mcpConfig.namePlaceholder')} />
+                </div>
+
+                <Tabs value={serverDraft.mode} onValueChange={(value) => updateServerDraft({ mode: value as McpTransportMode })}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="stdio">STDIO</TabsTrigger>
+                    <TabsTrigger value="http">Streamable HTTP</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+
+                {serverDraft.mode === 'stdio' ? (
+                  <div className="space-y-4 rounded-md border border-border p-4">
+                    <div>
+                      <Label htmlFor="mcp-command">{t('mcpConfig.command')}</Label>
+                      <Input id="mcp-command" className="mt-2" value={serverDraft.command} onChange={(event) => updateServerDraft({ command: event.target.value })} placeholder="npx" />
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.arguments')}</Label>
+                      <div className="mt-2 space-y-2">
+                        {serverDraft.args.map((arg, index) => (
+                          <div key={`${index}-${arg}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                            <Input value={arg} onChange={(event) => updateServerDraft({ args: serverDraft.args.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} />
+                            <Button type="button" variant="ghost" size="icon" onClick={() => updateServerDraft({ args: serverDraft.args.filter((_entry, entryIndex) => entryIndex !== index) })}>
+                              <Trash2 className="h-4 w-4" />
                             </Button>
-                          )}
-                        </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {t('mcpConfig.cachedTools')}: {server.cachedToolCount}
-                          {server.activeCalls > 0 ? ` · ${t('mcpConfig.activeCalls')}: ${server.activeCalls}` : ''}
-                          {server.lastError ? ` · ${t('mcpConfig.lastError')}: ${server.lastError}` : ''}
-                        </div>
+                          </div>
+                        ))}
+                        <Button type="button" variant="secondary" className="w-full" onClick={() => updateServerDraft({ args: [...serverDraft.args, ''] })}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          {t('mcpConfig.addArgument')}
+                        </Button>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-              {editor.status?.directTools && editor.status.directTools.length > 0 && (
-                <div className="mt-3 text-xs text-muted-foreground">
-                  {t('mcpConfig.directTools')}: {editor.status.directTools.map((tool) => tool.name).join(', ')}
-                </div>
-              )}
-              {editor.status?.warnings && editor.status.warnings.length > 0 && (
-                <div className="mt-3 space-y-1 text-xs text-destructive">
-                  {editor.status.warnings.map((warning, index) => (
-                    <p key={`${warning.server}-${warning.tool || 'server'}-${index}`}>
-                      {warning.server}{warning.tool ? `.${warning.tool}` : ''}: {warning.message}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.envVars')}</Label>
+                      <div className="mt-2">{renderPairRows('env', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.envPassthrough')}</Label>
+                      <div className="mt-2 space-y-2">
+                        {serverDraft.envPassthrough.map((value, index) => (
+                          <div key={`${index}-${value}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                            <Input value={value} onChange={(event) => updateServerDraft({ envPassthrough: serverDraft.envPassthrough.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} placeholder="OPENAI_API_KEY" />
+                            <Button type="button" variant="ghost" size="icon" onClick={() => updateServerDraft({ envPassthrough: serverDraft.envPassthrough.filter((_entry, entryIndex) => entryIndex !== index) })}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button type="button" variant="secondary" className="w-full" onClick={() => updateServerDraft({ envPassthrough: [...serverDraft.envPassthrough, ''] })}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          {t('mcpConfig.addVariable')}
+                        </Button>
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="mcp-cwd">{t('mcpConfig.cwd')}</Label>
+                      <Input id="mcp-cwd" className="mt-2" value={serverDraft.cwd} onChange={(event) => updateServerDraft({ cwd: event.target.value })} placeholder="/data/workspace" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 rounded-md border border-border p-4">
+                    <div>
+                      <Label htmlFor="mcp-url">URL</Label>
+                      <Input id="mcp-url" className="mt-2" value={serverDraft.url} onChange={(event) => updateServerDraft({ url: event.target.value })} placeholder="https://mcp.example.com/mcp" />
+                    </div>
+                    <div>
+                      <Label htmlFor="mcp-bearer">{t('mcpConfig.bearerEnv')}</Label>
+                      <Input id="mcp-bearer" className="mt-2" value={serverDraft.bearerTokenEnv} onChange={(event) => updateServerDraft({ bearerTokenEnv: event.target.value })} placeholder="MCP_BEARER_TOKEN" />
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.headers')}</Label>
+                      <div className="mt-2">{renderPairRows('headers', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.headersFromEnv')}</Label>
+                      <div className="mt-2">{renderPairRows('headersFromEnv', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                    </div>
+                  </div>
+                )}
 
-            <div className="h-[420px] overflow-hidden rounded-md border border-input bg-background">
-              <CodeEditor
-                value={editor.rawContent}
-                onChange={onRawChange}
-                path="mcp.json"
-                readOnly={editor.isSaving}
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => void onSave()} disabled={editor.isSaving || editor.isLoading}>
-                {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {t('mcpConfig.save')}
-              </Button>
-              <Button type="button" variant="outline" onClick={() => void onLoad()} disabled={editor.isSaving}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                {t('envCard.reload')}
-              </Button>
-            </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    onClick={() => void onSaveServer(serverDraft, editingServerName).then(() => setMcpView('list')).catch(() => undefined)}
+                    disabled={editor.isSaving}
+                  >
+                    {editor.isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    {t('mcpConfig.saveServer')}
+                  </Button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </CardContent>
@@ -848,6 +1117,93 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         isSaving: false,
         error: message,
       }));
+      throw saveError;
+    }
+  };
+
+  const saveMcpServer = async (draft: McpServerDraft, originalName?: string) => {
+    try {
+      const rawContent = updateMcpConfigRawServer(mcpEditor.rawContent, draft, originalName);
+      setMcpEditor((current) => ({
+        ...current,
+        rawContent,
+        isSaving: true,
+        error: null,
+        success: null,
+      }));
+
+      const response = await fetch('/api/integrations/mcp-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ rawContent }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || t('mcpConfig.errors.save'));
+      }
+
+      const nextState: McpConfigState = result.data;
+      setMcpEditor((current) => ({
+        ...current,
+        state: nextState,
+        rawContent: nextState.rawContent,
+        isSaving: false,
+        error: null,
+        success: t('mcpConfig.serverSaved'),
+      }));
+      await loadMcpStatus();
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : t('mcpConfig.errors.save');
+      setMcpEditor((current) => ({
+        ...current,
+        isSaving: false,
+        error: message,
+      }));
+      throw saveError;
+    }
+  };
+
+  const deleteMcpServer = async (serverName: string) => {
+    try {
+      const rawContent = deleteMcpConfigRawServer(mcpEditor.rawContent, serverName);
+      setMcpEditor((current) => ({
+        ...current,
+        rawContent,
+        isSaving: true,
+        error: null,
+        success: null,
+      }));
+
+      const response = await fetch('/api/integrations/mcp-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ rawContent }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || t('mcpConfig.errors.save'));
+      }
+
+      const nextState: McpConfigState = result.data;
+      setMcpEditor((current) => ({
+        ...current,
+        state: nextState,
+        rawContent: nextState.rawContent,
+        isSaving: false,
+        error: null,
+        success: t('mcpConfig.serverDeleted'),
+      }));
+      await loadMcpStatus();
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : t('mcpConfig.errors.save');
+      setMcpEditor((current) => ({
+        ...current,
+        isSaving: false,
+        error: message,
+      }));
+      throw deleteError;
     }
   };
 
@@ -1009,6 +1365,8 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
             onLoad={loadMcpConfig}
             onLoadStatus={loadMcpStatus}
             onServerAction={runMcpServerAction}
+            onSaveServer={saveMcpServer}
+            onDeleteServer={deleteMcpServer}
             onRawChange={setMcpRawContent}
             onSave={saveMcpConfig}
           />
