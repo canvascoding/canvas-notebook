@@ -194,19 +194,64 @@ function expandEnvValue(value: string, availableEnv: Record<string, string>, mis
 }
 
 async function resolveServerEnv(config: McpServerConfig): Promise<Record<string, string> | undefined> {
-  if (!config.env) return undefined;
+  if (!config.env && !Array.isArray(config.envPassthrough)) return undefined;
   const availableEnv = await readAvailableEnv();
   const missing = new Set<string>();
   const resolved: Record<string, string> = {};
-  for (const [key, value] of Object.entries(config.env)) {
+  for (const [key, value] of Object.entries(config.env || {})) {
     if (typeof value === 'string') {
       resolved[key] = expandEnvValue(value, availableEnv, missing);
+    }
+  }
+  for (const key of config.envPassthrough || []) {
+    if (typeof key !== 'string' || !key.trim()) continue;
+    const value = availableEnv[key.trim()];
+    if (value === undefined) {
+      missing.add(key.trim());
+    } else {
+      resolved[key.trim()] = value;
     }
   }
   if (missing.size > 0) {
     throw new Error(`Missing MCP environment variable(s): ${Array.from(missing).sort().join(', ')}. Configure them in /settings?tab=integrations.`);
   }
   return resolved;
+}
+
+async function resolveHttpHeaders(config: McpServerConfig, accessToken: string | null): Promise<Record<string, string> | undefined> {
+  const availableEnv = await readAvailableEnv();
+  const missing = new Set<string>();
+  const headers: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(config.headers || {})) {
+    if (typeof value === 'string' && key.trim()) {
+      headers[key.trim()] = expandEnvValue(value, availableEnv, missing);
+    }
+  }
+  for (const [key, envKey] of Object.entries(config.headersFromEnv || {})) {
+    if (typeof envKey !== 'string' || !key.trim()) continue;
+    const value = availableEnv[envKey.trim()];
+    if (value === undefined) {
+      missing.add(envKey.trim());
+    } else {
+      headers[key.trim()] = value;
+    }
+  }
+  if (config.bearerTokenEnv) {
+    const value = availableEnv[config.bearerTokenEnv];
+    if (value === undefined) {
+      missing.add(config.bearerTokenEnv);
+    } else {
+      headers.Authorization = `Bearer ${value}`;
+    }
+  }
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+  if (missing.size > 0) {
+    throw new Error(`Missing MCP environment variable(s): ${Array.from(missing).sort().join(', ')}. Configure them in /settings?tab=integrations.`);
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 async function createClient(entry: ManagedConnection, signal?: AbortSignal): Promise<Client> {
@@ -252,12 +297,11 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
     logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url, timeoutMs });
     const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash);
+    const headers = await resolveHttpHeaders(entry.config, accessToken);
     try {
-      await withTimeout(client.connect(new StreamableHTTPClientTransport(new URL(url), accessToken ? {
+      await withTimeout(client.connect(new StreamableHTTPClientTransport(new URL(url), headers ? {
         requestInit: {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
+          headers,
         },
       } : undefined)), timeoutMs, signal);
     } catch (error) {

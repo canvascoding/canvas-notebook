@@ -144,6 +144,9 @@ function getOAuthConfig(serverConfig: McpServerConfig): OAuthServerConfig | null
   if (serverConfig.auth === 'oauth') {
     return {};
   }
+  if (serverConfig.bearerTokenEnv) {
+    return null;
+  }
   if (typeof serverConfig.url === 'string' && serverConfig.url.trim() && serverConfig.auth !== 'none') {
     return {};
   }

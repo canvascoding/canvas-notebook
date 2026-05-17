@@ -23,9 +23,13 @@ export type McpServerConfig = {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  envPassthrough?: string[];
   cwd?: string;
   url?: string;
   auth?: 'oauth' | 'none' | string;
+  bearerTokenEnv?: string;
+  headers?: Record<string, string>;
+  headersFromEnv?: Record<string, string>;
   transport?: string;
   timeoutMs?: number;
   [key: string]: unknown;
