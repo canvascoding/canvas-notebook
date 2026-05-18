@@ -29,7 +29,7 @@ export class FileWatcherClient extends EventTarget {
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingDir = '.';
+  private pendingDirs = new Set<string>();
   private lastReloadTime = 0;
   private debounceMs = 1000;
   private maxDebounceMs = 5000;
@@ -178,6 +178,7 @@ export class FileWatcherClient extends EventTarget {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+      this.pendingDirs.clear();
     }
 
     if (this.eventSource) {
@@ -219,7 +220,7 @@ export class FileWatcherClient extends EventTarget {
   private debouncedReload(dir: string = '.'): void {
     const now = Date.now();
     const timeSinceLastReload = now - this.lastReloadTime;
-    this.pendingDir = dir;
+    this.pendingDirs.add(dir);
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -231,12 +232,16 @@ export class FileWatcherClient extends EventTarget {
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
       const { refreshRootTree, loadSubdirectory } = useFileStore.getState();
-      const targetDir = this.pendingDir;
+      const targetDirs = Array.from(this.pendingDirs);
+      this.pendingDirs.clear();
       const currentExpanded = useFileStore.getState().expandedDirs;
-      if (targetDir === '.') {
+      if (targetDirs.includes('.')) {
         refreshRootTree(true);
-      } else if (currentExpanded.has(targetDir)) {
-        loadSubdirectory(targetDir, true);
+      }
+      for (const targetDir of targetDirs) {
+        if (targetDir !== '.' && currentExpanded.has(targetDir)) {
+          loadSubdirectory(targetDir, true);
+        }
       }
       this.lastReloadTime = Date.now();
     }, finalWaitTime);

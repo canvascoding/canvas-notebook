@@ -5,7 +5,7 @@ import { promises as fs } from 'fs';
 import { spawn } from 'child_process';
 import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
-import { validatePath } from '@/app/lib/filesystem/workspace-files';
+import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
 import { 
   resolveValidatedStudioAssetPath, 
   resolveValidatedStudioOutputPath,
@@ -251,7 +251,7 @@ export async function GET(request: NextRequest) {
       }
       fullPath = resolved;
     } else {
-      fullPath = validatePath(filePath);
+      fullPath = await resolveExistingWorkspacePath(filePath);
     }
 
     // Check if file exists before stat

@@ -2,6 +2,7 @@ import { promises as fs, watch as fsWatch, FSWatcher } from 'fs';
 import path from 'path';
 import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
+import { validatePath } from '@/app/lib/filesystem/workspace-files';
 
 const DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
@@ -78,8 +79,9 @@ class FileWatcherService {
     if (!this.clients.has(clientId)) return;
     if (this.shouldIgnore(dirPath)) return;
 
-    const fullPath = this.toFullPath(dirPath);
+    let fullPath: string;
     try {
+      fullPath = await this.toValidatedFullPath(dirPath);
       const stat = await fs.stat(fullPath);
       if (!stat.isDirectory()) return;
     } catch {
@@ -332,8 +334,17 @@ class FileWatcherService {
   }
 
   private toFullPath(relativePath: string): string {
-    if (relativePath === '.') return WORKSPACE_BASE_DIR;
-    return path.join(WORKSPACE_BASE_DIR, relativePath);
+    return validatePath(relativePath);
+  }
+
+  private async toValidatedFullPath(relativePath: string): Promise<string> {
+    const candidatePath = validatePath(relativePath);
+    const realBase = await fs.realpath(validatePath('.'));
+    const realPath = await fs.realpath(candidatePath);
+    if (realPath !== realBase && !realPath.startsWith(`${realBase}${path.sep}`)) {
+      throw new Error('Invalid path: directory traversal attempt detected');
+    }
+    return realPath;
   }
 
   private startStaleCheck(): void {
