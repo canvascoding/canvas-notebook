@@ -999,6 +999,12 @@
       "oauthAuthorized": "OAuth autorisiert",
       "oauthRequired": "OAuth erforderlich",
       "cachedTools": "Gecachte Tools",
+      "showCachedTools": "Gecachte Tools anzeigen",
+      "cachedToolsTitle": "{server} gecachte Tools",
+      "cachedToolsDescription": "Tools werden aus dem lokalen MCP-Cache gelesen. Nutze Verbindung testen, um den Cache zu aktualisieren.",
+      "loadingTools": "Gecachte Tools werden geladen...",
+      "noCachedTools": "Noch keine gecachten Tools verfügbar. Führe zuerst Verbindung testen aus.",
+      "noToolDescription": "Keine Beschreibung verfügbar.",
       "activeCalls": "Aktive Aufrufe",
       "lastError": "Letzter Fehler",
       "directTools": "Direkte Tools",
@@ -1016,7 +1022,8 @@
         "load": "MCP-Konfiguration konnte nicht geladen werden.",
         "save": "MCP-Konfiguration konnte nicht gespeichert werden.",
         "status": "MCP-Status konnte nicht geladen werden.",
-        "action": "MCP-Server konnte nicht aktualisiert werden."
+        "action": "MCP-Server konnte nicht aktualisiert werden.",
+        "tools": "Gecachte MCP-Tools konnten nicht geladen werden."
       }
     },
     "connectedApps": {
