@@ -39,9 +39,10 @@ export interface AnthropicSkill {
   license?: string;
   compatibility?: string;
   title: string;
-  content: string; // Full markdown content after frontmatter
-  path: string; // Full path to SKILL.md
-  enabled: boolean; // Whether skill is enabled
+  content: string;
+  path: string;
+  enabled: boolean;
+  isCustom?: boolean;
 }
 
 // Validation result
@@ -245,7 +246,8 @@ export async function parseSkillFile(skillPath: string): Promise<AnthropicSkill 
       title,
       content: body,
       path: skillPath,
-      enabled: true, // Default to enabled
+      enabled: true,
+      isCustom: true,
     };
   } catch (error) {
     console.error(`[SkillParser] Error parsing skill at ${skillPath}:`, error);
