@@ -78,9 +78,6 @@ export const OLLAMA_MODELS: Model<'openai-completions'>[] = [
 ];
 
 const FALLBACK_CANVAS_CONTROL_PLANE_MODELS: ManagedControlPlaneModel[] = [
-  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, managedProvider: 'openrouter', baseUrl: '', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8192 },
-  { id: 'openai/gpt-4o', name: 'GPT-4o via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, managedProvider: 'openrouter', baseUrl: '', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, managedProvider: 'openrouter', baseUrl: '', reasoning: true, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 8192 },
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -153,7 +150,11 @@ export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlane
       cache: 'no-store',
       signal: controller.signal,
     });
-    if (!response.ok) return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.warn(`[Canvas Control Plane] Failed to load managed models: HTTP ${response.status}${body ? ` ${body.slice(0, 300)}` : ''}`);
+      return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+    }
     const payload = await response.json();
     const rawModels = isRecord(payload) && Array.isArray(payload.models) ? payload.models : [];
     const models = rawModels
@@ -161,6 +162,7 @@ export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlane
       .filter((model): model is ManagedControlPlaneModel => Boolean(model));
     return models.length > 0 ? models : FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
   } catch {
+    console.warn('[Canvas Control Plane] Failed to load managed models from Control Plane.');
     return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
   } finally {
     clearTimeout(timeout);
