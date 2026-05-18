@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
+import { HtmlPreviewBlocked, HtmlPreviewConsent } from '@/app/components/editor/HtmlPreviewConsent';
 
 interface ShareMarkdownDialogProps {
   open: boolean;
@@ -33,6 +34,8 @@ export function ShareMarkdownDialog({
   const [pdfLoading, setPdfLoading] = useState(false);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [htmlPreviewAllowed, setHtmlPreviewAllowed] = useState(false);
+  const [htmlPreviewDeclined, setHtmlPreviewDeclined] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const loadHtmlExport = useCallback(async () => {
@@ -73,11 +76,15 @@ export function ShareMarkdownDialog({
     if (open && filePath) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       loadHtmlExport();
+      setHtmlPreviewAllowed(kind !== 'html');
+      setHtmlPreviewDeclined(false);
     } else {
       setHtmlContent('');
       setError('');
+      setHtmlPreviewAllowed(false);
+      setHtmlPreviewDeclined(false);
     }
-  }, [open, filePath, loadHtmlExport]);
+  }, [open, filePath, kind, loadHtmlExport]);
 
   const handleOpenPDF = async () => {
     setPdfLoading(true);
@@ -147,13 +154,31 @@ export function ShareMarkdownDialog({
           ) : (
             <div className="border rounded-lg overflow-hidden bg-white h-full">
               {kind === 'html' ? (
-                <iframe
-                  ref={iframeRef}
-                  src={toHtmlPreviewUrl(filePath)}
-                  className="w-full h-full"
-                  sandbox="allow-scripts allow-same-origin"
-                  title={t('previewTitle', { fileName })}
-                />
+                htmlPreviewAllowed ? (
+                  <iframe
+                    ref={iframeRef}
+                    src={toHtmlPreviewUrl(filePath)}
+                    className="w-full h-full"
+                    sandbox="allow-scripts allow-same-origin"
+                    title={t('previewTitle', { fileName })}
+                  />
+                ) : (
+                  <>
+                    <HtmlPreviewBlocked
+                      fileName={fileName}
+                      onOpen={() => {
+                        setHtmlPreviewDeclined(false);
+                        setHtmlPreviewAllowed(true);
+                      }}
+                    />
+                    <HtmlPreviewConsent
+                      open={!htmlPreviewDeclined}
+                      fileName={fileName}
+                      onAccept={() => setHtmlPreviewAllowed(true)}
+                      onDecline={() => setHtmlPreviewDeclined(true)}
+                    />
+                  </>
+                )
               ) : htmlContent ? (
                 <iframe
                   ref={iframeRef}
