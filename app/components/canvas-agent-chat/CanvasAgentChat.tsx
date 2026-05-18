@@ -2999,6 +2999,28 @@ export default function CanvasAgentChat({
     setActiveModel(next.model);
     setActiveProvider(next.provider);
     setActiveThinkingLevel(next.thinkingLevel);
+    setAgentConfig((current) => {
+      const providerConfig = current?.piConfig?.providers?.[next.provider];
+      if (!current || !providerConfig) {
+        return current;
+      }
+
+      return {
+        ...current,
+        piConfig: {
+          ...current.piConfig,
+          activeProvider: next.provider,
+          providers: {
+            ...current.piConfig.providers,
+            [next.provider]: {
+              ...providerConfig,
+              model: next.model,
+              thinking: next.thinkingLevel,
+            },
+          },
+        },
+      };
+    });
     setHistory((items) => items.map((item) => (
       item.sessionId === sessionIdRef.current
         ? { ...item, model: next.model, provider: next.provider, thinkingLevel: next.thinkingLevel }

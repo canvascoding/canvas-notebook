@@ -6,7 +6,7 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { and, desc, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
 import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
 import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
-import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig } from '@/app/lib/agents/storage';
+import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
@@ -91,6 +91,31 @@ async function isValidProviderModel(provider: string, model: string): Promise<bo
     ? await getCanvasControlPlaneModels()
     : getPiModels(provider, customModel);
   return models.some((candidate) => candidate.id === model);
+}
+
+async function syncSessionModelToPiConfig(
+  provider: string,
+  model: string | null,
+  thinkingLevel: PiThinkingLevel | null,
+) {
+  const piConfig = await readPiRuntimeConfig();
+  const providerConfig = piConfig.providers[provider];
+  if (!providerConfig || (!model && !thinkingLevel)) {
+    return;
+  }
+
+  await writePiRuntimeConfig({
+    ...piConfig,
+    activeProvider: provider,
+    providers: {
+      ...piConfig.providers,
+      [provider]: {
+        ...providerConfig,
+        ...(model ? { model } : {}),
+        ...(thinkingLevel ? { thinking: thinkingLevel } : {}),
+      },
+    },
+  });
 }
 
 function hasUnreadPiResponse(lastMessageAt: Date | null, lastViewedAt: Date | null): boolean {
@@ -424,6 +449,7 @@ export async function PATCH(request: NextRequest) {
         .where(eq(piSessions.id, piSession.id))
         .returning();
 
+      await syncSessionModelToPiConfig(piSession.provider, requestedModel, requestedThinkingLevel);
       await invalidateRuntime(sessionId, session.user.id);
 
       return NextResponse.json({
