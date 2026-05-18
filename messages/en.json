@@ -1463,6 +1463,11 @@
       "status": "Status:",
       "license": "License:",
       "compatibility": "Compatibility:",
+      "deleteSkill": "Delete skill",
+      "deleteConfirmTitle": "Delete skill?",
+      "deleteConfirmDescription": "This will permanently delete the skill \"{name}\" and all its files. This action cannot be undone.",
+      "deleteCancel": "Cancel",
+      "deleteConfirm": "Delete",
       "errors": {
         "loadContent": "Failed to load skill content",
         "saveFailed": "Failed to save skill content"

@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { AnthropicSkill, parseSkillFile, getSkillsDir, createDefaultSkillMd } from './skill-manifest-anthropic';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
-import { enableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
+import { enableSkillInConfig, disableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
 // Re-export types and functions from the new anthropic module
 export type { AnthropicSkill, ValidationResult } from './skill-manifest-anthropic';
 export {
@@ -262,4 +262,41 @@ ${skill.content}
 
   await fs.writeFile(readmePath, readmeContent, 'utf-8');
   console.log(`[SkillLoader] Created README: ${readmePath}`);
+}
+
+export async function deleteSkillDirectory(
+  name: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!(await skillExists(name))) {
+      return { success: false, error: `Skill "${name}" not found` };
+    }
+
+    const skillsDir = getSkillsDir();
+    const skillPath = path.join(skillsDir, name);
+    const resolvedSkillPath = path.resolve(/*turbopackIgnore: true*/ skillPath);
+    const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
+    if (!resolvedSkillPath.startsWith(resolvedSkillsDir)) {
+      return { success: false, error: 'Invalid skill name: path traversal detected' };
+    }
+
+    await fs.rm(skillPath, { recursive: true, force: true });
+
+    try {
+      const config = await readPiRuntimeConfig();
+      const allSkillNames = await getSkillNames();
+      config.enabledSkills = disableSkillInConfig(name, config.enabledSkills, allSkillNames);
+      await writePiRuntimeConfig(config);
+      console.log(`[SkillLoader] Removed skill "${name}" from enabled-skills config`);
+    } catch (cfgError) {
+      console.warn(`[SkillLoader] Could not remove skill "${name}" from config:`, cfgError);
+    }
+
+    console.log(`[SkillLoader] Deleted skill: ${skillPath}`);
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[SkillLoader] Error deleting skill ${name}:`, error);
+    return { success: false, error: errorMessage };
+  }
 }

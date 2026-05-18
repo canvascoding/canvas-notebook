@@ -459,6 +459,12 @@ export function SkillsPanel() {
         skill={selectedSkill}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+        onDeleted={() => {
+          setSelectedSkill(null);
+          setSelectedPath(null);
+          loadSkills();
+          loadSkillTree();
+        }}
       />
 
       <SkillUploadDialog

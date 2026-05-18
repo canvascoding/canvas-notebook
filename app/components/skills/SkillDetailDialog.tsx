@@ -9,8 +9,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Power, Loader2, X, Save, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Power, Loader2, X, Save, AlertCircle, Trash2 } from 'lucide-react';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 
@@ -18,9 +30,10 @@ interface SkillDetailDialogProps {
   skill: AnthropicSkill | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onDeleted?: () => void;
 }
 
-export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDialogProps) {
+export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: SkillDetailDialogProps) {
   const t = useTranslations('skills');
   const [skillContent, setSkillContent] = useState<string>('');
   const [draft, setDraft] = useState<string>('');
@@ -30,6 +43,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const saveTimeoutRef = useRef<number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   async function loadSkillContent(skillName: string) {
     setLoading(true);
@@ -108,6 +122,25 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
     ? new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null;
 
+  async function handleDelete() {
+    if (!skill) return;
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/skills/${skill.name}/delete`, { method: 'DELETE' });
+      const data = await response.json();
+      if (data.success) {
+        onOpenChange(false);
+        onDeleted?.();
+      } else {
+        console.error('Failed to delete skill:', data.error);
+      }
+    } catch (err) {
+      console.error('Failed to delete skill:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   if (!skill) return null;
 
   return (
@@ -141,15 +174,51 @@ export function SkillDetailDialog({ skill, open, onOpenChange }: SkillDetailDial
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => onOpenChange(false)}
-              type="button"
-              aria-label={t('detail.close')}
-              data-testid="skill-detail-close"
-              className="p-2 hover:bg-accent rounded-md transition-colors"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {skill.isCustom !== false && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={isDeleting}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      aria-label={t('detail.deleteSkill')}
+                      data-testid="skill-detail-delete"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{t('detail.deleteConfirmTitle')}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t('detail.deleteConfirmDescription', { name: skill.name })}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{t('detail.deleteCancel')}</AlertDialogCancel>
+                      <AlertDialogAction variant="destructive" onClick={handleDelete}>
+                        {t('detail.deleteConfirm')}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              <button
+                onClick={() => onOpenChange(false)}
+                type="button"
+                aria-label={t('detail.close')}
+                data-testid="skill-detail-close"
+                className="p-2 hover:bg-accent rounded-md transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </DialogHeader>
 

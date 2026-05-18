@@ -1462,6 +1462,11 @@
       "status": "Status:",
       "license": "Lizenz:",
       "compatibility": "Kompatibilität:",
+      "deleteSkill": "Skill löschen",
+      "deleteConfirmTitle": "Skill löschen?",
+      "deleteConfirmDescription": "Der Skill \"{name}\" und alle seine Dateien werden dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
+      "deleteCancel": "Abbrechen",
+      "deleteConfirm": "Löschen",
       "errors": {
         "loadContent": "Skill-Inhalt konnte nicht geladen werden",
         "saveFailed": "Skill-Inhalt konnte nicht gespeichert werden"
