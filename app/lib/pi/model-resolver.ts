@@ -14,6 +14,11 @@ export const OLLAMA_PROVIDER_ID = 'ollama';
 export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
 export const CANVAS_CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
 
+type ManagedControlPlaneProvider = 'openrouter' | 'groq';
+type ManagedControlPlaneModel = Model<'openai-completions'> & {
+  managedProvider: ManagedControlPlaneProvider;
+};
+
   // Recommended Ollama models with metadata
 // Using 'openai-completions' api type for OpenAI-compatible Ollama API
 // Alle Modelle (lokal und cloud) werden über localhost API aufgerufen
@@ -70,6 +75,81 @@ export const OLLAMA_MODELS: Model<'openai-completions'>[] = [
   { id: 'minimax-m2:cloud', name: 'MiniMax M2 Cloud (MiniMax)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
   { id: 'gpt-oss:120b', name: 'GPT-OSS 120B (OpenAI)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
 ];
+
+const FALLBACK_CANVAS_CONTROL_PLANE_MODELS: ManagedControlPlaneModel[] = [
+  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, managedProvider: 'openrouter', baseUrl: '', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8192 },
+  { id: 'openai/gpt-4o', name: 'GPT-4o via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, managedProvider: 'openrouter', baseUrl: '', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, managedProvider: 'openrouter', baseUrl: '', reasoning: true, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 8192 },
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function managedProviderPath(provider: ManagedControlPlaneProvider): string {
+  return provider === 'groq' ? 'groq' : 'openrouter';
+}
+
+function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel | null {
+  if (!isRecord(value)) return null;
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const name = typeof value.name === 'string' ? value.name.trim() : id;
+  const managedProvider = value.provider === 'groq' ? 'groq' : value.provider === 'openrouter' ? 'openrouter' : null;
+  const contextWindow = typeof value.contextWindow === 'number' && Number.isFinite(value.contextWindow)
+    ? value.contextWindow
+    : 128000;
+  const maxTokens = typeof value.maxTokens === 'number' && Number.isFinite(value.maxTokens)
+    ? value.maxTokens
+    : 8192;
+  const input = Array.isArray(value.input) && value.input.every((entry) => entry === 'text' || entry === 'image')
+    ? value.input as ('text' | 'image')[]
+    : ['text', 'image'] as ('text' | 'image')[];
+
+  if (!id || !managedProvider) return null;
+
+  return {
+    id,
+    name,
+    api: 'openai-completions',
+    provider: CANVAS_CONTROL_PLANE_PROVIDER_ID,
+    managedProvider,
+    baseUrl: '',
+    reasoning: Boolean(value.reasoning),
+    input,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow,
+    maxTokens,
+  };
+}
+
+export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlaneModel[]> {
+  const controlPlaneUrl = process.env.CANVAS_CONTROL_PLANE_URL?.trim().replace(/\/+$/, '');
+  const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
+  if (!controlPlaneUrl || !token) {
+    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${controlPlaneUrl}/v1/managed/models`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+    const payload = await response.json();
+    const rawModels = isRecord(payload) && Array.isArray(payload.models) ? payload.models : [];
+    const models = rawModels
+      .map(parseManagedControlPlaneModel)
+      .filter((model): model is ManagedControlPlaneModel => Boolean(model));
+    return models.length > 0 ? models : FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+  } catch {
+    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export function getPiProviders(): string[] {
   const providers = getProviders();
@@ -130,11 +210,6 @@ export function getPiModels(provider: string, customModel?: string) {
   }
 
   if (provider === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
-    const managedModels: Model<'openai-completions'>[] = [
-      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, baseUrl: '', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8192 },
-      { id: 'openai/gpt-4o', name: 'GPT-4o via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, baseUrl: '', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
-      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, baseUrl: '', reasoning: true, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 8192 },
-    ];
     if (customModel) {
       const customModelEntry: Model<'openai-completions'> = {
         id: customModel,
@@ -149,11 +224,11 @@ export function getPiModels(provider: string, customModel?: string) {
         maxTokens: 8192,
       };
       return [
-        ...managedModels,
+        ...FALLBACK_CANVAS_CONTROL_PLANE_MODELS,
         customModelEntry,
       ];
     }
-    return managedModels;
+    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
   }
   
   try {
@@ -178,7 +253,9 @@ export async function resolvePiModel(provider: string, modelName: string) {
       ? providerConfig.openaiCompatibleCustomModel
       : undefined;
   
-  const models = getPiModels(provider, customModel);
+  const models = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
+    ? await getCanvasControlPlaneModels()
+    : getPiModels(provider, customModel);
   let model = models.find(m => m.id === modelName);
   
   // For Ollama custom models, create model entry if not found
@@ -232,9 +309,10 @@ export async function resolvePiModel(provider: string, modelName: string) {
     if (!controlPlaneUrl) {
       throw new Error('CANVAS_CONTROL_PLANE_URL is required for the Canvas Control Plane provider.');
     }
+    const managedProvider = managedProviderPath((model as ManagedControlPlaneModel).managedProvider || 'openrouter');
     return {
       ...model,
-      baseUrl: `${controlPlaneUrl}/v1/managed/openrouter/v1`,
+      baseUrl: `${controlPlaneUrl}/v1/managed/${managedProvider}/v1`,
     };
   }
   
