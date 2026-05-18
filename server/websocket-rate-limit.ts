@@ -17,12 +17,17 @@ const DEFAULT_CONFIGS: Record<string, RateLimitConfig> = {
 
 const buckets = new Map<string, RateLimitBucket>();
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, bucket] of buckets) {
-    if (now > bucket.resetAt) buckets.delete(key);
-  }
-}, 60_000);
+const globalWsRateLimitStore = globalThis as typeof globalThis & { __canvasWsRateLimitCleanupStarted?: boolean };
+
+if (!globalWsRateLimitStore.__canvasWsRateLimitCleanupStarted) {
+  globalWsRateLimitStore.__canvasWsRateLimitCleanupStarted = true;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, bucket] of buckets) {
+      if (now > bucket.resetAt) buckets.delete(key);
+    }
+  }, 60_000).unref?.();
+}
 
 export function checkWsRateLimit(
   messageType: string,
