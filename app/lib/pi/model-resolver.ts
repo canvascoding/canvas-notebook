@@ -14,7 +14,7 @@ export const OLLAMA_PROVIDER_ID = 'ollama';
 export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
 export const CANVAS_CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
 
-type ManagedControlPlaneProvider = 'openrouter' | 'groq';
+type ManagedControlPlaneProvider = 'openrouter' | 'groq' | 'openai-compatible';
 type ManagedControlPlaneModel = Model<'openai-completions'> & {
   managedProvider: ManagedControlPlaneProvider;
 };
@@ -87,7 +87,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function managedProviderPath(provider: ManagedControlPlaneProvider): string {
-  return provider === 'groq' ? 'groq' : 'openrouter';
+  if (provider === 'groq') return 'groq';
+  if (provider === 'openai-compatible') return 'openai-compatible';
+  return 'openrouter';
 }
 
 export function isCanvasControlPlaneManagedAvailable(): boolean {
@@ -101,7 +103,13 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
   if (!isRecord(value)) return null;
   const id = typeof value.id === 'string' ? value.id.trim() : '';
   const name = typeof value.name === 'string' ? value.name.trim() : id;
-  const managedProvider = value.provider === 'groq' ? 'groq' : value.provider === 'openrouter' ? 'openrouter' : null;
+  const managedProvider = value.provider === 'groq'
+    ? 'groq'
+    : value.provider === 'openai-compatible'
+      ? 'openai-compatible'
+      : value.provider === 'openrouter'
+        ? 'openrouter'
+        : null;
   const contextWindow = typeof value.contextWindow === 'number' && Number.isFinite(value.contextWindow)
     ? value.contextWindow
     : 128000;
