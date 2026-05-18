@@ -76,6 +76,8 @@ type PiProviderSetupCardProps = {
   onSaved?: (payload: { piConfig: PiRuntimeConfig; readiness: AgentConfigReadiness }) => Promise<void> | void;
 };
 
+const CANVAS_CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
+
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -520,7 +522,12 @@ export function PiProviderSetupCard({
 
   const filteredProviders = authMethodSelection
     ? getProvidersForAuthMethod(authMethodSelection).filter(
-        (id) => id in discovery || id in piConfigDraft.providers,
+        (id) => {
+          if (id === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
+            return id in discovery || piConfigDraft.activeProvider === id;
+          }
+          return id in discovery || id in piConfigDraft.providers;
+        },
       )
     : Object.keys(discovery).length > 0
       ? Object.keys(discovery).sort()

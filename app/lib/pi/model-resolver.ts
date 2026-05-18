@@ -90,6 +90,13 @@ function managedProviderPath(provider: ManagedControlPlaneProvider): string {
   return provider === 'groq' ? 'groq' : 'openrouter';
 }
 
+export function isCanvasControlPlaneManagedAvailable(): boolean {
+  return (
+    process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' ||
+    Boolean(process.env.CANVAS_CONTROL_PLANE_URL?.trim() && process.env.CANVAS_INSTANCE_TOKEN?.trim())
+  );
+}
+
 function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel | null {
   if (!isRecord(value)) return null;
   const id = typeof value.id === 'string' ? value.id.trim() : '';
@@ -160,7 +167,7 @@ export function getPiProviders(): string[] {
   if (!(providers as string[]).includes(OPENAI_COMPATIBLE_PROVIDER_ID)) {
     (providers as string[]).push(OPENAI_COMPATIBLE_PROVIDER_ID);
   }
-  if (!(providers as string[]).includes(CANVAS_CONTROL_PLANE_PROVIDER_ID)) {
+  if (isCanvasControlPlaneManagedAvailable() && !(providers as string[]).includes(CANVAS_CONTROL_PLANE_PROVIDER_ID)) {
     (providers as string[]).push(CANVAS_CONTROL_PLANE_PROVIDER_ID);
   }
   return providers as string[];
