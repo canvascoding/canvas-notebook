@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, EyeOff, Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -305,59 +305,52 @@ export function ConnectedAppsPanel() {
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {/* API Key Section */}
-        <div className="rounded-md border border-border p-4 space-y-3">
-          <h3 className="text-sm font-semibold">Composio API Key</h3>
-          {status?.configured && status?.apiKeyValid ? (
-            <div className="flex items-center gap-2 text-sm text-primary">
-              <Check className="h-4 w-4" />
-              {t('apiKeyValid')}
-            </div>
-          ) : (
-            <>
-              <p className="text-sm text-muted-foreground">
-                {status?.configured && !status?.apiKeyValid ? t('apiKeyInvalid') : t('notConfigured')}
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="relative flex-1">
-                  <Input
-                    type={apiKeyVisible ? 'text' : 'password'}
-                    placeholder="composio_..."
-                    value={apiKeyDraft}
-                    onChange={(e) => { setApiKeyDraft(e.target.value); setApiKeySaved(false); }}
-                    disabled={apiKeySaving}
-                    className={apiKeyVisible ? undefined : 'pr-11'}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="absolute right-1 top-1/2 -translate-y-1/2"
-                    aria-label={apiKeyVisible ? t('hideSecret') : t('showSecret')}
-                    onClick={() => setApiKeyVisible(!apiKeyVisible)}
-                    disabled={apiKeySaving}
-                  >
-                    {apiKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-                <Button onClick={() => void saveApiKey()} disabled={apiKeySaving || !apiKeyDraft.trim()} className="w-full sm:w-auto">
-                  {apiKeySaving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                  {t('saveApiKey')}
+        {!(status?.configured && status?.apiKeyValid) && (
+          <div className="rounded-md border border-border p-4 space-y-3">
+            <h3 className="text-sm font-semibold">Composio API Key</h3>
+            <p className="text-sm text-muted-foreground">
+              {status?.configured && !status?.apiKeyValid ? t('apiKeyInvalid') : t('notConfigured')}
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <Input
+                  type={apiKeyVisible ? 'text' : 'password'}
+                  placeholder="composio_..."
+                  value={apiKeyDraft}
+                  onChange={(e) => { setApiKeyDraft(e.target.value); setApiKeySaved(false); }}
+                  disabled={apiKeySaving}
+                  className={apiKeyVisible ? undefined : 'pr-11'}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                  aria-label={apiKeyVisible ? t('hideSecret') : t('showSecret')}
+                  onClick={() => setApiKeyVisible(!apiKeyVisible)}
+                  disabled={apiKeySaving}
+                >
+                  {apiKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
-              {apiKeySaved && (
-                <p className="text-sm text-primary">{t('apiKeySaved')}</p>
-              )}
-              <a
-                href="https://composio.dev"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
-              >
-                {t('getApiKey')} <ExternalLink className="h-3 w-3" />
-              </a>
-            </>
-          )}
-        </div>
+              <Button onClick={() => void saveApiKey()} disabled={apiKeySaving || !apiKeyDraft.trim()} className="w-full sm:w-auto">
+                {apiKeySaving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                {t('saveApiKey')}
+              </Button>
+            </div>
+            {apiKeySaved && (
+              <p className="text-sm text-primary">{t('apiKeySaved')}</p>
+            )}
+            <a
+              href="https://composio.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+            >
+              {t('getApiKey')} <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        )}
 
         {/* Connected Apps */}
         {!needsApiKey && (
@@ -541,6 +534,7 @@ export function ConnectedAppsPanel() {
           name={dialogToolkit.name}
           logo={dialogToolkit.logo}
           connected={dialogToolkit.connected}
+          toolsCount={dialogToolkit.toolsCount}
           onClose={() => setDialogToolkit(null)}
           onConnect={dialogToolkit.connected ? undefined : (slug) => { setDialogToolkit(null); void handleConnect(slug); }}
           onDisconnect={(slug) => { setDialogToolkit(null); void handleDisconnect(slug); }}

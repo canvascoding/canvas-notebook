@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, startTransition } from 'react';
+import { useCallback, useEffect, useState, useRef, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, Search, X, ChevronDown } from 'lucide-react';
 
@@ -19,18 +19,20 @@ type ToolkitToolsDialogProps = {
   name: string;
   logo: string;
   connected: boolean;
+  toolsCount: number;
   onClose: () => void;
   onConnect?: (slug: string) => void;
   onDisconnect?: (slug: string) => void;
 };
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 20;
 
 export function ToolkitToolsDialog({
   slug,
   name,
   logo,
   connected,
+  toolsCount,
   onClose,
   onConnect,
   onDisconnect,
@@ -40,9 +42,12 @@ export function ToolkitToolsDialog({
   const [tools, setTools] = useState<ToolkitToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ToolkitToolInfo[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -67,6 +72,53 @@ export function ToolkitToolsDialog({
     });
   }, [loadTools]);
 
+  const searchTools = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const response = await fetch(
+        `/api/composio/toolkits/${encodeURIComponent(slug)}/tools?search=${encodeURIComponent(query)}`,
+        { credentials: 'include' },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Search failed');
+      setSearchResults(data.tools || []);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [slug]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    setPage(1);
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+    if (!value.trim()) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    searchTimerRef.current = setTimeout(() => {
+      void searchTools(value);
+    }, 300);
+  }, [searchTools]);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, []);
+
   const toggleExpanded = (toolSlug: string) => {
     setExpandedTools((prev) => {
       const next = new Set(prev);
@@ -79,17 +131,16 @@ export function ToolkitToolsDialog({
     });
   };
 
-  const filteredTools = searchQuery
-    ? tools.filter(
-        (tool) =>
-          tool.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          tool.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          tool.description.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : tools;
+  const displayTools = searchQuery ? (searchResults ?? []) : tools;
+  const appliedQuery = searchQuery.trim();
 
-  const pagedTools = filteredTools.slice(0, page * PAGE_SIZE);
-  const hasMore = filteredTools.length > page * PAGE_SIZE;
+  const filteredDisplay = appliedQuery
+    ? displayTools
+    : tools;
+  const pagedTools = filteredDisplay.slice(0, page * PAGE_SIZE);
+  const hasMore = !appliedQuery && filteredDisplay.length > page * PAGE_SIZE;
+
+  const totalCount = toolsCount > 0 ? toolsCount : tools.length;
 
   const statusText = connected
     ? t('toolsAvailableConnected')
@@ -114,7 +165,9 @@ export function ToolkitToolsDialog({
             <div className="min-w-0">
               <h2 className="text-lg font-semibold truncate">{name}</h2>
               <p className="text-xs text-muted-foreground">
-                {loading ? '...' : `${tools.length} ${t('toolsAvailable')}`}
+                {loading ? '...' : searchQuery && searchResults !== null
+                  ? `${searchResults.length} of ${totalCount} ${t('toolsAvailable')}`
+                  : `${totalCount} ${t('toolsAvailable')}`}
               </p>
             </div>
           </div>
@@ -149,9 +202,12 @@ export function ToolkitToolsDialog({
             <Input
               placeholder={t('searchTools')}
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-9"
             />
+            {searchLoading && (
+              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+            )}
           </div>
         </div>
 
@@ -205,7 +261,7 @@ export function ToolkitToolsDialog({
           {hasMore && (
             <div className="flex justify-center pt-3">
               <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>
-                {t('loadMore')} ({filteredTools.length - page * PAGE_SIZE} {t('remaining')})
+                {t('loadMore')} ({filteredDisplay.length - page * PAGE_SIZE} {t('remaining')})
               </Button>
             </div>
           )}
