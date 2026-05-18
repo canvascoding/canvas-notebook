@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, EyeOff, Check, ChevronDown } from 'lucide-react';
+import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, EyeOff, Check, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ToolkitToolsDialog } from './ToolkitToolsDialog';
 
 type ConnectedAccount = {
@@ -56,9 +57,11 @@ export function ConnectedAppsPanel() {
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [dialogToolkit, setDialogToolkit] = useState<ToolkitInfo | null>(null);
   const [availablePage, setAvailablePage] = useState(1);
+  const [availableOpen, setAvailableOpen] = useState<boolean | undefined>(undefined);
   const [connectedSearchQuery, setConnectedSearchQuery] = useState('');
   const [connectedPage, setConnectedPage] = useState(1);
-  const PAGE_SIZE = 30;
+  const CONNECTED_PAGE_SIZE = 6;
+  const AVAILABlE_PAGE_SIZE = 30;
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -264,8 +267,9 @@ export function ConnectedAppsPanel() {
           tk.slug.toLowerCase().includes(connectedSearchQuery.toLowerCase())
       )
     : connectedToolkits;
-  const pagedConnected = connectedSearchQuery ? filteredConnected : filteredConnected.slice(0, connectedPage * PAGE_SIZE);
+  const pagedConnected = connectedSearchQuery ? filteredConnected : filteredConnected.slice(0, connectedPage * CONNECTED_PAGE_SIZE);
   const hasMoreConnected = !connectedSearchQuery && filteredConnected.length > pagedConnected.length;
+  const effectiveAvailableOpen = availableOpen ?? (connectedToolkits.length === 0);
   const availableToolkits = toolkits.filter((tk) => !tk.connected);
   const filteredAvailable = searchQuery
     ? availableToolkits.filter(
@@ -274,7 +278,7 @@ export function ConnectedAppsPanel() {
           tk.slug.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : availableToolkits;
-  const pagedAvailable = searchQuery ? filteredAvailable : filteredAvailable.slice(0, availablePage * PAGE_SIZE);
+  const pagedAvailable = searchQuery ? filteredAvailable : filteredAvailable.slice(0, availablePage * AVAILABlE_PAGE_SIZE);
   const hasMoreAvailable = !searchQuery && filteredAvailable.length > pagedAvailable.length;
 
   const statusBadge = (s: string) => {
@@ -447,78 +451,88 @@ export function ConnectedAppsPanel() {
 
         {/* Available Apps */}
         {!needsApiKey && (
-          <div>
-            <h3 className="mb-3 text-sm font-semibold">{t('availableApps')}</h3>
-            <div className="mb-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder={t('searchApps')}
-                  value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); setAvailablePage(1); }}
-                  className="pl-9"
-                />
+          <Collapsible open={effectiveAvailableOpen} onOpenChange={setAvailableOpen}>
+            <CollapsibleTrigger className="flex w-full items-center justify-between rounded border border-border bg-muted/30 p-3 text-sm transition-colors hover:bg-muted/50">
+              <span className="font-semibold">{t('availableApps')}</span>
+              <div className="flex items-center gap-2">
+                {availableToolkits.length > 0 && (
+                  <Badge variant="outline" className="text-xs">{availableToolkits.length}</Badge>
+                )}
+                <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${availableOpen ? 'rotate-90' : ''}`} />
               </div>
-            </div>
-            {toolkitsLoading ? (
-              <div className="flex items-center text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {t('apiKeyChecking')}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-3">
+              <div className="mb-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder={t('searchApps')}
+                    value={searchQuery}
+                    onChange={(e) => { setSearchQuery(e.target.value); setAvailablePage(1); }}
+                    className="pl-9"
+                  />
+                </div>
               </div>
-            ) : filteredAvailable.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('noResults')}</p>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {pagedAvailable.map((tk) => (
-                    <div
-                      key={tk.slug}
-                      className="flex cursor-pointer items-center justify-between rounded border border-border p-3 transition-colors hover:bg-muted/50"
-                      onClick={() => setDialogToolkit(tk)}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {tk.logo ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={tk.logo} alt={tk.name} className="h-5 w-5 shrink-0" />
-                        ) : (
-                          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-bold">
-                            {tk.name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{tk.name}</p>
-                          {tk.toolsCount > 0 && (
-                            <p className="text-[10px] text-muted-foreground">{tk.toolsCount} tools</p>
-                          )}
-                        </div>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => { e.stopPropagation(); void handleConnect(tk.slug); }}
-                        disabled={actionInProgress === `connect-${tk.slug}`}
+              {toolkitsLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t('apiKeyChecking')}
+                </div>
+              ) : filteredAvailable.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('noResults')}</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {pagedAvailable.map((tk) => (
+                      <div
+                        key={tk.slug}
+                        className="flex cursor-pointer items-center justify-between rounded border border-border p-3 transition-colors hover:bg-muted/50"
+                        onClick={() => setDialogToolkit(tk)}
                       >
-                        {actionInProgress === `connect-${tk.slug}` ? (
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        ) : (
-                          <Link2 className="mr-1 h-3 w-3" />
-                        )}
-                        {t('connect')}
+                        <div className="flex items-center gap-2 min-w-0">
+                          {tk.logo ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={tk.logo} alt={tk.name} className="h-5 w-5 shrink-0" />
+                          ) : (
+                            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-bold">
+                              {tk.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{tk.name}</p>
+                            {tk.toolsCount > 0 && (
+                              <p className="text-[10px] text-muted-foreground">{tk.toolsCount} tools</p>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); void handleConnect(tk.slug); }}
+                          disabled={actionInProgress === `connect-${tk.slug}`}
+                        >
+                          {actionInProgress === `connect-${tk.slug}` ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <Link2 className="mr-1 h-3 w-3" />
+                          )}
+                          {t('connect')}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  {hasMoreAvailable && (
+                    <div className="flex justify-center pt-3">
+                      <Button variant="outline" size="sm" onClick={() => setAvailablePage((p) => p + 1)}>
+                        <ChevronDown className="mr-1 h-3 w-3" />
+                        {t('loadMore')} ({filteredAvailable.length - pagedAvailable.length} {t('remaining')})
                       </Button>
                     </div>
-                  ))}
-                </div>
-                {hasMoreAvailable && (
-                  <div className="flex justify-center pt-3">
-                    <Button variant="outline" size="sm" onClick={() => setAvailablePage((p) => p + 1)}>
-                      <ChevronDown className="mr-1 h-3 w-3" />
-                      {t('loadMore')} ({filteredAvailable.length - pagedAvailable.length} {t('remaining')})
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+                  )}
+                </>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
         )}
       </CardContent>
       {dialogToolkit && (
