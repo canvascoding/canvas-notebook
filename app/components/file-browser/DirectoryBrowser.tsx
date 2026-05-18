@@ -1,9 +1,9 @@
 'use client';
 
 import { type ReactNode } from 'react';
-import { ChevronRight, Folder } from 'lucide-react';
+import { ChevronRight, Folder, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { type FileNode } from '@/app/store/file-store';
+import { useFileStore, type FileNode } from '@/app/store/file-store';
 
 interface DirectoryBrowserProps {
   tree: FileNode[];
@@ -15,6 +15,14 @@ interface DirectoryBrowserProps {
 
 export function DirectoryBrowser({ tree, selectedPath, onSelect, expandedDirs, onToggleDir }: DirectoryBrowserProps) {
   const t = useTranslations('notebook');
+  const { loadSubdirectory, loadingDirs } = useFileStore();
+
+  const handleToggleDir = async (path: string, isExpanded: boolean) => {
+    onToggleDir(path);
+    if (!isExpanded) {
+      await loadSubdirectory(path, true);
+    }
+  };
 
   const renderDirectories = (nodes: FileNode[], depth = 0): ReactNode[] => {
     return nodes.flatMap((entry) => {
@@ -22,15 +30,20 @@ export function DirectoryBrowser({ tree, selectedPath, onSelect, expandedDirs, o
 
       const isSelected = selectedPath === entry.path;
       const isExpanded = expandedDirs.has(entry.path);
+      const isLoading = loadingDirs.has(entry.path);
 
       const row = (
         <div key={entry.path} className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
           <button
             type="button"
             className="p-1 rounded hover:bg-accent/70"
-            onClick={() => onToggleDir(entry.path)}
+            onClick={() => void handleToggleDir(entry.path, isExpanded)}
           >
-            <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : (
+              <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+            )}
           </button>
           <button
             type="button"

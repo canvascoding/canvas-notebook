@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { batchCopy } from '@/app/lib/filesystem/workspace-files';
 import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
+import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { auth } from '@/app/lib/auth';
@@ -57,6 +58,7 @@ export async function POST(request: NextRequest) {
     const result = await batchCopy(sources, destDir, overwrite, renameOnCollision);
 
     clearSubtreeCache(destDir);
+    invalidateFileReferenceCache();
 
     return NextResponse.json({
       success: true,

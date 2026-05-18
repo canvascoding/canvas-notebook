@@ -54,10 +54,21 @@ interface FileGridViewProps {
   onOpenFile?: (path: string) => void;
 }
 
+interface FileSearchEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size?: number;
+  modified?: number;
+  permissions?: string;
+}
+
 export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewProps) {
   const t = useTranslations('notebook');
   const containerRef = useRef<HTMLDivElement>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [searchResults, setSearchResults] = useState<FileNodeType[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const {
     fileTree,
@@ -74,6 +85,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   } = useFileStore();
 
   const activeDirectoryChildren = flattenDirectoryChildren(fileTree, currentDirectory);
+  const normalizedSearchQuery = searchQuery.trim();
 
   useEffect(() => {
     let cancelled = false;
@@ -219,14 +231,68 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
       .filter((node): node is FileNodeType => node !== null);
   };
 
-  const filteredTree = searchQuery ? filterTree(fileTree, searchQuery.toLowerCase()) : fileTree;
+  useEffect(() => {
+    const query = normalizedSearchQuery;
+    if (!query) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const response = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=200`, {
+          credentials: 'include',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to search files');
+        }
+
+        if (!response.ok) {
+          throw new Error('Failed to search files');
+        }
+
+        const payload = await response.json() as { files?: FileSearchEntry[] };
+        const nextResults = (payload.files ?? []).map((entry) => ({
+          name: entry.name,
+          path: entry.path,
+          type: entry.type,
+          size: entry.size,
+          modified: entry.modified,
+          permissions: entry.permissions,
+        } satisfies FileNodeType));
+        setSearchResults(nextResults);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setSearchResults([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSearching(false);
+        }
+      }
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [normalizedSearchQuery]);
+
+  const filteredTree = normalizedSearchQuery ? filterTree(fileTree, normalizedSearchQuery.toLowerCase()) : fileTree;
+  const searchResultNodes = normalizedSearchQuery ? (searchResults ?? filteredTree) : filteredTree;
 
   const listDirChildren = browserMode === 'list'
     ? flattenDirectoryChildren(fileTree, currentDirectory)
     : null;
 
-  const filteredListChildren = browserMode === 'list' && listDirChildren
-    ? (searchQuery ? listDirChildren.filter((n: FileNodeType) => n.name.toLowerCase().includes(searchQuery.toLowerCase())) : listDirChildren)
+  const filteredListChildren = normalizedSearchQuery
+    ? searchResultNodes
+    : browserMode === 'list' && listDirChildren
+      ? listDirChildren
     : null;
 
   const handleFileOpen = useCallback((path: string) => {
@@ -268,8 +334,8 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   }
 
   if (browserMode === 'grid') {
-    const gridItems = searchQuery
-      ? filteredTree
+    const gridItems = normalizedSearchQuery
+      ? searchResultNodes
       : (activeDirectoryChildren ?? []);
 
     const handleOpenDirectory = async (dirPath: string) => {
@@ -301,7 +367,12 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
             ))}
           </div>
         )}
-        {gridItems.length === 0 && searchQuery && (
+        {isSearching && normalizedSearchQuery && (
+          <div className="flex h-24 items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {!isSearching && gridItems.length === 0 && normalizedSearchQuery && (
           <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
             <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
             <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>
@@ -363,7 +434,12 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarProvider>
-        {filteredListChildren && filteredListChildren.length === 0 && searchQuery && (
+        {isSearching && normalizedSearchQuery && (
+          <div className="flex h-24 items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {!isSearching && filteredListChildren && filteredListChildren.length === 0 && normalizedSearchQuery && (
           <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
             <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
             <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>
@@ -390,14 +466,19 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5">
-              {filteredTree.map((node) => (
+              {searchResultNodes.map((node) => (
                 <FileTreeNode key={node.path} node={node} onOpenFile={handleFileOpen} />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarProvider>
-      {filteredTree.length === 0 && searchQuery && (
+      {isSearching && normalizedSearchQuery && (
+        <div className="flex h-24 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {!isSearching && searchResultNodes.length === 0 && normalizedSearchQuery && (
         <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
           <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
           <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { writeFile, createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
 import { convertImage, getImageConversionErrorMessage, isHeicFile } from '@/app/lib/images/convert';
@@ -187,6 +188,7 @@ export async function POST(request: NextRequest) {
     }
 
     clearFileTreeCache();
+    invalidateFileReferenceCache();
 
     return NextResponse.json({ success: true, count: files.length, files: uploadedFiles });
   } catch (error) {
