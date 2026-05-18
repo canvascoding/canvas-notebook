@@ -1,5 +1,6 @@
 import { getModels, getProviders, registerBuiltInApiProviders, type KnownProvider, type Model } from '@mariozechner/pi-ai';
 import { readPiRuntimeConfig } from '../agents/storage';
+import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 
 // Ensure all built-in providers are registered once
 registerBuiltInApiProviders();
@@ -138,7 +139,7 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
 }
 
 export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlaneModel[]> {
-  const controlPlaneUrl = process.env.CANVAS_CONTROL_PLANE_URL?.trim().replace(/\/+$/, '');
+  const controlPlaneUrl = getManagedControlPlaneBaseUrl();
   const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
   if (!controlPlaneUrl || !token) {
     return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
@@ -320,7 +321,7 @@ export async function resolvePiModel(provider: string, modelName: string) {
   }
 
   if (provider === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
-    const controlPlaneUrl = process.env.CANVAS_CONTROL_PLANE_URL?.trim().replace(/\/+$/, '');
+    const controlPlaneUrl = getManagedControlPlaneBaseUrl();
     if (!controlPlaneUrl) {
       throw new Error('CANVAS_CONTROL_PLANE_URL is required for the Canvas Control Plane provider.');
     }

@@ -5,6 +5,7 @@ import { disconnectTool, getConnectedAccounts, initiateConnection } from './comp
 import { getComposioSession } from './composio-session';
 import { getComposioUserId } from './composio-identity';
 import { clearToolkitCache, getAvailableToolkits } from './composio-toolkit-registry';
+import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 
 const HIDDEN_TOOLKIT_SLUGS = new Set([
   'gemini',
@@ -42,7 +43,7 @@ export interface ComposioStatusResult {
 }
 
 function controlPlaneBaseUrl(): string {
-  const baseUrl = process.env.CANVAS_CONTROL_PLANE_URL?.trim().replace(/\/+$/, '');
+  const baseUrl = getManagedControlPlaneBaseUrl();
   if (!baseUrl) throw new Error('CANVAS_CONTROL_PLANE_URL is required for managed Composio.');
   return baseUrl;
 }
