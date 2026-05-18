@@ -86,6 +86,23 @@ export function ChatModelSelector({
     return () => clearTimeout(timer);
   }, [saved]);
 
+  async function patchDefaultConfig(next: { model: string; thinkingLevel: PiThinkingLevel }) {
+    const response = await fetch('/api/agents/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: activeProvider,
+        model: next.model,
+        thinkingLevel: next.thinkingLevel,
+        makeActiveProvider: true,
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.success !== true) {
+      throw new Error(payload?.error || 'Model switch failed');
+    }
+  }
+
   async function patchSession(next: { model?: string; thinkingLevel?: PiThinkingLevel }) {
     if (pending) {
       return;
@@ -98,12 +115,22 @@ export function ChatModelSelector({
     }
 
     if (!sessionId) {
+      setPending(true);
+      setError(null);
+      try {
+        await patchDefaultConfig({ model: nextModel, thinkingLevel: nextThinkingLevel });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Model switch failed');
+        setPending(false);
+        return;
+      }
       onModelChange({
         model: nextModel,
         thinkingLevel: nextThinkingLevel,
         provider: activeProvider,
       });
       setSaved(true);
+      setPending(false);
       return;
     }
 

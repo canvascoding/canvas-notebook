@@ -8,8 +8,53 @@ import {
   readPiRuntimeConfig,
   writePiRuntimeConfig,
 } from '@/app/lib/agents/storage';
-import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, getPiProviders } from '@/app/lib/pi/model-resolver';
+import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, getPiProviders, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
+import type { PiRuntimeConfig, PiThinkingLevel } from '@/app/lib/pi/config';
+
+type PatchConfigPayload = {
+  provider?: unknown;
+  model?: unknown;
+  thinkingLevel?: unknown;
+  makeActiveProvider?: unknown;
+};
+
+const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeThinkingLevel(value: unknown): PiThinkingLevel | null {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return null;
+  }
+  return THINKING_LEVELS.has(normalized as PiThinkingLevel) ? normalized as PiThinkingLevel : null;
+}
+
+function getProviderCustomModel(piConfig: PiRuntimeConfig, provider: string): string | undefined {
+  const providerConfig = piConfig.providers[provider];
+  if (provider === OLLAMA_PROVIDER_ID && providerConfig?.ollamaModelSource === 'custom') {
+    return providerConfig.ollamaCustomModel?.trim() || undefined;
+  }
+  if (provider === OPENAI_COMPATIBLE_PROVIDER_ID && providerConfig?.openaiCompatibleModelSource === 'custom') {
+    return providerConfig.openaiCompatibleCustomModel?.trim() || undefined;
+  }
+  return undefined;
+}
+
+async function isValidProviderModel(piConfig: PiRuntimeConfig, provider: string, model: string): Promise<boolean> {
+  const customModel = getProviderCustomModel(piConfig, provider);
+  const models = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
+    ? await getCanvasControlPlaneModels()
+    : getPiModels(provider, customModel);
+  return models.some((candidate) => candidate.id === model);
+}
 
 async function requireSession(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -81,6 +126,76 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to read runtime config.';
+    const status = error instanceof AgentConfigValidationError ? 400 : 500;
+    return NextResponse.json({ success: false, error: message }, { status });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const { session, response } = await requireSession(request);
+  if (response || !session) {
+    return response;
+  }
+
+  const limited = rateLimit(request, {
+    limit: 30,
+    windowMs: 60_000,
+    keyPrefix: 'agents-config-patch',
+  });
+  if (!limited.ok) {
+    return limited.response;
+  }
+
+  try {
+    const payload = (await request.json().catch(() => ({}))) as PatchConfigPayload;
+    const provider = normalizeOptionalString(payload.provider);
+    const model = normalizeOptionalString(payload.model);
+    const thinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
+
+    if (!provider) {
+      return NextResponse.json({ success: false, error: 'Provider is required.' }, { status: 400 });
+    }
+    if (payload.thinkingLevel !== undefined && !thinkingLevel) {
+      return NextResponse.json({ success: false, error: 'Invalid thinking level.' }, { status: 400 });
+    }
+    if (!model && !thinkingLevel && payload.makeActiveProvider !== true) {
+      return NextResponse.json({ success: false, error: 'No configuration changes provided.' }, { status: 400 });
+    }
+
+    const currentConfig = await readPiRuntimeConfig();
+    const providerConfig = currentConfig.providers[provider];
+    if (!providerConfig) {
+      return NextResponse.json({ success: false, error: 'Provider is not configured.' }, { status: 400 });
+    }
+    if (model && !(await isValidProviderModel(currentConfig, provider, model))) {
+      return NextResponse.json({ success: false, error: 'Invalid model for provider.' }, { status: 400 });
+    }
+
+    const piConfig = await writePiRuntimeConfig({
+      ...currentConfig,
+      activeProvider: payload.makeActiveProvider === true ? provider : currentConfig.activeProvider,
+      providers: {
+        ...currentConfig.providers,
+        [provider]: {
+          ...providerConfig,
+          ...(model ? { model } : {}),
+          ...(thinkingLevel ? { thinking: thinkingLevel } : {}),
+        },
+      },
+    });
+    const readiness = await buildAgentConfigReadiness();
+    const engine = getActiveAiAgentEngine();
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        piConfig,
+        engine,
+        readiness,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update runtime config.';
     const status = error instanceof AgentConfigValidationError ? 400 : 500;
     return NextResponse.json({ success: false, error: message }, { status });
   }
