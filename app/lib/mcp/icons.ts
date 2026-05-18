@@ -9,7 +9,9 @@ const ICON_CACHE_FILE = 'mcp-server-icons.json';
 const ICON_CACHE_DIR = 'mcp-icons';
 const MAX_ICON_BYTES = 256 * 1024;
 const ICON_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const NEGATIVE_ICON_TTL_MS = 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 3000;
+const DISCOVERY_VERSION = 2;
 
 type McpIconCacheFile = {
   version: 1;
@@ -24,6 +26,7 @@ export type McpServerIconMetadata = {
   contentType: string | null;
   fileName: string | null;
   fetchedAt: string | null;
+  discoveryVersion?: number;
   error?: string;
 };
 
@@ -75,6 +78,32 @@ function getServerOrigin(serverConfig: McpServerConfig): string | null {
   } catch {
     return null;
   }
+}
+
+function getConfiguredIconUrl(serverConfig: McpServerConfig): string | null {
+  if (typeof serverConfig.iconUrl !== 'string' || !serverConfig.iconUrl.trim()) return null;
+  const iconUrl = serverConfig.iconUrl.trim();
+  return isHttpUrl(iconUrl) ? iconUrl : null;
+}
+
+function isIpLikeHostname(hostname: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(hostname) || hostname.includes(':');
+}
+
+function getRegistrableOrigin(origin: string): string | null {
+  const url = new URL(origin);
+  const labels = url.hostname.split('.').filter(Boolean);
+  if (labels.length <= 2 || url.hostname === 'localhost' || isIpLikeHostname(url.hostname)) {
+    return null;
+  }
+
+  const secondLevelPublicSuffixes = new Set(['ac', 'co', 'com', 'edu', 'gov', 'net', 'org']);
+  const sliceCount = labels.length >= 3 && labels.at(-1)?.length === 2 && secondLevelPublicSuffixes.has(labels.at(-2) || '')
+    ? 3
+    : 2;
+  const hostname = labels.slice(-sliceCount).join('.');
+  const registrableOrigin = `${url.protocol}//${hostname}`;
+  return registrableOrigin === origin ? null : registrableOrigin;
 }
 
 async function readIconCache(): Promise<McpIconCacheFile> {
@@ -175,6 +204,33 @@ async function discoverIconCandidates(origin: string): Promise<string[]> {
   return Array.from(new Set(candidates));
 }
 
+async function buildIconCandidates(serverConfig: McpServerConfig): Promise<Array<{ origin: string; iconUrl: string }>> {
+  const origin = getServerOrigin(serverConfig);
+  const configuredIconUrl = getConfiguredIconUrl(serverConfig);
+  const candidates: Array<{ origin: string; iconUrl: string }> = [];
+
+  if (configuredIconUrl) {
+    candidates.push({
+      origin: origin || new URL(configuredIconUrl).origin,
+      iconUrl: configuredIconUrl,
+    });
+  }
+
+  const origins = origin ? [origin, getRegistrableOrigin(origin)].filter((value): value is string => Boolean(value)) : [];
+  for (const currentOrigin of origins) {
+    for (const iconUrl of await discoverIconCandidates(currentOrigin)) {
+      candidates.push({ origin: currentOrigin, iconUrl });
+    }
+  }
+
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    if (seen.has(candidate.iconUrl)) return false;
+    seen.add(candidate.iconUrl);
+    return true;
+  });
+}
+
 async function fetchIcon(serverName: string, origin: string, iconUrl: string): Promise<McpServerIconMetadata> {
   const response = await fetchWithTimeout(iconUrl, {
     headers: { Accept: 'image/avif,image/webp,image/svg+xml,image/png,image/*,*/*;q=0.8' },
@@ -208,21 +264,30 @@ async function fetchIcon(serverName: string, origin: string, iconUrl: string): P
     contentType,
     fileName,
     fetchedAt: new Date().toISOString(),
+    discoveryVersion: DISCOVERY_VERSION,
   };
 }
 
-function shouldRefreshIcon(metadata: McpServerIconMetadata | undefined, origin: string | null): boolean {
-  if (!origin) return false;
-  if (!metadata || metadata.origin !== origin) return true;
+function shouldRefreshIcon(metadata: McpServerIconMetadata | undefined, serverConfig: McpServerConfig): boolean {
+  const origin = getServerOrigin(serverConfig);
+  const configuredIconUrl = getConfiguredIconUrl(serverConfig);
+  const allowedOrigins = new Set([origin, origin ? getRegistrableOrigin(origin) : null].filter(Boolean));
+  if (!origin && !configuredIconUrl) return false;
+  if (metadata?.discoveryVersion !== DISCOVERY_VERSION) return true;
+  if (!metadata) return true;
+  if (configuredIconUrl && metadata.iconUrl !== configuredIconUrl && !metadata.fileName) return true;
+  if (origin && metadata.origin && !allowedOrigins.has(metadata.origin)) return true;
   if (!metadata.fetchedAt) return true;
-  return Date.now() - Date.parse(metadata.fetchedAt) > ICON_TTL_MS;
+  const ttl = metadata.fileName ? ICON_TTL_MS : NEGATIVE_ICON_TTL_MS;
+  return Date.now() - Date.parse(metadata.fetchedAt) > ttl;
 }
 
 export async function refreshMcpServerIcon(serverName: string, serverConfig: McpServerConfig): Promise<McpServerIconMetadata> {
   const origin = getServerOrigin(serverConfig);
+  const configuredIconUrl = getConfiguredIconUrl(serverConfig);
   const cache = await readIconCache();
 
-  if (!origin) {
+  if (!origin && !configuredIconUrl) {
     const metadata: McpServerIconMetadata = {
       serverName,
       origin: null,
@@ -230,6 +295,7 @@ export async function refreshMcpServerIcon(serverName: string, serverConfig: Mcp
       contentType: null,
       fileName: null,
       fetchedAt: new Date().toISOString(),
+      discoveryVersion: DISCOVERY_VERSION,
       error: 'MCP server has no HTTP origin.',
     };
     cache.servers[serverName] = metadata;
@@ -238,11 +304,11 @@ export async function refreshMcpServerIcon(serverName: string, serverConfig: Mcp
   }
 
   try {
-    const candidates = await discoverIconCandidates(origin);
+    const candidates = await buildIconCandidates(serverConfig);
     let lastError = 'No icon candidates found.';
     for (const candidate of candidates) {
       try {
-        const metadata = await fetchIcon(serverName, origin, candidate);
+        const metadata = await fetchIcon(serverName, candidate.origin, candidate.iconUrl);
         cache.servers[serverName] = metadata;
         await writeIconCache(cache);
         return metadata;
@@ -259,6 +325,7 @@ export async function refreshMcpServerIcon(serverName: string, serverConfig: Mcp
       contentType: null,
       fileName: null,
       fetchedAt: new Date().toISOString(),
+      discoveryVersion: DISCOVERY_VERSION,
       error: getErrorMessage(error),
     };
     cache.servers[serverName] = metadata;
@@ -273,10 +340,9 @@ export async function getMcpServerIconMetadata(serverName: string): Promise<McpS
   if (!serverConfig) return null;
 
   const cache = await readIconCache();
-  const origin = getServerOrigin(serverConfig);
   const metadata = cache.servers[serverName];
 
-  if (shouldRefreshIcon(metadata, origin)) {
+  if (shouldRefreshIcon(metadata, serverConfig)) {
     return refreshMcpServerIcon(serverName, serverConfig);
   }
 
@@ -289,9 +355,8 @@ export async function refreshMcpServerIcons(): Promise<Record<string, McpServerI
   const result: Record<string, McpServerIconMetadata | null> = {};
 
   await Promise.all(Object.entries(config.mcpServers).map(async ([serverName, serverConfig]) => {
-    const origin = getServerOrigin(serverConfig);
     const metadata = cache.servers[serverName];
-    if (!shouldRefreshIcon(metadata, origin)) {
+    if (!shouldRefreshIcon(metadata, serverConfig)) {
       result[serverName] = metadata || null;
       return;
     }

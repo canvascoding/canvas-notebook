@@ -26,6 +26,7 @@ export type McpServerConfig = {
   envPassthrough?: string[];
   cwd?: string;
   url?: string;
+  iconUrl?: string;
   auth?: 'oauth' | 'none' | string;
   bearerTokenEnv?: string;
   headers?: Record<string, string>;

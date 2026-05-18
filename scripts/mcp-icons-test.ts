@@ -24,6 +24,11 @@ async function main() {
       res.end(pngBytes);
       return;
     }
+    if (req.url === '/manual.png') {
+      res.setHeader('Content-Type', 'image/png');
+      res.end(pngBytes);
+      return;
+    }
     res.statusCode = 404;
     res.end('not found');
   });
@@ -44,6 +49,10 @@ async function main() {
           url: `${baseUrl}/mcp`,
           auth: 'none',
         },
+        Manual: {
+          command: 'node',
+          iconUrl: `${baseUrl}/manual.png`,
+        },
       },
     }, null, 2));
 
@@ -55,6 +64,10 @@ async function main() {
     const icon = await readMcpServerIconFile('Google Calendar');
     assert.equal(icon?.contentType, 'image/png');
     assert.deepEqual(icon?.buffer, pngBytes);
+
+    const manualMetadata = await getMcpServerIconMetadata('Manual');
+    assert.equal(manualMetadata?.iconUrl, `${baseUrl}/manual.png`);
+    assert.equal(manualMetadata?.contentType, 'image/png');
 
     console.log('mcp-icons-test: ok');
   } finally {
