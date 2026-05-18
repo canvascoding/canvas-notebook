@@ -1000,6 +1000,12 @@
       "oauthAuthorized": "OAuth authorized",
       "oauthRequired": "OAuth required",
       "cachedTools": "Cached tools",
+      "showCachedTools": "Show cached tools",
+      "cachedToolsTitle": "{server} cached tools",
+      "cachedToolsDescription": "Tools are read from the local MCP cache. Run Test connection to refresh the cache.",
+      "loadingTools": "Loading cached tools...",
+      "noCachedTools": "No cached tools available yet. Run Test connection first.",
+      "noToolDescription": "No description available.",
       "activeCalls": "Active calls",
       "lastError": "Last error",
       "directTools": "Direct tools",
@@ -1017,7 +1023,8 @@
         "load": "Failed to load MCP configuration.",
         "save": "Failed to save MCP configuration.",
         "status": "Failed to load MCP status.",
-        "action": "Failed to update MCP server."
+        "action": "Failed to update MCP server.",
+        "tools": "Failed to load cached MCP tools."
       }
     },
     "connectedApps": {

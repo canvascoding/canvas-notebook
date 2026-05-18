@@ -16,8 +16,10 @@ import { CodeEditor } from '@/app/components/editor/CodeEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHintContext } from '@/app/components/onboarding/HintProvider';
@@ -106,6 +108,19 @@ type McpStatusState = {
     expiresAt: string | null;
     reason?: string;
   }>;
+};
+
+type McpCachedTool = {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+};
+
+type McpToolsDialogState = {
+  server: string | null;
+  tools: McpCachedTool[];
+  isLoading: boolean;
+  error: string | null;
 };
 
 type McpTransportMode = 'stdio' | 'http';
@@ -597,6 +612,12 @@ function McpConfigCard(props: {
   const [mcpView, setMcpView] = useState<'list' | 'form'>('list');
   const [editingServerName, setEditingServerName] = useState<string | undefined>();
   const [serverDraft, setServerDraft] = useState<McpServerDraft>(() => createBlankMcpServerDraft());
+  const [toolsDialog, setToolsDialog] = useState<McpToolsDialogState>({
+    server: null,
+    tools: [],
+    isLoading: false,
+    error: null,
+  });
   const config = (() => {
     try {
       return parseMcpConfigFile(editor.rawContent);
@@ -620,6 +641,49 @@ function McpConfigCard(props: {
 
   const updateServerDraft = (patch: Partial<McpServerDraft>) => {
     setServerDraft((current) => ({ ...current, ...patch }));
+  };
+
+  const closeToolsDialog = () => {
+    setToolsDialog({
+      server: null,
+      tools: [],
+      isLoading: false,
+      error: null,
+    });
+  };
+
+  const openToolsDialog = async (serverName: string) => {
+    setToolsDialog({
+      server: serverName,
+      tools: [],
+      isLoading: true,
+      error: null,
+    });
+
+    try {
+      const response = await fetch(`/api/integrations/mcp-tools?server=${encodeURIComponent(serverName)}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('mcpConfig.errors.tools'));
+      }
+
+      setToolsDialog({
+        server: serverName,
+        tools: Array.isArray(payload.data?.tools) ? payload.data.tools : [],
+        isLoading: false,
+        error: null,
+      });
+    } catch (error) {
+      setToolsDialog({
+        server: serverName,
+        tools: [],
+        isLoading: false,
+        error: error instanceof Error ? error.message : t('mcpConfig.errors.tools'),
+      });
+    }
   };
 
   const updatePair = (field: 'env' | 'headers' | 'headersFromEnv', index: number, patch: Partial<McpPairDraft>) => {
@@ -683,6 +747,7 @@ function McpConfigCard(props: {
   );
 
   return (
+    <>
     <Card id="onboarding-settings-mcp-config">
       <CardHeader className="px-4 sm:px-6">
         <CardTitle>{t('mcpConfig.title')}</CardTitle>
@@ -742,7 +807,12 @@ function McpConfigCard(props: {
                       const enabled = status?.enabled ?? draft.enabled;
                       return (
                         <div key={serverName} className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 last:border-b-0">
-                          <div className="flex min-w-0 items-center gap-3">
+                          <button
+                            type="button"
+                            className="flex min-w-0 items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                            onClick={() => void openToolsDialog(serverName)}
+                            title={t('mcpConfig.showCachedTools')}
+                          >
                             <McpServerAvatar iconUrl={status?.iconUrl} serverName={serverName} />
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
@@ -756,7 +826,7 @@ function McpConfigCard(props: {
                                 {status?.lastError ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
                               </div>
                             </div>
-                          </div>
+                          </button>
                           <div className="flex items-center gap-2">
                             <Button
                               type="button"
@@ -939,6 +1009,38 @@ function McpConfigCard(props: {
         )}
       </CardContent>
     </Card>
+    <Dialog open={Boolean(toolsDialog.server)} onOpenChange={(open) => { if (!open) closeToolsDialog(); }}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{t('mcpConfig.cachedToolsTitle', { server: toolsDialog.server || '' })}</DialogTitle>
+          <DialogDescription>{t('mcpConfig.cachedToolsDescription')}</DialogDescription>
+        </DialogHeader>
+        {toolsDialog.isLoading ? (
+          <div className="flex items-center py-8 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {t('mcpConfig.loadingTools')}
+          </div>
+        ) : toolsDialog.error ? (
+          <p className="text-sm text-destructive">{toolsDialog.error}</p>
+        ) : toolsDialog.tools.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('mcpConfig.noCachedTools')}</p>
+        ) : (
+          <ScrollArea className="max-h-[60vh] pr-3">
+            <div className="space-y-3">
+              {toolsDialog.tools.map((tool) => (
+                <div key={tool.name} className="rounded-md border border-border p-3">
+                  <div className="font-mono text-sm font-semibold">{tool.name}</div>
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                    {tool.description || t('mcpConfig.noToolDescription')}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
