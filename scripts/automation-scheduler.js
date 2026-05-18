@@ -190,16 +190,17 @@ async function start() {
   console.log('[Scheduler] Scheduler started successfully');
 }
 
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('[Scheduler] Received SIGTERM, shutting down...');
+function gracefulShutdown(signal) {
+  console.log(`[Scheduler] Received ${signal}, shutting down...`);
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
   process.exit(0);
-});
+}
 
-process.on('SIGINT', () => {
-  console.log('[Scheduler] Received SIGINT, shutting down...');
-  process.exit(0);
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start the scheduler
 start().catch((error) => {

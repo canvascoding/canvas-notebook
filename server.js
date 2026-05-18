@@ -363,7 +363,17 @@ try {
   schedulerProcess.on('error', (err) => {
     console.error('[Startup] automation-scheduler spawn error:', err.message);
   });
-  process.on('exit', () => schedulerProcess.kill());
+
+  function shutdownSchedulerAndExit(signal) {
+    if (!schedulerProcess.killed) {
+      schedulerProcess.kill('SIGTERM');
+    }
+    process.exit(0);
+  }
+
+  process.on('SIGTERM', shutdownSchedulerAndExit);
+  process.on('SIGINT', shutdownSchedulerAndExit);
+
   console.log('[Startup] automation-scheduler spawned (pid %d)', schedulerProcess.pid);
 } catch (error) {
   console.error('[Startup] ERROR spawning automation-scheduler:', error.message);
