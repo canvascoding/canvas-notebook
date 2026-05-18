@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { generatePdfFromUrl } from '@/app/lib/pdf/browser';
-import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import path from 'path';
 
 const PDF_TIMEOUT_MS = 30_000;
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const headers = cookie ? { cookie } : undefined;
 
     const pdfBuffer = await Promise.race([
-      generatePdfFromUrl(`${origin}${toMediaUrl(filePath)}`, headers),
+      generatePdfFromUrl(`${origin}${toHtmlPreviewUrl(filePath)}`, headers),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('PDF_TIMEOUT')), PDF_TIMEOUT_MS)
       ),

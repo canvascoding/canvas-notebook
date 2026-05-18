@@ -77,6 +77,7 @@ export function FileContextMenu() {
     duplicatePath,
     clipboardPaths,
     clipboardMode,
+    setBulkMoveOpen,
   } = useFileStore();
 
   const parentPath = useMemo(() => {
@@ -166,11 +167,7 @@ export function FileContextMenu() {
       return;
     }
 
-
-    setMoveTarget('.');
-    setMoveExpandedDirs(new Set());
-    setIsMovingMultiple(true);
-    setMoveOpen(true);
+    setBulkMoveOpen(true);
     closeContextMenu();
   };
 

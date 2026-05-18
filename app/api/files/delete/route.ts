@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { batchDelete } from '@/app/lib/filesystem/workspace-files';
 import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
+import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { auth } from '@/app/lib/auth';
@@ -51,6 +52,7 @@ export async function DELETE(request: NextRequest) {
       const parentDir = deletedPath.includes('/') ? deletedPath.substring(0, deletedPath.lastIndexOf('/')) : '.';
       clearSubtreeCache(parentDir);
     }
+    invalidateFileReferenceCache();
 
     return NextResponse.json({
       success: true,

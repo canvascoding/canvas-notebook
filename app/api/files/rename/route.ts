@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { renameFile, checkRenameConflict, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { auth } from '@/app/lib/auth';
@@ -42,11 +43,24 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
+    if (isProtectedAppOutputFolder(newPath)) {
+      return NextResponse.json(
+        { success: false, error: `Protected app output folder cannot be overwritten: ${newPath}` },
+        { status: 403 }
+      );
+    }
 
     // Check for conflicts first (for better error messages)
     const conflict = await checkRenameConflict(oldPath, newPath);
     if (conflict) {
       const conflictError = conflict as RenameConflictError;
+      if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
+        await renameFile(oldPath, newPath, true);
+        clearFileTreeCache();
+        invalidateFileReferenceCache();
+        return NextResponse.json({ success: true });
+      }
+
       return NextResponse.json(
         { 
           success: false, 
@@ -62,6 +76,7 @@ export async function POST(request: NextRequest) {
 
     await renameFile(oldPath, newPath, overwrite);
     clearFileTreeCache();
+    invalidateFileReferenceCache();
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -25,13 +25,12 @@ interface UploadDialogProps {
 
 export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: UploadDialogProps) {
   const t = useTranslations('notebook');
-  const { fileTree } = useFileStore();
+  const { fileTree, uploadProgress } = useFileStore();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [targetDir, setTargetDir] = useState(defaultPath);
   const [expandedDirs, setExpandedDirs] = useState(new Set<string>());
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -39,7 +38,6 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
       setTargetDir(defaultPath);
       setExpandedDirs(new Set());
       setIsUploading(false);
-      setUploadProgress(null);
       /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open, defaultPath]);
@@ -65,12 +63,9 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
 
   const performUpload = async (files: File[]) => {
     setIsUploading(true);
-    setUploadProgress(0);
     try {
       await onUpload(files, targetDir);
       onOpenChange(false);
-    } catch {
-      setUploadProgress(null);
     } finally {
       setIsUploading(false);
     }
