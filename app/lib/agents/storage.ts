@@ -68,6 +68,30 @@ export class AgentConfigValidationError extends Error {
   }
 }
 
+function isManagedControlPlaneAvailable(): boolean {
+  return (
+    process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' ||
+    Boolean(process.env.CANVAS_CONTROL_PLANE_URL?.trim() && process.env.CANVAS_INSTANCE_TOKEN?.trim())
+  );
+}
+
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function withRuntimeProviderDefaults(config: PiRuntimeConfig): PiRuntimeConfig {
+  const next = deepClone(config);
+  if (isManagedControlPlaneAvailable() && !next.providers['canvas-control-plane']) {
+    next.providers['canvas-control-plane'] = {
+      id: 'canvas-control-plane',
+      model: 'anthropic/claude-3.5-sonnet',
+      thinking: 'medium',
+      enabledTools: [],
+    };
+  }
+  return next;
+}
+
 async function ensureStorageDirectory(): Promise<void> {
   await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
 }
@@ -172,7 +196,7 @@ export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
   await ensureStorageDirectory();
   const rawContent = await readFileIfExists(PI_RUNTIME_CONFIG_PATH);
   if (rawContent === null) {
-    return DEFAULT_PI_CONFIG;
+    return withRuntimeProviderDefaults(DEFAULT_PI_CONFIG);
   }
 
   try {
@@ -182,9 +206,9 @@ export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
         provider.thinking = 'off';
       }
     }
-    return config;
+    return withRuntimeProviderDefaults(config);
   } catch {
-    return DEFAULT_PI_CONFIG;
+    return withRuntimeProviderDefaults(DEFAULT_PI_CONFIG);
   }
 }
 
