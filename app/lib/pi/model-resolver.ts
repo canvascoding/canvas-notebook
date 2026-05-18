@@ -12,6 +12,7 @@ registerBuiltInApiProviders();
 export const OLLAMA_PROVIDER_ID = 'ollama';
 // OpenAI-Compatible provider ID - used for custom OpenAI-compatible servers
 export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
+export const CANVAS_CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
 
   // Recommended Ollama models with metadata
 // Using 'openai-completions' api type for OpenAI-compatible Ollama API
@@ -79,6 +80,9 @@ export function getPiProviders(): string[] {
   if (!(providers as string[]).includes(OPENAI_COMPATIBLE_PROVIDER_ID)) {
     (providers as string[]).push(OPENAI_COMPATIBLE_PROVIDER_ID);
   }
+  if (!(providers as string[]).includes(CANVAS_CONTROL_PLANE_PROVIDER_ID)) {
+    (providers as string[]).push(CANVAS_CONTROL_PLANE_PROVIDER_ID);
+  }
   return providers as string[];
 }
 
@@ -123,6 +127,33 @@ export function getPiModels(provider: string, customModel?: string) {
       return [customModelEntry];
     }
     return [];
+  }
+
+  if (provider === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
+    const managedModels: Model<'openai-completions'>[] = [
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, baseUrl: '', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8192 },
+      { id: 'openai/gpt-4o', name: 'GPT-4o via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, baseUrl: '', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
+      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro via Canvas Control Plane', api: 'openai-completions', provider: CANVAS_CONTROL_PLANE_PROVIDER_ID, baseUrl: '', reasoning: true, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000000, maxTokens: 8192 },
+    ];
+    if (customModel) {
+      const customModelEntry: Model<'openai-completions'> = {
+        id: customModel,
+        name: `${customModel} via Canvas Control Plane`,
+        api: 'openai-completions',
+        provider: CANVAS_CONTROL_PLANE_PROVIDER_ID,
+        baseUrl: '',
+        reasoning: false,
+        input: ['text', 'image'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 8192,
+      };
+      return [
+        ...managedModels,
+        customModelEntry,
+      ];
+    }
+    return managedModels;
   }
   
   try {
@@ -191,9 +222,20 @@ export async function resolvePiModel(provider: string, modelName: string) {
       model = { ...model, baseUrl: normalizedBaseUrl || model.baseUrl };
     }
   }
-  
+
   if (!model) {
     throw new Error(`Model ${modelName} not found for provider ${provider}`);
+  }
+
+  if (provider === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
+    const controlPlaneUrl = process.env.CANVAS_CONTROL_PLANE_URL?.trim().replace(/\/+$/, '');
+    if (!controlPlaneUrl) {
+      throw new Error('CANVAS_CONTROL_PLANE_URL is required for the Canvas Control Plane provider.');
+    }
+    return {
+      ...model,
+      baseUrl: `${controlPlaneUrl}/v1/managed/openrouter/v1`,
+    };
   }
   
   // For Ollama, we always use the local API endpoint (localhost:11434)

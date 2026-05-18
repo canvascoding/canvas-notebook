@@ -66,6 +66,12 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
       enabledTools: [],
       ollamaMode: 'local',
     },
+    'canvas-control-plane': {
+      id: 'canvas-control-plane',
+      model: 'anthropic/claude-3.5-sonnet',
+      thinking: 'medium',
+      enabledTools: [],
+    },
   },
   enabledSkills: [], // Empty array means all skills are enabled by default
   qmd: {

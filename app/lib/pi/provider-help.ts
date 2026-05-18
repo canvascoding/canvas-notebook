@@ -138,6 +138,18 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     documentationUrl: 'https://openrouter.ai/docs',
   },
 
+  'canvas-control-plane': {
+    category: 'api-key',
+    title: 'Canvas Control Plane',
+    shortDescription: 'Managed provider hosted by your Canvas Control Plane',
+    setupSteps: [
+      'Enable Managed Services in the Control Plane',
+      'Provision this VM with CANVAS_CONTROL_PLANE_URL and CANVAS_INSTANCE_TOKEN',
+      'Select Canvas Control Plane as the active agent provider',
+    ],
+    envVars: [],
+  },
+
   zai: {
     category: 'api-key',
     title: 'zAI',

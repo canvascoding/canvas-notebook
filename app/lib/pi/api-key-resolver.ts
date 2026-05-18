@@ -2,6 +2,7 @@ import { ensureGeneratedScopedEnvEntry, readScopedEnvState } from '../integratio
 import { getProviderApiKey, isOAuthProvider, type OAuthProviderId } from './oauth';
 import { supportsBothAuthMethods } from './provider-help';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
+import { CANVAS_CONTROL_PLANE_PROVIDER_ID } from './model-resolver';
 
 /**
  * Resolves API keys for PI providers using existing environment stores.
@@ -10,6 +11,10 @@ import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
  */
 export async function resolvePiApiKey(provider: string): Promise<string | undefined> {
   const providerId = provider.toLowerCase();
+
+  if (providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
+    return process.env.CANVAS_INSTANCE_TOKEN || undefined;
+  }
 
   // Check if provider supports both auth methods
   const supportsBoth = supportsBothAuthMethods(providerId);
