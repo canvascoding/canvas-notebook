@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getComposio } from './composio-client';
 import { getConnectedAccounts } from './composio-auth';
+import { getComposioUserId } from './composio-identity';
 
 export interface ToolkitInfo {
   slug: string;
@@ -32,7 +33,7 @@ const HIDDEN_TOOLKIT_SLUGS = new Set([
   'google',
 ]);
 
-let toolkitCache: { data: ToolkitInfo[]; expires: number } | null = null;
+const toolkitCache = new Map<string, { data: ToolkitInfo[]; expires: number }>();
 let rawToolkitCache: { data: unknown[]; expires: number } | null = null;
 const toolsCache = new Map<string, { data: ToolkitToolInfo[]; expires: number }>();
 
@@ -77,8 +78,11 @@ export async function getAvailableToolkitsRaw(): Promise<unknown[]> {
 
 export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
   const now = Date.now();
-  if (toolkitCache && toolkitCache.expires > now) {
-    return toolkitCache.data;
+  const userId = await getComposioUserId();
+  const cacheKey = `local:${userId}`;
+  const cachedToolkits = toolkitCache.get(cacheKey);
+  if (cachedToolkits && cachedToolkits.expires > now) {
+    return cachedToolkits.data;
   }
 
   const composio = await getComposio();
@@ -136,7 +140,7 @@ export async function getAvailableToolkits(): Promise<ToolkitInfo[]> {
       })
       .filter((tk) => !HIDDEN_TOOLKIT_SLUGS.has(tk.slug));
 
-    toolkitCache = { data: toolkits, expires: now + CACHE_TTL_MS };
+    toolkitCache.set(cacheKey, { data: toolkits, expires: now + CACHE_TTL_MS });
     return toolkits;
   } catch (error) {
     console.error('[Composio] Failed to fetch toolkits:', error);
@@ -182,7 +186,7 @@ export async function getToolkitTools(toolkitSlug: string): Promise<ToolkitToolI
 }
 
 export function clearToolkitCache(): void {
-  toolkitCache = null;
+  toolkitCache.clear();
   rawToolkitCache = null;
   toolsCache.clear();
 }

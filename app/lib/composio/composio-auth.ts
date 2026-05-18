@@ -58,7 +58,7 @@ export async function getConnectedAccounts() {
   const composio = await getComposio();
   if (!composio) return [];
 
-  const userId = getComposioUserId();
+  const userId = await getComposioUserId();
   const allItems: Array<{ id: string; toolkit?: { slug?: string; name?: string }; status?: string; createdAt?: string; [key: string]: unknown }> = [];
   let cursor: string | undefined;
 
