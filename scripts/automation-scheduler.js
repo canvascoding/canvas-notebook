@@ -19,6 +19,20 @@ let activeTick = null;
 let currentInterval = POLL_INTERVAL_MS;
 let consecutiveIdleTicks = 0;
 let timer = null;
+let parentDead = false;
+
+const parentPid = process.ppid;
+
+function checkParentAlive() {
+  if (parentDead) return false;
+  try {
+    process.kill(parentPid, 0);
+    return true;
+  } catch {
+    parentDead = true;
+    return false;
+  }
+}
 
 function getBaseUrl() {
   // Scheduler runs inside the container, so it should connect to localhost:3000
@@ -124,6 +138,12 @@ async function executeReadyRuns() {
 async function tick() {
   if (activeTick) {
     return activeTick;
+  }
+
+  if (!checkParentAlive()) {
+    console.log('[Scheduler] Parent process is dead, shutting down...');
+    gracefulShutdown('PARENT_EXIT');
+    return;
   }
 
   activeTick = (async () => {

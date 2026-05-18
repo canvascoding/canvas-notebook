@@ -23,6 +23,11 @@ const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
 const nextConfig: NextConfig = {
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
 
+  onDemandEntries: {
+    maxInactiveAge: 30_000,
+    pagesBufferLength: 3,
+  },
+
   // Wichtig für native Server-Pakete: Als external markieren im Server Bundle
   webpack: (config, { isServer }) => {
     if (isServer) {

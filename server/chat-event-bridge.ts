@@ -13,7 +13,17 @@ import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 
 const CHANNEL_TYPING_THROTTLE_MS = 4_000;
+const CHANNEL_TYPING_MAX_AGE_MS = 30_000;
 const channelTypingSentAt = new Map<string, number>();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamp] of channelTypingSentAt) {
+    if (now - timestamp > CHANNEL_TYPING_MAX_AGE_MS) {
+      channelTypingSentAt.delete(key);
+    }
+  }
+}, 60_000).unref?.();
 
 function normalizeNotificationPreview(value: string, maxLength = 500): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -128,6 +138,12 @@ const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set o
  * Initialize WebSocket event listener for PI Runtime events
  */
 export function initializeWebSocketBridge(): void {
+  const globalBridge = globalThis as typeof globalThis & { __canvasBridgeInitialized?: boolean };
+  if (globalBridge.__canvasBridgeInitialized) {
+    return;
+  }
+  globalBridge.__canvasBridgeInitialized = true;
+
   console.log('[WebSocket Bridge] Initializing event bridge...');
 
   const emitter = getPiRuntimeEventEmitter();

@@ -351,6 +351,30 @@ try {
   console.warn('[Startup] Studio preset seeding could not be loaded:', err.message);
 }
 
+// Periodic cleanup of expired auth sessions from SQLite
+try {
+  const { openDb } = require('./app/lib/db/index');
+  const CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+  async function purgeExpiredSessions() {
+    try {
+      const dbConn = await openDb();
+      const result = dbConn.run("DELETE FROM session WHERE expires_at < unixepoch()");
+      if (result.changes > 0) {
+        console.log(`[Session Cleanup] Deleted ${result.changes} expired session(s)`);
+      }
+      dbConn.run("PRAGMA optimize");
+      dbConn.close();
+    } catch (err) {
+      console.warn('[Session Cleanup] Failed:', err.message);
+    }
+  }
+  purgeExpiredSessions();
+  setInterval(purgeExpiredSessions, CLEANUP_INTERVAL_MS).unref?.();
+  console.log('[Startup] Expired session cleanup scheduled (every 15min)');
+} catch (err) {
+  console.warn('[Startup] Session cleanup could not be initialized:', err.message);
+}
+
 // Spawn the standalone HTTP-based scheduler as a child process.
 // This avoids the ESM-only dependency chain (pi-agent-core → pi-ai) that
 // cannot be loaded via tsx's CJS transform in server.js.
@@ -364,11 +388,24 @@ try {
     console.error('[Startup] automation-scheduler spawn error:', err.message);
   });
 
-  function shutdownSchedulerAndExit(signal) {
+  let isShuttingDown = false;
+  function shutdownSchedulerAndExit(_signal) {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
     if (!schedulerProcess.killed) {
       schedulerProcess.kill('SIGTERM');
     }
-    process.exit(0);
+    const forceKillTimer = setTimeout(() => {
+      if (!schedulerProcess.killed) {
+        schedulerProcess.kill('SIGKILL');
+      }
+      process.exit(0);
+    }, 3000);
+    forceKillTimer.unref();
+    schedulerProcess.on('exit', () => {
+      clearTimeout(forceKillTimer);
+      process.exit(0);
+    });
   }
 
   process.on('SIGTERM', shutdownSchedulerAndExit);
