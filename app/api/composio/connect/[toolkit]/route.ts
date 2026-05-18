@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initiateConnection } from '@/app/lib/composio/composio-auth';
-import { isComposioConfigured } from '@/app/lib/composio/composio-client';
-import { clearToolkitCache } from '@/app/lib/composio/composio-toolkit-registry';
+import { clearComposioGatewayCaches, connectGatewayToolkit, getComposioGatewayMode } from '@/app/lib/composio/composio-gateway';
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ toolkit: string }> },
 ) {
   try {
-    const configured = await isComposioConfigured();
-    if (!configured) {
+    if ((await getComposioGatewayMode()) === 'disabled') {
       return NextResponse.json({ error: 'Composio not configured' }, { status: 400 });
     }
 
@@ -18,9 +15,9 @@ export async function POST(
       return NextResponse.json({ error: 'Toolkit slug is required' }, { status: 400 });
     }
 
-    const { redirectUrl, noAuth } = await initiateConnection(toolkit);
+    const { redirectUrl, noAuth } = await connectGatewayToolkit(toolkit);
     if (noAuth) {
-      clearToolkitCache();
+      clearComposioGatewayCaches();
       return NextResponse.json({ noAuth: true, redirectUrl: null });
     }
     return NextResponse.json({ redirectUrl });

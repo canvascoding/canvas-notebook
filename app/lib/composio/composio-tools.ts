@@ -1,9 +1,15 @@
 import 'server-only';
 
 import { Type } from 'typebox';
-import { getComposio } from './composio-client';
-import { getComposioSession, getComposioUserId } from './composio-session';
-import { getConnectedAccounts } from './composio-auth';
+import {
+  connectGatewayToolkit,
+  disconnectGatewayToolkit,
+  executeGatewayTool,
+  getGatewayAuthRedirect,
+  getGatewayToolSchemas,
+  refreshGatewayToolkit,
+  searchGatewayTools,
+} from './composio-gateway';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 const COMPOSIO_TOOL_DESCRIPTIONS = {
@@ -38,24 +44,8 @@ function truncateResult(data: unknown, maxLength = 8000): string {
   return str.slice(0, maxLength) + '...[truncated]';
 }
 
-const HIDDEN_TOOLKIT_SLUGS = new Set([
-  'gemini',
-  'google_veo',
-  'nano_banana',
-  'openai',
-  'anthropic',
-  'google',
-]);
-
 function textResult(text: string) {
   return { content: [{ type: 'text' as const, text }], details: {} };
-}
-
-function getCallbackUrl(): string {
-  const port = process.env.PORT || '3000';
-  const vercelUrl = process.env.VERCEL_URL;
-  const base = vercelUrl ? `https://${vercelUrl}` : `http://localhost:${port}`;
-  return `${base}/api/composio/callback`;
 }
 
 export function createComposioSearchToolsTool(): AgentTool {
@@ -67,35 +57,9 @@ export function createComposioSearchToolsTool(): AgentTool {
     execute: async (_toolCallId: string, params: unknown) => {
       try {
         const p = params as { query: string; toolkits?: string[] };
-        const composio = await getComposio();
-        if (!composio) {
-          return textResult(JSON.stringify({ error: 'Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.' }));
-        }
-
         const query = String(p.query || '');
         const toolkits = Array.isArray(p.toolkits) ? p.toolkits : undefined;
-        const results = await composio.tools.getRawComposioTools({
-          search: query,
-          ...(toolkits ? { toolkits } : {}),
-        } as Parameters<typeof composio.tools.getRawComposioTools>[0]);
-
-        const resultArr = Array.isArray(results) ? results : [];
-        const filtered = resultArr.filter((tool: Record<string, unknown>) => {
-          const toolkit = (tool.toolkit ?? {}) as Record<string, unknown>;
-          const toolkitSlug = String(toolkit.slug ?? tool.toolkitSlug ?? '');
-          return !HIDDEN_TOOLKIT_SLUGS.has(toolkitSlug);
-        });
-        const formatted = filtered.slice(0, 20).map((tool: Record<string, unknown>) => {
-          const toolkit = (tool.toolkit ?? {}) as Record<string, unknown>;
-          return {
-            slug: String(tool.slug ?? tool.name ?? ''),
-            name: String(tool.name ?? tool.slug ?? ''),
-            description: typeof tool.description === 'string' ? tool.description.slice(0, 200) : '',
-            toolkit: String(toolkit.slug ?? tool.toolkitSlug ?? ''),
-          };
-        });
-
-        return textResult(JSON.stringify({ tools: formatted, count: formatted.length }));
+        return textResult(JSON.stringify(await searchGatewayTools(query, toolkits)));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error searching tools';
         return textResult(JSON.stringify({ error: message }));
@@ -113,24 +77,8 @@ export function createComposioGetToolSchemasTool(): AgentTool {
     execute: async (_toolCallId: string, params: unknown) => {
       try {
         const p = params as { tools: string[] };
-        const composio = await getComposio();
-        if (!composio) {
-          return textResult(JSON.stringify({ error: 'Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.' }));
-        }
-
         const tools = Array.isArray(p.tools) ? p.tools : [];
-        const schemas: Record<string, unknown> = {};
-        for (const slug of tools.slice(0, 10)) {
-          try {
-            const tool = await composio.tools.getRawComposioToolBySlug(String(slug));
-            const toolRecord = tool as Record<string, unknown>;
-            schemas[String(slug)] = (toolRecord?.inputParameters ?? null) as Record<string, unknown> | null;
-          } catch {
-            schemas[String(slug)] = { error: `Tool '${slug}' not found` };
-          }
-        }
-
-        return textResult(truncateResult(schemas));
+        return textResult(truncateResult(await getGatewayToolSchemas(tools)));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error getting tool schemas';
         return textResult(JSON.stringify({ error: message }));
@@ -151,32 +99,17 @@ export function createComposioExecuteTool(): AgentTool {
       const toolParams = (p.params && typeof p.params === 'object') ? p.params as Record<string, unknown> : {};
       const toolkitName = action.split('_')[0]?.toLowerCase() ?? '';
       try {
-        const composio = await getComposio();
-        if (!composio) {
-          return textResult(JSON.stringify({ error: 'Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.' }));
-        }
-
-        const userId = getComposioUserId();
-        const result = await composio.tools.execute(action, {
-          userId,
-          arguments: toolParams,
-          dangerouslySkipVersionCheck: true,
-        });
+        const result = await executeGatewayTool(action, toolParams);
 
         return textResult(truncateResult(result));
       } catch (error: unknown) {
         const err = error as { statusCode?: number; code?: string; message?: string };
         if (err?.statusCode === 401 || err?.code === 'NOT_CONNECTED' || err?.message?.includes('not connected') || err?.message?.includes('not authenticated')) {
-          const session = await getComposioSession();
           let redirectUrl = '';
-
-          if (session) {
-            try {
-              const connectionRequest = await session.authorize(toolkitName, { callbackUrl: getCallbackUrl() });
-              redirectUrl = connectionRequest.redirectUrl;
-            } catch {
-              redirectUrl = '';
-            }
+          try {
+            redirectUrl = await getGatewayAuthRedirect(toolkitName);
+          } catch {
+            redirectUrl = '';
           }
 
           return textResult(JSON.stringify({
@@ -205,21 +138,12 @@ export function createComposioManageConnectionsTool(): AgentTool {
     execute: async (_toolCallId: string, params: unknown) => {
       const p = params as { action: 'connect' | 'disconnect' | 'status'; toolkit: string };
       try {
-        const composio = await getComposio();
-        if (!composio) {
-          return textResult(JSON.stringify({ error: 'Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.' }));
-        }
-
         const action = p.action;
         const toolkit = p.toolkit;
 
         switch (action) {
           case 'connect': {
-            const session = await getComposioSession();
-            if (!session) {
-              return textResult(JSON.stringify({ error: 'Failed to create Composio session.' }));
-            }
-            const connectionRequest = await session.authorize(toolkit, { callbackUrl: getCallbackUrl() });
+            const connectionRequest = await connectGatewayToolkit(toolkit);
             return textResult(JSON.stringify({
               redirect_url: connectionRequest.redirectUrl,
               message: `Open this URL to connect ${toolkit}. After connecting, return to the chat.`,
@@ -227,24 +151,18 @@ export function createComposioManageConnectionsTool(): AgentTool {
           }
 
           case 'disconnect': {
-            const accounts = await getConnectedAccounts();
-            const account = accounts.find((a) => a.toolkit?.slug === toolkit);
-            if (account) {
-              await composio.connectedAccounts.delete((account as { id: string }).id);
-              return textResult(JSON.stringify({ success: true, message: `${toolkit} disconnected successfully.` }));
-            }
-            return textResult(JSON.stringify({ error: `No connected account found for ${toolkit}.` }));
+            await disconnectGatewayToolkit(toolkit);
+            return textResult(JSON.stringify({ success: true, message: `${toolkit} disconnected successfully.` }));
           }
 
           case 'status': {
-            const accounts = await getConnectedAccounts();
-            const account = accounts.find((a) => a.toolkit?.slug === toolkit);
-            if (account) {
+            const account = await refreshGatewayToolkit(toolkit);
+            if (account.status && account.status !== 'NOT_CONNECTED') {
               return textResult(JSON.stringify({
                 connected: true,
                 toolkit,
                 status: account.status,
-                connected_at: account.createdAt,
+                connected_at: account.connectedAt,
               }));
             }
             return textResult(JSON.stringify({ connected: false, toolkit }));
