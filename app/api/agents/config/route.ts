@@ -8,7 +8,7 @@ import {
   readPiRuntimeConfig,
   writePiRuntimeConfig,
 } from '@/app/lib/agents/storage';
-import { getPiModels, getPiProviders } from '@/app/lib/pi/model-resolver';
+import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, getPiProviders } from '@/app/lib/pi/model-resolver';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 
 async function requireSession(request: NextRequest) {
@@ -49,22 +49,26 @@ export async function GET(request: NextRequest) {
     // Discovery metadata - all models now support files/images
     const providers = getPiProviders();
     console.log(`[agents/config] GET: activeProvider=${piConfig.activeProvider}, providers=${JSON.stringify(Object.keys(piConfig.providers))}`);
-    const discovery = Object.fromEntries(
-      providers.map(p => {
+    const discoveryEntries = await Promise.all(
+      providers.map(async (p) => {
         const customModel = p === 'ollama'
           ? piConfig.providers.ollama?.ollamaCustomModel
           : p === 'openai-compatible'
             ? piConfig.providers['openai-compatible']?.openaiCompatibleCustomModel
             : undefined;
+        const models = p === CANVAS_CONTROL_PLANE_PROVIDER_ID
+          ? await getCanvasControlPlaneModels()
+          : getPiModels(p, customModel);
         return [p, { 
-          models: getPiModels(p, customModel).map(m => ({
+          models: models.map(m => ({
             id: m.id,
             name: m.name,
             reasoning: Boolean(m.reasoning),
           })),
-        }];
+        }] as const;
       })
     );
+    const discovery = Object.fromEntries(discoveryEntries);
 
     return NextResponse.json({
       success: true,

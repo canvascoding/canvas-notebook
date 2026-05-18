@@ -9,7 +9,7 @@ import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
 import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
-import { getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
+import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
 
@@ -87,7 +87,10 @@ function getProviderCustomModel(piConfig: Awaited<ReturnType<typeof readPiRuntim
 async function isValidProviderModel(provider: string, model: string): Promise<boolean> {
   const piConfig = await readPiRuntimeConfig();
   const customModel = getProviderCustomModel(piConfig, provider);
-  return getPiModels(provider, customModel).some((candidate) => candidate.id === model);
+  const models = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
+    ? await getCanvasControlPlaneModels()
+    : getPiModels(provider, customModel);
+  return models.some((candidate) => candidate.id === model);
 }
 
 function hasUnreadPiResponse(lastMessageAt: Date | null, lastViewedAt: Date | null): boolean {
