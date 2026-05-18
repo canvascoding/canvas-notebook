@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { McpConfigValidationError, setMcpServerEnabled } from '@/app/lib/mcp/config';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
+import { refreshMcpServerIcons } from '@/app/lib/mcp/icons';
 import { closeMcpServer, getMcpRuntimeStatus, listMcpTools } from '@/app/lib/mcp/manager';
 import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth } from '@/app/lib/mcp/oauth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -35,12 +36,19 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const runtime = await getMcpRuntimeStatus();
-    const oauth = await Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name)));
-    const direct = await buildDirectMcpTools();
+    const [oauth, direct, icons] = await Promise.all([
+      Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name))),
+      buildDirectMcpTools(),
+      refreshMcpServerIcons(),
+    ]);
     return NextResponse.json({
       success: true,
       data: {
         ...runtime,
+        servers: runtime.servers.map((server) => ({
+          ...server,
+          iconUrl: icons[server.name]?.fileName ? `/api/integrations/mcp-icon/${encodeURIComponent(server.name)}` : null,
+        })),
         oauth,
         directTools: direct.tools.map((tool) => ({
           name: tool.name,
