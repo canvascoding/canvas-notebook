@@ -328,6 +328,11 @@ export async function resolvePiModel(provider: string, modelName: string) {
     return {
       ...model,
       baseUrl: `${controlPlaneUrl}/v1/managed/${managedProvider}/v1`,
+      headers: {
+        ...(model.headers || {}),
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+      },
     };
   }
   
