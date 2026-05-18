@@ -87,6 +87,7 @@ type McpStatusState = {
     cacheRefreshedAt: string | null;
     lastError: string | null;
     stderrTail: string | null;
+    iconUrl: string | null;
   }>;
   directTools: Array<{
     name: string;
@@ -546,6 +547,41 @@ function EnvEditorCard(props: {
 
 type McpServerAction = 'enable' | 'disable' | 'test' | 'authorize' | 'clear_auth';
 
+function getMcpServerInitials(name: string): string {
+  const parts = name
+    .split(/[\s._-]+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'M';
+}
+
+function McpServerAvatar({ iconUrl, serverName }: { iconUrl?: string | null; serverName: string }) {
+  const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
+  const initials = getMcpServerInitials(serverName);
+  const showIcon = Boolean(iconUrl && failedIconUrl !== iconUrl);
+
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted text-xs font-semibold text-muted-foreground">
+      {iconUrl && showIcon ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={iconUrl}
+          alt=""
+          className="h-full w-full object-contain p-1"
+          loading="lazy"
+          onError={() => setFailedIconUrl(iconUrl)}
+        />
+      ) : (
+        <span>{initials}</span>
+      )}
+    </div>
+  );
+}
+
 function McpConfigCard(props: {
   editor: McpEditorState;
   onLoad: () => Promise<void>;
@@ -706,16 +742,19 @@ function McpConfigCard(props: {
                       const enabled = status?.enabled ?? draft.enabled;
                       return (
                         <div key={serverName} className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 last:border-b-0">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium">{serverName}</span>
-                              <Badge variant="outline">{draft.mode === 'stdio' ? 'stdio' : 'http'}</Badge>
-                              {status?.connected && <Badge>{t('mcpConfig.connected')}</Badge>}
-                              {oauth?.requiresAuth && <Badge variant={oauth.authorized ? 'default' : 'destructive'}>{oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}</Badge>}
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}
-                              {status?.lastError ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
+                          <div className="flex min-w-0 items-center gap-3">
+                            <McpServerAvatar iconUrl={status?.iconUrl} serverName={serverName} />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{serverName}</span>
+                                <Badge variant="outline">{draft.mode === 'stdio' ? 'stdio' : 'http'}</Badge>
+                                {status?.connected && <Badge>{t('mcpConfig.connected')}</Badge>}
+                                {oauth?.requiresAuth && <Badge variant={oauth.authorized ? 'default' : 'destructive'}>{oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}</Badge>}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}
+                                {status?.lastError ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
+                              </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
