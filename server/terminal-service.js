@@ -43,6 +43,63 @@ const shouldLogToStdout = () => {
   return process.env.NODE_ENV !== 'production';
 };
 const logLevel = getLogLevel();
+
+const SAFE_TERMINAL_ENV_KEYS = new Set([
+  'PATH',
+  'HOME',
+  'USER',
+  'SHELL',
+  'TERM',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'COLORTERM',
+  'HOSTNAME',
+  'NODE_ENV',
+  'DATA',
+  'CANVAS_DATA_ROOT',
+  'WORKSPACE_DIR',
+  'LOG_LEVEL',
+  'OLLAMA_API_BASE_URL',
+  'OLLAMA_BASE_URL',
+]);
+
+const BLOCKED_TERMINAL_ENV_KEY_PATTERNS = [
+  /(?:^|_)KEY$/i,
+  /(?:^|_)TOKEN$/i,
+  /(?:^|_)SECRET$/i,
+  /(?:^|_)PASSWORD$/i,
+  /API_KEY/i,
+  /OPENROUTER/i,
+  /OPENAI/i,
+  /ANTHROPIC/i,
+  /GOOGLE/i,
+  /GEMINI/i,
+  /GROQ/i,
+  /MISTRAL/i,
+  /COMPOSIO/i,
+  /KIE/i,
+  /BRAVE/i,
+  /BOOTSTRAP_ADMIN/i,
+  /CANVAS_TERMINAL_TOKEN/i,
+  /DATABASE/i,
+  /POSTGRES/i,
+  /SQLITE/i,
+];
+
+function filterTerminalEnv(env) {
+  const safe = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (
+      typeof value === 'string' &&
+      (SAFE_TERMINAL_ENV_KEYS.has(key) || !BLOCKED_TERMINAL_ENV_KEY_PATTERNS.some((pattern) => pattern.test(key)))
+    ) {
+      safe[key] = value;
+    }
+  }
+  return safe;
+}
+
 function log(...args) {
   if (LOG_LEVELS[logLevel] < LOG_LEVELS.debug) return;
   const timestamp = new Date().toISOString();
@@ -148,7 +205,7 @@ function createSession(sessionId, ownerId, cwd) {
       rows: 24,
       cwd: finalCwd,
       env: {
-        ...process.env,
+        ...filterTerminalEnv(process.env),
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
         LANG: 'en_US.UTF-8',
