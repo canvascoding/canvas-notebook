@@ -4,10 +4,12 @@ import { Loader2 } from 'lucide-react';
 
 interface OutputProcessingSkeletonProps {
   mode: 'image' | 'video';
+  prompt?: string | null;
 }
 
-export function OutputProcessingSkeleton({ mode }: OutputProcessingSkeletonProps) {
+export function OutputProcessingSkeleton({ mode, prompt }: OutputProcessingSkeletonProps) {
   const estimate = mode === 'video' ? 'Video · ~2m' : 'Image · ~12s';
+  const title = mode === 'video' ? 'Generating video' : 'Generating image';
 
   return (
     <div className="relative aspect-square overflow-hidden rounded-3xl border border-border/70 bg-card shadow-sm">
@@ -20,8 +22,15 @@ export function OutputProcessingSkeleton({ mode }: OutputProcessingSkeletonProps
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         </div>
         <div className="space-y-2">
-          <div className="h-3 w-32 rounded-full bg-muted" />
-          <div className="h-3 w-24 rounded-full bg-muted/80" />
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          {prompt ? (
+            <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{prompt}</p>
+          ) : (
+            <>
+              <div className="h-3 w-32 rounded-full bg-muted" />
+              <div className="h-3 w-24 rounded-full bg-muted/80" />
+            </>
+          )}
           <p className="pt-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{estimate}</p>
         </div>
       </div>

@@ -190,8 +190,9 @@ export function StudioDashboard() {
 
     if (result) {
       store.resetAfterGenerate();
+      router.push(`/studio/create?generation=${encodeURIComponent(result.id)}`);
     }
-  }, [store, generationHook, personGeneration]);
+  }, [store, generationHook, personGeneration, router]);
 
   const handleStartingPoint = useCallback((sp: StartingPoint) => {
     store.setRawPrompt(sp.prompt);

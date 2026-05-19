@@ -202,7 +202,7 @@ export function OutputGrid({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {visiblePendingGenerations.flatMap((generation) =>
               Array.from({ length: getExpectedOutputCount(generation) }, (_, index) => (
-                <OutputProcessingSkeleton key={`${generation.id}-${index}`} mode={generation.mode} />
+                <OutputProcessingSkeleton key={`${generation.id}-${index}`} mode={generation.mode} prompt={generation.prompt} />
               )),
             )}
 
