@@ -26,6 +26,7 @@ interface UseStudioGenerationReturn {
   fetchGenerations: () => Promise<void>;
   loadMoreGenerations: () => Promise<void>;
   fetchGeneration: (id: string, options?: { silent?: boolean }) => Promise<StudioGeneration | null>;
+  watchGeneration: (id: string) => void;
   generate: (payload: StudioGeneratePayload) => Promise<StudioGeneration | null>;
   deleteGeneration: (id: string) => Promise<boolean>;
   deleteOutput: (generationId: string, outputId: string) => Promise<boolean>;
@@ -251,6 +252,10 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       setLoadingMore(false);
     }
   }, [generations, hasMoreGenerations, loadingMore]);
+
+  const watchGeneration = useCallback((id: string) => {
+    setActiveGenerationId(id);
+  }, []);
 
   const generate = useCallback(async (payload: StudioGeneratePayload) => {
     setLoading(true);
@@ -483,6 +488,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     fetchGenerations,
     loadMoreGenerations,
     fetchGeneration,
+    watchGeneration,
     generate,
     deleteGeneration,
     deleteOutput,

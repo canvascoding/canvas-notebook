@@ -146,6 +146,7 @@ export function CreateView() {
     hasMoreGenerations,
     loadingMore,
     loadMoreGenerations,
+    watchGeneration,
   } = generationHook;
   const { fetchProducts, products } = productsHook;
   const { fetchPersonas, personas } = personasHook;
@@ -323,6 +324,8 @@ export function CreateView() {
   }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets, fetchStyles]);
 
   const initialRefPath = searchParams.get('ref');
+  const initialGenerationId = searchParams.get('generation');
+
   useEffect(() => {
     if (!initialRefPath) return;
     store.addFileRef({
@@ -331,6 +334,11 @@ export function CreateView() {
       thumbnailPath: initialRefPath,
     });
   }, [initialRefPath, store]);
+
+  useEffect(() => {
+    if (!initialGenerationId) return;
+    watchGeneration(initialGenerationId);
+  }, [initialGenerationId, watchGeneration]);
 
   useEffect(() => {
     const node = promptOverlayRef.current;
