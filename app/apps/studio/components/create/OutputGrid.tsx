@@ -29,6 +29,7 @@ interface OutputGridProps {
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onDeleteGeneration?: (generation: StudioGeneration) => void;
   onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
@@ -50,6 +51,7 @@ export function OutputGrid({
   onCreateVariation,
   onCreateVideo,
   onDelete,
+  onDeleteGeneration,
   onSaveToWorkspace,
 }: OutputGridProps) {
   const getExpectedOutputCount = (generation: StudioGeneration) => {
@@ -211,7 +213,7 @@ export function OutputGrid({
                 key={generation.id}
                 mode={generation.mode}
                 message={getGenerationError(generation)}
-                onDelete={() => onDelete(generation, generation.outputs[0] ?? { id: `${generation.id}-error`, generationId: generation.id, variationIndex: 0, type: 'image', filePath: '', mediaUrl: null, fileSize: null, mimeType: null, width: null, height: null, isFavorite: false, createdAt: generation.createdAt })}
+                onDelete={() => onDeleteGeneration?.(generation)}
               />
             ))}
           </div>

@@ -526,6 +526,13 @@ export function CreateView() {
                   setSelectedOutputId(null);
                 }
               }}
+              onDeleteGeneration={(generation) => {
+                void generationHook.deleteGeneration(generation.id);
+                if (selectedGenerationId === generation.id) {
+                  setSelectedGenerationId(null);
+                  setSelectedOutputId(null);
+                }
+              }}
               onSaveToWorkspace={handleSaveSingleToWorkspace}
             />
           </div>

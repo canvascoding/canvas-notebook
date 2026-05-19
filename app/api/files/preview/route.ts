@@ -5,7 +5,7 @@ import { promises as fs } from 'fs';
 import { spawn } from 'child_process';
 import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
-import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
+import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { 
   resolveValidatedStudioAssetPath, 
   resolveValidatedStudioOutputPath,
@@ -251,7 +251,14 @@ export async function GET(request: NextRequest) {
       }
       fullPath = resolved;
     } else {
-      fullPath = await resolveExistingWorkspacePath(filePath);
+      try {
+        fullPath = await resolveExistingWorkspacePath(filePath);
+      } catch (error) {
+        if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) {
+          throw error;
+        }
+        fullPath = validatePath(filePath);
+      }
     }
 
     // Check if file exists before stat
