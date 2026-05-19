@@ -179,6 +179,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
     const apiKey = await getGeminiApiKeyFromIntegrations();
     if (!apiKey) {
       if (isManagedMediaFallbackAvailable()) {
+        console.log(`[Gemini Image] Using managed fallback: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}`);
         const result = await generateManagedMedia({
           capability: 'image',
           provider: 'gemini',
@@ -193,6 +194,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
         });
         const output = result.outputs[0];
         if (!output) throw new Error('No image was returned by managed Gemini');
+        console.log(`[Gemini Image] Managed fallback completed: job=${result.jobId}, mime=${output.mimeType}, bytes=${output.bytes.length}`);
         return {
           imageBytes: output.bytes.toString('base64'),
           mimeType: output.mimeType,
@@ -274,6 +276,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
     const apiKey = await getOpenAIApiKeyFromIntegrations();
     if (!apiKey) {
       if (isManagedMediaFallbackAvailable()) {
+        console.log(`[OpenAI Image] Using managed fallback: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}, quality=${params.quality || 'auto'}`);
         const result = await generateManagedMedia({
           capability: 'image',
           provider: 'openai',
@@ -290,6 +293,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
         });
         const output = result.outputs[0];
         if (!output) throw new Error('No image was returned by managed OpenAI');
+        console.log(`[OpenAI Image] Managed fallback completed: job=${result.jobId}, mime=${output.mimeType}, bytes=${output.bytes.length}`);
         return {
           imageBytes: output.bytes.toString('base64'),
           mimeType: output.mimeType,
