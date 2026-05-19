@@ -3,6 +3,7 @@ import 'server-only';
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { getGeminiApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations } from './env-config';
+import { generateManagedMedia, isManagedMediaFallbackAvailable } from './managed-media-client';
 
 export interface ImageModelOption {
   id: string;
@@ -177,6 +178,27 @@ class GeminiImageProvider implements ImageGenerationProvider {
   async generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult> {
     const apiKey = await getGeminiApiKeyFromIntegrations();
     if (!apiKey) {
+      if (isManagedMediaFallbackAvailable()) {
+        const result = await generateManagedMedia({
+          capability: 'image',
+          provider: 'gemini',
+          model: params.model,
+          prompt: params.prompt,
+          parameters: {
+            aspectRatio: params.aspectRatio,
+            contextPrompt: params.contextPrompt,
+            imageSize: params.imageSize,
+          },
+          references: params.referenceImages,
+        });
+        const output = result.outputs[0];
+        if (!output) throw new Error('No image was returned by managed Gemini');
+        return {
+          imageBytes: output.bytes.toString('base64'),
+          mimeType: output.mimeType,
+          usage: output.metadata?.usage as ProviderGenerateResult['usage'],
+        };
+      }
       throw new Error('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.');
     }
 
@@ -251,6 +273,29 @@ class OpenAIImageProvider implements ImageGenerationProvider {
   async generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult> {
     const apiKey = await getOpenAIApiKeyFromIntegrations();
     if (!apiKey) {
+      if (isManagedMediaFallbackAvailable()) {
+        const result = await generateManagedMedia({
+          capability: 'image',
+          provider: 'openai',
+          model: params.model,
+          prompt: params.prompt,
+          parameters: {
+            aspectRatio: params.aspectRatio,
+            contextPrompt: params.contextPrompt,
+            quality: params.quality,
+            outputFormat: params.outputFormat,
+            background: params.background,
+          },
+          references: params.referenceImages,
+        });
+        const output = result.outputs[0];
+        if (!output) throw new Error('No image was returned by managed OpenAI');
+        return {
+          imageBytes: output.bytes.toString('base64'),
+          mimeType: output.mimeType,
+          usage: output.metadata?.usage as ProviderGenerateResult['usage'],
+        };
+      }
       throw new Error('OpenAI API key is missing. Configure OPENAI_API_KEY in /settings.');
     }
 
