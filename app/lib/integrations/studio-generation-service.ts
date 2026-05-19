@@ -998,6 +998,7 @@ async function generateStudioVideo(
     endFramePath: isLooping ? undefined : (endFramePath || undefined),
     isLooping: isLooping || false,
     personGeneration: effectivePersonGeneration,
+    generateAudio: videoOptions?.generateAudio,
   };
 
   if (referenceImages.length > 0) {
