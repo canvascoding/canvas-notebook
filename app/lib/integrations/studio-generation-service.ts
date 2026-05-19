@@ -1017,39 +1017,32 @@ async function generateStudioVideo(
 
   const outputId = randomUUID();
   const now = new Date();
-  const videoPath = videoResult.path;
-  const fs = await import('node:fs/promises');
-  let fileSize: number | null = null;
-  try {
-    const stat = await fs.stat(videoPath);
-    fileSize = stat.size;
-  } catch {}
 
   await db.insert(studioGenerationOutputs).values({
     id: outputId,
     generationId,
     variationIndex: 0,
     type: 'video',
-    filePath: videoPath,
-    fileName: path.basename(videoPath),
+    filePath: videoResult.path,
+    fileName: path.basename(videoResult.path),
     mediaUrl: videoResult.mediaUrl,
-    fileSize,
-    mimeType: 'video/mp4',
+    fileSize: videoResult.fileSize,
+    mimeType: videoResult.mimeType,
     width: null,
     height: null,
     isFavorite: false,
-    metadata: null,
+    metadata: JSON.stringify(videoResult.metadata),
     createdAt: now,
   });
 
   return [{
     id: outputId,
     variationIndex: 0,
-    filePath: videoPath,
-    fileName: path.basename(videoPath),
+    filePath: videoResult.path,
+    fileName: path.basename(videoResult.path),
     mediaUrl: videoResult.mediaUrl,
-    mimeType: 'video/mp4',
-    fileSize: fileSize ?? 0,
+    mimeType: videoResult.mimeType,
+    fileSize: videoResult.fileSize,
   }];
 }
 
