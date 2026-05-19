@@ -11,6 +11,7 @@ import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
 import { ReferencePickerDialog } from '../create/ReferencePickerDialog';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { generateRandomId } from '@/app/lib/utils/random-id';
 import type { StudioReferenceUrl } from '../../types/generation';
 
 type EntityType = 'product' | 'persona' | 'style';
@@ -120,7 +121,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
   const totalImageCount = pendingImages.length + pendingReferenceUrls.filter((r) => r.status === 'success').length;
 
   const _handleAddReferenceUrl = useCallback(async (url: string) => {
-    const id = crypto.randomUUID();
+    const id = generateRandomId();
     const tempItem: PendingReferenceUrl = {
       id,
       localUrl: url,
@@ -172,7 +173,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
         const fileName = path.split('/').pop() || 'image.jpg';
         const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
         newImages.push({
-          id: crypto.randomUUID(),
+          id: generateRandomId(),
           file,
           preview: URL.createObjectURL(blob),
         });
