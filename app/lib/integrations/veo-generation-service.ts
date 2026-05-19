@@ -7,14 +7,13 @@ import {
   type VideoGenerationReferenceImage,
 } from '@google/genai';
 
-import { writeFile } from '@/app/lib/filesystem/workspace-files';
+import {
+  ensureStudioOutputsWorkspace,
+  generateOutputFilename,
+  writeOutputFile,
+} from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
-import {
-  VEO_OUTPUT_DIR,
-  createVeoOutputFilename,
-  ensureVeoWorkspace,
-} from '@/app/lib/integrations/veo-workspace';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import {
   getVideoModelCapabilities,
@@ -49,8 +48,10 @@ export interface GenerateVideoRequestBody {
 
 export interface VideoGenerationResultData {
   path: string;
-  metadataPath: string;
   mediaUrl: string;
+  fileSize: number;
+  mimeType: string;
+  metadata: Record<string, unknown>;
 }
 
 function sanitizePrompt(prompt: string): string {
@@ -238,39 +239,48 @@ export async function generateVideo(
     const output = managed.outputs[0];
     if (!output) throw new IntegrationServiceError('Managed Veo generation completed without output.', 500);
 
-    await ensureVeoWorkspace();
+    await ensureStudioOutputsWorkspace();
     const promptSlug = promptToSlug(prompt);
     const extension = extensionFromResponse(output.mimeType);
-    const outputFilename = createVeoOutputFilename(extension);
-    const relativeVideoPath = `${VEO_OUTPUT_DIR}/${promptSlug}-${outputFilename}`;
-    await writeFile(relativeVideoPath, output.bytes);
-    const metadataPath = relativeVideoPath.replace(/\.[^.]+$/, '.json');
-    await writeFile(
-      metadataPath,
-      JSON.stringify({
-        createdAt: new Date().toISOString(),
-        createdBy: callerEmail,
-        managedFallback: true,
-        controlPlaneJobId: managed.jobId,
-        mode,
-        model,
-        prompt,
-        resolution,
-        aspectRatio,
-        durationSeconds: effectiveDuration,
-        personGeneration,
-        output: {
-          path: relativeVideoPath,
-          size: output.bytes.length,
-        },
-        providerMetadata: output.metadata || {},
-      }, null, 2),
-    );
+    const relativeVideoPath = generateOutputFilename(promptSlug, 0, extension);
+    await writeOutputFile(relativeVideoPath, output.bytes);
+    const metadata = {
+      provider: 'gemini',
+      model,
+      createdAt: new Date().toISOString(),
+      createdBy: callerEmail,
+      managedFallback: true,
+      controlPlaneJobId: managed.jobId,
+      mode,
+      prompt,
+      resolution,
+      aspectRatio,
+      durationSeconds: effectiveDuration,
+      personGeneration,
+      negativePrompt: body.negativePrompt || null,
+      enhancePrompt: body.enhancePrompt ?? null,
+      generateAudio: body.generateAudio ?? null,
+      seed: body.seed ?? null,
+      input: {
+        startFramePath: body.startFramePath || null,
+        endFramePath: body.endFramePath || null,
+        referenceImagePaths: body.referenceImagePaths || [],
+        inputVideoPath: body.inputVideoPath || null,
+      },
+      output: {
+        path: relativeVideoPath,
+        size: output.bytes.length,
+        sourceUri: null,
+      },
+      providerMetadata: output.metadata || {},
+    };
 
     return {
       path: relativeVideoPath,
-      metadataPath,
       mediaUrl: toMediaUrl(relativeVideoPath),
+      fileSize: output.bytes.length,
+      mimeType: output.mimeType,
+      metadata,
     };
   }
 
@@ -377,51 +387,44 @@ export async function generateVideo(
   }
 
   const fetched = await fetchOperationVideo(operation, apiKey!);
-  await ensureVeoWorkspace();
+  await ensureStudioOutputsWorkspace();
 
   const promptSlug = promptToSlug(prompt);
-  const outputFilename = createVeoOutputFilename(fetched.extension);
-  const relativeVideoPath = `${VEO_OUTPUT_DIR}/${promptSlug}-${outputFilename}`;
-  await writeFile(relativeVideoPath, fetched.bytes);
-
-  const metadataPath = relativeVideoPath.replace(/\.[^.]+$/, '.json');
-  await writeFile(
-    metadataPath,
-    JSON.stringify(
-      {
-        createdAt: new Date().toISOString(),
-        createdBy: callerEmail,
-        mode,
-        model,
-        prompt,
-        resolution,
-        aspectRatio,
-        durationSeconds: effectiveDuration,
-        personGeneration,
-        negativePrompt: body.negativePrompt || null,
-        enhancePrompt: body.enhancePrompt ?? null,
-        generateAudio: body.generateAudio ?? null,
-        seed: body.seed ?? null,
-        input: {
-          startFramePath: body.startFramePath || null,
-          endFramePath: body.endFramePath || null,
-          referenceImagePaths: body.referenceImagePaths || [],
-          inputVideoPath: body.inputVideoPath || null,
-        },
-        output: {
-          path: relativeVideoPath,
-          size: fetched.bytes.length,
-          sourceUri: fetched.sourceUri,
-        },
-      },
-      null,
-      2,
-    ),
-  );
+  const relativeVideoPath = generateOutputFilename(promptSlug, 0, fetched.extension);
+  await writeOutputFile(relativeVideoPath, fetched.bytes);
+  const metadata = {
+    provider: 'gemini',
+    model,
+    createdAt: new Date().toISOString(),
+    createdBy: callerEmail,
+    mode,
+    prompt,
+    resolution,
+    aspectRatio,
+    durationSeconds: effectiveDuration,
+    personGeneration,
+    negativePrompt: body.negativePrompt || null,
+    enhancePrompt: body.enhancePrompt ?? null,
+    generateAudio: body.generateAudio ?? null,
+    seed: body.seed ?? null,
+    input: {
+      startFramePath: body.startFramePath || null,
+      endFramePath: body.endFramePath || null,
+      referenceImagePaths: body.referenceImagePaths || [],
+      inputVideoPath: body.inputVideoPath || null,
+    },
+    output: {
+      path: relativeVideoPath,
+      size: fetched.bytes.length,
+      sourceUri: fetched.sourceUri,
+    },
+  };
 
   return {
     path: relativeVideoPath,
-    metadataPath,
     mediaUrl: toMediaUrl(relativeVideoPath),
+    fileSize: fetched.bytes.length,
+    mimeType: fetched.extension === 'mov' ? 'video/quicktime' : 'video/mp4',
+    metadata,
   };
 }
