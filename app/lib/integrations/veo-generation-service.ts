@@ -22,6 +22,7 @@ import {
   type VideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
+import { generateManagedMedia, isManagedMediaFallbackAvailable, type ManagedMediaReference } from '@/app/lib/integrations/managed-media-client';
 
 const MAX_REFERENCE_IMAGES = 3;
 
@@ -143,7 +144,8 @@ export async function generateVideo(
   callerEmail = 'system',
 ): Promise<VideoGenerationResultData> {
   const apiKey = await getGeminiApiKeyFromIntegrations();
-  if (!apiKey) {
+  const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
+  if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.', 400);
   }
 
@@ -196,7 +198,83 @@ export async function generateVideo(
     );
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  if (useManagedFallback) {
+    const references: ManagedMediaReference[] = [];
+    if (mode === 'frames_to_video') {
+      if (!body.startFramePath) {
+        throw new IntegrationServiceError('Start frame is required.', 400);
+      }
+      references.push(await loadImageBytes(body.startFramePath));
+      const endFramePath = body.isLooping ? body.startFramePath : body.endFramePath;
+      if (endFramePath) references.push(await loadImageBytes(endFramePath));
+      for (const sourcePath of (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES)) {
+        references.push(await loadImageBytes(sourcePath));
+      }
+    }
+    if (mode === 'references_to_video') {
+      for (const sourcePath of (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES)) {
+        references.push(await loadImageBytes(sourcePath));
+      }
+    }
+
+    const managed = await generateManagedMedia({
+      capability: 'video',
+      provider: 'gemini',
+      model,
+      prompt,
+      parameters: {
+        mode,
+        aspectRatio,
+        resolution,
+        durationSeconds: effectiveDuration,
+        personGeneration,
+        negativePrompt: body.negativePrompt,
+        enhancePrompt: body.enhancePrompt,
+        generateAudio: body.generateAudio,
+        seed: body.seed,
+      },
+      references,
+    });
+    const output = managed.outputs[0];
+    if (!output) throw new IntegrationServiceError('Managed Veo generation completed without output.', 500);
+
+    await ensureVeoWorkspace();
+    const promptSlug = promptToSlug(prompt);
+    const extension = extensionFromResponse(output.mimeType);
+    const outputFilename = createVeoOutputFilename(extension);
+    const relativeVideoPath = `${VEO_OUTPUT_DIR}/${promptSlug}-${outputFilename}`;
+    await writeFile(relativeVideoPath, output.bytes);
+    const metadataPath = relativeVideoPath.replace(/\.[^.]+$/, '.json');
+    await writeFile(
+      metadataPath,
+      JSON.stringify({
+        createdAt: new Date().toISOString(),
+        createdBy: callerEmail,
+        managedFallback: true,
+        controlPlaneJobId: managed.jobId,
+        mode,
+        model,
+        prompt,
+        resolution,
+        aspectRatio,
+        durationSeconds: effectiveDuration,
+        personGeneration,
+        output: {
+          path: relativeVideoPath,
+          size: output.bytes.length,
+        },
+        providerMetadata: output.metadata || {},
+      }, null, 2),
+    );
+
+    return {
+      path: relativeVideoPath,
+      metadataPath,
+      mediaUrl: toMediaUrl(relativeVideoPath),
+    };
+  }
+
+  const ai = new GoogleGenAI({ apiKey: apiKey! });
   const config: Record<string, unknown> = {
     numberOfVideos: 1,
     resolution,
@@ -298,7 +376,7 @@ export async function generateVideo(
     throw new Error(JSON.stringify(operation.error));
   }
 
-  const fetched = await fetchOperationVideo(operation, apiKey);
+  const fetched = await fetchOperationVideo(operation, apiKey!);
   await ensureVeoWorkspace();
 
   const promptSlug = promptToSlug(prompt);

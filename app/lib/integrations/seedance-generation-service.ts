@@ -8,6 +8,7 @@ import {
   writeOutputFile,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { generateManagedMedia, isManagedMediaFallbackAvailable } from '@/app/lib/integrations/managed-media-client';
 
 export const SEEDANCE_PROVIDER_ID = 'bytedance';
 export const SEEDANCE_MODEL_ID = 'bytedance/seedance-2';
@@ -334,7 +335,8 @@ export async function generateSeedanceVideo(
   request: GenerateSeedanceVideoRequest,
 ): Promise<SeedanceVideoGenerationResult> {
   const apiKey = await getKieApiKeyFromIntegrations();
-  if (!apiKey) {
+  const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
+  if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError(
       'KIE API key is missing. Configure KIE_API_KEY in /settings?tab=integrations.',
       400,
@@ -355,15 +357,68 @@ export async function generateSeedanceVideo(
     );
   }
 
+  if (useManagedFallback) {
+    const references = [
+      ...(request.firstFrame ? [request.firstFrame] : []),
+      ...(request.lastFrame ? [request.lastFrame] : []),
+      ...referenceImages,
+    ];
+    const managed = await generateManagedMedia({
+      capability: 'video',
+      provider: 'kie',
+      model: SEEDANCE_MODEL_ID,
+      prompt,
+      parameters: {
+        resolution: request.resolution || '720p',
+        aspectRatio: request.aspectRatio || '16:9',
+        durationSeconds: clampDuration(request.durationSeconds),
+        generateAudio: request.generateAudio ?? true,
+        webSearch: request.webSearch,
+        nsfwChecker: request.nsfwChecker ?? false,
+      },
+      references,
+    });
+    const output = managed.outputs[0];
+    if (!output) {
+      throw new IntegrationServiceError('Managed Seedance generation completed without output.', 500);
+    }
+
+    await ensureStudioOutputsWorkspace();
+    const extension = extensionFromMime(output.mimeType);
+    const outputPath = generateOutputFilename(promptToSlug(prompt), 0, extension);
+    await writeOutputFile(outputPath, output.bytes);
+
+    return {
+      path: outputPath,
+      mediaUrl: toMediaUrl(outputPath),
+      fileSize: output.bytes.length,
+      mimeType: output.mimeType,
+      metadata: {
+        provider: SEEDANCE_PROVIDER_ID,
+        model: SEEDANCE_MODEL_ID,
+        managedFallback: true,
+        controlPlaneJobId: managed.jobId,
+        resolution: request.resolution || '720p',
+        aspectRatio: request.aspectRatio || '16:9',
+        durationSeconds: clampDuration(request.durationSeconds),
+        generateAudio: request.generateAudio ?? true,
+        webSearch: request.webSearch ?? null,
+        nsfwChecker: request.nsfwChecker ?? false,
+        caller: request.caller || 'studio-generation',
+        providerMetadata: output.metadata || {},
+      },
+    };
+  }
+
   const uploadJobs: Array<Promise<{ kind: 'first' | 'last' | 'reference'; url: string }>> = [];
   if (request.firstFrame) {
-    uploadJobs.push(uploadReferenceImage(apiKey, request.firstFrame, 0).then((url) => ({ kind: 'first' as const, url })));
+    uploadJobs.push(uploadReferenceImage(apiKey!, request.firstFrame, 0).then((url) => ({ kind: 'first' as const, url })));
   }
   if (request.lastFrame) {
-    uploadJobs.push(uploadReferenceImage(apiKey, request.lastFrame, 1).then((url) => ({ kind: 'last' as const, url })));
+    uploadJobs.push(uploadReferenceImage(apiKey!, request.lastFrame, 1).then((url) => ({ kind: 'last' as const, url })));
   }
   referenceImages.forEach((image, index) => {
-    uploadJobs.push(uploadReferenceImage(apiKey, image, index).then((url) => ({ kind: 'reference' as const, url })));
+    uploadJobs.push(uploadReferenceImage(apiKey!, image, index).then((url) => ({ kind: 'reference' as const, url })));
   });
 
   const uploadedResults = await Promise.all(uploadJobs);
@@ -373,8 +428,8 @@ export async function generateSeedanceVideo(
     referenceImageUrls: uploadedResults.filter((item) => item.kind === 'reference').map((item) => item.url),
   };
 
-  const taskId = await createSeedanceTask(apiKey, request, uploaded);
-  const task = await pollSeedanceTask(apiKey, taskId, {
+  const taskId = await createSeedanceTask(apiKey!, request, uploaded);
+  const task = await pollSeedanceTask(apiKey!, taskId, {
     pollIntervalMs: request.pollIntervalMs,
     timeoutMs: request.timeoutMs,
   });
