@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { generateRandomId } from '@/app/lib/utils/random-id';
 import type {
   StudioGeneratePayload,
   StudioGenerateResponse,
@@ -261,7 +262,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     setLoading(true);
     setError(null);
 
-    const temporaryId = `temp-${crypto.randomUUID()}`;
+    const temporaryId = `temp-${generateRandomId()}`;
     const expectedCount = payload.mode === 'video' ? 1 : Math.min(Math.max(payload.count ?? 1, 1), 4);
     const temporaryGeneration: StudioGeneration = {
       id: temporaryId,

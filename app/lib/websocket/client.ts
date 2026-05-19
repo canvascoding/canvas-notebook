@@ -14,6 +14,7 @@
  */
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { generateRandomId } from '@/app/lib/utils/random-id';
 
 type PendingRequest = {
   resolve: (value: Record<string, unknown>) => void;
@@ -225,7 +226,7 @@ export class WebSocketClient extends EventTarget {
     payload: Record<string, unknown>,
     timeoutMs = 10000,
   ): Promise<T> {
-    const requestId = crypto.randomUUID();
+    const requestId = generateRandomId();
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {

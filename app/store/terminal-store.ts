@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
+import { generateRandomId } from '@/app/lib/utils/random-id';
 
 interface TerminalSession {
   id: string;
@@ -20,10 +21,7 @@ interface TerminalState {
 }
 
 function generateId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return generateRandomId();
 }
 
 const noopStorage: StateStorage = {
