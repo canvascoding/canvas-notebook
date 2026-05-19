@@ -94,9 +94,16 @@ function controlPlaneUrl(path: string): string {
 
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
+  let data: unknown = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { error: text };
+    }
+  }
   if (!response.ok) {
-    const message = data && typeof data === 'object' && typeof data.error === 'string'
+    const message = data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
       ? data.error
       : `Managed media request failed (${response.status})`;
     throw new IntegrationServiceError(message, response.status);

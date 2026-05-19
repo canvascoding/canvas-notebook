@@ -206,7 +206,7 @@ export async function generateVideo(
         throw new IntegrationServiceError('Start frame is required.', 400);
       }
       references.push({ ...(await loadImageBytes(body.startFramePath)), role: 'start_frame' });
-      const endFramePath = body.isLooping ? body.startFramePath : body.endFramePath;
+      const endFramePath = body.isLooping ? null : body.endFramePath;
       if (endFramePath) references.push({ ...(await loadImageBytes(endFramePath)), role: 'end_frame' });
       for (const sourcePath of (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES)) {
         references.push({ ...(await loadImageBytes(sourcePath)), role: 'reference' });
@@ -228,6 +228,7 @@ export async function generateVideo(
         aspectRatio,
         resolution,
         durationSeconds: effectiveDuration,
+        isLooping: body.isLooping || false,
         personGeneration,
         negativePrompt: body.negativePrompt,
         enhancePrompt: body.enhancePrompt,
