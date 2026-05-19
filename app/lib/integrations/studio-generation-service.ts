@@ -847,6 +847,7 @@ async function generateStudioImages(
 
       console.log(`[Studio Generation] Image ${index + 1}/${count} generated: mime=${result.mimeType}, size=${outputBytes.length} bytes, file=${outputFilename}, usage=${JSON.stringify(result.usage || null)}`);
       await writeOutputFile(outputPath, outputBytes);
+      console.log(`[Studio Generation] Image ${index + 1}/${count} written: path=${outputPath}, bytes=${outputBytes.length}, mediaUrl=${toMediaUrl(outputPath)}`);
 
       const outputId = randomUUID();
       const now = new Date();
@@ -876,6 +877,7 @@ async function generateStudioImages(
         metadata: JSON.stringify(outputMetadata),
         createdAt: now,
       });
+      console.log(`[Studio Generation] Output row inserted: generationId=${generationId}, outputId=${outputId}, variation=${index}, path=${outputPath}, mime=${result.mimeType}`);
 
       return {
         id: outputId,
