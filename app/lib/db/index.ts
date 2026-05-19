@@ -28,10 +28,13 @@ export const db = drizzle(sqlite, {schema});
 
 export async function openDb() {
   const freshSqlite = new Database(getSqlitePath());
+  const bind = (statement: Database.Statement, params?: unknown[]) => (
+    params === undefined ? statement : statement.bind(...params)
+  );
   return {
-    get: (sql: string, params?: unknown[]) => freshSqlite.prepare(sql).get(params),
-    run: (sql: string, params?: unknown[]) => freshSqlite.prepare(sql).run(params),
-    all: (sql: string, params?: unknown[]) => freshSqlite.prepare(sql).all(params),
+    get: (sql: string, params?: unknown[]) => bind(freshSqlite.prepare(sql), params).get(),
+    run: (sql: string, params?: unknown[]) => bind(freshSqlite.prepare(sql), params).run(),
+    all: (sql: string, params?: unknown[]) => bind(freshSqlite.prepare(sql), params).all(),
     close: () => freshSqlite.close(),
   };
 }

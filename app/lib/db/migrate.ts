@@ -152,6 +152,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_by_user_id TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
+      job_type TEXT NOT NULL DEFAULT 'default',
+      channel_id TEXT,
+      composio_trigger_id TEXT,
+      composio_trigger_slug TEXT,
+      composio_toolkit_slug TEXT,
+      composio_connected_account_id TEXT,
+      composio_user_id TEXT,
+      webhook_trigger_config_json TEXT,
       FOREIGN KEY (created_by_user_id) REFERENCES user(id)
     );
 
@@ -175,6 +183,22 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       metadata_json TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (job_id) REFERENCES automation_jobs(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS composio_webhook_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      event_id TEXT,
+      webhook_id TEXT,
+      trigger_id TEXT,
+      job_id TEXT,
+      run_id TEXT,
+      source TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error TEXT,
+      metadata_json TEXT,
+      received_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS user_hint_state (
@@ -442,6 +466,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_webhook_events_event_id ON composio_webhook_events (event_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_webhook_events_webhook_id ON composio_webhook_events (webhook_id);
+    CREATE INDEX IF NOT EXISTS idx_composio_webhook_events_trigger ON composio_webhook_events (trigger_id, received_at);
+    CREATE INDEX IF NOT EXISTS idx_composio_webhook_events_job ON composio_webhook_events (job_id, received_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_user_hint_state_user_hint ON user_hint_state (user_id, hint_key);
     CREATE INDEX IF NOT EXISTS idx_user_hint_state_user_page ON user_hint_state (user_id, page);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_page_onboarding_state_user_page ON page_onboarding_state (user_id, page);
@@ -523,7 +551,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'automation_jobs', {
     job_type: "TEXT NOT NULL DEFAULT 'default'",
     channel_id: 'TEXT',
+    composio_trigger_id: 'TEXT',
+    composio_trigger_slug: 'TEXT',
+    composio_toolkit_slug: 'TEXT',
+    composio_connected_account_id: 'TEXT',
+    composio_user_id: 'TEXT',
+    webhook_trigger_config_json: 'TEXT',
   });
+
+  sqlite.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_jobs_composio_trigger_id ON automation_jobs (composio_trigger_id);
+  `);
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS channel_user_bindings (
