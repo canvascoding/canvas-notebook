@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState, useRef, startTransition } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
-import { Loader2, Search, X, ChevronDown } from 'lucide-react';
+import { ChevronDown, Loader2, Pause, Play, Plus, Search, Trash2, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 
 type ToolkitToolInfo = {
   slug: string;
@@ -26,6 +28,59 @@ type ToolkitToolsDialogProps = {
 };
 
 const PAGE_SIZE = 20;
+const DEFAULT_PROMPT = 'Handle this webhook event. Inspect the payload, decide what changed, and perform the requested notebook work.';
+
+type TriggerTypeInfo = {
+  slug: string;
+  name: string;
+  description: string;
+  configSchema: Record<string, unknown> | null;
+};
+
+type ActiveTriggerInfo = {
+  triggerId: string;
+  triggerSlug: string;
+  toolkitSlug: string;
+  status: string;
+  connectedAccountId: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function normalizeTriggerType(value: unknown): TriggerTypeInfo | null {
+  const record = asRecord(value);
+  const slug = stringValue(record.slug) || stringValue(record.name);
+  if (!slug) return null;
+  const displayName = stringValue(record.displayName) || stringValue(record.name) || slug;
+  const configSchema = asRecord(record.configSchema ?? record.config_schema ?? record.inputParameters ?? record.input_parameters);
+  return {
+    slug,
+    name: displayName,
+    description: stringValue(record.description),
+    configSchema: Object.keys(configSchema).length > 0 ? configSchema : null,
+  };
+}
+
+function normalizeActiveTrigger(value: unknown): ActiveTriggerInfo | null {
+  const record = asRecord(value);
+  const triggerId = stringValue(record.triggerId) || stringValue(record.trigger_id) || stringValue(record.id);
+  if (!triggerId) return null;
+  const triggerSlug = stringValue(record.triggerSlug) || stringValue(record.trigger_slug) || stringValue(record.slug);
+  const toolkitSlug = stringValue(record.toolkitSlug) || stringValue(record.toolkit_slug) || stringValue(asRecord(record.toolkit).slug);
+  return {
+    triggerId,
+    triggerSlug,
+    toolkitSlug,
+    status: stringValue(record.status) || (record.enabled === false ? 'paused' : 'active'),
+    connectedAccountId: stringValue(record.connectedAccountId) || stringValue(record.connected_account_id),
+  };
+}
 
 export function ToolkitToolsDialog({
   slug,
@@ -48,6 +103,17 @@ export function ToolkitToolsDialog({
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [activeTab, setActiveTab] = useState<'tools' | 'triggers'>('tools');
+  const [triggerTypes, setTriggerTypes] = useState<TriggerTypeInfo[]>([]);
+  const [activeTriggers, setActiveTriggers] = useState<ActiveTriggerInfo[]>([]);
+  const [triggersLoading, setTriggersLoading] = useState(false);
+  const [triggersError, setTriggersError] = useState<string | null>(null);
+  const [triggerActionId, setTriggerActionId] = useState<string | null>(null);
+  const [selectedTriggerSlug, setSelectedTriggerSlug] = useState('');
+  const [triggerName, setTriggerName] = useState('');
+  const [triggerPrompt, setTriggerPrompt] = useState(DEFAULT_PROMPT);
+  const [triggerConfigText, setTriggerConfigText] = useState('{}');
+  const [targetOutputPath, setTargetOutputPath] = useState('');
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -71,6 +137,53 @@ export function ToolkitToolsDialog({
       void loadTools();
     });
   }, [loadTools]);
+
+  const loadTriggers = useCallback(async () => {
+    if (!connected) {
+      setTriggerTypes([]);
+      setActiveTriggers([]);
+      return;
+    }
+
+    setTriggersLoading(true);
+    setTriggersError(null);
+    try {
+      const [typesResponse, activeResponse] = await Promise.all([
+        fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(slug)}`, { credentials: 'include' }),
+        fetch('/api/composio/triggers', { credentials: 'include' }),
+      ]);
+      const [typesPayload, activePayload] = await Promise.all([
+        typesResponse.json(),
+        activeResponse.json(),
+      ]);
+      if (!typesResponse.ok) throw new Error(typesPayload.error || 'Failed to load trigger types');
+      if (!activeResponse.ok) throw new Error(activePayload.error || 'Failed to load active triggers');
+
+      const rawTypes: unknown[] = Array.isArray(typesPayload.data?.triggerTypes) ? typesPayload.data.triggerTypes : [];
+      const rawTriggers: unknown[] = Array.isArray(activePayload.data?.triggers) ? activePayload.data.triggers : [];
+      const normalizedTypes = rawTypes.map(normalizeTriggerType).filter((entry): entry is TriggerTypeInfo => Boolean(entry));
+      setTriggerTypes(normalizedTypes);
+      setActiveTriggers(
+        rawTriggers
+          .map(normalizeActiveTrigger)
+          .filter((entry): entry is ActiveTriggerInfo => Boolean(entry))
+          .filter((entry) => entry.toolkitSlug === slug || !entry.toolkitSlug),
+      );
+      setSelectedTriggerSlug((current) => current || normalizedTypes[0]?.slug || '');
+    } catch (err) {
+      setTriggersError(err instanceof Error ? err.message : 'Failed to load triggers');
+    } finally {
+      setTriggersLoading(false);
+    }
+  }, [connected, slug]);
+
+  useEffect(() => {
+    if (activeTab === 'triggers') {
+      startTransition(() => {
+        void loadTriggers();
+      });
+    }
+  }, [activeTab, loadTriggers]);
 
   const searchTools = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -145,6 +258,87 @@ export function ToolkitToolsDialog({
   const statusText = connected
     ? t('toolsAvailableConnected')
     : t('toolsAvailableNotConnected');
+  const selectedTrigger = useMemo(
+    () => triggerTypes.find((trigger) => trigger.slug === selectedTriggerSlug) || null,
+    [selectedTriggerSlug, triggerTypes],
+  );
+  const canCreateTrigger = connected && selectedTriggerSlug && triggerName.trim() && triggerPrompt.trim();
+
+  const handleCreateTrigger = async () => {
+    setTriggersError(null);
+    let triggerConfig: Record<string, unknown>;
+    try {
+      triggerConfig = asRecord(JSON.parse(triggerConfigText || '{}'));
+    } catch {
+      setTriggersError('Trigger config must be valid JSON.');
+      return;
+    }
+
+    setTriggerActionId('create');
+    try {
+      const response = await fetch('/api/composio/triggers', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: triggerName.trim(),
+          prompt: triggerPrompt.trim(),
+          triggerSlug: selectedTriggerSlug,
+          toolkitSlug: slug,
+          triggerConfig,
+          targetOutputPath: targetOutputPath.trim() || null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to create trigger');
+      setTriggerName('');
+      setTargetOutputPath('');
+      setTriggerConfigText('{}');
+      await loadTriggers();
+    } catch (err) {
+      setTriggersError(err instanceof Error ? err.message : 'Failed to create trigger');
+    } finally {
+      setTriggerActionId(null);
+    }
+  };
+
+  const handleTriggerStatus = async (trigger: ActiveTriggerInfo, status: 'active' | 'paused') => {
+    setTriggersError(null);
+    setTriggerActionId(trigger.triggerId);
+    try {
+      const response = await fetch(`/api/composio/triggers/${encodeURIComponent(trigger.triggerId)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to update trigger');
+      await loadTriggers();
+    } catch (err) {
+      setTriggersError(err instanceof Error ? err.message : 'Failed to update trigger');
+    } finally {
+      setTriggerActionId(null);
+    }
+  };
+
+  const handleDeleteTrigger = async (trigger: ActiveTriggerInfo) => {
+    setTriggersError(null);
+    setTriggerActionId(trigger.triggerId);
+    try {
+      const response = await fetch(`/api/composio/triggers/${encodeURIComponent(trigger.triggerId)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete trigger');
+      await loadTriggers();
+    } catch (err) {
+      setTriggersError(err instanceof Error ? err.message : 'Failed to delete trigger');
+    } finally {
+      setTriggerActionId(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50" onClick={onClose}>
@@ -196,76 +390,220 @@ export function ToolkitToolsDialog({
           </div>
         </div>
 
-        <div className="border-b border-border px-4 py-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder={t('searchTools')}
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="pl-9"
-            />
-            {searchLoading && (
-              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-            )}
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'tools' | 'triggers')} className="min-h-0 flex-1 gap-0">
+          <div className="border-b border-border px-4 py-3">
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="tools">Tools</TabsTrigger>
+              <TabsTrigger value="triggers">Triggers</TabsTrigger>
+            </TabsList>
           </div>
-        </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-3">
-          {loading ? (
-            <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t('loadingTools')}
+          <TabsContent value="tools" className="min-h-0 flex flex-1 flex-col">
+            <div className="border-b border-border px-4 py-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder={t('searchTools')}
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="pl-9"
+                />
+                {searchLoading && (
+                  <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                )}
+              </div>
             </div>
-          ) : error ? (
-            <p className="py-4 text-center text-sm text-destructive">{error}</p>
-          ) : pagedTools.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">{t('noToolsFound')}</p>
-          ) : (
-            <div className="space-y-1">
-              {pagedTools.map((tool) => {
-                const isExpanded = expandedTools.has(tool.slug);
-                const hasDescription = tool.description.length > 0;
-                const truncatedDesc = hasDescription && tool.description.length > 120
-                  ? tool.description.slice(0, 120) + '...'
-                  : tool.description;
 
-                return (
-                  <div
-                    key={tool.slug}
-                    className="rounded-md border border-transparent px-3 py-2 hover:bg-muted/50"
-                  >
-                    <button
-                      type="button"
-                      className="flex w-full items-start gap-2 text-left"
-                      onClick={() => hasDescription && toggleExpanded(tool.slug)}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium leading-tight">{tool.name}</p>
-                        <p className="text-[11px] font-mono text-muted-foreground">{tool.slug}</p>
-                        {hasDescription && (isExpanded ? (
-                          <p className="mt-1 text-xs text-muted-foreground">{tool.description}</p>
-                        ) : (
-                          <p className="mt-1 text-xs text-muted-foreground">{truncatedDesc}</p>
-                        ))}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              {loading ? (
+                <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t('loadingTools')}
+                </div>
+              ) : error ? (
+                <p className="py-4 text-center text-sm text-destructive">{error}</p>
+              ) : pagedTools.length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">{t('noToolsFound')}</p>
+              ) : (
+                <div className="space-y-1">
+                  {pagedTools.map((tool) => {
+                    const isExpanded = expandedTools.has(tool.slug);
+                    const hasDescription = tool.description.length > 0;
+                    const truncatedDesc = hasDescription && tool.description.length > 120
+                      ? tool.description.slice(0, 120) + '...'
+                      : tool.description;
+
+                    return (
+                      <div
+                        key={tool.slug}
+                        className="rounded-md border border-transparent px-3 py-2 hover:bg-muted/50"
+                      >
+                        <button
+                          type="button"
+                          className="flex w-full items-start gap-2 text-left"
+                          onClick={() => hasDescription && toggleExpanded(tool.slug)}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium leading-tight">{tool.name}</p>
+                            <p className="text-[11px] font-mono text-muted-foreground">{tool.slug}</p>
+                            {hasDescription && (isExpanded ? (
+                              <p className="mt-1 text-xs text-muted-foreground">{tool.description}</p>
+                            ) : (
+                              <p className="mt-1 text-xs text-muted-foreground">{truncatedDesc}</p>
+                            ))}
+                          </div>
+                          {hasDescription && (
+                            <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          )}
+                        </button>
                       </div>
-                      {hasDescription && (
-                        <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                      )}
-                    </button>
+                    );
+                  })}
+                </div>
+              )}
+              {hasMore && (
+                <div className="flex justify-center pt-3">
+                  <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>
+                    {t('loadMore')} ({filteredDisplay.length - page * PAGE_SIZE} {t('remaining')})
+                  </Button>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="triggers" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {!connected ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Connect {name} to create webhook automations.</p>
+            ) : triggersLoading ? (
+              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading triggers
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {triggersError && (
+                  <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {triggersError}
+                  </p>
+                )}
+
+                <div className="space-y-3 rounded-md border border-border p-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs font-medium text-muted-foreground">Event</span>
+                      <select
+                        value={selectedTriggerSlug}
+                        onChange={(e) => setSelectedTriggerSlug(e.target.value)}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        {triggerTypes.length === 0 ? (
+                          <option value="">No triggers found</option>
+                        ) : triggerTypes.map((trigger) => (
+                          <option key={trigger.slug} value={trigger.slug}>{trigger.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs font-medium text-muted-foreground">Automation name</span>
+                      <Input
+                        value={triggerName}
+                        onChange={(e) => setTriggerName(e.target.value)}
+                        placeholder={`${name} webhook`}
+                      />
+                    </label>
                   </div>
-                );
-              })}
-            </div>
-          )}
-          {hasMore && (
-            <div className="flex justify-center pt-3">
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>
-                {t('loadMore')} ({filteredDisplay.length - page * PAGE_SIZE} {t('remaining')})
-              </Button>
-            </div>
-          )}
-        </div>
+                  {selectedTrigger?.description && (
+                    <p className="text-xs text-muted-foreground">{selectedTrigger.description}</p>
+                  )}
+                  <label className="space-y-1 text-sm">
+                    <span className="text-xs font-medium text-muted-foreground">Prompt</span>
+                    <Textarea
+                      value={triggerPrompt}
+                      onChange={(e) => setTriggerPrompt(e.target.value)}
+                      className="min-h-24"
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs font-medium text-muted-foreground">Output path</span>
+                      <Input
+                        value={targetOutputPath}
+                        onChange={(e) => setTargetOutputPath(e.target.value)}
+                        placeholder="optional"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-xs font-medium text-muted-foreground">Config JSON</span>
+                      <Textarea
+                        value={triggerConfigText}
+                        onChange={(e) => setTriggerConfigText(e.target.value)}
+                        className="min-h-20 font-mono text-xs"
+                      />
+                    </label>
+                  </div>
+                  {selectedTrigger?.configSchema && (
+                    <details className="text-xs text-muted-foreground">
+                      <summary className="cursor-pointer">Schema</summary>
+                      <pre className="mt-2 max-h-40 overflow-auto rounded bg-muted p-2 font-mono text-[11px]">
+                        {JSON.stringify(selectedTrigger.configSchema, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={handleCreateTrigger}
+                    disabled={!canCreateTrigger || triggerActionId === 'create'}
+                  >
+                    {triggerActionId === 'create' ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="mr-2 h-4 w-4" />
+                    )}
+                    Create trigger
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Active triggers</p>
+                  {activeTriggers.length === 0 ? (
+                    <p className="rounded-md border border-border px-3 py-4 text-center text-sm text-muted-foreground">
+                      No active triggers
+                    </p>
+                  ) : activeTriggers.map((trigger) => {
+                    const isPaused = trigger.status.toLowerCase() === 'paused' || trigger.status.toLowerCase() === 'disabled';
+                    return (
+                      <div key={trigger.triggerId} className="flex items-center gap-2 rounded-md border border-border px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{trigger.triggerSlug || trigger.triggerId}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">{trigger.triggerId}</p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          onClick={() => handleTriggerStatus(trigger, isPaused ? 'active' : 'paused')}
+                          disabled={triggerActionId === trigger.triggerId}
+                          title={isPaused ? 'Resume' : 'Pause'}
+                        >
+                          {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => handleDeleteTrigger(trigger)}
+                          disabled={triggerActionId === trigger.triggerId}
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
 
         <div className="border-t border-border px-4 py-2">
           <p className="text-[11px] text-muted-foreground">{statusText}</p>
