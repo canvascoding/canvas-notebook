@@ -359,9 +359,9 @@ export async function generateSeedanceVideo(
 
   if (useManagedFallback) {
     const references = [
-      ...(request.firstFrame ? [request.firstFrame] : []),
-      ...(request.lastFrame ? [request.lastFrame] : []),
-      ...referenceImages,
+      ...(request.firstFrame ? [{ ...request.firstFrame, role: 'start_frame' as const }] : []),
+      ...(request.lastFrame ? [{ ...request.lastFrame, role: 'end_frame' as const }] : []),
+      ...referenceImages.map((image) => ({ ...image, role: 'reference' as const })),
     ];
     const managed = await generateManagedMedia({
       capability: 'video',

@@ -205,16 +205,16 @@ export async function generateVideo(
       if (!body.startFramePath) {
         throw new IntegrationServiceError('Start frame is required.', 400);
       }
-      references.push(await loadImageBytes(body.startFramePath));
+      references.push({ ...(await loadImageBytes(body.startFramePath)), role: 'start_frame' });
       const endFramePath = body.isLooping ? body.startFramePath : body.endFramePath;
-      if (endFramePath) references.push(await loadImageBytes(endFramePath));
+      if (endFramePath) references.push({ ...(await loadImageBytes(endFramePath)), role: 'end_frame' });
       for (const sourcePath of (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES)) {
-        references.push(await loadImageBytes(sourcePath));
+        references.push({ ...(await loadImageBytes(sourcePath)), role: 'reference' });
       }
     }
     if (mode === 'references_to_video') {
       for (const sourcePath of (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES)) {
-        references.push(await loadImageBytes(sourcePath));
+        references.push({ ...(await loadImageBytes(sourcePath)), role: 'reference' });
       }
     }
 
