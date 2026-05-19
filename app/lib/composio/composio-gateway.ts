@@ -294,6 +294,115 @@ export async function getGatewayAuthRedirect(toolkit: string) {
   return connectionRequest.redirectUrl;
 }
 
+export async function getGatewayTriggerTypes(toolkit: string) {
+  const mode = await getComposioMode();
+  if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
+  if (mode === 'managed') {
+    const query = new URLSearchParams();
+    if (toolkit) query.set('toolkit', toolkit);
+    return managedRequest<{ triggerTypes: unknown[]; totalCount: number; hasMore?: boolean; nextCursor?: string | null }>('/triggers/types', { query });
+  }
+
+  const composio = await getComposio();
+  if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
+  const result = await composio.triggers.listTypes({
+    ...(toolkit ? { toolkits: [toolkit] } : {}),
+    limit: 1000,
+  });
+  return {
+    triggerTypes: result.items,
+    totalCount: result.items.length,
+    hasMore: Boolean(result.nextCursor),
+    nextCursor: result.nextCursor ?? null,
+  };
+}
+
+export async function listGatewayTriggers() {
+  const mode = await getComposioMode();
+  if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
+  if (mode === 'managed') return managedRequest<{ triggers: unknown[] }>('/triggers');
+
+  const composio = await getComposio();
+  if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
+  const composioUserId = await getComposioUserId();
+  const result = await composio.triggers.listActive({
+    showDisabled: true,
+    limit: 1000,
+  });
+  return {
+    triggers: result.items.filter((item) => {
+      const trigger = item as { userId?: string; user_id?: string };
+      return trigger.userId === composioUserId || trigger.user_id === composioUserId;
+    }),
+  };
+}
+
+export async function createGatewayTrigger(input: {
+  triggerSlug: string;
+  toolkitSlug?: string;
+  connectedAccountId?: string;
+  triggerConfig?: Record<string, unknown>;
+  notebookWebhookUrl?: string | null;
+}) {
+  const mode = await getComposioMode();
+  if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
+  if (mode === 'managed') {
+    await managedRequest('/webhook/subscription', { method: 'POST', body: {} });
+    return managedRequest<{ trigger: Record<string, unknown> }>('/triggers', {
+      method: 'POST',
+      body: input,
+    });
+  }
+
+  const composio = await getComposio();
+  if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
+  const triggerType = await composio.triggers.getType(input.triggerSlug);
+  const result = await composio.triggers.create(await getComposioUserId(), input.triggerSlug, {
+    connectedAccountId: input.connectedAccountId,
+    triggerConfig: input.triggerConfig || {},
+  });
+  return {
+    trigger: {
+      triggerId: result.triggerId,
+      triggerSlug: input.triggerSlug,
+      toolkitSlug: input.toolkitSlug || triggerType.toolkit.slug,
+      connectedAccountId: input.connectedAccountId || '',
+      composioUserId: await getComposioUserId(),
+      triggerConfig: input.triggerConfig || {},
+    },
+  };
+}
+
+export async function updateGatewayTrigger(triggerId: string, input: { status?: 'active' | 'paused'; triggerConfig?: Record<string, unknown>; notebookWebhookUrl?: string | null }) {
+  const mode = await getComposioMode();
+  if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
+  if (mode === 'managed') {
+    return managedRequest<{ trigger: Record<string, unknown> }>(`/triggers/${encodeURIComponent(triggerId)}`, {
+      method: 'PATCH',
+      body: input,
+    });
+  }
+
+  const composio = await getComposio();
+  if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
+  if (input.status === 'paused') await composio.triggers.disable(triggerId);
+  if (input.status === 'active') await composio.triggers.enable(triggerId);
+  return { trigger: { triggerId, status: input.status } };
+}
+
+export async function deleteGatewayTrigger(triggerId: string) {
+  const mode = await getComposioMode();
+  if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
+  if (mode === 'managed') {
+    return managedRequest<{ success: boolean }>(`/triggers/${encodeURIComponent(triggerId)}`, { method: 'DELETE' });
+  }
+
+  const composio = await getComposio();
+  if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
+  await composio.triggers.delete(triggerId);
+  return { success: true };
+}
+
 export function clearComposioGatewayCaches(): void {
   clearToolkitCache();
 }

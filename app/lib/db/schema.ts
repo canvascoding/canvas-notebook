@@ -146,7 +146,35 @@ export const automationJobs = sqliteTable("automation_jobs", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   jobType: text("job_type").notNull().default('default'),
   channelId: text("channel_id"),
-});
+  composioTriggerId: text("composio_trigger_id"),
+  composioTriggerSlug: text("composio_trigger_slug"),
+  composioToolkitSlug: text("composio_toolkit_slug"),
+  composioConnectedAccountId: text("composio_connected_account_id"),
+  composioUserId: text("composio_user_id"),
+  webhookTriggerConfigJson: text("webhook_trigger_config_json"),
+}, (table) => ({
+  composioTriggerIdx: uniqueIndex("idx_automation_jobs_composio_trigger_id").on(table.composioTriggerId),
+}));
+
+export const composioWebhookEvents = sqliteTable("composio_webhook_events", {
+  id: text("id").primaryKey(),
+  eventId: text("event_id"),
+  webhookId: text("webhook_id"),
+  triggerId: text("trigger_id"),
+  jobId: text("job_id").references(() => automationJobs.id, { onDelete: 'set null' }),
+  runId: text("run_id"),
+  source: text("source").notNull(),
+  status: text("status").notNull(),
+  error: text("error"),
+  metadataJson: text("metadata_json"),
+  receivedAt: integer("received_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  eventIdx: uniqueIndex("idx_composio_webhook_events_event_id").on(table.eventId),
+  webhookIdx: uniqueIndex("idx_composio_webhook_events_webhook_id").on(table.webhookId),
+  triggerIdx: index("idx_composio_webhook_events_trigger").on(table.triggerId, table.receivedAt),
+  jobIdx: index("idx_composio_webhook_events_job").on(table.jobId, table.receivedAt),
+}));
 
 export const userHintState = sqliteTable("user_hint_state", {
   id: integer("id").primaryKey({ autoIncrement: true }),

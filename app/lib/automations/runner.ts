@@ -105,6 +105,20 @@ function buildAutomationSessionTitle(jobName: string): string {
   return `Automation: ${jobName}`.slice(0, 120);
 }
 
+function getWebhookPromptContext(run: AutomationRunRecord) {
+  const webhook = run.metadataJson?.webhook;
+  if (!webhook || typeof webhook !== 'object' || Array.isArray(webhook)) return null;
+  const record = webhook as Record<string, unknown>;
+  return {
+    triggerSlug: typeof record.triggerSlug === 'string' ? record.triggerSlug : 'unknown',
+    triggerId: typeof record.triggerId === 'string' ? record.triggerId : 'unknown',
+    toolkitSlug: typeof record.toolkitSlug === 'string' ? record.toolkitSlug : 'unknown',
+    eventId: typeof record.eventId === 'string' ? record.eventId : 'unknown',
+    timestamp: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString(),
+    data: record.data ?? {},
+  };
+}
+
 function createAutomationErrorMessage(message: string, provider: Provider, modelId: string, api: Api): AgentMessage {
   return {
     role: 'assistant',
@@ -192,6 +206,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     prompt: job.prompt,
     effectiveTargetOutputPath,
     runArtifactDir: outputPaths.outputDir,
+    webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
   });
 
   const piSessionId = buildAutomationSessionId(run.id);

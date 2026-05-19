@@ -1,9 +1,9 @@
 export type AutomationJobStatus = 'active' | 'paused';
 export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'retry_scheduled';
-export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry';
+export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook';
 export type AutomationPreferredSkill = 'auto';
-export type AutomationJobType = 'default' | 'heartbeat';
-export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
+export type AutomationJobType = 'default' | 'heartbeat' | 'webhook';
+export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval' | 'webhook';
 export type AutomationWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export type AutomationIntervalUnit = 'minutes' | 'hours' | 'days';
 
@@ -30,6 +30,10 @@ export type FriendlySchedule =
       every: number;
       unit: AutomationIntervalUnit;
       timeZone: string;
+    }
+  | {
+      kind: 'webhook';
+      timeZone: string;
     };
 
 export type AutomationJobRecord = {
@@ -51,6 +55,12 @@ export type AutomationJobRecord = {
   updatedAt: string;
   jobType: AutomationJobType;
   channelId: string | null;
+  composioTriggerId: string | null;
+  composioTriggerSlug: string | null;
+  composioToolkitSlug: string | null;
+  composioConnectedAccountId: string | null;
+  composioUserId: string | null;
+  webhookTriggerConfig: Record<string, unknown> | null;
 };
 
 export type AutomationRunRecord = {
@@ -84,6 +94,20 @@ export type CreateAutomationJobInput = {
   targetOutputPath?: string | null;
   schedule: FriendlySchedule;
   status?: AutomationJobStatus;
+};
+
+export type CreateWebhookAutomationJobInput = {
+  name: string;
+  prompt: string;
+  workspaceContextPaths?: string[];
+  targetOutputPath?: string | null;
+  status?: AutomationJobStatus;
+  composioTriggerId: string;
+  composioTriggerSlug: string;
+  composioToolkitSlug: string;
+  composioConnectedAccountId: string;
+  composioUserId: string;
+  webhookTriggerConfig?: Record<string, unknown>;
 };
 
 export type UpdateAutomationJobInput = Partial<CreateAutomationJobInput> & {
