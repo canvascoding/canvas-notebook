@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, lte, notInArray, or } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { automationJobs, automationRuns, piSessions } from '@/app/lib/db/schema';
+import { automationJobs, automationRuns, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
@@ -16,6 +16,7 @@ import {
   type AutomationRunRecord,
   type AutomationRunStatus,
   type CreateAutomationJobInput,
+  type CreateWebhookAutomationJobInput,
   type FriendlySchedule,
   type UpdateAutomationJobInput,
 } from './types';
@@ -86,6 +87,16 @@ function normalizeTargetOutputPath(value: unknown): string | null {
   return normalized;
 }
 
+function parseOptionalJsonObject(value: string | null | undefined): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
 function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord {
   const schedule = JSON.parse(row.scheduleConfigJson) as FriendlySchedule;
   const workspaceContextPaths = JSON.parse(row.workspaceContextPathsJson) as string[];
@@ -110,6 +121,12 @@ function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord
     updatedAt: row.updatedAt.toISOString(),
     jobType: (row.jobType as AutomationJobType) || 'default',
     channelId: row.channelId ?? null,
+    composioTriggerId: row.composioTriggerId ?? null,
+    composioTriggerSlug: row.composioTriggerSlug ?? null,
+    composioToolkitSlug: row.composioToolkitSlug ?? null,
+    composioConnectedAccountId: row.composioConnectedAccountId ?? null,
+    composioUserId: row.composioUserId ?? null,
+    webhookTriggerConfig: parseOptionalJsonObject(row.webhookTriggerConfigJson),
   };
 }
 
@@ -184,12 +201,21 @@ export async function listAutomationJobs(userId: string): Promise<AutomationJobR
         eq(automationJobs.createdByUserId, userId),
         or(
           eq(automationJobs.jobType, 'default'),
+          eq(automationJobs.jobType, 'webhook'),
         ),
       ),
     )
     .orderBy(asc(automationJobs.name), asc(automationJobs.createdAt));
 
   return rows.map(mapJobRow);
+}
+
+export async function getAutomationJobByComposioTriggerId(triggerId: string): Promise<AutomationJobRecord | null> {
+  const row = await db.query.automationJobs.findFirst({
+    where: eq(automationJobs.composioTriggerId, triggerId),
+  });
+
+  return row ? mapJobRow(row) : null;
 }
 
 export async function getAutomationJob(jobId: string): Promise<AutomationJobRecord | null> {
@@ -265,6 +291,57 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
   return mapJobRow(inserted);
 }
 
+export async function createWebhookAutomationJob(input: CreateWebhookAutomationJobInput, userId: string): Promise<AutomationJobRecord> {
+  const name = normalizeString(input.name, 'Name', 120);
+  const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
+  const preferredSkill: AutomationPreferredSkill = 'auto';
+  const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
+  const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
+  const composioTriggerId = normalizeString(input.composioTriggerId, 'Composio trigger ID', 500);
+  const composioTriggerSlug = normalizeString(input.composioTriggerSlug, 'Composio trigger slug', 500);
+  const composioToolkitSlug = normalizeString(input.composioToolkitSlug, 'Composio toolkit slug', 120);
+  const composioConnectedAccountId = normalizeString(input.composioConnectedAccountId, 'Composio connected account ID', 500);
+  const composioUserId = normalizeString(input.composioUserId, 'Composio user ID', 500);
+  const now = new Date();
+  const id = `job-${randomUUID()}`;
+  const schedule: FriendlySchedule = {
+    kind: 'webhook',
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  };
+
+  const [inserted] = await db
+    .insert(automationJobs)
+    .values({
+      id,
+      name,
+      status: input.status || 'active',
+      prompt,
+      preferredSkill,
+      workspaceContextPathsJson: JSON.stringify(workspaceContextPaths),
+      targetOutputPath,
+      scheduleKind: 'webhook',
+      scheduleConfigJson: JSON.stringify(schedule),
+      timeZone: schedule.timeZone,
+      nextRunAt: null,
+      lastRunAt: null,
+      lastRunStatus: null,
+      createdByUserId: userId,
+      createdAt: now,
+      updatedAt: now,
+      jobType: 'webhook',
+      composioTriggerId,
+      composioTriggerSlug,
+      composioToolkitSlug,
+      composioConnectedAccountId,
+      composioUserId,
+      webhookTriggerConfigJson: JSON.stringify(input.webhookTriggerConfig || {}),
+    })
+    .returning();
+
+  console.log(`[Automationen] Created webhook job "${name}" (${id}, trigger=${composioTriggerId})`);
+  return mapJobRow(inserted);
+}
+
 export async function updateAutomationJob(jobId: string, input: UpdateAutomationJobInput): Promise<AutomationJobRecord | null> {
   const existing = await db.query.automationJobs.findFirst({
     where: eq(automationJobs.id, jobId),
@@ -326,7 +403,11 @@ export async function deleteAutomationJob(jobId: string): Promise<boolean> {
   });
 }
 
-export async function createPendingAutomationRun(jobId: string, triggerType: AutomationRunRecord['triggerType']): Promise<AutomationRunRecord> {
+export async function createPendingAutomationRun(
+  jobId: string,
+  triggerType: AutomationRunRecord['triggerType'],
+  options: { metadataJson?: Record<string, unknown> } = {},
+): Promise<AutomationRunRecord> {
   return db.transaction((tx) => {
     const job = tx.query.automationJobs.findFirst({
       where: eq(automationJobs.id, jobId),
@@ -354,6 +435,7 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
         resultPath: null,
         errorMessage: null,
         piSessionId: null,
+        metadataJson: options.metadataJson ? JSON.stringify(options.metadataJson) : null,
         createdAt: now,
       })
       .returning()
@@ -370,6 +452,61 @@ export async function createPendingAutomationRun(jobId: string, triggerType: Aut
 
     return mapRunRow(inserted, null);
   });
+}
+
+export async function getComposioWebhookEventByKeys(keys: { eventId?: string | null; webhookId?: string | null }) {
+  const clauses = [
+    keys.eventId ? eq(composioWebhookEvents.eventId, keys.eventId) : null,
+    keys.webhookId ? eq(composioWebhookEvents.webhookId, keys.webhookId) : null,
+  ].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+  if (clauses.length === 0) return null;
+  const row = await db.query.composioWebhookEvents.findFirst({
+    where: clauses.length === 1 ? clauses[0] : or(...clauses),
+  });
+  return row ?? null;
+}
+
+export async function recordComposioWebhookEvent(input: {
+  eventId?: string | null;
+  webhookId?: string | null;
+  triggerId?: string | null;
+  jobId?: string | null;
+  runId?: string | null;
+  source: string;
+  status: string;
+  error?: string | null;
+  metadataJson?: Record<string, unknown> | null;
+}) {
+  const now = new Date();
+  const [inserted] = await db
+    .insert(composioWebhookEvents)
+    .values({
+      id: `composio-event-${randomUUID()}`,
+      eventId: input.eventId || null,
+      webhookId: input.webhookId || null,
+      triggerId: input.triggerId || null,
+      jobId: input.jobId || null,
+      runId: input.runId || null,
+      source: input.source,
+      status: input.status,
+      error: input.error || null,
+      metadataJson: input.metadataJson ? JSON.stringify(input.metadataJson) : null,
+      receivedAt: now,
+      updatedAt: now,
+    })
+    .returning();
+  return inserted;
+}
+
+export async function markComposioWebhookEventDispatched(id: string, runId: string) {
+  await db
+    .update(composioWebhookEvents)
+    .set({
+      runId,
+      status: 'dispatched',
+      updatedAt: new Date(),
+    })
+    .where(eq(composioWebhookEvents.id, id));
 }
 
 export async function listDueAutomationJobs(now = new Date()): Promise<AutomationJobRecord[]> {
@@ -602,7 +739,10 @@ export async function markAutomationRunRetryScheduled(
         finishedAt: new Date(),
         attemptNumber: current.attemptNumber + 1,
         eventsLog: JSON.stringify(eventsLog),
-        metadataJson: JSON.stringify(metadataJson),
+        metadataJson: JSON.stringify({
+          ...(current.metadataJson ? JSON.parse(current.metadataJson) as Record<string, unknown> : {}),
+          ...metadataJson,
+        }),
       })
       .where(eq(automationRuns.id, runId))
       .returning()
@@ -648,7 +788,10 @@ export async function markAutomationRunFinished(
         errorMessage: values.errorMessage ?? null,
         finishedAt: now,
         eventsLog: JSON.stringify(values.eventsLog),
-        metadataJson: JSON.stringify(values.metadataJson),
+        metadataJson: JSON.stringify({
+          ...(current.metadataJson ? JSON.parse(current.metadataJson) as Record<string, unknown> : {}),
+          ...values.metadataJson,
+        }),
       })
       .where(eq(automationRuns.id, runId))
       .returning()

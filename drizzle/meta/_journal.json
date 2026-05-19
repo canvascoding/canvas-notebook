@@ -8,6 +8,13 @@
       "when": 1776701823885,
       "tag": "0000_bumpy_famine",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1779171438041,
+      "tag": "0001_composio_webhook_automations",
+      "breakpoints": true
     }
   ]
 }

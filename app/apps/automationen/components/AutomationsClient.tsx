@@ -141,6 +141,10 @@ function describeFriendlyScheduleLocalized(
     });
   }
 
+  if (schedule.kind === 'webhook') {
+    return 'Webhook';
+  }
+
   return translate('scheduleSummary.interval', {
     every: schedule.every,
     unit: translate(`intervalUnits.${schedule.unit}`),
@@ -222,7 +226,7 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.workspaceContextText = job.workspaceContextPaths.join('\n');
   draft.targetOutputPath = job.targetOutputPath || '';
   draft.status = job.status;
-  draft.scheduleKind = job.schedule.kind;
+  draft.scheduleKind = job.schedule.kind === 'webhook' ? 'interval' : job.schedule.kind;
   draft.timeZone = job.timeZone;
 
   if (job.schedule.kind === 'once') {
@@ -233,7 +237,7 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   } else if (job.schedule.kind === 'weekly') {
     draft.weeklyTime = job.schedule.times[0] || '';
     draft.weeklyDays = job.schedule.days;
-  } else {
+  } else if (job.schedule.kind === 'interval') {
     draft.intervalEvery = String(job.schedule.every);
     draft.intervalUnit = job.schedule.unit;
   }

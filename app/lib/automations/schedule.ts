@@ -159,11 +159,15 @@ export function validateFriendlySchedule(input: unknown): { schedule: FriendlySc
 
   const candidate = input as Record<string, unknown>;
   const kind = candidate.kind;
-  if (kind !== 'once' && kind !== 'daily' && kind !== 'weekly' && kind !== 'interval') {
+  if (kind !== 'once' && kind !== 'daily' && kind !== 'weekly' && kind !== 'interval' && kind !== 'webhook') {
     return { schedule: null, error: 'Unsupported schedule kind.' };
   }
 
   const timeZone = normalizeTimeZone(typeof candidate.timeZone === 'string' ? candidate.timeZone : undefined);
+
+  if (kind === 'webhook') {
+    return { schedule: { kind, timeZone }, error: null };
+  }
 
   if (kind === 'once') {
     const date = typeof candidate.date === 'string' ? candidate.date.trim() : '';
@@ -218,6 +222,10 @@ export function computeNextRunAt(
   options?: { from?: Date; lastRunAt?: Date | null },
 ): Date | null {
   const from = options?.from ? new Date(options.from) : new Date();
+
+  if (schedule.kind === 'webhook') {
+    return null;
+  }
 
   if (schedule.kind === 'interval') {
     const anchor = options?.lastRunAt ? new Date(options.lastRunAt) : from;
@@ -288,5 +296,8 @@ export function describeFriendlySchedule(schedule: FriendlySchedule): string {
   if (schedule.kind === 'weekly') {
     return `Wöchentlich (${schedule.days.join(', ')}) um ${schedule.times.join(', ')}`;
   }
-  return `Alle ${schedule.every} ${schedule.unit}`;
+  if (schedule.kind === 'interval') {
+    return `Alle ${schedule.every} ${schedule.unit}`;
+  }
+  return 'Webhook';
 }
