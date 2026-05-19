@@ -13,6 +13,8 @@ function getText(result: unknown): string {
 
 async function main() {
   process.env.QMD_ENABLED = 'false';
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-pi-data-'));
+  process.env.DATA = dataDir;
 
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
@@ -52,10 +54,36 @@ async function main() {
     },
   });
   const rgTool = createRipgrepTool();
+  const readTool = piTools.find((tool) => tool.name === 'read');
+  const lsTool = piTools.find((tool) => tool.name === 'ls');
+  const bashTool = piTools.find((tool) => tool.name === 'bash');
 
   assert.equal(piTools.some((tool) => tool.name === 'rg'), true);
   assert.equal(piTools.some((tool) => tool.name === 'qmd'), false);
   assert.equal(piTools.some((tool) => tool.name === 'qmd_search'), false);
+  assert.ok(readTool);
+  assert.ok(lsTool);
+  assert.ok(bashTool);
+
+  const secretsDir = path.join(dataDir, 'secrets');
+  const secretFile = path.join(secretsDir, 'Canvas-Integrations.env');
+  await fs.mkdir(secretsDir, { recursive: true });
+  await fs.writeFile(secretFile, 'OPENROUTER_API_KEY=should-not-leak\n', 'utf8');
+
+  const blockedReadResult = await readTool.execute('read-secret', { path: secretFile });
+  assert.match(getText(blockedReadResult), /restricted/i);
+
+  const blockedLsResult = await lsTool.execute('ls-secret', { path: secretsDir });
+  assert.match(getText(blockedLsResult), /restricted/i);
+
+  const blockedRgResult = await rgTool.execute('rg-secret', {
+    pattern: 'OPENROUTER',
+    path: secretsDir,
+  });
+  assert.match(getText(blockedRgResult), /restricted/i);
+
+  const blockedBashResult = await bashTool.execute('bash-secret-env', { command: 'printenv' });
+  assert.match(getText(blockedBashResult), /environment variables|restricted secret paths/i);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-rg-tool-'));
   const matchFile = path.join(tempDir, 'match.ts');

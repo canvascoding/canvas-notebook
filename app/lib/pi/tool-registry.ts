@@ -11,14 +11,83 @@ import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
+import { filterSafeEnv } from '@/app/lib/security/env-allowlist';
 
-// NOTE: resolveAgentPath intentionally has NO sandbox restriction.
+// NOTE: resolveAgentPath allows absolute paths, but agent file tools must call
+// assertAgentPathAllowed before touching the filesystem.
 // The agent must be able to access /data/canvas-agent (its own config/memory files)
 // in addition to /data/workspace. Relative paths still resolve from the workspace
 // root for convenience. The UI file browser (api/files/*) remains sandboxed via
 // workspace-files.ts — only agent tools use this unrestricted resolver.
 const AGENT_DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const AGENT_WORKSPACE_ROOT = path.join(AGENT_DATA, 'workspace');
+const RESOLVED_AGENT_DATA = path.resolve(process.cwd(), AGENT_DATA);
+const PROTECTED_AGENT_PATHS = [
+  path.join(RESOLVED_AGENT_DATA, 'secrets'),
+  '/data/secrets',
+  '/proc',
+  '/run/secrets',
+  '/sys/firmware',
+];
+
+function isPathWithin(candidatePath: string, basePath: string): boolean {
+  const normalizedCandidate = path.resolve(candidatePath);
+  const normalizedBase = path.resolve(basePath);
+  return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
+}
+
+function isProtectedAgentPath(candidatePath: string): boolean {
+  return PROTECTED_AGENT_PATHS.some((protectedPath) => isPathWithin(candidatePath, protectedPath));
+}
+
+async function assertAgentPathAllowed(candidatePath: string): Promise<void> {
+  if (isProtectedAgentPath(candidatePath)) {
+    throw new Error('Access to this path is restricted for security reasons.');
+  }
+
+  try {
+    const realPath = await fsPromises.realpath(candidatePath);
+    if (isProtectedAgentPath(realPath)) {
+      throw new Error('Access to this path is restricted for security reasons.');
+    }
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function assertAgentWritablePathAllowed(candidatePath: string): Promise<void> {
+  await assertAgentPathAllowed(candidatePath);
+
+  try {
+    await assertAgentPathAllowed(path.dirname(candidatePath));
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+}
+
+const BLOCKED_BASH_COMMAND_PATTERNS = [
+  /\b(?:env|printenv)\b/i,
+  /\bdeclare\s+-x\b/i,
+  /\bset\b\s*(?:[;&|]|$)/i,
+  /\bexport\b\s*(?:[;&|]|$)/i,
+  /\/proc(?:\/[^;&|`$()\s]+)*\/environ/i,
+  /\/data\/secrets(?:\/|$)/i,
+  /\/run\/secrets(?:\/|$)/i,
+  /\/sys\/firmware(?:\/|$)/i,
+  /Canvas-(?:Integrations|Agents)\.env/i,
+];
+
+function assertBashCommandAllowed(command: string): void {
+  if (BLOCKED_BASH_COMMAND_PATTERNS.some((pattern) => pattern.test(command))) {
+    throw new Error('Commands that expose environment variables or restricted secret paths are not allowed.');
+  }
+}
 
 function resolveAgentPath(p: string): string {
   return path.isAbsolute(p) ? p : path.join(AGENT_WORKSPACE_ROOT, p);
@@ -928,6 +997,7 @@ export function createRipgrepTool(): AgentTool {
 
       try {
         const targetPath = resolveAgentPath(searchPath || '.');
+        await assertAgentPathAllowed(targetPath);
         const args = ['-n', '--color', 'never', '--no-heading'];
         if (ignoreCase) {
           args.push('-i');
@@ -994,6 +1064,7 @@ export const piTools: AgentTool[] = [
         const { path: dirPath } = params as { path?: string };
         const effectiveDir = dirPath || '/data/workspace';
         const fullPath = resolveAgentPath(effectiveDir);
+        await assertAgentPathAllowed(fullPath);
         const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
         const files = await Promise.all(
           entries.map(async (entry) => {
@@ -1032,7 +1103,9 @@ export const piTools: AgentTool[] = [
     execute: async (toolCallId, params) => {
       const { path: filePath } = params as { path: string };
       try {
-        const buffer = await fsPromises.readFile(resolveAgentPath(filePath));
+        const fullPath = resolveAgentPath(filePath);
+        await assertAgentPathAllowed(fullPath);
+        const buffer = await fsPromises.readFile(fullPath);
         const image = imageContentForBuffer(filePath, buffer);
         if (image) {
           return {
@@ -1065,6 +1138,7 @@ export const piTools: AgentTool[] = [
       const { path: filePath, content } = params as { path: string; content: string };
       try {
         const fullPath = resolveAgentPath(filePath);
+        await assertAgentWritablePathAllowed(fullPath);
         const dir = path.dirname(fullPath);
         await fsPromises.mkdir(dir, { recursive: true });
         await fsPromises.writeFile(fullPath, content, 'utf8');
@@ -1093,7 +1167,11 @@ export const piTools: AgentTool[] = [
     execute: async (toolCallId, params) => {
       const { command } = params as { command: string };
       try {
-        const { stdout, stderr } = await execAsync(command, { cwd: '/' });
+        assertBashCommandAllowed(command);
+        const { stdout, stderr } = await execAsync(command, {
+          cwd: '/',
+          env: filterSafeEnv(process.env) as NodeJS.ProcessEnv,
+        });
         const output = [stdout, stderr].filter(Boolean).join('\n');
         return {
           content: [{ type: 'text', text: output || '(no output)' }],
@@ -1121,6 +1199,7 @@ export const piTools: AgentTool[] = [
       const { pattern, path: searchPath } = params as { pattern: string; path?: string };
       try {
         const targetPath = resolveAgentPath(searchPath || '.');
+        await assertAgentPathAllowed(targetPath);
         // Use execFile to avoid shell injection via pattern or path
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
           execFile('rg', ['-n', pattern, targetPath], { cwd: '/' }, (err, stdout, stderr) => {
@@ -1159,6 +1238,7 @@ export const piTools: AgentTool[] = [
       const { pattern, path: searchPath } = params as { pattern: string; path?: string };
       try {
         const searchRoot = resolveAgentPath(searchPath || '.');
+        await assertAgentPathAllowed(searchRoot);
         // Use execFile with argument array to avoid shell injection via pattern
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
           execFile('rg', ['--files', '-g', pattern, searchRoot], { cwd: '/' }, (err, stdout, stderr) => {
