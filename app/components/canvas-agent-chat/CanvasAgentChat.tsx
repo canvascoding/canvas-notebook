@@ -3549,18 +3549,37 @@ export default function CanvasAgentChat({
                   >
                     {t('compact')}
                   </button>
+                  <Link
+                    href="/settings?tab=agent"
+                    aria-label={t('openAgentSettings')}
+                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                    title={t('openAgentSettings')}
+                  >
+                    <Settings className="h-3 w-3" />
+                    {!isCompactView ? <span>{t('settings')}</span> : null}
+                  </Link>
                 </>
               )}
               {isMobile && (
-                <button
-                  type="button"
-                  data-testid="chat-mobile-details-toggle"
-                  onClick={() => setShowMobileDetails((current) => !current)}
-                  className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
-                >
-                  {t('details')}
-                  {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                </button>
+                <>
+                  <Link
+                    href="/settings?tab=agent"
+                    aria-label={t('openAgentSettings')}
+                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                    title={t('openAgentSettings')}
+                  >
+                    <Settings className="h-3 w-3" />
+                  </Link>
+                  <button
+                    type="button"
+                    data-testid="chat-mobile-details-toggle"
+                    onClick={() => setShowMobileDetails((current) => !current)}
+                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
+                  >
+                    {t('details')}
+                    {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -4430,15 +4449,6 @@ export default function CanvasAgentChat({
               </div>
             ) : null}
           </div>
-          <Link
-            href="/settings?tab=agent"
-            aria-label={t('openAgentSettings')}
-            className="inline-flex items-center gap-1 border border-border/60 bg-muted/30 px-2 py-1 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-            title={t('openAgentSettings')}
-          >
-            <Settings className="h-3 w-3" />
-             <span>{t('settings')}</span>
-           </Link>
           </div>
         </div>
        </div>
