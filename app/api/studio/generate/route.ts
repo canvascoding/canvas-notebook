@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!body.prompt || typeof body.prompt !== 'string' || body.prompt.trim().length === 0) {
-    if (!body.product_ids?.length && !body.persona_ids?.length && !body.style_ids?.length && !body.source_output_id && !body.extra_reference_urls?.length && !body.video_reference_urls?.length && !body.audio_reference_urls?.length) {
+    if (!body.product_ids?.length && !body.persona_ids?.length && !body.style_ids?.length && !body.source_output_id && !body.extra_reference_urls?.length && !body.video_reference_urls?.length && !body.audio_reference_urls?.length && !body.video_extend_source_path) {
       return NextResponse.json({ success: false, error: 'Prompt or reference images required' }, { status: 400 });
     }
   }

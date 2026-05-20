@@ -476,10 +476,11 @@ export function CreateView() {
   }, [store.mode, store.showMoreOptions]);
 
   const canGenerate = useMemo(() => {
-    return store.rawPrompt.trim().length > 0 || store.productRefs.length > 0 || store.personaRefs.length > 0 || store.presetRef !== null || store.fileRefs.length > 0 || store.videoReferenceRefs.length > 0 || store.audioReferenceRefs.length > 0;
-  }, [store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length]);
+    const hasVeoExtendSource = store.mode === 'video' && store.provider === 'veo' && store.videoExtendSourceRef !== null;
+    return store.rawPrompt.trim().length > 0 || store.productRefs.length > 0 || store.personaRefs.length > 0 || store.presetRef !== null || store.fileRefs.length > 0 || store.videoReferenceRefs.length > 0 || store.audioReferenceRefs.length > 0 || hasVeoExtendSource;
+  }, [store.mode, store.provider, store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length, store.videoExtendSourceRef]);
 
-  const hasVideoImageInput = store.mode === 'video' && (!!store.startFramePath || store.productRefs.length > 0 || store.personaRefs.length > 0 || store.styleRefs.length > 0 || store.fileRefs.length > 0 || store.videoReferenceRefs.length > 0 || store.audioReferenceRefs.length > 0);
+  const hasVideoImageInput = store.mode === 'video' && !store.videoExtendSourceRef && (!!store.startFramePath || store.productRefs.length > 0 || store.personaRefs.length > 0 || store.styleRefs.length > 0 || store.fileRefs.length > 0 || store.videoReferenceRefs.length > 0 || store.audioReferenceRefs.length > 0);
   const personGeneration = hasVideoImageInput ? 'allow_adult' as const : 'allow_all' as const;
   const isInitialGenerationLoad = generationHook.loading && generations.length === 0;
 
@@ -499,6 +500,14 @@ export function CreateView() {
       if (/^https?:\/\//i.test(ref.id)) return ref.id;
       return toMediaUrl(ref.id);
     }).slice(0, 3);
+    const videoExtendSourcePath = store.videoExtendSourceRef
+      ? (store.videoExtendSourceRef.id.startsWith('/api/studio/media/') || store.videoExtendSourceRef.id.startsWith('/api/studio/references/')
+        ? store.videoExtendSourceRef.id
+        : /^https?:\/\//i.test(store.videoExtendSourceRef.id)
+          ? store.videoExtendSourceRef.id
+          : toMediaUrl(store.videoExtendSourceRef.id))
+      : undefined;
+    const isVeoExtend = store.mode === 'video' && store.provider === 'veo' && Boolean(videoExtendSourcePath);
     const result = await generationHook.generate({
       prompt: store.rawPrompt.trim(),
       mode: store.mode,
@@ -517,14 +526,15 @@ export function CreateView() {
           : undefined,
       background: store.provider === 'openai' ? store.background : undefined,
       image_size: store.mode === 'image' && store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
-      extra_reference_urls: fileUrls,
-      video_reference_urls: store.mode === 'video' && store.provider === 'bytedance' ? videoReferenceUrls : undefined,
-      audio_reference_urls: store.mode === 'video' && store.provider === 'bytedance' ? audioReferenceUrls : undefined,
-      video_resolution: store.mode === 'video' ? store.videoResolution : undefined,
-      video_duration: store.mode === 'video' ? store.videoDuration : undefined,
-      start_frame_path: store.mode === 'video' ? store.startFramePath : undefined,
-      end_frame_path: store.mode === 'video' ? store.endFramePath : undefined,
-      is_looping: store.mode === 'video' ? store.isLooping : undefined,
+      extra_reference_urls: isVeoExtend ? undefined : fileUrls,
+      video_reference_urls: !isVeoExtend && store.mode === 'video' && store.provider === 'bytedance' ? videoReferenceUrls : undefined,
+      audio_reference_urls: !isVeoExtend && store.mode === 'video' && store.provider === 'bytedance' ? audioReferenceUrls : undefined,
+      video_extend_source_path: isVeoExtend ? videoExtendSourcePath : undefined,
+      video_resolution: store.mode === 'video' ? (isVeoExtend ? '720p' : store.videoResolution) : undefined,
+      video_duration: store.mode === 'video' ? (isVeoExtend ? 8 : store.videoDuration) : undefined,
+      start_frame_path: store.mode === 'video' && !isVeoExtend ? store.startFramePath : undefined,
+      end_frame_path: store.mode === 'video' && !isVeoExtend ? store.endFramePath : undefined,
+      is_looping: store.mode === 'video' && !isVeoExtend ? store.isLooping : undefined,
       person_generation: store.mode === 'video' ? personGeneration : undefined,
       video_generate_audio: store.mode === 'video' && store.provider === 'bytedance' ? store.videoGenerateAudio : undefined,
       video_web_search: store.mode === 'video' && store.provider === 'bytedance' ? store.videoWebSearch : undefined,
@@ -720,6 +730,7 @@ export function CreateView() {
             provider={store.provider}
             videoReferenceRefs={store.videoReferenceRefs}
             audioReferenceRefs={store.audioReferenceRefs}
+            videoExtendSourceRef={store.videoExtendSourceRef}
             products={products}
             personas={personas}
             styles={styles}
@@ -736,6 +747,7 @@ export function CreateView() {
               else if (type === 'file') store.removeFileRef(id);
               else if (type === 'videoReference') store.removeVideoReferenceRef(id);
               else if (type === 'audioReference') store.removeAudioReferenceRef(id);
+              else if (type === 'videoExtendSource') store.removeVideoExtendSourceRef();
               else if (type === 'preset') store.removePresetRef();
             }}
             onFileAdd={(paths) => {
@@ -751,6 +763,12 @@ export function CreateView() {
             onAudioReferenceAdd={(paths) => {
               for (const path of paths) {
                 store.addAudioReferenceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'audio' });
+              }
+            }}
+            onVideoExtendSourceAdd={(paths) => {
+              const path = paths[0];
+              if (path) {
+                store.setVideoExtendSourceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'video' });
               }
             }}
             onPasteImage={handlePasteImage}

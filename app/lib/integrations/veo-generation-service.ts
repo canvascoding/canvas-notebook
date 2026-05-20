@@ -177,6 +177,9 @@ export async function generateVideo(
   if (mode === 'extend_video' && resolution !== '720p') {
     throw new IntegrationServiceError('Video extension requires 720p resolution.', 400);
   }
+  if (mode === 'extend_video' && durationSeconds !== 8) {
+    throw new IntegrationServiceError('Video extension requires 8-second duration.', 400);
+  }
   if (!caps.resolutions.includes(resolution)) {
     throw new IntegrationServiceError(
       `Resolution ${resolution} is not supported by model ${model}. Supported: ${caps.resolutions.join(', ')}`,
@@ -216,6 +219,17 @@ export async function generateVideo(
       for (const sourcePath of (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES)) {
         references.push({ ...(await loadImageBytes(sourcePath)), role: 'reference' });
       }
+    }
+    if (mode === 'extend_video') {
+      if (!body.inputVideoPath) {
+        throw new IntegrationServiceError('Input video is required for extend mode.', 400);
+      }
+      const video = await loadVideoBytes(body.inputVideoPath);
+      references.push({
+        imageBytes: video.videoBytes,
+        mimeType: video.mimeType,
+        role: 'input_video',
+      });
     }
 
     const managed = await generateManagedMedia({

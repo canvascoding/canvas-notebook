@@ -142,6 +142,7 @@ export function StudioDashboard() {
     : null;
 
   const canGenerate = useMemo(() => {
+    const hasVeoExtendSource = store.mode === 'video' && store.provider === 'veo' && store.videoExtendSourceRef !== null;
     return (
       store.rawPrompt.trim().length > 0 ||
       store.productRefs.length > 0 ||
@@ -149,11 +150,12 @@ export function StudioDashboard() {
       store.presetRef !== null ||
       store.fileRefs.length > 0 ||
       store.videoReferenceRefs.length > 0 ||
-      store.audioReferenceRefs.length > 0
+      store.audioReferenceRefs.length > 0 ||
+      hasVeoExtendSource
     );
-  }, [store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length]);
+  }, [store.mode, store.provider, store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length, store.videoExtendSourceRef]);
 
-  const hasVideoImageInput = store.mode === 'video' && (
+  const hasVideoImageInput = store.mode === 'video' && !store.videoExtendSourceRef && (
     !!store.startFramePath ||
     store.productRefs.length > 0 ||
     store.personaRefs.length > 0 ||
@@ -168,6 +170,8 @@ export function StudioDashboard() {
     const fileUrls = store.fileRefs.map(getReferenceRequestValue).slice(0, store.mode === 'sound' ? 10 : undefined);
     const videoReferenceUrls = store.videoReferenceRefs.map(getReferenceRequestValue).slice(0, 3);
     const audioReferenceUrls = store.audioReferenceRefs.map(getReferenceRequestValue).slice(0, 3);
+    const videoExtendSourcePath = store.videoExtendSourceRef ? getReferenceRequestValue(store.videoExtendSourceRef) : undefined;
+    const isVeoExtend = store.mode === 'video' && store.provider === 'veo' && Boolean(videoExtendSourcePath);
     const result = await generationHook.generate({
       prompt: store.rawPrompt.trim(),
       mode: store.mode,
@@ -186,14 +190,15 @@ export function StudioDashboard() {
           : undefined,
       background: store.provider === 'openai' ? store.background : undefined,
       image_size: store.mode === 'image' && store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
-      extra_reference_urls: fileUrls,
-      video_reference_urls: store.mode === 'video' && store.provider === 'bytedance' ? videoReferenceUrls : undefined,
-      audio_reference_urls: store.mode === 'video' && store.provider === 'bytedance' ? audioReferenceUrls : undefined,
-      video_resolution: store.mode === 'video' ? store.videoResolution : undefined,
-      video_duration: store.mode === 'video' ? store.videoDuration : undefined,
-      start_frame_path: store.mode === 'video' ? store.startFramePath : undefined,
-      end_frame_path: store.mode === 'video' ? store.endFramePath : undefined,
-      is_looping: store.mode === 'video' ? store.isLooping : undefined,
+      extra_reference_urls: isVeoExtend ? undefined : fileUrls,
+      video_reference_urls: !isVeoExtend && store.mode === 'video' && store.provider === 'bytedance' ? videoReferenceUrls : undefined,
+      audio_reference_urls: !isVeoExtend && store.mode === 'video' && store.provider === 'bytedance' ? audioReferenceUrls : undefined,
+      video_extend_source_path: isVeoExtend ? videoExtendSourcePath : undefined,
+      video_resolution: store.mode === 'video' ? (isVeoExtend ? '720p' : store.videoResolution) : undefined,
+      video_duration: store.mode === 'video' ? (isVeoExtend ? 8 : store.videoDuration) : undefined,
+      start_frame_path: store.mode === 'video' && !isVeoExtend ? store.startFramePath : undefined,
+      end_frame_path: store.mode === 'video' && !isVeoExtend ? store.endFramePath : undefined,
+      is_looping: store.mode === 'video' && !isVeoExtend ? store.isLooping : undefined,
       person_generation: store.mode === 'video' ? personGeneration : undefined,
       video_generate_audio: store.mode === 'video' && store.provider === 'bytedance' ? store.videoGenerateAudio : undefined,
       video_web_search: store.mode === 'video' && store.provider === 'bytedance' ? store.videoWebSearch : undefined,
@@ -271,6 +276,7 @@ export function StudioDashboard() {
           provider={store.provider}
           videoReferenceRefs={store.videoReferenceRefs}
           audioReferenceRefs={store.audioReferenceRefs}
+          videoExtendSourceRef={store.videoExtendSourceRef}
           products={products}
           personas={personas}
           styles={styles}
@@ -287,6 +293,7 @@ export function StudioDashboard() {
             else if (type === 'file') store.removeFileRef(id);
             else if (type === 'videoReference') store.removeVideoReferenceRef(id);
             else if (type === 'audioReference') store.removeAudioReferenceRef(id);
+            else if (type === 'videoExtendSource') store.removeVideoExtendSourceRef();
             else if (type === 'preset') store.removePresetRef();
           }}
           onFileAdd={(paths) => {
@@ -302,6 +309,12 @@ export function StudioDashboard() {
           onAudioReferenceAdd={(paths) => {
             for (const path of paths) {
               store.addAudioReferenceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'audio' });
+            }
+          }}
+          onVideoExtendSourceAdd={(paths) => {
+            const path = paths[0];
+            if (path) {
+              store.setVideoExtendSourceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'video' });
             }
           }}
           onPasteImage={async (file) => {

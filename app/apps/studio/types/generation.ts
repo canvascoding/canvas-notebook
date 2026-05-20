@@ -62,6 +62,7 @@ export interface StudioGeneratePayload {
   extra_reference_urls?: string[];
   video_reference_urls?: string[];
   audio_reference_urls?: string[];
+  video_extend_source_path?: string | null;
   video_resolution?: '480p' | '720p' | '1080p' | '4k';
   video_duration?: number;
   start_frame_path?: string | null;

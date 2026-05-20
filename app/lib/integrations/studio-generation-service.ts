@@ -37,7 +37,7 @@ import {
   type SeedanceReferenceMedia,
   type SeedanceResolution,
 } from '@/app/lib/integrations/seedance-generation-service';
-import { loadMediaReference, loadMediaReferences } from '@/app/lib/integrations/media-reference-resolver';
+import { classifyMediaReference, loadMediaReference, loadMediaReferences } from '@/app/lib/integrations/media-reference-resolver';
 import { generateSound, LYRIA_CLIP_MODEL_ID, LYRIA_PRO_MODEL_ID, type SoundOutputFormat } from '@/app/lib/integrations/sound-generation-service';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
@@ -74,6 +74,7 @@ export interface StudioGenerateRequest {
   extra_reference_urls?: string[];
   video_reference_urls?: string[];
   audio_reference_urls?: string[];
+  video_extend_source_path?: string | null;
   video_resolution?: '480p' | '720p' | '1080p' | '4k';
   video_duration?: number;
   start_frame_path?: string;
@@ -288,10 +289,15 @@ export async function getStudioOutputForUser(outputId: string, userId: string) {
   const [output] = await db.select({
     id: studioGenerationOutputs.id,
     generationId: studioGenerationOutputs.generationId,
+    type: studioGenerationOutputs.type,
     filePath: studioGenerationOutputs.filePath,
+    fileName: studioGenerationOutputs.fileName,
     mimeType: studioGenerationOutputs.mimeType,
     width: studioGenerationOutputs.width,
     height: studioGenerationOutputs.height,
+    metadata: studioGenerationOutputs.metadata,
+    generationProvider: studioGenerations.provider,
+    generationModel: studioGenerations.model,
   })
     .from(studioGenerationOutputs)
     .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
@@ -299,6 +305,83 @@ export async function getStudioOutputForUser(outputId: string, userId: string) {
     .limit(1);
 
   return output ?? null;
+}
+
+function isVeoGenerationOutput(output: {
+  type: string;
+  mimeType: string | null;
+  metadata: string | null;
+  generationProvider: string | null;
+  generationModel: string | null;
+}): boolean {
+  if (output.type !== 'video' || !output.mimeType?.startsWith('video/')) {
+    return false;
+  }
+
+  if (output.generationProvider === 'veo' && output.generationModel?.startsWith('veo-')) {
+    return true;
+  }
+
+  if (!output.metadata) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(output.metadata) as { provider?: unknown; model?: unknown };
+    return parsed.provider === 'gemini' && typeof parsed.model === 'string' && parsed.model.startsWith('veo-');
+  } catch {
+    return false;
+  }
+}
+
+async function getVeoVideoOutputByPathForUser(inputPath: string, userId: string) {
+  const classified = classifyMediaReference(inputPath, { userId });
+  const candidates = new Set<string>();
+  const rawPath = inputPath.trim().split(/[?#]/, 1)[0] || inputPath.trim();
+  const decodedRawPath = (() => {
+    try {
+      return decodeURIComponent(rawPath);
+    } catch {
+      return rawPath;
+    }
+  })();
+
+  if (classified?.kind === 'studio_output') {
+    candidates.add(classified.relativePath);
+    candidates.add(`studio/outputs/${classified.relativePath}`);
+  }
+
+  const withoutApiPrefix = decodedRawPath
+    .replace(/^\/api\/studio\/media\//, '')
+    .replace(/^\/+/, '');
+  candidates.add(withoutApiPrefix);
+  if (withoutApiPrefix.startsWith('studio/outputs/')) {
+    candidates.add(withoutApiPrefix.slice('studio/outputs/'.length));
+  }
+
+  for (const candidate of candidates) {
+    const [output] = await db.select({
+      id: studioGenerationOutputs.id,
+      generationId: studioGenerationOutputs.generationId,
+      type: studioGenerationOutputs.type,
+      filePath: studioGenerationOutputs.filePath,
+      fileName: studioGenerationOutputs.fileName,
+      mimeType: studioGenerationOutputs.mimeType,
+      metadata: studioGenerationOutputs.metadata,
+      generationProvider: studioGenerations.provider,
+      generationModel: studioGenerations.model,
+    })
+      .from(studioGenerationOutputs)
+      .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+      .where(and(eq(studioGenerationOutputs.filePath, candidate), eq(studioGenerations.userId, userId)))
+      .limit(1);
+
+    if (output) {
+      return output;
+    }
+  }
+
+  return null;
 }
 
 async function loadSourceOutputImage(userId: string, sourceOutputId: string): Promise<LoadedReferenceImage> {
@@ -558,7 +641,8 @@ export async function createStudioGeneration(
     !request.source_output_id &&
     !(request.extra_reference_urls?.length) &&
     !(request.video_reference_urls?.length) &&
-    !(request.audio_reference_urls?.length)
+    !(request.audio_reference_urls?.length) &&
+    !request.video_extend_source_path
   ) {
     throw new StudioServiceError(
       'Prompt or reference required',
@@ -589,6 +673,22 @@ export async function createStudioGeneration(
     const sourceOutput = await getStudioOutputForUser(request.source_output_id, userId);
     sourceGenerationId = sourceOutput?.generationId ?? null;
   }
+  if (request.video_extend_source_path) {
+    if (mode !== 'video' || providerId !== 'veo') {
+      throw new StudioServiceError(
+        'Veo extension source can only be used with Veo video generation',
+        'Video-Erweiterung ist nur mit Google Veo verfügbar.',
+      );
+    }
+    const sourceOutput = await getVeoVideoOutputByPathForUser(request.video_extend_source_path, userId);
+    if (!sourceOutput || !isVeoGenerationOutput(sourceOutput)) {
+      throw new StudioServiceError(
+        'Extension source must be a previous Veo video output',
+        'Zum Erweitern kann nur ein vorher mit Veo erzeugtes Studio-Video verwendet werden.',
+      );
+    }
+    sourceGenerationId = sourceOutput.generationId;
+  }
 
   const requestMetadata = JSON.stringify({
     productIds,
@@ -611,6 +711,7 @@ export async function createStudioGeneration(
     extraReferenceUrls: request.extra_reference_urls,
     videoReferenceUrls: request.video_reference_urls,
     audioReferenceUrls: request.audio_reference_urls,
+    videoExtendSourcePath: request.video_extend_source_path || null,
     sourceOutputId: request.source_output_id,
     startFramePath: request.start_frame_path || null,
     endFramePath: request.end_frame_path || null,
@@ -841,6 +942,7 @@ async function executeStudioGenerationProcessing(
         parsedMeta.personGeneration,
         extraVideoReferences,
         extraAudioReferences,
+        parsedMeta.videoExtendSourcePath || null,
         {
           generateAudio: parsedMeta.videoGenerateAudio,
           webSearch: parsedMeta.videoWebSearch,
@@ -1114,20 +1216,21 @@ async function generateStudioVideo(
   personGeneration?: 'allow_all' | 'allow_adult' | 'dont_allow',
   referenceVideos: ProviderReferenceMedia[] = [],
   referenceAudios: ProviderReferenceMedia[] = [],
+  videoExtendSourcePath?: string | null,
   videoOptions?: {
     generateAudio?: boolean;
     webSearch?: boolean;
     nsfwChecker?: boolean;
   },
 ): Promise<StudioGenerationOutput[]> {
-  if (!prompt) {
+  if (!prompt && !videoExtendSourcePath) {
     throw new StudioServiceError(
       'Prompt required for video generation',
       'Ein Prompt ist für Video-Generierung erforderlich.',
     );
   }
 
-  const videoMode = (startFramePath || endFramePath) ? 'frames_to_video' : (referenceImages.length > 0 ? 'references_to_video' : 'text_to_video');
+  const videoMode = videoExtendSourcePath ? 'extend_video' : (startFramePath || endFramePath) ? 'frames_to_video' : (referenceImages.length > 0 ? 'references_to_video' : 'text_to_video');
   console.log(`[Studio Generation] Generating video: provider=${providerId}, model=${videoModel || 'default'}, mode=${videoMode}, aspect=${aspectRatio}, refs=${referenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}`);
 
   if (providerId === SEEDANCE_PROVIDER_ID) {
@@ -1151,10 +1254,12 @@ async function generateStudioVideo(
 
   const hasImageInput = videoMode === 'frames_to_video' || videoMode === 'references_to_video';
   const effectivePersonGeneration: 'allow_all' | 'allow_adult' | 'dont_allow' =
-    (hasImageInput && (!personGeneration || personGeneration === 'allow_all')) ? 'allow_adult' : (personGeneration || 'allow_all');
+    videoMode === 'extend_video'
+      ? 'allow_all'
+      : (hasImageInput && (!personGeneration || personGeneration === 'allow_all')) ? 'allow_adult' : (personGeneration || 'allow_all');
 
-  const resolvedResolution = videoResolution === '480p' ? '720p' : videoResolution || '720p';
-  const needsMinDuration8 = resolvedResolution === '1080p' || resolvedResolution === '4k' || videoMode === 'references_to_video';
+  const resolvedResolution = videoMode === 'extend_video' ? '720p' : videoResolution === '480p' ? '720p' : videoResolution || '720p';
+  const needsMinDuration8 = videoMode === 'extend_video' || resolvedResolution === '1080p' || resolvedResolution === '4k' || videoMode === 'references_to_video';
   const effectiveDuration = needsMinDuration8 ? 8 : (videoDuration || 6);
 
   const requestBody: GenerateVideoRequestBody = {
@@ -1165,9 +1270,10 @@ async function generateStudioVideo(
     resolution: resolvedResolution,
     durationSeconds: effectiveDuration as GenerateVideoRequestBody['durationSeconds'],
     referenceImagePaths: [],
-    startFramePath: startFramePath || undefined,
-    endFramePath: isLooping ? undefined : (endFramePath || undefined),
-    isLooping: isLooping || false,
+    startFramePath: videoMode === 'extend_video' ? undefined : startFramePath || undefined,
+    endFramePath: videoMode === 'extend_video' ? undefined : isLooping ? undefined : (endFramePath || undefined),
+    isLooping: videoMode === 'extend_video' ? false : isLooping || false,
+    inputVideoPath: videoExtendSourcePath || undefined,
     personGeneration: effectivePersonGeneration,
     generateAudio: videoOptions?.generateAudio,
   };
