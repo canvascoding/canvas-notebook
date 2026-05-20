@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
 import type { DocxEditorRef } from '@eigenpal/docx-js-editor/react';
+import { Loader2 } from 'lucide-react';
 
 // Dynamically import the editor to avoid SSR issues
 const DocxEditorComponent = dynamic(
@@ -126,7 +127,7 @@ export const DocxEditorWrapper = forwardRef<DocxEditorWrapperRef, DocxEditorWrap
         {isLoading && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-background">
             <div className="flex flex-col items-center gap-2">
-              <div className="h-8 w-8 animate-spin border-2 border-primary border-t-transparent"></div>
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <span className="text-xs text-muted-foreground">Loading DOCX editor...</span>
             </div>
           </div>

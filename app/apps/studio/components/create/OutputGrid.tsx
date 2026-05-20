@@ -7,6 +7,7 @@ import { OutputProcessingSkeleton } from './OutputProcessingSkeleton';
 import { OutputThumbnail } from './OutputThumbnail';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Loader2 } from 'lucide-react';
 
 export type OutputMediaFilter = 'all' | 'image' | 'video' | 'favorites' | 'generating' | 'failed';
 export type OutputDateFilter = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'older';
@@ -112,7 +113,7 @@ export function OutputGrid({
               <div className="h-2 w-12 animate-pulse rounded-full bg-primary/60" />
               <p className="text-sm font-semibold text-foreground">Loading images...</p>
             </div>
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {Array.from({ length: 12 }, (_, index) => (
