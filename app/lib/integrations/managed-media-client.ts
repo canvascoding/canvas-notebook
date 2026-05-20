@@ -7,7 +7,7 @@ export interface ManagedMediaReference {
   imageBytes: string;
   mimeType: string;
   fileName?: string;
-  role?: 'start_frame' | 'end_frame' | 'reference' | 'reference_image' | 'reference_video' | 'reference_audio';
+  role?: 'start_frame' | 'end_frame' | 'reference' | 'reference_image' | 'reference_video' | 'reference_audio' | 'input_video';
 }
 
 export interface ManagedMediaOutput {

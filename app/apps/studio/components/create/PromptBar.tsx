@@ -63,6 +63,7 @@ interface PromptBarProps {
   provider?: string;
   videoReferenceRefs?: ReferenceTag[];
   audioReferenceRefs?: ReferenceTag[];
+  videoExtendSourceRef?: ReferenceTag | null;
   products: StudioProduct[];
   personas: StudioPersona[];
   styles: StudioStyle[];
@@ -72,10 +73,11 @@ interface PromptBarProps {
   onPersonaAdd: (persona: StudioPersona) => void;
   onStyleAdd: (style: StudioStyle) => void;
   onPresetSelect: (preset: StudioPreset) => void;
-  onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file' | 'videoReference' | 'audioReference', id: string) => void;
+  onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file' | 'videoReference' | 'audioReference' | 'videoExtendSource', id: string) => void;
   onFileAdd: (paths: string[]) => void;
   onVideoReferenceAdd?: (paths: string[]) => void;
   onAudioReferenceAdd?: (paths: string[]) => void;
+  onVideoExtendSourceAdd?: (paths: string[]) => void;
   onPasteImage?: (file: File) => void;
 }
 
@@ -131,6 +133,7 @@ export function PromptBar({
   provider,
   videoReferenceRefs = [],
   audioReferenceRefs = [],
+  videoExtendSourceRef = null,
   products,
   personas,
   styles,
@@ -144,12 +147,14 @@ export function PromptBar({
   onFileAdd,
   onVideoReferenceAdd,
   onAudioReferenceAdd,
+  onVideoExtendSourceAdd,
   onPasteImage,
 }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [mediaPicker, setMediaPicker] = useState<'image' | 'video' | 'audio'>('image');
+  const [mediaPicker, setMediaPicker] = useState<'image' | 'video' | 'audio' | 'extendVideo'>('image');
   const isSeedanceVideo = mode === 'video' && provider === 'bytedance';
+  const isVeoVideo = mode === 'video' && provider === 'veo';
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     if (!onPasteImage) return;
@@ -267,7 +272,7 @@ export function PromptBar({
       </div>
 
       {/* Unified references above textarea */}
-      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0 || videoReferenceRefs.length > 0 || audioReferenceRefs.length > 0) ? (
+      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0 || videoReferenceRefs.length > 0 || audioReferenceRefs.length > 0 || videoExtendSourceRef) ? (
         <div className="mb-3 flex flex-wrap gap-2">
           {value.productRefs.map((product) => (
             <ReferenceHoverCard
@@ -414,6 +419,25 @@ export function PromptBar({
               />
             </ReferenceHoverCard>
           ))}
+          {videoExtendSourceRef ? (
+            <ReferenceHoverCard
+              key={videoExtendSourceRef.id}
+              name={videoExtendSourceRef.name}
+              type="file"
+              fallbackIcon={<FileVideo className="h-4 w-4 text-orange-600" />}
+              bgColor="bg-orange-50"
+              onRemove={() => onReferenceRemove('videoExtendSource', videoExtendSourceRef.id)}
+            >
+              <ReferenceChip
+                label={`@extend ${videoExtendSourceRef.name}`}
+                borderColor="border-orange-400"
+                bgColor="bg-orange-50"
+                icon={<FileVideo className="h-4 w-4 text-orange-600" />}
+                onRemove={() => onReferenceRemove('videoExtendSource', videoExtendSourceRef.id)}
+                isLoading={videoExtendSourceRef.status === 'loading'}
+              />
+            </ReferenceHoverCard>
+          ) : null}
 
         </div>
       ) : null}
@@ -440,13 +464,27 @@ export function PromptBar({
         </div>
       ) : null}
 
+      {isVeoVideo ? (
+        <div className="mt-3">
+          <Button type="button" variant="outline" size="sm" className="w-full justify-start rounded-xl sm:w-auto" onClick={() => { setMediaPicker('extendVideo'); setPickerOpen(true); }}>
+            <FileVideo className="h-4 w-4" />
+            Extend source
+            <span className="ml-auto text-xs text-muted-foreground">{videoExtendSourceRef ? '1/1' : '0/1'}</span>
+          </Button>
+        </div>
+      ) : null}
+
       <ReferencePickerDialog
         open={pickerOpen}
         onOpenChange={setPickerOpen}
-        mediaKind={mediaPicker}
-        maxSelection={mediaPicker === 'image' ? 9 : 3}
+        mediaKind={mediaPicker === 'audio' ? 'audio' : mediaPicker === 'image' ? 'image' : 'video'}
+        multiple={mediaPicker !== 'extendVideo'}
+        maxSelection={mediaPicker === 'extendVideo' ? 1 : mediaPicker === 'image' ? 9 : 3}
+        studioOnly={mediaPicker === 'extendVideo'}
+        veoGeneratedOnly={mediaPicker === 'extendVideo'}
         onConfirm={(paths) => {
-          if (mediaPicker === 'video') onVideoReferenceAdd?.(paths);
+          if (mediaPicker === 'extendVideo') onVideoExtendSourceAdd?.(paths);
+          else if (mediaPicker === 'video') onVideoReferenceAdd?.(paths);
           else if (mediaPicker === 'audio') onAudioReferenceAdd?.(paths);
           else onFileAdd(paths);
           setPickerOpen(false);

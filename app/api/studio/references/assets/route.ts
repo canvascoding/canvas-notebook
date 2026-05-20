@@ -11,6 +11,9 @@ import { getStudioEditsRoot, getStudioOutputsRoot } from '@/app/lib/integrations
 import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { db } from '@/app/lib/db';
+import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
+import { and, desc, eq } from 'drizzle-orm';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif']);
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
@@ -55,6 +58,23 @@ interface AssetItem {
   previewUrl: string;
 }
 
+function isVeoGenerationOutput(outputMetadata: string | null, generationProvider: string | null, generationModel: string | null): boolean {
+  if (generationProvider === 'veo' && generationModel?.startsWith('veo-')) {
+    return true;
+  }
+
+  if (!outputMetadata) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(outputMetadata) as { provider?: unknown; model?: unknown };
+    return parsed.provider === 'gemini' && typeof parsed.model === 'string' && parsed.model.startsWith('veo-');
+  } catch {
+    return false;
+  }
+}
+
 async function safeBuildGenericFileTree(absoluteBasePath: string, depth: number): Promise<FileNode[]> {
   try {
     await fs.access(absoluteBasePath);
@@ -89,10 +109,55 @@ export async function GET(request: NextRequest) {
     const query = (searchParams.get('q') || '').trim().toLowerCase();
     const kindParam = (searchParams.get('kind') || 'image').trim().toLowerCase();
     const requestedKind: AssetKind = kindParam === 'video' || kindParam === 'audio' ? kindParam : 'image';
+    const veoOnly = searchParams.get('veoOnly') === 'true';
     const limitRaw = Number(searchParams.get('limit') || '300');
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 300;
     const depthRaw = Number(searchParams.get('depth') || '8');
     const depth = Number.isFinite(depthRaw) ? Math.max(1, Math.min(depthRaw, 12)) : 8;
+
+    if (veoOnly) {
+      if (requestedKind !== 'video') {
+        return NextResponse.json({ success: true, data: [], total: 0 });
+      }
+
+      const rows = await db.select({
+        filePath: studioGenerationOutputs.filePath,
+        fileName: studioGenerationOutputs.fileName,
+        fileSize: studioGenerationOutputs.fileSize,
+        mimeType: studioGenerationOutputs.mimeType,
+        metadata: studioGenerationOutputs.metadata,
+        createdAt: studioGenerationOutputs.createdAt,
+        provider: studioGenerations.provider,
+        model: studioGenerations.model,
+      })
+        .from(studioGenerationOutputs)
+        .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+        .where(and(
+          eq(studioGenerations.userId, session.user.id),
+          eq(studioGenerationOutputs.type, 'video'),
+        ))
+        .orderBy(desc(studioGenerationOutputs.createdAt))
+        .limit(limit);
+
+      const filtered = rows
+        .filter((row) => row.filePath && isVeoGenerationOutput(row.metadata, row.provider, row.model))
+        .filter((row) => !query || row.filePath.toLowerCase().includes(query) || (row.fileName || '').toLowerCase().includes(query))
+        .map((row): AssetItem => ({
+          path: row.filePath.startsWith('studio/') ? row.filePath : `studio/outputs/${row.filePath}`,
+          name: row.fileName || row.filePath.split('/').pop() || row.filePath,
+          kind: 'video',
+          size: row.fileSize ?? undefined,
+          modified: row.createdAt?.getTime(),
+          mediaUrl: toMediaUrl(row.filePath),
+          previewUrl: toPreviewUrl(row.filePath, 480),
+        }));
+
+      return NextResponse.json({
+        success: true,
+        data: filtered,
+        total: filtered.length,
+      });
+    }
 
     // Scan studio outputs (data/studio/outputs)
     const outputsTree = await safeBuildGenericFileTree(getStudioOutputsRoot(), depth);

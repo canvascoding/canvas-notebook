@@ -41,6 +41,8 @@ interface ReferencePickerDialogProps {
   multiple?: boolean;
   maxSelection?: number;
   mediaKind?: MediaKind;
+  studioOnly?: boolean;
+  veoGeneratedOnly?: boolean;
 }
 
 const MEDIA_EXTS: Record<MediaKind, Set<string>> = {
@@ -226,7 +228,7 @@ function TreeNode({
   );
 }
 
-export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple = true, maxSelection = 10, mediaKind = 'image' }: ReferencePickerDialogProps) {
+export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple = true, maxSelection = 10, mediaKind = 'image', studioOnly = false, veoGeneratedOnly = false }: ReferencePickerDialogProps) {
   const t = useTranslations('studio.referencePicker');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<Source>('studio');
@@ -267,7 +269,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     setError(null);
     try {
       const query = search.trim();
-      const url = `/api/studio/references/assets?kind=${mediaKind}&limit=300${query ? `&q=${encodeURIComponent(query)}` : ''}`;
+      const url = `/api/studio/references/assets?kind=${mediaKind}&limit=300${veoGeneratedOnly ? '&veoOnly=true' : ''}${query ? `&q=${encodeURIComponent(query)}` : ''}`;
       const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Failed loading assets');
@@ -278,7 +280,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     } finally {
       setIsLoading(false);
     }
-  }, [search, mediaKind]);
+  }, [search, mediaKind, veoGeneratedOnly]);
 
   const loadWorkspaceTree = async () => {
     setIsTreeLoading(true);
@@ -327,17 +329,20 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const activeTab = mediaKind !== 'image' && tab === 'urls' ? 'studio' : tab;
+  const activeTab = studioOnly || (mediaKind !== 'image' && tab === 'urls') ? 'studio' : tab;
 
   useEffect(() => {
     if (!open) return;
+    if (studioOnly && tab !== 'studio') {
+      return;
+    }
     if (tab === 'studio') {
       startTransition(() => { void loadStudioAssets(); });
     } else if (tab === 'workspace') {
       startTransition(() => { void loadWorkspaceTree(); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, open, search]);
+  }, [tab, open, search, studioOnly]);
 
   const toggleExpanded = (path: string) => {
     setExpandedDirs((prev) => {
@@ -558,11 +563,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
           </DialogHeader>
 
 	          <Tabs value={activeTab} onValueChange={(val) => setTab(val as Source)} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-	            <TabsList className={cn('grid w-full shrink-0', mediaKind === 'image' ? 'grid-cols-4' : 'grid-cols-3')}>
+	            <TabsList className={cn('grid w-full shrink-0', studioOnly ? 'grid-cols-1' : mediaKind === 'image' ? 'grid-cols-4' : 'grid-cols-3')}>
               <TabsTrigger value="studio">{t('tabs.studio')}</TabsTrigger>
-              <TabsTrigger value="workspace">{t('tabs.workspace')}</TabsTrigger>
-              <TabsTrigger value="upload">{t('tabs.upload')}</TabsTrigger>
-	              {mediaKind === 'image' ? <TabsTrigger value="urls">{t('tabs.urls')}</TabsTrigger> : null}
+              {!studioOnly ? <TabsTrigger value="workspace">{t('tabs.workspace')}</TabsTrigger> : null}
+              {!studioOnly ? <TabsTrigger value="upload">{t('tabs.upload')}</TabsTrigger> : null}
+	              {!studioOnly && mediaKind === 'image' ? <TabsTrigger value="urls">{t('tabs.urls')}</TabsTrigger> : null}
             </TabsList>
 
             {/* Studio tab */}

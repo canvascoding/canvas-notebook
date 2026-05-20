@@ -100,6 +100,10 @@ interface StudioGenerationState {
   removeAudioReferenceRef: (id: string) => void;
   setAudioReferenceRefs: (refs: ReferenceTag[]) => void;
 
+  videoExtendSourceRef: ReferenceTag | null;
+  setVideoExtendSourceRef: (file: ReferenceTag | null) => void;
+  removeVideoExtendSourceRef: () => void;
+
   startFramePath: string | null;
   setStartFramePath: (path: string | null) => void;
 
@@ -237,6 +241,10 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
     set((state) => ({ audioReferenceRefs: state.audioReferenceRefs.filter((r) => r.id !== id) })),
   setAudioReferenceRefs: (audioReferenceRefs) => set({ audioReferenceRefs }),
 
+  videoExtendSourceRef: null,
+  setVideoExtendSourceRef: (videoExtendSourceRef) => set({ videoExtendSourceRef }),
+  removeVideoExtendSourceRef: () => set({ videoExtendSourceRef: null }),
+
   startFramePath: null,
   setStartFramePath: (startFramePath) => set({ startFramePath }),
 
@@ -249,6 +257,7 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
       fileRefs: [],
       videoReferenceRefs: [],
       audioReferenceRefs: [],
+      videoExtendSourceRef: null,
       startFramePath: null,
       endFramePath: null,
     }),
