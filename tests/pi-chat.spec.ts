@@ -390,10 +390,12 @@ test.describe('PI Chat E2E', () => {
     await expect(runDisclosure).toBeVisible();
     await runDisclosure.getByTestId('chat-run-disclosure-toggle').click();
     const runSteps = runDisclosure.getByTestId('chat-run-steps');
-    await expect(runSteps).toContainText('ls');
-    await expect(runSteps).toContainText('alpha.md');
-    await expect(runSteps).toContainText('beta.ts');
-    await expect(runSteps.getByText('Input')).toBeVisible();
+    const toolPill = runSteps.getByTestId('chat-tool-subtle').first();
+    await expect(toolPill).toBeVisible();
+    await toolPill.locator('button').click();
+    await expect(page.getByTestId('chat-tool-body')).toContainText('alpha.md');
+    await expect(page.getByTestId('chat-tool-body')).toContainText('beta.ts');
+    await expect(page.getByText('Input')).toBeVisible();
   });
 
   test('should show studio media tool inputs for image and video generation calls', async ({ page }) => {
@@ -489,18 +491,20 @@ test.describe('PI Chat E2E', () => {
     await expect(runDisclosure).toBeVisible();
     await runDisclosure.getByTestId('chat-run-disclosure-toggle').click();
     const runSteps = runDisclosure.getByTestId('chat-run-steps');
+    const toolPills = runSteps.getByTestId('chat-tool-subtle');
+    await expect(toolPills).toHaveCount(2);
 
-    await expect(runSteps).toContainText('studio_generate_image');
-    await expect(runSteps).toContainText('extra_reference_urls');
-    await expect(runSteps).toContainText(imageReferencePath);
-    await expect(runSteps).toContainText('Use the same composition with a colder blue palette.');
+    await toolPills.nth(0).locator('button').click();
+    await expect(page.getByTestId('chat-tool-body').last()).toContainText('extra_reference_urls');
+    await expect(page.getByTestId('chat-tool-body').last()).toContainText(imageReferencePath);
+    await expect(page.getByTestId('chat-tool-body').last()).toContainText('Use the same composition with a colder blue palette.');
 
-    await expect(runSteps).toContainText('studio_generate_video');
-    await expect(runSteps).toContainText('start_frame_path');
-    await expect(runSteps).toContainText(videoStartFramePath);
-    await expect(runSteps).toContainText('end_frame_path');
-    await expect(runSteps).toContainText(videoEndFramePath);
-    await expect(runSteps).toContainText('is_looping');
+    await toolPills.nth(1).locator('button').click();
+    await expect(page.getByTestId('chat-tool-body').last()).toContainText('start_frame_path');
+    await expect(page.getByTestId('chat-tool-body').last()).toContainText(videoStartFramePath);
+    await expect(page.getByTestId('chat-tool-body').last()).toContainText('end_frame_path');
+    await expect(page.getByTestId('chat-tool-body').last()).toContainText(videoEndFramePath);
+    await expect(page.getByTestId('chat-tool-body').last()).toContainText('is_looping');
   });
 
   test('should hide assistant text behind a streaming placeholder until the final message arrives', async ({ page }) => {
