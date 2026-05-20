@@ -87,7 +87,7 @@ async function main() {
   global.clearTimeout = (((_id?: ReturnType<typeof setTimeout>) => {}) as unknown) as typeof clearTimeout;
 
   const originalDateNow = Date.now;
-  let nowValues = [0, 1000, 2000, 3000];
+  const nowValues = [0, 1000, 2000, 3000];
   Date.now = () => nowValues.shift() ?? 3000;
 
   try {
