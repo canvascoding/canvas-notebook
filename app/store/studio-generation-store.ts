@@ -32,8 +32,8 @@ interface StudioGenerationState {
   quality: 'low' | 'medium' | 'high' | 'auto';
   setQuality: (quality: 'low' | 'medium' | 'high' | 'auto') => void;
 
-  outputFormat: 'png' | 'jpeg' | 'webp';
-  setOutputFormat: (format: 'png' | 'jpeg' | 'webp') => void;
+  outputFormat: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
+  setOutputFormat: (format: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav') => void;
 
   background: 'transparent' | 'opaque' | 'auto';
   setBackground: (bg: 'transparent' | 'opaque' | 'auto') => void;

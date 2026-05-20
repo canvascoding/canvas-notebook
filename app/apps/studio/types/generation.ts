@@ -1,13 +1,13 @@
 import type { StudioPreset } from './presets';
 
-export type StudioGenerationMode = 'image' | 'video';
+export type StudioGenerationMode = 'image' | 'video' | 'sound';
 export type StudioGenerationStatus = 'pending' | 'generating' | 'completed' | 'failed';
 
 export interface StudioGenerationOutput {
   id: string;
   generationId: string;
   variationIndex: number;
-  type: 'image' | 'video';
+  type: 'image' | 'video' | 'sound';
   filePath: string;
   fileName?: string | null;
   mediaUrl: string | null;
@@ -56,7 +56,7 @@ export interface StudioGeneratePayload {
   provider?: string;
   model?: string;
   quality?: 'low' | 'medium' | 'high' | 'auto';
-  output_format?: 'png' | 'jpeg' | 'webp';
+  output_format?: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
   background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
   extra_reference_urls?: string[];

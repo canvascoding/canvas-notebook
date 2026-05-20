@@ -26,7 +26,7 @@ import { StudioPreview } from './create/StudioPreview';
 import { ReferencePickerDialog } from './create/ReferencePickerDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play, ChevronDown, Crop } from 'lucide-react';
+import { AudioLines, Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play, ChevronDown, Crop } from 'lucide-react';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -161,7 +161,7 @@ export function StudioDashboard() {
   const personGeneration = hasVideoImageInput ? 'allow_adult' as const : 'allow_all' as const;
 
   const handleGenerate = useCallback(async () => {
-    const fileUrls = store.fileRefs.map(getReferenceRequestValue);
+    const fileUrls = store.fileRefs.map(getReferenceRequestValue).slice(0, store.mode === 'sound' ? 10 : undefined);
     const result = await generationHook.generate({
       prompt: store.rawPrompt.trim(),
       mode: store.mode,
@@ -169,13 +169,17 @@ export function StudioDashboard() {
       persona_ids: store.personaRefs.map((p) => p.id),
       preset_id: store.presetRef?.id,
       aspect_ratio: store.aspectRatio,
-      count: store.mode === 'video' ? 1 : store.count,
+      count: store.mode === 'video' || store.mode === 'sound' ? 1 : store.count,
       provider: store.provider,
       model: store.model,
       quality: store.provider === 'openai' ? store.quality : undefined,
-      output_format: store.provider === 'openai' ? store.outputFormat : undefined,
+      output_format: store.mode === 'sound'
+        ? (store.outputFormat === 'wav' ? 'wav' : 'mp3')
+        : store.provider === 'openai'
+          ? (['png', 'jpeg', 'webp'].includes(store.outputFormat) ? store.outputFormat as 'png' | 'jpeg' | 'webp' : 'png')
+          : undefined,
       background: store.provider === 'openai' ? store.background : undefined,
-      image_size: store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
+      image_size: store.mode === 'image' && store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
       extra_reference_urls: fileUrls,
       video_resolution: store.mode === 'video' ? store.videoResolution : undefined,
       video_duration: store.mode === 'video' ? store.videoDuration : undefined,
@@ -335,9 +339,16 @@ export function StudioDashboard() {
               store.setVideoGenerateAudio(true);
               store.setVideoWebSearch(false);
               store.setVideoNsfwChecker(false);
+            } else if (nextMode === 'sound') {
+              store.setProvider('gemini');
+              store.setModel(getDefaultModelForProvider('sound', 'gemini'));
+              store.setOutputFormat('mp3');
             } else {
               store.setProvider('gemini');
               store.setModel(getDefaultModelForProvider('image', 'gemini'));
+              if (store.outputFormat === 'mp3' || store.outputFormat === 'wav') {
+                store.setOutputFormat('png');
+              }
               const validRatios = getAspectRatiosForProvider('image', 'gemini');
               if (!validRatios.includes(store.aspectRatio as never)) {
                 store.setAspectRatio('1:1');
@@ -366,6 +377,9 @@ export function StudioDashboard() {
               const validDur = getVideoDurationsForModel(nextModel);
               store.setVideoDuration(validDur.includes(store.videoDuration) ? store.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
             }
+            if (store.mode === 'sound') {
+              store.setOutputFormat('mp3');
+            }
           }}
           model={store.model}
           onModelChange={(nextModel) => {
@@ -387,6 +401,9 @@ export function StudioDashboard() {
               if (!validDur.includes(store.videoDuration)) {
                 store.setVideoDuration(validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
               }
+            }
+            if (store.mode === 'sound' && nextModel !== 'lyria-3-pro-preview') {
+              store.setOutputFormat('mp3');
             }
           }}
           quality={store.quality}
@@ -508,7 +525,11 @@ export function StudioDashboard() {
                   }}
                   className="group relative aspect-square overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
                 >
-                  {output.type === 'video' ? (
+                  {output.type === 'sound' ? (
+                    <div className="flex h-full w-full items-center justify-center bg-muted text-primary">
+                      <AudioLines className="h-10 w-10" />
+                    </div>
+                  ) : output.type === 'video' ? (
                     <video
                       src={output.mediaUrl!}
                       muted

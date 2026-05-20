@@ -17,7 +17,7 @@ import { useState } from 'react';
 
 interface OutputHoverOverlayProps {
   mediaUrl: string | null;
-  type: 'image' | 'video';
+  type: 'image' | 'video' | 'sound';
   isFavorite: boolean;
   generation: StudioGeneration;
   output: StudioGenerationOutput;
@@ -79,7 +79,7 @@ export function OutputHoverOverlay({
             <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onToggleFavorite(generation, output)}>
               <Star className={`h-4 w-4 ${isFavorite ? 'fill-current text-amber-300' : ''}`} />
             </Button>
-            <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onCreateVariation(generation, output)}>
+            <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onCreateVariation(generation, output)} disabled={type !== 'image'}>
               <RefreshCcw className="h-4 w-4" />
             </Button>
             <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onCreateVideo(generation, output)} disabled={type !== 'image'}>

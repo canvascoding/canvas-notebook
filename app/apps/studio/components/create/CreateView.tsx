@@ -308,7 +308,7 @@ export function CreateView() {
       .filter((entry) => {
         if (mediaFilter === 'all') return true;
         if (mediaFilter === 'favorites') return entry.output.isFavorite;
-        if (mediaFilter === 'image' || mediaFilter === 'video') return entry.output.type === mediaFilter;
+        if (mediaFilter === 'image' || mediaFilter === 'video' || mediaFilter === 'sound') return entry.output.type === mediaFilter;
         return false;
       })
       .filter((entry) => matchesDateFilter(entry.generation.createdAt))
@@ -488,7 +488,7 @@ export function CreateView() {
       if (ref.id.startsWith('/api/studio/media/') || ref.id.startsWith('/api/studio/references/')) return ref.id;
       if (/^https?:\/\//i.test(ref.id)) return ref.id;
       return toMediaUrl(ref.id);
-    });
+    }).slice(0, store.mode === 'sound' ? 10 : undefined);
     const result = await generationHook.generate({
       prompt: store.rawPrompt.trim(),
       mode: store.mode,
@@ -496,13 +496,17 @@ export function CreateView() {
       persona_ids: store.personaRefs.map((persona) => persona.id),
       preset_id: store.presetRef?.id,
       aspect_ratio: store.aspectRatio,
-      count: store.mode === 'video' ? 1 : store.count,
+      count: store.mode === 'video' || store.mode === 'sound' ? 1 : store.count,
       provider: store.provider,
       model: store.model,
       quality: store.provider === 'openai' ? store.quality : undefined,
-      output_format: store.provider === 'openai' ? store.outputFormat : undefined,
+      output_format: store.mode === 'sound'
+        ? (store.outputFormat === 'wav' ? 'wav' : 'mp3')
+        : store.provider === 'openai'
+          ? (['png', 'jpeg', 'webp'].includes(store.outputFormat) ? store.outputFormat as 'png' | 'jpeg' | 'webp' : 'png')
+          : undefined,
       background: store.provider === 'openai' ? store.background : undefined,
-      image_size: store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
+      image_size: store.mode === 'image' && store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
       extra_reference_urls: fileUrls,
       video_resolution: store.mode === 'video' ? store.videoResolution : undefined,
       video_duration: store.mode === 'video' ? store.videoDuration : undefined,
@@ -738,9 +742,16 @@ export function CreateView() {
                 store.setVideoGenerateAudio(true);
                 store.setVideoWebSearch(false);
                 store.setVideoNsfwChecker(false);
+              } else if (nextMode === 'sound') {
+                store.setProvider('gemini');
+                store.setModel(getDefaultModelForProvider('sound', 'gemini'));
+                store.setOutputFormat('mp3');
               } else {
                 store.setProvider('gemini');
                 store.setModel(getDefaultModelForProvider('image', 'gemini'));
+                if (store.outputFormat === 'mp3' || store.outputFormat === 'wav') {
+                  store.setOutputFormat('png');
+                }
                 const validRatios = getAspectRatiosForProvider('image', 'gemini');
                 if (!validRatios.includes(store.aspectRatio as never)) {
                   store.setAspectRatio('1:1');
@@ -769,6 +780,9 @@ export function CreateView() {
                 const validDur = getVideoDurationsForModel(nextModel);
                 store.setVideoDuration(validDur.includes(store.videoDuration) ? store.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
               }
+              if (store.mode === 'sound') {
+                store.setOutputFormat('mp3');
+              }
             }}
             model={store.model}
             onModelChange={(nextModel) => {
@@ -790,6 +804,9 @@ export function CreateView() {
                 if (!validDur.includes(store.videoDuration)) {
                   store.setVideoDuration(validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
                 }
+              }
+              if (store.mode === 'sound' && nextModel !== 'lyria-3-pro-preview') {
+                store.setOutputFormat('mp3');
               }
             }}
             quality={store.quality}

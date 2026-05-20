@@ -427,6 +427,82 @@ export function createStudioGenerateVideoTool(
   };
 }
 
+export function createStudioGenerateSoundTool(
+  deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
+): AgentTool {
+  const executeFn = deps.executeStudioGenerationFn ?? executeStudioGeneration;
+  const userId = deps.userId;
+
+  return {
+    name: 'studio_generate_sound',
+    label: 'Generating studio sound',
+    description:
+      'Generates music or sound with Gemini Lyria 3 through Studio. The preferred tool for all music and sound generation. ' +
+      'Supports up to 10 image references in extra_reference_urls so music can be inspired by visual mood, colors, products, personas, styles, or existing Studio outputs. ' +
+      'Providers: gemini only. Models: lyria-3-clip-preview for 30-second clips, lyria-3-pro-preview for longer songs. Output files are saved to /data/studio/outputs/.',
+    parameters: Type.Object({
+      prompt: Type.String({ description: 'Text description of the music or sound to generate. Include genre, mood, instruments, BPM, key, structure, lyrics, and duration when relevant.' }),
+      product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to use as visual inspiration (max 5).', maxItems: 5 })),
+      persona_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved personas to use as visual inspiration (max 3).', maxItems: 3 })),
+      style_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved visual styles to use as inspiration (max 3).', maxItems: 3 })),
+      preset_id: Type.Optional(Type.String({ description: 'ID of a studio preset to use as contextual inspiration.' })),
+      provider: Type.Optional(Type.String({ description: 'Provider: gemini only. Default: gemini.' })),
+      model: Type.Optional(Type.String({ description: 'Model ID. Options: lyria-3-clip-preview (default, 30-second MP3 clip) or lyria-3-pro-preview (longer song, MP3 or WAV).' })),
+      output_format: Type.Optional(Type.Union([Type.Literal('mp3'), Type.Literal('wav')], { description: 'Output format. MP3 is default. WAV is only supported by lyria-3-pro-preview.' })),
+      source_output_id: Type.Optional(Type.String({ description: 'ID of a previous Studio image output to use as visual inspiration. Prefer this when you have the output ID.' })),
+      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Up to 10 reference image file paths or URLs to use as visual inspiration for the sound. Accepts Studio/workspace paths and https image URLs.', maxItems: 10 })),
+    }),
+    execute: async (toolCallId, params) => {
+      const p = params as Record<string, unknown>;
+      try {
+        if (!userId) {
+          throw new Error('User ID is required for studio generation.');
+        }
+        const request: StudioGenerateRequest = {
+          prompt: p.prompt as string,
+          mode: 'sound',
+          product_ids: p.product_ids as string[] | undefined,
+          persona_ids: p.persona_ids as string[] | undefined,
+          style_ids: p.style_ids as string[] | undefined,
+          preset_id: p.preset_id as string | undefined,
+          provider: 'gemini',
+          model: p.model as string | undefined,
+          output_format: p.output_format as StudioGenerateRequest['output_format'],
+          source_output_id: p.source_output_id as string | undefined,
+          extra_reference_urls: p.extra_reference_urls as string[] | undefined,
+        };
+        const result = await executeFn(userId, request);
+        const outputsRoot = getStudioOutputsRoot();
+        const outputLines = result.outputs.map((o) => {
+          const fullPath = path.join(outputsRoot, o.filePath);
+          return `Output:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}`;
+        });
+        const summary = [
+          `Studio sound generation completed (${result.outputs.length} output(s))`,
+          '',
+          ...outputLines,
+          '',
+          'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+        ].join('\n');
+        return {
+          content: [{ type: 'text', text: summary }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = error instanceof StudioServiceError
+          ? error.userMessage
+          : error instanceof Error
+            ? error.message
+            : 'An unexpected error occurred during studio sound generation.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
 export function createStudioEditImageTool(): AgentTool {
   return {
     name: 'studio_edit_image',
@@ -1511,6 +1587,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
     },
     createStudioGenerateImageTool({ userId }),
     createStudioGenerateVideoTool({ userId }),
+    createStudioGenerateSoundTool({ userId }),
     createStudioEditImageTool(),
     createStudioBulkGenerateTool({ userId }),
     createStudioListProductsTool({ userId }),
@@ -1567,13 +1644,13 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
 if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
-  if (['write', 'edit', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['write', 'edit', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
   }
-  if (['web_fetch', 'studio_generate_image', 'studio_generate_video', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['web_fetch', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May call external services or require configured API keys.');
   }
-  if (['studio_generate_image', 'studio_generate_video', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('Can run for an extended time.');
   }
   if (group === 'Composio') {

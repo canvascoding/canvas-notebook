@@ -8,6 +8,10 @@ export const VIDEO_PROVIDERS = [
   { id: 'bytedance', labelKey: 'Bytedance' as const },
 ] as const;
 
+export const SOUND_PROVIDERS = [
+  { id: 'gemini', labelKey: 'Google Gemini' as const },
+] as const;
+
 export const GEMINI_MODELS = [
   { id: 'gemini-3.1-flash-image-preview', optionKey: 'bestQuality' as const },
   { id: 'gemini-3-pro-image-preview', optionKey: 'proQuality' as const },
@@ -43,8 +47,14 @@ export const SEEDANCE_VIDEO_MODELS = [
   { id: 'bytedance/seedance-2', optionKey: 'seedance2' as const },
 ] as const;
 
+export const SOUND_MODELS = [
+  { id: 'lyria-3-clip-preview', optionKey: 'clip' as const },
+  { id: 'lyria-3-pro-preview', optionKey: 'pro' as const },
+] as const;
+
 export type VideoModelId = (typeof VIDEO_MODELS)[number]['id'];
 export type SeedanceVideoModelId = (typeof SEEDANCE_VIDEO_MODELS)[number]['id'];
+export type SoundModelId = (typeof SOUND_MODELS)[number]['id'];
 
 export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16'] as const;
 export const SEEDANCE_VIDEO_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9', 'adaptive'] as const;
@@ -153,32 +163,42 @@ export const GEMINI_MAX_IMAGE_COUNT = 4;
 export const OPENAI_MAX_IMAGE_COUNT = 10;
 export const OPENAI_MAX_REFERENCE_IMAGES = 16;
 
-export function getProvidersForMode(mode: 'image' | 'video') {
+export function getProvidersForMode(mode: 'image' | 'video' | 'sound') {
+  if (mode === 'sound') return SOUND_PROVIDERS;
   return mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS;
 }
 
-export function getModelsForProvider(mode: 'image' | 'video', provider: string) {
+export function getModelsForProvider(mode: 'image' | 'video' | 'sound', provider: string) {
+  if (mode === 'sound') {
+    return SOUND_MODELS;
+  }
   if (mode === 'video') {
     return provider === 'bytedance' ? SEEDANCE_VIDEO_MODELS : VIDEO_MODELS;
   }
   return provider === 'openai' ? OPENAI_MODELS : GEMINI_MODELS;
 }
 
-export function getAspectRatiosForProvider(mode: 'image' | 'video', provider: string) {
+export function getAspectRatiosForProvider(mode: 'image' | 'video' | 'sound', provider: string) {
+  if (mode === 'sound') {
+    return [];
+  }
   if (mode === 'video') {
     return provider === 'bytedance' ? SEEDANCE_VIDEO_ASPECT_RATIOS : VIDEO_ASPECT_RATIOS;
   }
   return provider === 'openai' ? OPENAI_ASPECT_RATIOS : GEMINI_ASPECT_RATIOS;
 }
 
-export function getMaxImageCountForProvider(mode: 'image' | 'video', provider: string) {
-  if (mode === 'video') {
+export function getMaxImageCountForProvider(mode: 'image' | 'video' | 'sound', provider: string) {
+  if (mode === 'video' || mode === 'sound') {
     return 1;
   }
   return provider === 'openai' ? OPENAI_MAX_IMAGE_COUNT : GEMINI_MAX_IMAGE_COUNT;
 }
 
-export function getMaxReferenceImages(mode: 'image' | 'video', provider: string, model: string): number {
+export function getMaxReferenceImages(mode: 'image' | 'video' | 'sound', provider: string, model: string): number {
+  if (mode === 'sound') {
+    return 10;
+  }
   if (mode === 'video') {
     return 0;
   }
@@ -191,7 +211,7 @@ export function getMaxReferenceImages(mode: 'image' | 'video', provider: string,
   return 14;
 }
 
-export function getDefaultModelForProvider(mode: 'image' | 'video', provider: string): string {
+export function getDefaultModelForProvider(mode: 'image' | 'video' | 'sound', provider: string): string {
   const models = getModelsForProvider(mode, provider);
   return models[0]?.id ?? 'gemini-3.1-flash-image-preview';
 }

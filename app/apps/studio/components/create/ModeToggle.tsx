@@ -1,6 +1,6 @@
 'use client';
 
-import { Film, ImageIcon } from 'lucide-react';
+import { AudioLines, Film, ImageIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,14 +16,15 @@ interface ModeToggleProps {
 }
 
 export function ModeToggle({ value, onChange }: ModeToggleProps) {
-  const Icon = value === 'video' ? Film : ImageIcon;
+  const Icon = value === 'video' ? Film : value === 'sound' ? AudioLines : ImageIcon;
+  const label = value === 'video' ? 'Video' : value === 'sound' ? 'Sound' : 'Image';
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="rounded-full">
           <Icon className="h-4 w-4" />
-          {value === 'video' ? 'Video' : 'Image'}
+          {label}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
@@ -34,6 +35,10 @@ export function ModeToggle({ value, onChange }: ModeToggleProps) {
         <DropdownMenuItem onSelect={() => onChange('video')}>
           <Film className="h-4 w-4" />
           Video
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onChange('sound')}>
+          <AudioLines className="h-4 w-4" />
+          Sound
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
