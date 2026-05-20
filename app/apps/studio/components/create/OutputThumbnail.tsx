@@ -4,7 +4,7 @@ import { memo } from 'react';
 
 /* eslint-disable @next/next/no-img-element */
 
-import { Film, ImageIcon, Play, Star } from 'lucide-react';
+import { AudioLines, Film, ImageIcon, Play, Star } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
@@ -15,7 +15,7 @@ interface OutputThumbnailProps {
   mediaUrl: string | null;
   filePath: string;
   title: string;
-  type: 'image' | 'video';
+  type: 'image' | 'video' | 'sound';
   generationMode: string;
   generation: StudioGeneration;
   output: StudioGenerationOutput;
@@ -88,7 +88,18 @@ export const OutputThumbnail = memo(function OutputThumbnail({
 
       <div className="relative z-[1] h-full w-full pointer-events-none">
         {mediaUrl ? (
-          type === 'video' ? (
+          type === 'sound' ? (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[radial-gradient(circle_at_top_left,rgba(125,167,255,0.18),transparent_32%),linear-gradient(135deg,hsl(var(--card)),hsl(var(--muted)))] px-5 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border/70 bg-background/75 text-primary shadow-sm">
+                <AudioLines className="h-8 w-8" />
+              </div>
+              <div className="flex w-full max-w-32 items-end justify-center gap-1">
+                {[28, 44, 34, 56, 38, 48, 30].map((height, index) => (
+                  <span key={index} className="w-2 rounded-full bg-primary/70" style={{ height }} />
+                ))}
+              </div>
+            </div>
+          ) : type === 'video' ? (
             <div className="relative h-full w-full">
               <img
                 className="h-full w-full object-cover"
@@ -112,7 +123,7 @@ export const OutputThumbnail = memo(function OutputThumbnail({
           )
         ) : (
           <div className="flex h-full items-center justify-center bg-muted text-muted-foreground">
-            <ImageIcon className="h-8 w-8" />
+            {type === 'sound' ? <AudioLines className="h-8 w-8" /> : <ImageIcon className="h-8 w-8" />}
           </div>
         )}
       </div>
@@ -137,7 +148,7 @@ export const OutputThumbnail = memo(function OutputThumbnail({
           <div className="text-xs font-medium uppercase tracking-[0.18em] text-white/70">{generationMode}</div>
           <div className="truncate text-sm font-semibold">{title}</div>
         </div>
-        {type === 'video' ? <Film className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
+        {type === 'video' ? <Film className="h-4 w-4" /> : type === 'sound' ? <AudioLines className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
       </div>
     </div>
   );

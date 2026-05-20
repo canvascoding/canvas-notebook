@@ -38,6 +38,7 @@ import {
   type SeedanceResolution,
 } from '@/app/lib/integrations/seedance-generation-service';
 import { loadMediaReference, loadMediaReferences } from '@/app/lib/integrations/media-reference-resolver';
+import { generateSound, LYRIA_CLIP_MODEL_ID, LYRIA_PRO_MODEL_ID, type SoundOutputFormat } from '@/app/lib/integrations/sound-generation-service';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 
@@ -55,7 +56,7 @@ interface LoadedReferenceImage {
 
 export interface StudioGenerateRequest {
   prompt: string;
-  mode?: 'image' | 'video';
+  mode?: 'image' | 'video' | 'sound';
   product_ids?: string[];
   persona_ids?: string[];
   style_ids?: string[];
@@ -65,7 +66,7 @@ export interface StudioGenerateRequest {
   provider?: string;
   model?: string;
   quality?: 'low' | 'medium' | 'high' | 'auto';
-  output_format?: 'png' | 'jpeg' | 'webp';
+  output_format?: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
   background?: 'transparent' | 'opaque' | 'auto';
   source_output_id?: string;
   pi_session_id?: string;
@@ -112,6 +113,9 @@ const MIME_EXTENSION: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/wav': 'wav',
 };
 
 function sanitizePrompt(prompt: string): string {
@@ -119,7 +123,7 @@ function sanitizePrompt(prompt: string): string {
 }
 
 function extensionFromMime(mimeType: string): string {
-  return MIME_EXTENSION[mimeType] || 'png';
+  return MIME_EXTENSION[mimeType] || (mimeType.startsWith('image/') ? 'png' : 'bin');
 }
 
 async function loadProductImages(userId: string, productIds: string[]): Promise<LoadedReferenceImage[]> {
@@ -479,6 +483,44 @@ function buildReferenceContextPrompt(referenceImages: LoadedReferenceImage[]): {
   return { contextText, providerImages };
 }
 
+function buildSoundContextPrompt(referenceImages: LoadedReferenceImage[]): string {
+  if (referenceImages.length === 0) return '';
+
+  const groups = new Map<string, LoadedReferenceImage[]>();
+  for (const img of referenceImages.slice(0, 10)) {
+    const key = `${img.source}:${img.sourceId}`;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key)!.push(img);
+  }
+
+  const sections: string[] = [];
+  for (const images of groups.values()) {
+    const first = images[0];
+    const count = images.length;
+    const label = first.source === 'product'
+      ? 'Product'
+      : first.source === 'persona'
+        ? 'Persona'
+        : first.source === 'style'
+          ? 'Visual style'
+          : first.source === 'source_output'
+            ? 'Source image'
+            : 'Additional visual reference';
+    const description = first.description ? ` ${first.description}` : '';
+    sections.push(`${label}: ${first.sourceName}.${description} ${count} image${count === 1 ? '' : 's'} attached for mood, colors, setting, subject matter, texture, and energy.`);
+  }
+
+  return [
+    'Use the attached images as inspiration for the music.',
+    'Translate their mood, colors, visual rhythm, setting, subject matter, materials, and atmosphere into the arrangement.',
+    'Do not describe the images in the output; generate the audio requested by the user.',
+    '',
+    ...sections,
+  ].join('\n');
+}
+
 export async function createStudioGeneration(
   userId: string,
   request: StudioGenerateRequest,
@@ -497,6 +539,12 @@ export async function createStudioGeneration(
       'Ein Prompt oder mindestens ein Referenz-Bild (Produkt/Persona) ist erforderlich.',
     );
   }
+  if (mode === 'sound' && !rawPrompt) {
+    throw new StudioServiceError(
+      'Prompt required for sound generation',
+      'Ein Prompt ist für Sound-Generierung erforderlich.',
+    );
+  }
 
   const generationId = randomUUID();
   const now = new Date();
@@ -504,9 +552,12 @@ export async function createStudioGeneration(
 
   const defaultModel = providerId === 'openai' ? 'gpt-image-2' : 'gemini-3.1-flash-image-preview';
   const videoDefaultModel = providerId === SEEDANCE_PROVIDER_ID ? SEEDANCE_MODEL_ID : 'veo-3.1-fast-generate-preview';
+  const soundDefaultModel = LYRIA_CLIP_MODEL_ID;
   const model = request.mode === 'video'
     ? (request.model || videoDefaultModel)
-    : (request.model || defaultModel);
+    : request.mode === 'sound'
+      ? (request.model || soundDefaultModel)
+      : (request.model || defaultModel);
 
   if (request.source_output_id) {
     const sourceOutput = await getStudioOutputForUser(request.source_output_id, userId);
@@ -759,6 +810,16 @@ async function executeStudioGenerationProcessing(
           nsfwChecker: parsedMeta.videoNsfwChecker,
         },
       );
+    } else if (mode === 'sound') {
+      outputs = await generateStudioSound(
+        generationId,
+        composedPrompt,
+        providerImages.slice(0, 10),
+        providerId,
+        model,
+        parsedMeta.outputFormat,
+        buildSoundContextPrompt(allReferenceImages),
+      );
     } else {
       const count = Math.min(Math.max(parsedMeta.count || 1, 1), MAX_IMAGE_COUNT);
       outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
@@ -930,6 +991,75 @@ async function generateStudioImages(
   }
 
   return successfulOutputs;
+}
+
+async function generateStudioSound(
+  generationId: string,
+  prompt: string,
+  referenceImages: ProviderReferenceImage[],
+  providerId: string,
+  model?: string,
+  outputFormat?: string,
+  contextText?: string,
+): Promise<StudioGenerationOutput[]> {
+  if (providerId !== 'gemini') {
+    throw new StudioServiceError(
+      `Provider ${providerId} not supported for sound generation`,
+      'Sound-Generierung unterstützt aktuell nur Gemini.',
+    );
+  }
+  if (!prompt) {
+    throw new StudioServiceError(
+      'Prompt required for sound generation',
+      'Ein Prompt ist für Sound-Generierung erforderlich.',
+    );
+  }
+
+  const resolvedModel = model === LYRIA_PRO_MODEL_ID ? LYRIA_PRO_MODEL_ID : LYRIA_CLIP_MODEL_ID;
+  const resolvedOutputFormat: SoundOutputFormat = outputFormat === 'wav' && resolvedModel === LYRIA_PRO_MODEL_ID ? 'wav' : 'mp3';
+  const fullPrompt = contextText ? `${contextText}\n\n## Music prompt\n${prompt}` : prompt;
+  const result = await generateSound({
+    prompt: fullPrompt,
+    model: resolvedModel,
+    outputFormat: resolvedOutputFormat,
+    referenceImages: referenceImages.slice(0, 10),
+  });
+
+  await ensureStudioOutputsWorkspace();
+
+  const slug = prompt.slice(0, 40).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sound';
+  const ext = extensionFromMime(result.mimeType);
+  const outputFilename = generateOutputFilename(slug, 0, ext === 'bin' ? resolvedOutputFormat : ext);
+  await writeOutputFile(outputFilename, result.audioBytes);
+
+  const outputId = randomUUID();
+  const now = new Date();
+  await db.insert(studioGenerationOutputs).values({
+    id: outputId,
+    generationId,
+    variationIndex: 0,
+    type: 'sound',
+    filePath: outputFilename,
+    fileName: outputFilename,
+    mediaUrl: toMediaUrl(outputFilename),
+    fileSize: result.audioBytes.length,
+    mimeType: result.mimeType,
+    width: null,
+    height: null,
+    isFavorite: false,
+    metadata: JSON.stringify(result.metadata),
+    createdAt: now,
+  });
+
+  return [{
+    id: outputId,
+    variationIndex: 0,
+    filePath: outputFilename,
+    fileName: outputFilename,
+    mediaUrl: toMediaUrl(outputFilename),
+    mimeType: result.mimeType,
+    fileSize: result.audioBytes.length,
+  }];
 }
 
 async function generateStudioVideo(

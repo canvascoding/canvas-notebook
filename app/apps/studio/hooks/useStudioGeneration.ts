@@ -120,8 +120,10 @@ function createPendingGeneration(
     outputs,
     products: payload.product_ids ?? [],
     personas: payload.persona_ids ?? [],
+    styles: payload.style_ids ?? [],
     product_ids: payload.product_ids ?? [],
     persona_ids: payload.persona_ids ?? [],
+    style_ids: payload.style_ids ?? [],
     createdAt: now,
     updatedAt: now,
     metadata: null,
@@ -263,7 +265,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     setError(null);
 
     const temporaryId = `temp-${generateRandomId()}`;
-    const expectedCount = payload.mode === 'video' ? 1 : Math.min(Math.max(payload.count ?? 1, 1), 4);
+    const expectedCount = payload.mode === 'video' || payload.mode === 'sound' ? 1 : Math.min(Math.max(payload.count ?? 1, 1), 4);
     const temporaryGeneration: StudioGeneration = {
       id: temporaryId,
       userId: '',
@@ -278,8 +280,10 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       outputs: [],
       products: payload.product_ids ?? [],
       personas: payload.persona_ids ?? [],
+      styles: payload.style_ids ?? [],
       product_ids: payload.product_ids ?? [],
       persona_ids: payload.persona_ids ?? [],
+      style_ids: payload.style_ids ?? [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       metadata: JSON.stringify({ expectedCount }),

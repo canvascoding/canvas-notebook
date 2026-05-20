@@ -15,7 +15,7 @@ import {
 import { useState } from 'react';
 
 interface OutputErrorCardProps {
-  mode: 'image' | 'video';
+  mode: 'image' | 'video' | 'sound';
   message?: string | null;
   onDelete?: () => void;
 }

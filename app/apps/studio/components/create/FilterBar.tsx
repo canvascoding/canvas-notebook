@@ -11,6 +11,7 @@ const MEDIA_OPTIONS: { value: OutputMediaFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'image', label: 'Images' },
   { value: 'video', label: 'Videos' },
+  { value: 'sound', label: 'Sounds' },
   { value: 'favorites', label: 'Favorites' },
   { value: 'generating', label: 'Generating' },
   { value: 'failed', label: 'Failed' },

@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Film, ImageIcon, Info, Maximize2, MoreHorizontal, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
+import { ArrowLeft, AudioLines, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Film, ImageIcon, Info, Maximize2, MoreHorizontal, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import type { StudioPreset } from '../../types/presets';
@@ -224,7 +224,7 @@ export function StudioPreview({
             </div>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
               <span className="capitalize">{output.type}</span>
-              <span>AR {aspectRatioLabel}</span>
+              {output.type !== 'sound' ? <span>AR {aspectRatioLabel}</span> : null}
             </div>
           </div>
         </div>
@@ -325,7 +325,7 @@ export function StudioPreview({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button variant="outline" size="sm" className="hidden gap-2 rounded-full md:inline-flex" onClick={() => onCreateVariation(generation, output)}>
+          <Button variant="outline" size="sm" className="hidden gap-2 rounded-full md:inline-flex" onClick={() => onCreateVariation(generation, output)} disabled={output.type !== 'image'}>
             <RefreshCcw className="h-4 w-4" />
             Remix
           </Button>
@@ -360,7 +360,7 @@ export function StudioPreview({
                 Custom aspect ratio
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => onCreateVariation(generation, output)}>
+              <DropdownMenuItem onSelect={() => onCreateVariation(generation, output)} disabled={output.type !== 'image'}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
                 Remix
               </DropdownMenuItem>
@@ -403,7 +403,19 @@ export function StudioPreview({
 
           <div className="flex h-full w-full min-w-0 items-center justify-center overflow-hidden bg-background/35 p-1 shadow-sm sm:p-3">
             {output.mediaUrl ? (
-              output.type === 'video' ? (
+              output.type === 'sound' ? (
+                <div className="flex min-h-[40vh] w-full max-w-2xl flex-col items-center justify-center gap-6 rounded-3xl border border-border/70 bg-card/85 p-6 shadow-2xl">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full border border-border/70 bg-background text-primary">
+                    <AudioLines className="h-10 w-10" />
+                  </div>
+                  <audio className="w-full" src={output.mediaUrl} controls preload="metadata" />
+                  <div className="flex w-full max-w-sm items-end justify-center gap-1.5">
+                    {[36, 58, 44, 76, 52, 66, 40, 60, 34].map((height, index) => (
+                      <span key={index} className="w-3 rounded-full bg-primary/70" style={{ height }} />
+                    ))}
+                  </div>
+                </div>
+              ) : output.type === 'video' ? (
                 <video
                   className="max-h-full max-w-full object-contain shadow-2xl"
                   src={output.mediaUrl}
@@ -420,7 +432,7 @@ export function StudioPreview({
               )
             ) : (
               <div className="flex min-h-[40vh] sm:min-h-[320px] w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground">
-                <ImageIcon className="h-10 w-10" />
+                {output.type === 'sound' ? <AudioLines className="h-10 w-10" /> : <ImageIcon className="h-10 w-10" />}
               </div>
             )}
           </div>
@@ -484,9 +496,11 @@ export function StudioPreview({
                       No preset
                     </span>
                   )}
-                  <Badge variant="outline" className="rounded-full px-3 py-1">
-                    AR {aspectRatioLabel}
-                  </Badge>
+                  {output.type !== 'sound' ? (
+                    <Badge variant="outline" className="rounded-full px-3 py-1">
+                      AR {aspectRatioLabel}
+                    </Badge>
+                  ) : null}
                   <Badge variant="outline" className="rounded-full px-3 py-1">
                     {generation.mode}
                   </Badge>

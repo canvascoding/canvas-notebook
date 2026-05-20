@@ -4,13 +4,13 @@ import { Loader2 } from 'lucide-react';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 
 interface OutputProcessingSkeletonProps {
-  mode: 'image' | 'video';
+  mode: 'image' | 'video' | 'sound';
   prompt?: string | null;
 }
 
 export function OutputProcessingSkeleton({ mode, prompt }: OutputProcessingSkeletonProps) {
-  const estimate = mode === 'video' ? 'Video · ~2m' : 'Image · ~12s';
-  const title = mode === 'video' ? 'Generating video' : 'Generating image';
+  const estimate = mode === 'video' ? 'Video · ~2m' : mode === 'sound' ? 'Sound · ~1m' : 'Image · ~12s';
+  const title = mode === 'video' ? 'Generating video' : mode === 'sound' ? 'Generating sound' : 'Generating image';
 
   return (
     <div className="relative aspect-square overflow-hidden rounded-3xl border border-border/70 bg-card shadow-sm">

@@ -5,6 +5,7 @@ export type ToolDisplayTone =
   | 'web'
   | 'image'
   | 'video'
+  | 'sound'
   | 'data'
   | 'person'
   | 'style'
@@ -40,6 +41,7 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   web_search: { label: 'Searched the web', labelDe: 'Web durchsucht', tone: 'web' },
   studio_generate_image: { label: 'Generated an image', labelDe: 'Bild generiert', tone: 'image' },
   studio_generate_video: { label: 'Generated a video', labelDe: 'Video generiert', tone: 'video' },
+  studio_generate_sound: { label: 'Generated sound', labelDe: 'Sound generiert', tone: 'sound' },
   studio_bulk_generate: { label: 'Generated media', labelDe: 'Medien generiert', tone: 'image' },
   studio_list_products: { label: 'Loaded products', labelDe: 'Produkte geladen', tone: 'data' },
   studio_list_personas: { label: 'Loaded personas', labelDe: 'Personas geladen', tone: 'person' },

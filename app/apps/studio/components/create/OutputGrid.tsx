@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2 } from 'lucide-react';
 
-export type OutputMediaFilter = 'all' | 'image' | 'video' | 'favorites' | 'generating' | 'failed';
+export type OutputMediaFilter = 'all' | 'image' | 'video' | 'sound' | 'favorites' | 'generating' | 'failed';
 export type OutputDateFilter = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'older';
 export type OutputSortOrder = 'newest' | 'oldest';
 
@@ -59,7 +59,7 @@ export function OutputGrid({
   onSaveToWorkspace,
 }: OutputGridProps) {
   const getExpectedOutputCount = (generation: StudioGeneration) => {
-    if (generation.mode === 'video') {
+    if (generation.mode === 'video' || generation.mode === 'sound') {
       return 1;
     }
 
@@ -183,7 +183,7 @@ export function OutputGrid({
     .filter((output) => {
       if (mediaFilter === 'all') return true;
       if (mediaFilter === 'favorites') return output.isFavorite;
-      if (mediaFilter === 'image' || mediaFilter === 'video') return output.type === mediaFilter;
+      if (mediaFilter === 'image' || mediaFilter === 'video' || mediaFilter === 'sound') return output.type === mediaFilter;
       return false;
     })
     .filter((output) => matchesDateFilter(output.createdAt))
@@ -272,7 +272,7 @@ export function OutputGrid({
                 selected={selectedOutputIds?.includes(output.id)}
                 selectionMode={selectionEnabled}
                 onSelectToggle={onToggleSelectOutput}
-                title={output.type === 'video' ? 'Video output' : 'Image output'}
+                title={output.type === 'video' ? 'Video output' : output.type === 'sound' ? 'Sound output' : 'Image output'}
                 recentlyCompleted={recentlyCompletedIds?.has(output.generationId) ?? false}
                 onOpen={() => onOutputOpen({ generation: output.generation, output })}
                 onToggleFavorite={onToggleFavorite}

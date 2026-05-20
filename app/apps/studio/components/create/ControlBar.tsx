@@ -23,6 +23,8 @@ import {
   VIDEO_PROVIDERS,
   VIDEO_MODELS,
   SEEDANCE_VIDEO_MODELS,
+  SOUND_PROVIDERS,
+  SOUND_MODELS,
   getModelsForProvider,
   getAspectRatiosForProvider,
   getVideoResolutionsForModel,
@@ -50,8 +52,8 @@ interface ControlBarProps {
   onModelChange: (value: string) => void;
   quality: 'low' | 'medium' | 'high' | 'auto';
   onQualityChange: (value: 'low' | 'medium' | 'high' | 'auto') => void;
-  outputFormat: 'png' | 'jpeg' | 'webp';
-  onOutputFormatChange: (value: 'png' | 'jpeg' | 'webp') => void;
+  outputFormat: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
+  onOutputFormatChange: (value: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav') => void;
   background: 'transparent' | 'opaque' | 'auto';
   onBackgroundChange: (value: 'transparent' | 'opaque' | 'auto') => void;
   imageSize: string;
@@ -86,6 +88,11 @@ for (const m of VIDEO_MODELS) {
 }
 for (const m of SEEDANCE_VIDEO_MODELS) {
   MODEL_LABELS[m.id] = 'Seedance 2.0 — Bytedance';
+}
+for (const m of SOUND_MODELS) {
+  MODEL_LABELS[m.id] = m.id === 'lyria-3-clip-preview'
+    ? 'Lyria 3 Clip — 30s MP3'
+    : 'Lyria 3 Pro — Full song';
 }
 
 export function ControlBar({
@@ -126,11 +133,12 @@ export function ControlBar({
   showMoreOptions,
   onShowMoreOptionsChange,
 }: ControlBarProps) {
-  const countLabel = mode === 'video' ? '1 output' : `${count} output${count === 1 ? '' : 's'}`;
+  const countLabel = mode === 'video' || mode === 'sound' ? '1 output' : `${count} output${count === 1 ? '' : 's'}`;
   const models = getModelsForProvider(mode, provider);
   const aspectRatios = getAspectRatiosForProvider(mode, provider);
   const isOpenAI = provider === 'openai';
   const isVideo = mode === 'video';
+  const isSound = mode === 'sound';
   const isSeedance = isVideo && provider === 'bytedance';
 
   const videoResolutions = isVideo ? getVideoResolutionsForModel(model) : [];
@@ -143,14 +151,16 @@ export function ControlBar({
         <ModeToggle value={mode} onChange={onModeChange} />
         <StudioPicker presets={presets} value={selectedPreset} onChange={onPresetChange} />
 
-        <AspectRatioPicker
-          aspectRatio={aspectRatio}
-          onAspectRatioChange={onAspectRatioChange}
-          aspectRatios={aspectRatios}
-          isOpenAI={isOpenAI}
-        />
+        {!isSound ? (
+          <AspectRatioPicker
+            aspectRatio={aspectRatio}
+            onAspectRatioChange={onAspectRatioChange}
+            aspectRatios={aspectRatios}
+            isOpenAI={isOpenAI}
+          />
+        ) : null}
 
-        {isVideo ? (
+        {isVideo || isSound ? (
           <Badge variant="secondary" className="rounded-full px-3 py-1 text-sm">
             1 output
           </Badge>
@@ -242,7 +252,7 @@ export function ControlBar({
                 value={provider}
                 onChange={(event) => onProviderChange(event.target.value)}
               >
-                {(mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS).map((p) => (
+                {(mode === 'sound' ? SOUND_PROVIDERS : mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS).map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.id === 'gemini' ? 'Google Gemini' : p.id === 'openai' ? 'OpenAI' : p.id === 'bytedance' ? 'Bytedance' : 'Google Veo'}
                   </option>
@@ -259,7 +269,7 @@ export function ControlBar({
               >
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {isVideo
+                    {isVideo || isSound
                       ? (MODEL_LABELS[m.id] || m.id)
                       : provider === 'openai'
                         ? OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage2'
@@ -311,6 +321,21 @@ export function ControlBar({
                   </select>
                 </label>
               </>
+            ) : null}
+
+            {isSound ? (
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs text-muted-foreground">Output Format</span>
+                <select
+                  className="h-9 border border-input bg-background px-2 text-sm"
+                  value={model === 'lyria-3-pro-preview' && (outputFormat === 'mp3' || outputFormat === 'wav') ? outputFormat : 'mp3'}
+                  onChange={(event) => onOutputFormatChange(event.target.value as typeof outputFormat)}
+                  disabled={model !== 'lyria-3-pro-preview'}
+                >
+                  <option value="mp3">MP3</option>
+                  <option value="wav">WAV</option>
+                </select>
+              </label>
             ) : null}
 
             {!isOpenAI && mode === 'image' && getImageSizesForModel(model).length > 0 ? (
