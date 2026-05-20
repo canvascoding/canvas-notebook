@@ -6,6 +6,7 @@ import { OutputErrorCard } from './OutputErrorCard';
 import { OutputProcessingSkeleton } from './OutputProcessingSkeleton';
 import { OutputThumbnail } from './OutputThumbnail';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export type OutputMediaFilter = 'all' | 'image' | 'video' | 'favorites' | 'generating' | 'failed';
 export type OutputDateFilter = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'older';
@@ -13,6 +14,7 @@ export type OutputSortOrder = 'newest' | 'oldest';
 
 interface OutputGridProps {
   generations: StudioGeneration[];
+  initialLoading?: boolean;
   recentlyCompletedIds?: Set<string>;
   emptyState: ReactNode;
   mediaFilter?: OutputMediaFilter;
@@ -35,6 +37,7 @@ interface OutputGridProps {
 
 export function OutputGrid({
   generations,
+  initialLoading = false,
   recentlyCompletedIds,
   emptyState,
   mediaFilter = 'all',
@@ -99,6 +102,32 @@ export function OutputGrid({
       createdAt: generation.createdAt,
     })),
   );
+
+  if (initialLoading && outputs.length === 0 && pendingGenerations.length === 0 && failedGenerations.length === 0) {
+    return (
+      <div className="flex min-h-[520px] flex-col justify-center px-3 py-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+          <div className="flex items-center justify-between px-1">
+            <div className="space-y-2">
+              <div className="h-2 w-12 animate-pulse rounded-full bg-primary/60" />
+              <p className="text-sm font-semibold text-foreground">Loading images...</p>
+            </div>
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+            {Array.from({ length: 12 }, (_, index) => (
+              <div
+                key={index}
+                className="aspect-square overflow-hidden rounded-3xl border border-border/70 bg-card shadow-sm"
+              >
+                <Skeleton className="h-full w-full rounded-none bg-muted/80" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (outputs.length === 0 && pendingGenerations.length === 0 && failedGenerations.length === 0) {
     return <>{emptyState}</>;
