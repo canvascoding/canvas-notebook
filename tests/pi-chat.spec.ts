@@ -857,13 +857,10 @@ test.describe('PI Chat E2E', () => {
     const assistantMessage = page.getByTestId('chat-message-assistant').filter({ hasText: 'Usage enabled answer.' }).last();
     await expect(assistantMessage).toBeVisible();
 
-    const usageFooter = assistantMessage.getByTestId('chat-usage-footer');
-    await expect(usageFooter).toBeVisible();
-    await expect(usageFooter).toContainText('579 tok · $0.0123');
-    await expect(usageFooter).toContainText('123 in / 456 out');
+    await expect(assistantMessage.getByTestId('chat-usage-footer')).toHaveCount(0);
   });
 
-  test('should only render cumulative usage on the final assistant message of a tool chain', async ({ page }) => {
+  test('should not render cumulative usage on the final assistant message of a tool chain', async ({ page }) => {
     const sessionId = 'sess-cumulative-usage';
 
     setupMockWebSocket(page, {
@@ -952,12 +949,8 @@ test.describe('PI Chat E2E', () => {
     await expect(firstAssistantMessage).toBeVisible();
     await expect(finalAssistantMessage).toBeVisible();
     await expect(firstAssistantMessage.getByTestId('chat-usage-footer')).toHaveCount(0);
-
-    const usageFooter = finalAssistantMessage.getByTestId('chat-usage-footer');
-    await expect(usageFooter).toBeVisible();
-    await expect(usageFooter).toContainText('310 tok · $0.0120');
-    await expect(usageFooter).toContainText('120 in / 190 out');
-    await expect(page.getByTestId('chat-usage-footer')).toHaveCount(1);
+    await expect(finalAssistantMessage.getByTestId('chat-usage-footer')).toHaveCount(0);
+    await expect(page.getByTestId('chat-usage-footer')).toHaveCount(0);
   });
 
   test('should show runtime status, queue state, and context budget in the chat UI', async ({ page }) => {
