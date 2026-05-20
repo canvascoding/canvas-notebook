@@ -437,6 +437,7 @@ export function CreateView() {
 
   const hasVideoImageInput = store.mode === 'video' && (!!store.startFramePath || store.productRefs.length > 0 || store.personaRefs.length > 0 || store.styleRefs.length > 0 || store.fileRefs.length > 0);
   const personGeneration = hasVideoImageInput ? 'allow_adult' as const : 'allow_all' as const;
+  const isInitialGenerationLoad = generationHook.loading && generations.length === 0;
 
   const handleGenerate = async () => {
     const fileUrls = store.fileRefs.map((ref) => {
@@ -536,6 +537,7 @@ export function CreateView() {
             />
             <OutputGrid
               generations={generations}
+              initialLoading={isInitialGenerationLoad}
               recentlyCompletedIds={recentlyCompletedIds}
               emptyState={<EmptyState />}
               mediaFilter={mediaFilter}
