@@ -78,6 +78,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     refreshRootTree,
     loadSubdirectory,
     currentDirectory,
+    selectedNode,
     selectAllInDirectory,
     clearMultiSelect,
     searchQuery,
@@ -294,6 +295,18 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     : browserMode === 'list' && listDirChildren
       ? listDirChildren
     : null;
+
+  useEffect(() => {
+    if (!selectedNode || isRestoring || isLoadingTree) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const activeItem = Array.from(containerRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
+        .find((element) => element.dataset.filePath === selectedNode.path);
+      activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [browserMode, currentDirectory, fileTree, filteredListChildren, isLoadingTree, isRestoring, searchResultNodes, selectedNode]);
 
   const handleFileOpen = useCallback((path: string) => {
     if (onOpenFile) {

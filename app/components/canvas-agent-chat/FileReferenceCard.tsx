@@ -48,47 +48,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
       return;
     }
 
-    const findNodeInTree = (nodes: typeof fileTree, path: string): typeof fileTree[0] | null => {
-      for (const node of nodes) {
-        if (node.path === path) return node;
-        if (node.children) {
-          const found = findNodeInTree(node.children, path);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    const node = findNodeInTree(fileTree, normalizedPath);
-
-    if (node) {
-      const getParentDirectories = (filePath: string): string[] => {
-        const parts = filePath.split('/');
-        const dirs: string[] = [];
-        for (let i = 1; i < parts.length; i++) {
-          const dirPath = parts.slice(0, i).join('/');
-          if (dirPath) dirs.push(dirPath);
-        }
-        return dirs;
-      };
-
-      const parentDirs = getParentDirectories(node.path);
-      parentDirs.forEach((dirPath) => {
-        if (!fileStore.expandedDirs.has(dirPath)) {
-          fileStore.toggleDirectory(dirPath);
-        }
-      });
-
-      fileStore.selectNode(node);
-
-      if (node.type === 'file') {
-        fileStore.loadFile(node.path);
-        fileStore.mobileFileOpened();
-      }
-    } else {
-      fileStore.loadFile(normalizedPath);
-      fileStore.mobileFileOpened();
-    }
+    void fileStore.revealAndLoadFile(normalizedPath);
   };
 
   if (validPaths.length === 0) return null;
