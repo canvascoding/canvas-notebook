@@ -40,7 +40,7 @@ function ReferenceUrlChip({
   if (reference.status === 'loading') {
     return (
       <div className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs bg-muted text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        <Loader2 className="h-4 w-4 animate-spin" />
         <span className="max-w-[150px] truncate">{reference.originalUrl}</span>
         <button
           type="button"

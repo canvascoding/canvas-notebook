@@ -19,6 +19,7 @@ import {
   Cpu,
   Home,
   Car,
+  Loader2,
   Layers,
 } from 'lucide-react';
 import {
@@ -96,7 +97,7 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
     <div className="relative inline-flex" title={label}>
       <div className={cn('h-9 w-9 rounded-md border-2 flex items-center justify-center overflow-hidden', borderColor, bgColor)}>
         {isLoading ? (
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <Loader2 className="h-4 w-4 animate-spin" />
         ) : thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />

@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
 import { useTranslations } from 'next-intl';
+import { Loader2 } from 'lucide-react';
 
 // Dynamic import for DocxEditor to avoid SSR issues
 const DocxEditorComponent = dynamic(
@@ -193,7 +194,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background z-[60]">
             <div className="flex flex-col items-center gap-2">
-              <div className="h-8 w-8 animate-spin border-2 border-primary border-t-transparent"></div>
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <span className="text-xs text-muted-foreground">{t('openingExtension', { extension: extension.toUpperCase() })}</span>
             </div>
           </div>
