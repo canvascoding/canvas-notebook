@@ -3,13 +3,14 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Film, ImageIcon, Maximize2, MoreHorizontal, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
+import { ArrowLeft, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Film, ImageIcon, Info, Maximize2, MoreHorizontal, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import type { StudioPreset } from '../../types/presets';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -95,6 +96,7 @@ export function StudioPreview({
   onNavigate,
 }: StudioPreviewProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
 
   const currentIndex = allVisibleOutputs.findIndex(
     (entry) => entry.generation.id === generation?.id && entry.output.id === output?.id,
@@ -140,6 +142,12 @@ export function StudioPreview({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleClose, open, hasPrev, hasNext, currentIndex, navigateToIndex]);
+
+  useEffect(() => {
+    if (open) {
+      setMobileDetailsOpen(false);
+    }
+  }, [open, output?.id]);
 
   if (!open || !generation || !output) {
     return null;
@@ -212,6 +220,16 @@ export function StudioPreview({
         <div className="flex shrink-0 items-center gap-1.5">
           <Button
             variant="outline"
+            size="icon"
+            className="rounded-full sm:hidden"
+            onClick={() => onEditSelection?.(generation, output)}
+            disabled={!canEditImage}
+            aria-label="Edit selection"
+          >
+            <Brush className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
             size="sm"
             className="hidden gap-2 rounded-full sm:inline-flex"
             onClick={() => onEditSelection?.(generation, output)}
@@ -220,6 +238,33 @@ export function StudioPreview({
             <Brush className="h-4 w-4" />
             Edit
           </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="rounded-full sm:hidden" disabled={!canUseAspectRatio} aria-label="Aspect ratio">
+                <Maximize2 className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72 p-2">
+              <div className="px-2 pb-2 pt-1 text-sm leading-5 text-muted-foreground">
+                Generate this image with a different aspect ratio
+              </div>
+              {DETAIL_ASPECT_RATIOS.map((ratio) => (
+                <DropdownMenuItem
+                  key={`mobile-direct-ar-${ratio}`}
+                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-base"
+                  onSelect={() => onUseAspectRatio?.(generation, output, ratio)}
+                >
+                  <AspectRatioGlyph ratio={ratio} />
+                  <span className="flex-1">
+                    {ratio === '1:1' ? 'Square' : ratio === '3:4' ? 'Portrait' : ratio === '9:16' ? 'Story' : ratio === '4:3' ? 'Landscape' : 'Widescreen'}
+                    <span className="ml-2 text-muted-foreground">{ratio}</span>
+                  </span>
+                  {generation.aspectRatio === ratio && <Check className="h-4 w-4" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -310,7 +355,7 @@ export function StudioPreview({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)]">
-        <div className="relative flex min-h-[44vh] flex-1 items-center justify-center px-3 py-3 sm:min-h-0 sm:px-6 sm:py-6">
+        <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 py-2 sm:px-6 sm:py-6">
           {hasPrev && (
             <button
               type="button"
@@ -322,7 +367,7 @@ export function StudioPreview({
             </button>
           )}
 
-          <div className="flex h-full w-full items-center justify-center overflow-hidden bg-background/35 p-1 shadow-sm sm:p-3">
+          <div className="flex h-full w-full min-w-0 items-center justify-center overflow-hidden bg-background/35 p-1 shadow-sm sm:p-3">
             {output.mediaUrl ? (
               output.type === 'video' ? (
                 <video
@@ -364,7 +409,25 @@ export function StudioPreview({
           </div>
         )}
 
-        <div className="flex-shrink-0 overflow-y-auto border-t border-border/70 bg-background/94 px-4 py-4 backdrop-blur sm:px-6" style={{ maxHeight: '42vh' }}>
+        <div className="flex-shrink-0 overflow-hidden border-t border-border/70 bg-background/94 backdrop-blur">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium sm:hidden"
+            onClick={() => setMobileDetailsOpen((current) => !current)}
+            aria-expanded={mobileDetailsOpen}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Info className="h-4 w-4" />
+              Details
+            </span>
+            <ChevronDown className={cn('h-4 w-4 transition-transform', mobileDetailsOpen && 'rotate-180')} />
+          </button>
+          <div
+            className={cn(
+              'overflow-y-auto px-4 pb-4 sm:px-6 sm:py-4',
+              mobileDetailsOpen ? 'max-h-[34dvh]' : 'hidden sm:block sm:max-h-[42vh]',
+            )}
+          >
               <div className="mx-auto max-w-6xl space-y-4">
                 <div className="flex flex-wrap gap-2">
                   {resolvedPreset ? (
@@ -552,6 +615,7 @@ export function StudioPreview({
                   </AlertDialogContent>
                 </AlertDialog>
               </div>
+      </div>
       </div>
       </div>
     </section>
