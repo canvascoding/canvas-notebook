@@ -1696,7 +1696,8 @@
       "bulk": "Bulk",
       "models": "Modelle",
       "presets": "Presets",
-      "resize": "Resize"
+      "resize": "Resize",
+      "aspectRatio": "Aspect Ratio"
     },
     "modelLibrary": {
       "products": "Produkte",
