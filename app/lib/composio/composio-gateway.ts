@@ -8,7 +8,7 @@ import { getComposioSession } from './composio-session';
 import { getComposioUserId } from './composio-identity';
 import { clearToolkitCache, getAvailableToolkits } from './composio-toolkit-registry';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
-import { encryptWebhookSecret, decryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
+import { encryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
 import { db } from '../db';
 import { composioWebhookSubscriptions } from '../db/schema';
 
