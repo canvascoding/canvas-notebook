@@ -967,38 +967,37 @@ function RunStepItem({
     contentToString(message.content) ||
     (message.status === 'sending' ? (isTool ? t('runningTool') : t('agentWorking')) : '');
   const preview = message.previewText || truncatePreview(bodyContent || t('noOutputYet'));
-  const showDetails = toolVerbosity === 'verbose';
+  const isMinimal = toolVerbosity === 'minimal';
+
+  if (isTool && toolVerbosity === 'verbose') {
+    return (
+      <div data-testid="chat-run-step" className="min-w-0 overflow-hidden">
+        <ToolCallPill message={message} onMediaClick={onMediaClick} />
+      </div>
+    );
+  }
 
   return (
-    <div data-testid="chat-run-step" className="rounded-md border border-border/70 bg-background/70 p-2">
+    <div
+      data-testid="chat-run-step"
+      className={cn(
+        'min-w-0 overflow-hidden border border-border/70 bg-background/70',
+        isMinimal ? 'px-2 py-1.5' : 'p-2',
+      )}
+    >
       <div className="flex min-w-0 items-start gap-2">
         <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-foreground">{title}</span>
-            {isTool && message.toolName && toolVerbosity === 'verbose' ? (
-              <span className="font-mono text-[10px] text-muted-foreground">{message.toolName}</span>
-            ) : null}
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate text-xs font-medium text-foreground">{title}</span>
           </div>
-          {toolVerbosity !== 'minimal' ? (
-            <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{preview}</div>
+          {!isMinimal ? (
+            <div className="mt-0.5 line-clamp-2 min-w-0 break-words text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+              {preview}
+            </div>
           ) : null}
         </div>
       </div>
-
-      {showDetails ? (
-        <div className="mt-3 space-y-3">
-          {isTool && message.toolArgs ? (
-            <div className="rounded-md border border-border/70 bg-muted/35 p-2">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolInput')}</div>
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/85">{message.toolArgs}</pre>
-            </div>
-          ) : null}
-          {bodyContent ? (
-            <MarkdownMessage content={bodyContent} variant={isTool ? 'tool' : 'assistant'} onMediaClick={onMediaClick} />
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1028,20 +1027,20 @@ function AgentRunDisclosure({
 
   return (
     <div data-testid="chat-run-disclosure" className="flex justify-start">
-      <div className="w-full max-w-[90%]">
+      <div className="min-w-0 w-full max-w-[90%]">
         <button
           type="button"
           data-testid="chat-run-disclosure-toggle"
           onClick={onToggle}
-          className="group flex w-full items-center gap-2 border-t border-border/70 py-2 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="group flex min-w-0 w-full items-start gap-2 border-t border-border/70 py-2 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
           aria-expanded={expanded}
         >
           {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-          <span>{summary}</span>
+          <span className="min-w-0 break-words leading-relaxed [overflow-wrap:anywhere]">{summary}</span>
         </button>
 
         {expanded ? (
-          <div data-testid="chat-run-steps" className="mb-2 space-y-2 pl-6">
+          <div data-testid="chat-run-steps" className="mb-2 min-w-0 space-y-2 pl-4 sm:pl-6">
             {run.steps.map((step) => (
               <RunStepItem
                 key={step.id}
@@ -4409,7 +4408,7 @@ export default function CanvasAgentChat({
                 thinkingLevel={activeThinkingLevel}
                 agentConfig={agentConfig}
                 disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle')}
-                compact={isMobile}
+                compact={isCompactView}
                 onModelChange={handleModelChange}
                 onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
               />

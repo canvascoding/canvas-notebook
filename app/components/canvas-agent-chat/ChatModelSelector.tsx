@@ -9,9 +9,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -48,7 +45,7 @@ type ChatModelSelectorProps = {
   onRuntimeInvalidated?: () => Promise<void> | void;
 };
 
-const THINKING_LEVELS: Array<{ value: PiThinkingLevel; label: string; menuOnly?: boolean }> = [
+const THINKING_LEVELS: Array<{ value: PiThinkingLevel; label: string }> = [
   { value: 'off', label: 'Off' },
   { value: 'minimal', label: 'Minimal' },
   { value: 'low', label: 'Low' },
@@ -66,12 +63,20 @@ function getThinkingLabel(value: PiThinkingLevel): string {
 }
 
 function getModelShortLabel(modelName: string): string {
-  const compactGpt = modelName.match(/^gpt-?(\d+(?:\.\d+)?)/iu);
+  const normalized = modelName
+    .replace(/\s+via\s+.+$/iu, '')
+    .replace(/\s+on\s+.+$/iu, '')
+    .trim();
+  const compactGpt = normalized.match(/^gpt-?(\d+(?:\.\d+)?)/iu);
   if (compactGpt) {
     return compactGpt[1];
   }
 
-  return modelName.replace(/^GPT-/iu, '');
+  if (normalized.length > 24) {
+    return `${normalized.slice(0, 23).trimEnd()}...`;
+  }
+
+  return normalized.replace(/^GPT-/iu, '');
 }
 
 export function ChatModelSelector({
@@ -204,7 +209,7 @@ export function ChatModelSelector({
             title={error || `${activeProvider} / ${activeModelName} / ${thinkingLabel}`}
             className={cn(
               'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/60 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
-              compact ? 'max-w-[220px] px-2.5 py-1 text-xs' : 'max-w-[320px] px-3 py-1 text-xs',
+              compact ? 'max-w-[180px] px-2 py-0.5 text-[11px]' : 'max-w-[260px] px-2.5 py-0.5 text-xs',
               error && 'border-destructive/40 bg-destructive/10 text-destructive',
             )}
           >
@@ -216,57 +221,55 @@ export function ChatModelSelector({
             <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="top" className="w-[min(88vw,310px)] rounded-2xl bg-popover/95 p-2 shadow-2xl backdrop-blur">
+        <DropdownMenuContent
+          align="start"
+          side="top"
+          collisionPadding={12}
+          className="w-[min(88vw,300px)] max-w-[calc(100vw-24px)] rounded-lg bg-popover/95 p-1.5 shadow-xl backdrop-blur"
+        >
           {providerSupportsThinking ? (
             <>
-              <DropdownMenuLabel className="px-3 pb-1 pt-1 text-base font-medium text-muted-foreground">
+              <DropdownMenuLabel className="px-2.5 py-1 text-xs font-medium text-muted-foreground">
                 Intelligence
               </DropdownMenuLabel>
               {visibleThinkingLevels.map((level) => (
                 <DropdownMenuItem
                   key={level.value}
                   onSelect={() => void patchSession({ thinkingLevel: level.value })}
-                  className="flex min-h-11 items-center rounded-lg px-3 text-base"
+                  className="flex min-h-8 items-center rounded-md px-2.5 py-1.5 text-sm"
                 >
                   <span>{level.label}</span>
-                  {thinkingLevel === level.value ? <Check className="ml-auto h-5 w-5 text-muted-foreground" /> : null}
+                  {thinkingLevel === level.value ? <Check className="ml-auto h-4 w-4 text-muted-foreground" /> : null}
                 </DropdownMenuItem>
               ))}
-              <DropdownMenuSeparator className="mx-3 my-2" />
+              <DropdownMenuSeparator className="mx-2 my-1.5" />
             </>
           ) : null}
 
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="min-h-11 rounded-lg px-3 text-base">
-              <span className="min-w-0 truncate">{activeModelName}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-[min(88vw,300px)] rounded-2xl bg-popover/95 p-2 shadow-2xl backdrop-blur">
-              <DropdownMenuLabel className="px-3 pb-1 pt-1 text-base font-medium text-muted-foreground">
-                Model
-              </DropdownMenuLabel>
-              {models.length > 0 ? models.map((model) => (
-                <DropdownMenuItem
-                  key={model.id}
-                  onSelect={() => void patchSession({ model: model.id })}
-                  className="flex min-h-11 items-center rounded-lg px-3 text-base"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate">{model.name}</span>
-                    {model.id !== model.name ? (
-                      <span className="block truncate font-mono text-xs text-muted-foreground">{model.id}</span>
-                    ) : null}
-                  </span>
-                  {activeModel === model.id ? <Check className="ml-auto h-5 w-5 text-muted-foreground" /> : null}
-                </DropdownMenuItem>
-              )) : (
-                <DropdownMenuItem disabled className="min-h-11 rounded-lg px-3 text-base">
-                  <span className="truncate font-mono">{activeModel}</span>
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <DropdownMenuLabel className="px-2.5 py-1 text-xs font-medium text-muted-foreground">
+            Model
+          </DropdownMenuLabel>
+          {models.length > 0 ? models.map((model) => (
+            <DropdownMenuItem
+              key={model.id}
+              onSelect={() => void patchSession({ model: model.id })}
+              className="flex min-h-8 items-center rounded-md px-2.5 py-1.5 text-sm"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{model.name}</span>
+                {model.id !== model.name ? (
+                  <span className="block truncate font-mono text-[10px] leading-4 text-muted-foreground">{model.id}</span>
+                ) : null}
+              </span>
+              {activeModel === model.id ? <Check className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+            </DropdownMenuItem>
+          )) : (
+            <DropdownMenuItem disabled className="min-h-8 rounded-md px-2.5 py-1.5 text-sm">
+              <span className="truncate font-mono">{activeModel}</span>
+            </DropdownMenuItem>
+          )}
 
-          <div className="flex items-center justify-between gap-3 px-3 pb-1 pt-2 text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
+          <div className="flex items-center justify-between gap-3 px-2.5 pb-1 pt-1.5 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
             <span className="truncate">{activeProvider}</span>
             {saved ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
           </div>
