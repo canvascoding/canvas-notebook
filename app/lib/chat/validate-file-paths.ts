@@ -7,7 +7,23 @@ export async function validateFileExists(
   const normalizedPath = filePath.replace(/^\.\/|\/$/g, '');
 
   const nodeInTree = findNodeInTree(normalizedPath, fileTree);
-  return nodeInTree !== null;
+  if (nodeInTree !== null) {
+    return true;
+  }
+
+  if (!normalizedPath || typeof fetch !== 'function') {
+    return false;
+  }
+
+  try {
+    const response = await fetch(`/api/files/read?path=${encodeURIComponent(normalizedPath)}&meta=1`, {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 export function findNodeInTree(path: string, nodes: FileNode[]): FileNode | null {
