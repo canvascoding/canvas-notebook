@@ -8,6 +8,7 @@ import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fe
 import {
   getWorkspaceRoot,
   resolveValidatedStudioAssetPath,
+  resolveValidatedStudioEditPath,
   resolveValidatedStudioOutputPath,
   resolveValidatedUserUploadStudioRefPath,
   resolveValidatedWorkspaceFilePath,
@@ -169,6 +170,11 @@ function classifyStudioMediaPath(input: string, studioMediaPath: string): Resolv
   if (studioMediaPath.startsWith('studio/outputs/')) {
     const relativePath = studioMediaPath.slice('studio/outputs/'.length);
     return makeResolvedReference('studio_output', input, relativePath, resolveValidatedStudioOutputPath(relativePath));
+  }
+
+  if (studioMediaPath.startsWith('studio/edits/')) {
+    const relativePath = studioMediaPath.slice('studio/edits/'.length);
+    return makeResolvedReference('studio_output', input, relativePath, resolveValidatedStudioEditPath(relativePath));
   }
 
   if (studioMediaPath.startsWith('studio/assets/')) {

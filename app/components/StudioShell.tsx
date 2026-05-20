@@ -69,6 +69,7 @@ function getBackHref(pathname: string | null) {
 }
 
 function getStudioTitle(pathname: string | null, tStudio: ReturnType<typeof useTranslations>) {
+  if (pathname?.startsWith('/studio/aspect-ratio')) return 'Aspect Ratio Editor';
   if (pathname?.startsWith('/studio/create')) return tStudio('tabs.create');
   if (pathname?.startsWith('/studio/bulk')) return tStudio('tabs.bulk');
   if (pathname?.startsWith('/studio/models')) return tStudio('tabs.models');

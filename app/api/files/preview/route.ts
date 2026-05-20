@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
 import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { 
+  resolveValidatedStudioEditPath,
   resolveValidatedStudioAssetPath, 
   resolveValidatedStudioOutputPath,
   resolveValidatedUserUploadStudioRefPath 
@@ -216,6 +217,12 @@ export async function GET(request: NextRequest) {
     let fullPath: string;
     if (filePath.startsWith('studio/outputs/')) {
       const resolved = resolveValidatedStudioOutputPath(filePath.slice('studio/outputs/'.length));
+      if (!resolved) {
+        return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+      }
+      fullPath = resolved;
+    } else if (filePath.startsWith('studio/edits/')) {
+      const resolved = resolveValidatedStudioEditPath(filePath.slice('studio/edits/'.length));
       if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }

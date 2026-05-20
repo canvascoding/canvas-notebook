@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import { auth } from '@/app/lib/auth';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { buildGenericFileTree } from '@/app/lib/filesystem/workspace-files';
-import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import { getStudioEditsRoot, getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -84,6 +84,8 @@ export async function GET(request: NextRequest) {
 
     // Scan studio outputs (data/studio/outputs)
     const outputsTree = await safeBuildGenericFileTree(getStudioOutputsRoot(), depth);
+    // Scan aspect-ratio edits (data/studio/edits)
+    const editsTree = await safeBuildGenericFileTree(getStudioEditsRoot(), depth);
     // Scan user-uploaded studio references (data/user-uploads/studio-references)
     const uploadsTree = await safeBuildGenericFileTree(getUserUploadsStudioRefRoot(), depth);
 
@@ -91,6 +93,10 @@ export async function GET(request: NextRequest) {
       ...walkFiles(outputsTree).map((n) => ({
         ...n,
         path: n.path.startsWith('studio/') ? n.path : `studio/outputs/${n.path}`,
+      })),
+      ...walkFiles(editsTree).map((n) => ({
+        ...n,
+        path: n.path.startsWith('studio/') ? n.path : `studio/edits/${n.path}`,
       })),
       ...walkFiles(uploadsTree).map((n) => ({
         ...n,
