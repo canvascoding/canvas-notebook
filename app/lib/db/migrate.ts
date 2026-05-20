@@ -466,6 +466,22 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
+    CREATE TABLE IF NOT EXISTS composio_webhook_subscriptions (
+      id TEXT PRIMARY KEY NOT NULL,
+      subscription_id TEXT NOT NULL UNIQUE,
+      webhook_url TEXT NOT NULL,
+      encrypted_secret TEXT NOT NULL,
+      secret_preview TEXT,
+      event_types TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      mode TEXT NOT NULL DEFAULT 'local',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      rotated_at INTEGER
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_webhook_subscriptions_subscription_id ON composio_webhook_subscriptions (subscription_id);
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_webhook_events_event_id ON composio_webhook_events (event_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_webhook_events_webhook_id ON composio_webhook_events (webhook_id);
     CREATE INDEX IF NOT EXISTS idx_composio_webhook_events_trigger ON composio_webhook_events (trigger_id, received_at);

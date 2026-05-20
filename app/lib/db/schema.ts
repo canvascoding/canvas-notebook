@@ -156,6 +156,22 @@ export const automationJobs = sqliteTable("automation_jobs", {
   composioTriggerIdx: uniqueIndex("idx_automation_jobs_composio_trigger_id").on(table.composioTriggerId),
 }));
 
+export const composioWebhookSubscriptions = sqliteTable("composio_webhook_subscriptions", {
+  id: text("id").primaryKey(),
+  subscriptionId: text("subscription_id").notNull().unique(),
+  webhookUrl: text("webhook_url").notNull(),
+  encryptedSecret: text("encrypted_secret").notNull(),
+  secretPreview: text("secret_preview"),
+  eventTypes: text("event_types"),
+  status: text("status").notNull().default("active"),
+  mode: text("mode").notNull().default("local"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  rotatedAt: integer("rotated_at", { mode: "timestamp" }),
+}, (table) => ({
+  subscriptionIdx: uniqueIndex("idx_composio_webhook_subscriptions_subscription_id").on(table.subscriptionId),
+}));
+
 export const composioWebhookEvents = sqliteTable("composio_webhook_events", {
   id: text("id").primaryKey(),
   eventId: text("event_id"),

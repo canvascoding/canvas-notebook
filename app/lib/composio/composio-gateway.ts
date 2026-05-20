@@ -1,11 +1,16 @@
 import 'server-only';
 
+import { randomUUID } from 'crypto';
+import { eq, desc } from 'drizzle-orm';
 import { getComposio, getComposioMode, verifyApiKey, type ComposioMode } from './composio-client';
 import { disconnectTool, getConnectedAccounts, initiateConnection } from './composio-auth';
 import { getComposioSession } from './composio-session';
 import { getComposioUserId } from './composio-identity';
 import { clearToolkitCache, getAvailableToolkits } from './composio-toolkit-registry';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
+import { encryptWebhookSecret, decryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
+import { db } from '../db';
+import { composioWebhookSubscriptions } from '../db/schema';
 
 const HIDDEN_TOOLKIT_SLUGS = new Set([
   'gemini',
@@ -31,6 +36,12 @@ export interface ComposioStatusResult {
   configured: boolean;
   apiKeyValid: boolean;
   mode: ComposioMode;
+  webhookSubscription?: {
+    configured: boolean;
+    webhookUrl?: string;
+    status?: string;
+    mode?: string;
+  } | null;
   connectedAccounts: Array<{
     id: string;
     toolkit: {
@@ -179,19 +190,30 @@ export async function getComposioGatewayMode(): Promise<ComposioMode> {
 export async function getGatewayStatus(): Promise<ComposioStatusResult> {
   const mode = await getComposioMode();
   if (mode === 'disabled') {
-    return { configured: false, apiKeyValid: false, mode, connectedAccounts: [] };
+    return { configured: false, apiKeyValid: false, mode, webhookSubscription: null, connectedAccounts: [] };
   }
 
   if (mode === 'managed') {
-    return managedRequest<ComposioStatusResult>('/status');
+    const result = await managedRequest<ComposioStatusResult>('/status');
+    result.webhookSubscription = { configured: true, mode: 'managed' };
+    return result;
   }
 
   const apiKeyValid = await verifyApiKey();
   if (!apiKeyValid) {
-    return { configured: true, apiKeyValid: false, mode, connectedAccounts: [] };
+    return { configured: true, apiKeyValid: false, mode, webhookSubscription: null, connectedAccounts: [] };
   }
   const accounts = await getConnectedAccounts();
-  return { configured: true, apiKeyValid: true, mode, connectedAccounts: connectedAccountResponse(accounts) };
+  let webhookSubscription: ComposioStatusResult['webhookSubscription'] = null;
+  try {
+    const sub = await getLocalWebhookSubscription();
+    if (sub) {
+      webhookSubscription = { configured: true, webhookUrl: sub.webhookUrl, status: sub.status, mode: sub.mode };
+    } else {
+      webhookSubscription = { configured: false };
+    }
+  } catch { /* subscription check is non-critical */ }
+  return { configured: true, apiKeyValid: true, mode, webhookSubscription, connectedAccounts: connectedAccountResponse(accounts) };
 }
 
 export async function getGatewayToolkits() {
@@ -414,6 +436,99 @@ export async function listGatewayTriggers() {
   };
 }
 
+const COMPOSIO_WEBHOOK_EVENT_TYPES = [
+  'composio.trigger.message',
+  'composio.connected_account.expired',
+  'composio.trigger.disabled',
+];
+
+export async function getLocalWebhookSubscription() {
+  const mode = await getComposioMode();
+  if (mode !== 'local') return null;
+  const [row] = await db
+    .select()
+    .from(composioWebhookSubscriptions)
+    .where(eq(composioWebhookSubscriptions.status, 'active'))
+    .orderBy(desc(composioWebhookSubscriptions.updatedAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function ensureLocalWebhookSubscription(options?: { forceRefresh?: boolean }) {
+  const mode = await getComposioMode();
+  if (mode !== 'local') throw new Error('Webhook subscriptions are only supported in local Composio mode.');
+  const apiKey = await import('./composio-client').then((m) => m.getLocalComposioApiKey());
+  if (!apiKey) throw new Error('Composio API key is required to create a webhook subscription.');
+  const existing = await getLocalWebhookSubscription();
+  if (existing && !options?.forceRefresh) {
+    return existing;
+  }
+  const webhookUrl = `${appBaseUrl()}/api/composio/webhook`;
+  logComposioTrigger('Creating local webhook subscription', { webhookUrl });
+  const response = await fetch('https://backend.composio.dev/api/v3.1/webhook_subscriptions', {
+    method: 'POST',
+    headers: {
+      'X-API-KEY': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      webhook_url: webhookUrl,
+      enabled_events: COMPOSIO_WEBHOOK_EVENT_TYPES,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    logComposioTriggerError('Failed to create Composio webhook subscription', new Error(`HTTP ${response.status}`), { status: response.status, body: text.slice(0, 500) });
+    throw new Error(`Failed to create Composio webhook subscription (${response.status}): ${text.slice(0, 200)}`);
+  }
+  const data = await response.json();
+  const subscription = (data as Record<string, unknown>).subscription ?? data;
+  const subRecord = subscription as Record<string, unknown>;
+  const subscriptionId = String(subRecord.id ?? subRecord.subscription_id ?? '');
+  const secret = String(subRecord.secret ?? '');
+  const returnedUrl = String(subRecord.webhook_url ?? subRecord.url ?? webhookUrl);
+  const eventTypes = Array.isArray(subRecord.enabled_events) ? subRecord.enabled_events.map(String) : COMPOSIO_WEBHOOK_EVENT_TYPES;
+  if (!subscriptionId || !secret) {
+    throw new Error('Composio webhook subscription response missing subscription ID or secret.');
+  }
+  const now = new Date();
+  if (existing) {
+    await db
+      .update(composioWebhookSubscriptions)
+      .set({ status: 'rotated', updatedAt: now, rotatedAt: now })
+      .where(eq(composioWebhookSubscriptions.id, existing.id));
+  }
+  const [row] = await db
+    .insert(composioWebhookSubscriptions)
+    .values({
+      id: `comp-sub-${randomUUID()}`,
+      subscriptionId,
+      webhookUrl: returnedUrl || webhookUrl,
+      encryptedSecret: encryptWebhookSecret(secret),
+      secretPreview: previewWebhookSecret(secret),
+      eventTypes: JSON.stringify(eventTypes),
+      status: 'active',
+      mode: 'local',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: composioWebhookSubscriptions.subscriptionId,
+      set: {
+        webhookUrl: returnedUrl || webhookUrl,
+        encryptedSecret: encryptWebhookSecret(secret),
+        secretPreview: previewWebhookSecret(secret),
+        eventTypes: JSON.stringify(eventTypes),
+        status: 'active',
+        updatedAt: now,
+        rotatedAt: options?.forceRefresh ? now : null,
+      },
+    })
+    .returning();
+  logComposioTrigger('Local webhook subscription ensured', { subscriptionId, webhookUrl: returnedUrl || webhookUrl });
+  return row;
+}
+
 export async function createGatewayTrigger(input: {
   triggerSlug: string;
   toolkitSlug?: string;
@@ -433,6 +548,11 @@ export async function createGatewayTrigger(input: {
 
   const composio = await getComposio();
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
+  try {
+    await ensureLocalWebhookSubscription();
+  } catch (error) {
+    logComposioTriggerError('Failed to ensure local webhook subscription (continuing with trigger creation)', error, { triggerSlug: input.triggerSlug });
+  }
   logComposioTrigger('Creating local trigger', {
     triggerSlug: input.triggerSlug,
     toolkitSlug: input.toolkitSlug,
