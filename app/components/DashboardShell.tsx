@@ -55,6 +55,48 @@ type DesktopChatMode = 'side' | 'fullscreen';
 const LEFT_SIDEBAR_MIN = 400;
 const LEFT_SIDEBAR_MAX = 940;
 const MIN_EDITOR_WIDTH = 360;
+const NOTEBOOK_OPEN_FILE_STORAGE_KEY = 'canvas.notebookOpenFilePath';
+
+function normalizeNotebookFilePath(path: string | null) {
+  const normalized = path?.replace(/^\.\/|\/+$/g, '').trim();
+  return normalized || null;
+}
+
+function getParentDirectory(path: string) {
+  const trimmed = path.replace(/\/+$/, '');
+  const lastSlash = trimmed.lastIndexOf('/');
+  return lastSlash > 0 ? trimmed.slice(0, lastSlash) : '.';
+}
+
+function readStoredNotebookOpenFilePath() {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    return normalizeNotebookFilePath(window.localStorage.getItem(NOTEBOOK_OPEN_FILE_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredNotebookOpenFilePath(path: string) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(NOTEBOOK_OPEN_FILE_STORAGE_KEY, path);
+  } catch {
+    // Non-critical: the notebook can still open files without persistence.
+  }
+}
+
+function clearStoredNotebookOpenFilePath() {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.removeItem(NOTEBOOK_OPEN_FILE_STORAGE_KEY);
+  } catch {
+    // Non-critical: stale local UI state can be ignored on the next load.
+  }
+}
 
 function getSidebarMaxWidth() {
   if (typeof window === 'undefined') {
@@ -133,6 +175,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     startWidth: number;
   } | null>(null);
   const openedPathRef = useRef<string | null>(null);
+  const initialNotebookStateResolvedRef = useRef(false);
   const desktopDefaultChatAppliedRef = useRef(false);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
   const previousCurrentFilePathRef = useRef<string | null>(null);
@@ -183,17 +226,34 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
   }, []);
 
+  const openNotebookFile = useCallback(async (path: string) => {
+    const normalizedPath = normalizeNotebookFilePath(path);
+    if (!normalizedPath) return;
+
+    const { loadFile, setCurrentDirectory } = useFileStore.getState();
+    setCurrentDirectory(getParentDirectory(normalizedPath));
+    await loadFile(normalizedPath, true);
+
+    const loadedPath = useFileStore.getState().currentFile?.path ?? null;
+    if (loadedPath === normalizedPath) {
+      writeStoredNotebookOpenFilePath(normalizedPath);
+    } else {
+      clearStoredNotebookOpenFilePath();
+    }
+
+    useFileStore.getState().setMobileSurface('editor');
+  }, []);
+
   useEffect(() => {
-    const targetPath = searchParams.get('path');
+    const targetPath = normalizeNotebookFilePath(searchParams.get('path'));
     if (targetPath && openedPathRef.current !== targetPath) {
       openedPathRef.current = targetPath;
-      const { loadFile, setCurrentDirectory } = useFileStore.getState();
-      const trimmed = targetPath.replace(/\/+$/, '');
-      const lastSlash = trimmed.lastIndexOf('/');
-      const parentDir = lastSlash > 0 ? trimmed.slice(0, lastSlash) : '.';
-      setCurrentDirectory(parentDir || '.');
-      void loadFile(targetPath, true);
-      useFileStore.getState().setMobileSurface('editor');
+      void openNotebookFile(targetPath);
+
+      if (viewportMode === 'desktop') {
+        setChatVisible(true);
+        setDesktopChatMode('side');
+      }
     }
 
     const sessionParam = searchParams.get('session');
@@ -201,7 +261,43 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatVisible(true);
     }
-  }, [searchParams]);
+  }, [openNotebookFile, searchParams, viewportMode]);
+
+  useEffect(() => {
+    if (viewportMode === null || initialNotebookStateResolvedRef.current) return;
+
+    initialNotebookStateResolvedRef.current = true;
+
+    const targetPath = normalizeNotebookFilePath(searchParams.get('path'));
+    if (targetPath) {
+      setChatVisible(true);
+      if (viewportMode === 'desktop') {
+        setDesktopChatMode('side');
+      }
+      return;
+    }
+
+    const storedPath = readStoredNotebookOpenFilePath();
+    if (storedPath) {
+      openedPathRef.current = storedPath;
+      void openNotebookFile(storedPath);
+      setChatVisible(true);
+      if (viewportMode === 'desktop') {
+        setDesktopChatMode('side');
+      }
+      return;
+    }
+
+    useFileStore.getState().clearCurrentFile();
+    setChatVisible(true);
+
+    if (viewportMode === 'desktop') {
+      setDesktopChatMode('fullscreen');
+    } else {
+      setMobileSurface('editor');
+      setMobileChatOpen(false);
+    }
+  }, [openNotebookFile, searchParams, viewportMode]);
 
   useEffect(() => {
     previousCurrentFilePathRef.current = useFileStore.getState().currentFile?.path ?? null;
@@ -210,6 +306,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       const nextPath = state.currentFile?.path ?? null;
       const previousPath = previousCurrentFilePathRef.current;
       previousCurrentFilePathRef.current = nextPath;
+
+      if (nextPath && nextPath !== previousPath) {
+        writeStoredNotebookOpenFilePath(nextPath);
+      }
 
       if (!nextPath || nextPath === previousPath || viewportMode !== 'desktop') {
         return;
@@ -272,6 +372,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const handleClosePreview = useCallback(() => {
     useFileStore.getState().clearCurrentFile();
+    clearStoredNotebookOpenFilePath();
     setChatVisible(true);
 
     if (viewportMode === 'desktop') {
