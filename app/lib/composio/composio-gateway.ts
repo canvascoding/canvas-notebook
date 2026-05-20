@@ -547,23 +547,32 @@ export async function ensureLocalWebhookSubscription(options?: { forceRefresh?: 
   }
   const webhookUrl = `${appBaseUrl()}/api/composio/webhook`;
   logComposioTrigger('Creating local webhook subscription', { webhookUrl });
+  const headers = {
+    'X-API-KEY': apiKey,
+    'Content-Type': 'application/json',
+  };
+  const subscriptionBody = {
+    webhook_url: webhookUrl,
+    enabled_events: COMPOSIO_WEBHOOK_EVENT_TYPES,
+    version: 'V3',
+  };
   const response = await fetch('https://backend.composio.dev/api/v3.1/webhook_subscriptions', {
     method: 'POST',
-    headers: {
-      'X-API-KEY': apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      webhook_url: webhookUrl,
-      enabled_events: COMPOSIO_WEBHOOK_EVENT_TYPES,
-    }),
+    headers,
+    body: JSON.stringify(subscriptionBody),
   });
-  if (!response.ok) {
+  let data: unknown;
+  if (response.status === 409) {
+    logComposioTrigger('Local webhook subscription already exists, reusing remote subscription');
+    data = await reuseExistingLocalWebhookSubscription(apiKey, headers, subscriptionBody);
+  } else if (!response.ok) {
     const text = await response.text();
     logComposioTriggerError('Failed to create Composio webhook subscription', new Error(`HTTP ${response.status}`), { status: response.status, body: text.slice(0, 500) });
     throw new Error(`Failed to create Composio webhook subscription (${response.status}): ${text.slice(0, 200)}`);
+  } else {
+    data = await response.json();
   }
-  const data = await response.json();
+
   const subscription = (data as Record<string, unknown>).subscription ?? data;
   const subRecord = subscription as Record<string, unknown>;
   const subscriptionId = String(subRecord.id ?? subRecord.subscription_id ?? '');
@@ -609,6 +618,52 @@ export async function ensureLocalWebhookSubscription(options?: { forceRefresh?: 
     .returning();
   logComposioTrigger('Local webhook subscription ensured', { subscriptionId, webhookUrl: returnedUrl || webhookUrl });
   return row;
+}
+
+async function reuseExistingLocalWebhookSubscription(
+  apiKey: string,
+  headers: Record<string, string>,
+  subscriptionBody: { webhook_url: string; enabled_events: string[]; version: string },
+): Promise<unknown> {
+  const listResponse = await fetch('https://backend.composio.dev/api/v3.1/webhook_subscriptions?limit=10', {
+    method: 'GET',
+    headers: { 'X-API-KEY': apiKey },
+  });
+  if (!listResponse.ok) {
+    const text = await listResponse.text();
+    throw new Error(`Failed to list existing Composio webhook subscriptions (${listResponse.status}): ${text.slice(0, 200)}`);
+  }
+
+  const listData = await listResponse.json();
+  const listRecord = asRecord(listData);
+  const items = Array.isArray(listRecord.items)
+    ? listRecord.items
+    : Array.isArray(listRecord.data)
+      ? listRecord.data
+      : [];
+  const existingRemote = asRecord(items[0]);
+  const subscriptionId = stringValue(existingRemote.id) || stringValue(existingRemote.subscription_id);
+  if (!subscriptionId) {
+    throw new Error('Composio reported an existing webhook subscription but did not return it from the list endpoint.');
+  }
+
+  const updateResponse = await fetch(`https://backend.composio.dev/api/v3.1/webhook_subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(subscriptionBody),
+  });
+  if (!updateResponse.ok) {
+    const text = await updateResponse.text();
+    throw new Error(`Failed to update existing Composio webhook subscription (${updateResponse.status}): ${text.slice(0, 200)}`);
+  }
+
+  const updateData = await updateResponse.json();
+  const updateRecord = asRecord((updateData as Record<string, unknown>).subscription ?? updateData);
+  const existingSecret = stringValue(existingRemote.secret);
+  if (existingSecret && !stringValue(updateRecord.secret)) {
+    return { ...updateRecord, secret: existingSecret };
+  }
+  return updateData;
 }
 
 export async function createGatewayTrigger(input: {
