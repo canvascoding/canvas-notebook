@@ -56,6 +56,7 @@ import {
   CheckCheck,
   ExternalLink,
   Lock,
+  Square,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
@@ -91,6 +92,7 @@ import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialo
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { getToolDisplayInfo, type ToolDisplayTone } from '@/app/lib/pi/tool-display';
+import { cn } from '@/lib/utils';
 
 import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
@@ -3388,15 +3390,6 @@ export default function CanvasAgentChat({
                 <>
                   <button
                     type="button"
-                    data-testid="chat-stop"
-                    onClick={() => void handleStop()}
-                    disabled={!runtimeStatus?.canAbort}
-                    className="border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {t('stop')}
-                  </button>
-                  <button
-                    type="button"
                     data-testid="chat-compact"
                     onClick={() => void handleCompact()}
                     disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
@@ -3405,17 +3398,6 @@ export default function CanvasAgentChat({
                     {t('compact')}
                   </button>
                 </>
-              )}
-              {isMobile && (
-                <button
-                  type="button"
-                  data-testid="chat-stop"
-                  onClick={() => void handleStop()}
-                  disabled={!runtimeStatus?.canAbort}
-                  className="border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {t('stop')}
-                </button>
               )}
               {isMobile && (
                 <button
@@ -4219,14 +4201,31 @@ export default function CanvasAgentChat({
           <button
             type="button"
             data-testid="chat-send"
-            onClick={() => void handleSend()}
-            className="flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
-            disabled={!hasComposerContent || isWebSocketUnavailable}
-            title={isRuntimeBusy ? t('steerAction') : t('sendAction')}
+            data-action={isRuntimeBusy ? 'stop' : 'send'}
+            aria-label={isRuntimeBusy ? t('stop') : t('sendAction')}
+            onClick={() => {
+              if (isRuntimeBusy) {
+                void handleStop();
+                return;
+              }
+              void handleSend();
+            }}
+            className={cn(
+              'flex-shrink-0 p-2.5 transition-all disabled:opacity-30',
+              isRuntimeBusy
+                ? 'bg-foreground text-background hover:bg-foreground/90'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90',
+            )}
+            disabled={isRuntimeBusy ? !runtimeStatus?.canAbort || isWebSocketUnavailable : !hasComposerContent || isWebSocketUnavailable}
+            title={isRuntimeBusy ? t('stop') : t('sendAction')}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
-              <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            {isRuntimeBusy ? (
+              <Square className="h-5 w-5 fill-current" />
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
+                <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
           </button>
         </div>
         <div className="mt-2 flex items-start justify-between gap-2">

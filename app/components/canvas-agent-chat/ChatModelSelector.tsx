@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Brain, Check, ChevronDown, Cpu, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Loader2 } from 'lucide-react';
 
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -46,14 +48,31 @@ type ChatModelSelectorProps = {
   onRuntimeInvalidated?: () => Promise<void> | void;
 };
 
-const THINKING_LEVELS: Array<{ value: PiThinkingLevel; label: string }> = [
+const THINKING_LEVELS: Array<{ value: PiThinkingLevel; label: string; menuOnly?: boolean }> = [
   { value: 'off', label: 'Off' },
   { value: 'minimal', label: 'Minimal' },
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'XHigh' },
+  { value: 'xhigh', label: 'Extra High' },
 ];
+
+const PRIMARY_THINKING_LEVELS = THINKING_LEVELS.filter((level) => (
+  level.value === 'low' || level.value === 'medium' || level.value === 'high' || level.value === 'xhigh'
+));
+
+function getThinkingLabel(value: PiThinkingLevel): string {
+  return THINKING_LEVELS.find((level) => level.value === value)?.label || value;
+}
+
+function getModelShortLabel(modelName: string): string {
+  const compactGpt = modelName.match(/^gpt-?(\d+(?:\.\d+)?)/iu);
+  if (compactGpt) {
+    return compactGpt[1];
+  }
+
+  return modelName.replace(/^GPT-/iu, '');
+}
 
 export function ChatModelSelector({
   sessionId,
@@ -75,8 +94,18 @@ export function ChatModelSelector({
   }, [activeProvider, agentConfig]);
 
   const activeModelName = models.find((model) => model.id === activeModel)?.name || activeModel;
+  const activeModelShortName = getModelShortLabel(activeModelName);
+  const thinkingLabel = getThinkingLabel(thinkingLevel);
   const providerSupportsThinking = models.some((model) => model.reasoning);
   const canChange = !disabled && !pending;
+  const visibleThinkingLevels = useMemo(() => {
+    if (PRIMARY_THINKING_LEVELS.some((level) => level.value === thinkingLevel)) {
+      return PRIMARY_THINKING_LEVELS;
+    }
+
+    const currentLevel = THINKING_LEVELS.find((level) => level.value === thinkingLevel);
+    return currentLevel ? [currentLevel, ...PRIMARY_THINKING_LEVELS] : PRIMARY_THINKING_LEVELS;
+  }, [thinkingLevel]);
 
   useEffect(() => {
     if (!saved) {
@@ -166,47 +195,81 @@ export function ChatModelSelector({
   }
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+    <div className="flex min-w-0 items-center">
       <DropdownMenu>
         <DropdownMenuTrigger asChild disabled={!canChange}>
           <button
             type="button"
             data-testid="chat-model-selector"
-            title={error || `${activeProvider} / ${activeModelName}`}
+            title={error || `${activeProvider} / ${activeModelName} / ${thinkingLabel}`}
             className={cn(
-              'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/40 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
-              compact ? 'max-w-[220px] px-2 py-0.5 text-[10px]' : 'max-w-[320px] px-2.5 py-0.5 text-[10px]',
+              'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/60 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
+              compact ? 'max-w-[220px] px-2.5 py-1 text-xs' : 'max-w-[320px] px-3 py-1 text-xs',
               error && 'border-destructive/40 bg-destructive/10 text-destructive',
             )}
           >
-            {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3 text-emerald-500" /> : <Cpu className="h-3 w-3 text-muted-foreground" />}
-            <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Model</span>
-            <span className="min-w-0 truncate font-mono text-[9px]">{activeModelName}</span>
+            {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
+            <span className="min-w-0 truncate font-mono">{activeModelShortName}</span>
+            {providerSupportsThinking ? (
+              <span className="min-w-0 truncate text-muted-foreground">{thinkingLabel}</span>
+            ) : null}
             <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-[min(88vw,340px)]">
-          <DropdownMenuLabel className="flex items-center justify-between gap-3 text-[11px]">
-            <span className="truncate uppercase tracking-[0.15em] text-muted-foreground">{activeProvider}</span>
+        <DropdownMenuContent align="start" side="top" className="w-[min(88vw,310px)] rounded-2xl bg-popover/95 p-2 shadow-2xl backdrop-blur">
+          {providerSupportsThinking ? (
+            <>
+              <DropdownMenuLabel className="px-3 pb-1 pt-1 text-base font-medium text-muted-foreground">
+                Intelligence
+              </DropdownMenuLabel>
+              {visibleThinkingLevels.map((level) => (
+                <DropdownMenuItem
+                  key={level.value}
+                  onSelect={() => void patchSession({ thinkingLevel: level.value })}
+                  className="flex min-h-11 items-center rounded-lg px-3 text-base"
+                >
+                  <span>{level.label}</span>
+                  {thinkingLevel === level.value ? <Check className="ml-auto h-5 w-5 text-muted-foreground" /> : null}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator className="mx-3 my-2" />
+            </>
+          ) : null}
+
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="min-h-11 rounded-lg px-3 text-base">
+              <span className="min-w-0 truncate">{activeModelName}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-[min(88vw,300px)] rounded-2xl bg-popover/95 p-2 shadow-2xl backdrop-blur">
+              <DropdownMenuLabel className="px-3 pb-1 pt-1 text-base font-medium text-muted-foreground">
+                Model
+              </DropdownMenuLabel>
+              {models.length > 0 ? models.map((model) => (
+                <DropdownMenuItem
+                  key={model.id}
+                  onSelect={() => void patchSession({ model: model.id })}
+                  className="flex min-h-11 items-center rounded-lg px-3 text-base"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate">{model.name}</span>
+                    {model.id !== model.name ? (
+                      <span className="block truncate font-mono text-xs text-muted-foreground">{model.id}</span>
+                    ) : null}
+                  </span>
+                  {activeModel === model.id ? <Check className="ml-auto h-5 w-5 text-muted-foreground" /> : null}
+                </DropdownMenuItem>
+              )) : (
+                <DropdownMenuItem disabled className="min-h-11 rounded-lg px-3 text-base">
+                  <span className="truncate font-mono">{activeModel}</span>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
+          <div className="flex items-center justify-between gap-3 px-3 pb-1 pt-2 text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
+            <span className="truncate">{activeProvider}</span>
             {saved ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={activeModel}
-            onValueChange={(model) => void patchSession({ model })}
-          >
-            {models.length > 0 ? models.map((model) => (
-              <DropdownMenuRadioItem key={model.id} value={model.id} className="items-start py-2">
-                <span className="min-w-0">
-                  <span className="block truncate text-xs font-medium">{model.name}</span>
-                  <span className="block truncate font-mono text-[10px] text-muted-foreground">{model.id}</span>
-                </span>
-              </DropdownMenuRadioItem>
-            )) : (
-              <DropdownMenuRadioItem value={activeModel} disabled className="py-2">
-                <span className="truncate font-mono text-xs">{activeModel}</span>
-              </DropdownMenuRadioItem>
-            )}
-          </DropdownMenuRadioGroup>
+          </div>
           {error ? (
             <>
               <DropdownMenuSeparator />
@@ -215,50 +278,6 @@ export function ChatModelSelector({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      {providerSupportsThinking ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild disabled={!canChange}>
-            <button
-              type="button"
-              data-testid="chat-thinking-selector"
-              title={error || `Thinking / ${thinkingLevel}`}
-              className={cn(
-                'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/40 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
-                compact ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-0.5 text-[10px]',
-                error && 'border-destructive/40 bg-destructive/10 text-destructive',
-              )}
-            >
-              {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3 text-emerald-500" /> : <Brain className="h-3 w-3 text-muted-foreground" />}
-              <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Thinking</span>
-              <span className="font-mono text-[9px]">{thinkingLevel}</span>
-              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[min(88vw,220px)]">
-            <DropdownMenuLabel className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
-              <span>Thinking</span>
-              {saved ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : null}
-            </DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={thinkingLevel}
-              onValueChange={(value) => void patchSession({ thinkingLevel: value as PiThinkingLevel })}
-            >
-              {THINKING_LEVELS.map((level) => (
-                <DropdownMenuRadioItem key={level.value} value={level.value} className="py-1.5 text-xs">
-                  {level.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            {error ? (
-              <>
-                <DropdownMenuSeparator />
-                <div className="px-2 py-1.5 text-[11px] text-destructive">{error}</div>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
     </div>
   );
 }
