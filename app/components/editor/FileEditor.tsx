@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, RefreshCw, Save, Share2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, RefreshCw, Save, Share2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
@@ -133,7 +133,11 @@ function formatTimestamp(timestamp: number | null) {
   });
 }
 
-export function FileEditor() {
+interface FileEditorProps {
+  onClosePreview?: () => void;
+}
+
+export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
   const { currentFile, isLoadingFile, fileError, saveFile, downloadFile, loadFile, fileTree, currentDirectory } = useFileStore();
   const {
@@ -156,6 +160,7 @@ export function FileEditor() {
   const [shareOpen, setShareOpen] = useState(false);
   const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('preview');
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
+  const [isClosingPreview, setIsClosingPreview] = useState(false);
 
   useEffect(() => {
     // This effect synchronizes the main file store (useFileStore) 
@@ -258,6 +263,46 @@ export function FileEditor() {
     if (!hasImageNext) return;
     void loadFile(imagePaths[imageIndex + 1], true);
   }, [hasImageNext, imageIndex, imagePaths, loadFile]);
+
+  const handleClosePreview = useCallback(async () => {
+    if (isClosingPreview) return;
+
+    const {
+      activePath: pathToSave,
+      draft: contentToSave,
+      isDirty: hasUnsavedChanges,
+    } = useEditorStore.getState();
+
+    setIsClosingPreview(true);
+
+    try {
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+
+      if (pathToSave && hasUnsavedChanges) {
+        markSaving();
+        await saveFile(pathToSave, contentToSave);
+        const latestState = useEditorStore.getState();
+        if (
+          latestState.activePath === pathToSave &&
+          latestState.draft === contentToSave
+        ) {
+          markSaved();
+        }
+      }
+
+      onClosePreview?.();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('failedToSaveFile');
+      setSaveError(message);
+      toast.error(message);
+    } finally {
+      setIsClosingPreview(false);
+    }
+  }, [isClosingPreview, markSaved, markSaving, onClosePreview, saveFile, setSaveError, t]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -421,6 +466,23 @@ export function FileEditor() {
               <span className="hidden sm:inline">{savedTime ? t('savedAt', { time: savedTime }) : t('saved')}</span>
             </span>
           )}
+          {onClosePreview ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => void handleClosePreview()}
+              disabled={isClosingPreview}
+              aria-label="Close preview"
+              title="Close preview"
+            >
+              {isClosingPreview ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <X className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          ) : null}
         </div>
       </div>
       <div className={isImage || isVideo || isMarkdown || isHtml ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>

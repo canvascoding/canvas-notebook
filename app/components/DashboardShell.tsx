@@ -135,6 +135,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const openedPathRef = useRef<string | null>(null);
   const desktopDefaultChatAppliedRef = useRef(false);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
+  const previousCurrentFilePathRef = useRef<string | null>(null);
   const currentFile = useFileStore((state) => state.currentFile);
   const currentDirectory = useFileStore((state) => state.currentDirectory);
 
@@ -202,6 +203,21 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    const nextPath = currentFile?.path ?? null;
+    const previousPath = previousCurrentFilePathRef.current;
+    previousCurrentFilePathRef.current = nextPath;
+
+    if (!nextPath || nextPath === previousPath) {
+      return;
+    }
+
+    if (viewportMode === 'desktop') {
+      setChatVisible(true);
+      setDesktopChatMode('side');
+    }
+  }, [currentFile?.path, viewportMode]);
+
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;
     const newWidth = window.innerWidth - e.clientX;
@@ -249,6 +265,22 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     setChatVisible(false);
   }, [chatVisible, desktopChatMode, openDesktopChat]);
+
+  const handleClosePreview = useCallback(() => {
+    useFileStore.getState().clearCurrentFile();
+    setChatVisible(true);
+
+    if (viewportMode === 'desktop') {
+      setDesktopChatMode('fullscreen');
+      return;
+    }
+
+    if (viewportMode === 'mobile') {
+      setMobileSurface('editor');
+      setMobileExplorerOpen(false);
+      setMobileChatOpen(true);
+    }
+  }, [viewportMode]);
 
   useEffect(() => {
     const handleViewport = () => {
@@ -541,7 +573,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {mobileSurface === 'editor' ? (
               currentFile ? (
-                <FileEditor />
+                <FileEditor onClosePreview={handleClosePreview} />
               ) : (
                 <MobileNotebookEmptyState
                   onOpenExplorer={() => setMobileExplorerOpen(true)}
@@ -662,7 +694,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               main={
                 <div className="flex h-full w-full overflow-hidden relative">
                   <div id="onboarding-notebook-editor" className="flex-1 min-w-0 bg-background">
-                    <FileEditor />
+                    <FileEditor onClosePreview={handleClosePreview} />
                   </div>
 
                   {isDesktopChatSideVisible ? (
