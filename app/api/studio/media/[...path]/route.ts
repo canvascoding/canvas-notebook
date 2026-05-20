@@ -4,6 +4,7 @@ import { Readable } from 'stream';
 import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
 import { 
+  resolveValidatedStudioEditPath,
   resolveValidatedStudioAssetPath, 
   resolveValidatedStudioOutputPath,
   resolveValidatedUserUploadStudioRefPath
@@ -59,6 +60,9 @@ function createSecurityHeaders(filePath: string): Headers {
 function resolveStudioPath(encodedFilePath: string): string | null {
   if (encodedFilePath.startsWith('studio/outputs/')) {
     return resolveValidatedStudioOutputPath(encodedFilePath.slice('studio/outputs/'.length));
+  }
+  if (encodedFilePath.startsWith('studio/edits/')) {
+    return resolveValidatedStudioEditPath(encodedFilePath.slice('studio/edits/'.length));
   }
   if (encodedFilePath.startsWith('studio/assets/')) {
     return resolveValidatedStudioAssetPath(encodedFilePath.slice('studio/assets/'.length));

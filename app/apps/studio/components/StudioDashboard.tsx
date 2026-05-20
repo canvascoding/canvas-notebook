@@ -26,7 +26,7 @@ import { StudioPreview } from './create/StudioPreview';
 import { ReferencePickerDialog } from './create/ReferencePickerDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play, ChevronDown } from 'lucide-react';
+import { Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play, ChevronDown, Crop } from 'lucide-react';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -563,6 +563,15 @@ export function StudioDashboard() {
         >
           <Layers className="mr-1.5 h-3.5 w-3.5" />
           {t('dashboard.quickActions.startBulk')}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-full"
+          onClick={() => router.push('/studio/aspect-ratio')}
+        >
+          <Crop className="mr-1.5 h-3.5 w-3.5" />
+          Aspect Ratio
         </Button>
         <Button
           variant="outline"

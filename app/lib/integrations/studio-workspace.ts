@@ -14,6 +14,7 @@ function stripStudioAssetsPrefix(relativePath: string): string {
 export const STUDIO_ROOT_DIR = 'studio';
 export const STUDIO_ASSETS_ROOT_DIR = path.posix.join(STUDIO_ROOT_DIR, 'assets');
 export const STUDIO_OUTPUTS_ROOT_DIR = path.posix.join(STUDIO_ROOT_DIR, 'outputs');
+export const STUDIO_EDITS_ROOT_DIR = path.posix.join(STUDIO_ROOT_DIR, 'edits');
 
 export const STUDIO_PRODUCTS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'products');
 export const STUDIO_PERSONAS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'personas');
@@ -29,6 +30,10 @@ export function getStudioOutputsRoot(): string {
   return path.join(resolveCanvasDataRoot(), STUDIO_OUTPUTS_ROOT_DIR);
 }
 
+export function getStudioEditsRoot(): string {
+  return path.join(resolveCanvasDataRoot(), STUDIO_EDITS_ROOT_DIR);
+}
+
 export async function ensureStudioAssetsWorkspace(): Promise<void> {
   const root = getStudioAssetsRoot();
   await fs.mkdir(root, { recursive: true });
@@ -41,6 +46,10 @@ export async function ensureStudioAssetsWorkspace(): Promise<void> {
 
 export async function ensureStudioOutputsWorkspace(): Promise<void> {
   await fs.mkdir(getStudioOutputsRoot(), { recursive: true });
+}
+
+export async function ensureStudioEditsWorkspace(): Promise<void> {
+  await fs.mkdir(getStudioEditsRoot(), { recursive: true });
 }
 
 export function generateProductImagePath(productId: string, sortOrder: number, ext: string): string {
@@ -106,6 +115,12 @@ export async function writeOutputFile(filePath: string, buffer: Buffer): Promise
   await fs.writeFile(fullPath, buffer);
 }
 
+export async function writeEditFile(filePath: string, buffer: Buffer): Promise<void> {
+  const fullPath = path.join(getStudioEditsRoot(), filePath);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, buffer);
+}
+
 export async function readAssetFile(relativePath: string): Promise<Buffer> {
   const fullPath = path.join(getStudioAssetsRoot(), stripStudioAssetsPrefix(relativePath));
   return fs.readFile(fullPath);
@@ -128,6 +143,11 @@ export async function deleteOutputFile(filePath: string): Promise<void> {
 
 export async function readOutputFile(filePath: string): Promise<Buffer> {
   const fullPath = path.join(getStudioOutputsRoot(), filePath);
+  return fs.readFile(fullPath);
+}
+
+export async function readEditFile(filePath: string): Promise<Buffer> {
+  const fullPath = path.join(getStudioEditsRoot(), filePath);
   return fs.readFile(fullPath);
 }
 

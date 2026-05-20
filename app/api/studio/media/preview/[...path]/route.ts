@@ -3,6 +3,7 @@ import { auth } from '@/app/lib/auth';
 import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
 import {
+  resolveValidatedStudioEditPath,
   resolveValidatedStudioAssetPath,
   resolveValidatedStudioOutputPath,
   resolveValidatedUserUploadStudioRefPath,
@@ -30,6 +31,9 @@ const PREVIEW_CSP = [
 function resolveStudioPath(encodedFilePath: string): string | null {
   if (encodedFilePath.startsWith('studio/outputs/')) {
     return resolveValidatedStudioOutputPath(encodedFilePath.slice('studio/outputs/'.length));
+  }
+  if (encodedFilePath.startsWith('studio/edits/')) {
+    return resolveValidatedStudioEditPath(encodedFilePath.slice('studio/edits/'.length));
   }
   if (encodedFilePath.startsWith('studio/assets/')) {
     return resolveValidatedStudioAssetPath(encodedFilePath.slice('studio/assets/'.length));
