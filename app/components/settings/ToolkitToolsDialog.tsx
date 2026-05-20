@@ -130,6 +130,7 @@ export function ToolkitToolsDialog({
   const [triggerPrompt, setTriggerPrompt] = useState(DEFAULT_PROMPT);
   const [triggerConfigText, setTriggerConfigText] = useState('{}');
   const [targetOutputPath, setTargetOutputPath] = useState('');
+  const [webhookSubStatus, setWebhookSubStatus] = useState<{ configured: boolean; webhookUrl?: string; mode?: string } | null>(null);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -188,6 +189,18 @@ export function ToolkitToolsDialog({
           .filter((entry) => entry.toolkitSlug === slug || !entry.toolkitSlug),
       );
       setSelectedTriggerSlug((current) => current || normalizedTypes[0]?.slug || '');
+
+      try {
+        const subResponse = await fetch('/api/composio/webhook/subscription', { credentials: 'include' });
+        if (subResponse.ok) {
+          const subData = await subResponse.json();
+          setWebhookSubStatus({ configured: subData.configured, webhookUrl: subData.webhookUrl, mode: subData.mode });
+        } else {
+          setWebhookSubStatus({ configured: false });
+        }
+      } catch {
+        setWebhookSubStatus({ configured: false });
+      }
     } catch (err) {
       console.error('[Composio Triggers UI] Failed to load triggers', { toolkit: slug, error: err });
       setTriggersError(err instanceof Error ? err.message : 'Failed to load triggers');
@@ -507,6 +520,15 @@ export function ToolkitToolsDialog({
                   <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                     {triggersError}
                   </p>
+                )}
+
+                {webhookSubStatus && webhookSubStatus.mode === 'local' && (
+                  <div className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${webhookSubStatus.configured ? 'border-primary/30 bg-primary/5 text-primary' : 'border-destructive/30 bg-destructive/5 text-destructive'}`}>
+                    <span className={`inline-block h-2 w-2 rounded-full ${webhookSubStatus.configured ? 'bg-primary' : 'bg-destructive'}`} />
+                    {webhookSubStatus.configured
+                      ? <span>Webhook subscription active — {webhookSubStatus.webhookUrl}</span>
+                      : <span>Webhook subscription not configured — events will not be received</span>}
+                  </div>
                 )}
 
                 <div className="space-y-3 rounded-md border border-border p-3">
