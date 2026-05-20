@@ -16,8 +16,9 @@ import {
 } from '@/components/ui/sidebar';
 import { useFileStore, FileNode as FileNodeType, type BrowserMode } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
-import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -118,6 +119,21 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
   };
 
   const getFileIcon = () => {
+    if (!isDirectory && isImageFile(node.name)) {
+      return (
+        <ImageThumbnailIcon
+          path={node.path}
+          name={node.name}
+          className="h-5 w-5 rounded-sm"
+          fallbackIcon={getFileIconComponent({
+            name: node.name,
+            path: node.path,
+            type: 'file',
+          })}
+        />
+      );
+    }
+
     return getFileIconComponent({
       name: node.name,
       path: node.path,
