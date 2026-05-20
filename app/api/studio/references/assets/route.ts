@@ -1,6 +1,6 @@
 /**
  * Studio reference assets listing API
- * Lists available image files from studio outputs, studio asset references, and user uploads
+ * Lists available media files from studio outputs, studio asset references, and user uploads
  */
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
@@ -12,7 +12,10 @@ import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav']);
+type AssetKind = 'image' | 'video' | 'audio';
 
 function getExtension(filePath: string): string {
   const ext = filePath.split('.').pop();
@@ -31,14 +34,21 @@ function walkFiles(nodes: FileNode[], list: FileNode[] = []): FileNode[] {
   return list;
 }
 
-function matchesKind(extension: string): boolean {
-  return IMAGE_EXTENSIONS.has(extension);
+function getKind(extension: string): AssetKind | null {
+  if (IMAGE_EXTENSIONS.has(extension)) return 'image';
+  if (VIDEO_EXTENSIONS.has(extension)) return 'video';
+  if (AUDIO_EXTENSIONS.has(extension)) return 'audio';
+  return null;
+}
+
+function matchesKind(extension: string, requestedKind: AssetKind): boolean {
+  return getKind(extension) === requestedKind;
 }
 
 interface AssetItem {
   path: string;
   name: string;
-  kind: 'image';
+  kind: AssetKind;
   size?: number;
   modified?: number;
   mediaUrl: string;
@@ -77,6 +87,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const query = (searchParams.get('q') || '').trim().toLowerCase();
+    const kindParam = (searchParams.get('kind') || 'image').trim().toLowerCase();
+    const requestedKind: AssetKind = kindParam === 'video' || kindParam === 'audio' ? kindParam : 'image';
     const limitRaw = Number(searchParams.get('limit') || '300');
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 300;
     const depthRaw = Number(searchParams.get('depth') || '8');
@@ -107,9 +119,10 @@ export async function GET(request: NextRequest) {
     const filtered: AssetItem[] = [];
     for (const file of allFiles) {
       const ext = getExtension(file.path);
-      if (!matchesKind(ext)) {
+      if (!matchesKind(ext, requestedKind)) {
         continue;
       }
+      const kind = getKind(ext) || requestedKind;
 
       if (query && !file.path.toLowerCase().includes(query) && !file.name.toLowerCase().includes(query)) {
         continue;
@@ -118,7 +131,7 @@ export async function GET(request: NextRequest) {
       filtered.push({
         path: file.path,
         name: file.name,
-        kind: 'image',
+        kind,
         size: file.size,
         modified: file.modified,
         mediaUrl: toMediaUrl(file.path),

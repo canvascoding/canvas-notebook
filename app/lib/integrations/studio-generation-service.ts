@@ -34,13 +34,14 @@ import {
   SEEDANCE_MODEL_ID,
   SEEDANCE_PROVIDER_ID,
   type SeedanceAspectRatio,
-  type SeedanceReferenceImage,
+  type SeedanceReferenceMedia,
   type SeedanceResolution,
 } from '@/app/lib/integrations/seedance-generation-service';
 import { loadMediaReference, loadMediaReferences } from '@/app/lib/integrations/media-reference-resolver';
 import { generateSound, LYRIA_CLIP_MODEL_ID, LYRIA_PRO_MODEL_ID, type SoundOutputFormat } from '@/app/lib/integrations/sound-generation-service';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
+type ProviderReferenceMedia = { imageBytes: string; mimeType: string; fileName?: string };
 
 interface LoadedReferenceImage {
   imageBytes: string;
@@ -71,6 +72,8 @@ export interface StudioGenerateRequest {
   source_output_id?: string;
   pi_session_id?: string;
   extra_reference_urls?: string[];
+  video_reference_urls?: string[];
+  audio_reference_urls?: string[];
   video_resolution?: '480p' | '720p' | '1080p' | '4k';
   video_duration?: number;
   start_frame_path?: string;
@@ -116,6 +119,8 @@ const MIME_EXTENSION: Record<string, string> = {
   'audio/mpeg': 'mp3',
   'audio/mp3': 'mp3',
   'audio/wav': 'wav',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
 };
 
 function sanitizePrompt(prompt: string): string {
@@ -420,6 +425,18 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
   }));
 }
 
+async function loadExtraReferenceMedia(userId: string, urls: string[], mediaType: 'video' | 'audio'): Promise<ProviderReferenceMedia[]> {
+  if (urls.length === 0) return [];
+
+  console.log(`[Studio Generation] Loading ${urls.length} extra ${mediaType} references`);
+  const files = await loadMediaReferences(urls, { userId, allowedTypes: [mediaType] });
+  return files.map((file) => ({
+    imageBytes: file.videoBytes || file.imageBytes,
+    mimeType: file.mimeType,
+    fileName: file.fileName,
+  }));
+}
+
 function buildReferenceContextPrompt(referenceImages: LoadedReferenceImage[]): { contextText: string; providerImages: ProviderReferenceImage[] } {
   if (referenceImages.length === 0) {
     return { contextText: '', providerImages: [] };
@@ -533,7 +550,16 @@ export async function createStudioGeneration(
   const personaIds = (request.persona_ids || []).slice(0, MAX_PERSONAS);
   const styleIds = (request.style_ids || []).slice(0, MAX_STYLES);
 
-  if (!rawPrompt && productIds.length === 0 && personaIds.length === 0 && styleIds.length === 0 && !request.source_output_id && !(request.extra_reference_urls?.length)) {
+  if (
+    !rawPrompt &&
+    productIds.length === 0 &&
+    personaIds.length === 0 &&
+    styleIds.length === 0 &&
+    !request.source_output_id &&
+    !(request.extra_reference_urls?.length) &&
+    !(request.video_reference_urls?.length) &&
+    !(request.audio_reference_urls?.length)
+  ) {
     throw new StudioServiceError(
       'Prompt or reference required',
       'Ein Prompt oder mindestens ein Referenz-Bild (Produkt/Persona) ist erforderlich.',
@@ -583,6 +609,8 @@ export async function createStudioGeneration(
     videoWebSearch: request.video_web_search,
     videoNsfwChecker: request.video_nsfw_checker,
     extraReferenceUrls: request.extra_reference_urls,
+    videoReferenceUrls: request.video_reference_urls,
+    audioReferenceUrls: request.audio_reference_urls,
     sourceOutputId: request.source_output_id,
     startFramePath: request.start_frame_path || null,
     endFramePath: request.end_frame_path || null,
@@ -772,6 +800,13 @@ async function executeStudioGenerationProcessing(
       }
     }
 
+    const extraVideoReferences = mode === 'video' && providerId === SEEDANCE_PROVIDER_ID
+      ? await loadExtraReferenceMedia(userId, parsedMeta.videoReferenceUrls || [], 'video')
+      : [];
+    const extraAudioReferences = mode === 'video' && providerId === SEEDANCE_PROVIDER_ID
+      ? await loadExtraReferenceMedia(userId, parsedMeta.audioReferenceUrls || [], 'audio')
+      : [];
+
     const { contextText, providerImages } = buildReferenceContextPrompt(allReferenceImages);
     console.log(`[Studio Generation] Reference images prepared: total=${allReferenceImages.length}, forProvider=${providerImages.length}, contextLength=${contextText.length}`);
 
@@ -804,6 +839,8 @@ async function executeStudioGenerationProcessing(
         parsedMeta.endFramePath || null,
         parsedMeta.isLooping || false,
         parsedMeta.personGeneration,
+        extraVideoReferences,
+        extraAudioReferences,
         {
           generateAudio: parsedMeta.videoGenerateAudio,
           webSearch: parsedMeta.videoWebSearch,
@@ -1075,6 +1112,8 @@ async function generateStudioVideo(
   endFramePath?: string | null,
   isLooping?: boolean,
   personGeneration?: 'allow_all' | 'allow_adult' | 'dont_allow',
+  referenceVideos: ProviderReferenceMedia[] = [],
+  referenceAudios: ProviderReferenceMedia[] = [],
   videoOptions?: {
     generateAudio?: boolean;
     webSearch?: boolean;
@@ -1102,6 +1141,8 @@ async function generateStudioVideo(
       startFramePath,
       endFramePath,
       isLooping,
+      referenceVideos,
+      referenceAudios,
       videoOptions,
     );
   }
@@ -1177,7 +1218,7 @@ async function generateStudioVideo(
   }];
 }
 
-async function loadSeedanceFrame(filePath: string): Promise<SeedanceReferenceImage> {
+async function loadSeedanceFrame(filePath: string): Promise<SeedanceReferenceMedia> {
   try {
     const file = await loadMediaReference(filePath, { allowedTypes: ['image'] });
     return {
@@ -1215,6 +1256,8 @@ async function generateStudioSeedanceVideo(
   startFramePath?: string | null,
   endFramePath?: string | null,
   isLooping?: boolean,
+  referenceVideos: ProviderReferenceMedia[] = [],
+  referenceAudios: ProviderReferenceMedia[] = [],
   videoOptions?: {
     generateAudio?: boolean;
     webSearch?: boolean;
@@ -1228,16 +1271,33 @@ async function generateStudioSeedanceVideo(
   console.log(`[Studio Generation] Seedance frames loaded: first=${firstFrame ? `${firstFrame.mimeType} ${firstFrame.fileName}` : 'none'}, last=${lastFrame ? `${lastFrame.mimeType} ${lastFrame.fileName}` : 'none'}`);
 
   const hasFrameScenario = Boolean(firstFrame || lastFrame);
-  const seedanceReferences: SeedanceReferenceImage[] = hasFrameScenario
+  const seedanceReferences: SeedanceReferenceMedia[] = hasFrameScenario
     ? []
     : referenceImages.map((ref, index) => ({
         imageBytes: ref.imageBytes,
         mimeType: ref.mimeType,
         fileName: `reference-${index}.${extensionFromMime(ref.mimeType)}`,
+        kind: 'image',
+      }));
+  const seedanceVideos: SeedanceReferenceMedia[] = hasFrameScenario
+    ? []
+    : referenceVideos.slice(0, 3).map((ref, index) => ({
+        imageBytes: ref.imageBytes,
+        mimeType: ref.mimeType,
+        fileName: ref.fileName || `reference-video-${index}.${extensionFromMime(ref.mimeType)}`,
+        kind: 'video',
+      }));
+  const seedanceAudios: SeedanceReferenceMedia[] = hasFrameScenario
+    ? []
+    : referenceAudios.slice(0, 3).map((ref, index) => ({
+        imageBytes: ref.imageBytes,
+        mimeType: ref.mimeType,
+        fileName: ref.fileName || `reference-audio-${index}.${extensionFromMime(ref.mimeType)}`,
+        kind: 'audio',
       }));
 
-  if (hasFrameScenario && referenceImages.length > 0) {
-    console.log(`[Studio Generation] Seedance: ${referenceImages.length} reference images dropped because first/last-frame mode is active (references are already in context prompt)`);
+  if (hasFrameScenario && (referenceImages.length > 0 || referenceVideos.length > 0 || referenceAudios.length > 0)) {
+    console.log(`[Studio Generation] Seedance: multimodal references dropped because first/last-frame mode is active (images=${referenceImages.length}, videos=${referenceVideos.length}, audio=${referenceAudios.length})`);
   }
 
   const videoResult = await generateSeedanceVideo({
@@ -1248,6 +1308,8 @@ async function generateStudioSeedanceVideo(
     firstFrame,
     lastFrame,
     referenceImages: seedanceReferences,
+    referenceVideos: seedanceVideos,
+    referenceAudios: seedanceAudios,
     generateAudio: videoOptions?.generateAudio,
     webSearch: videoOptions?.webSearch,
     nsfwChecker: videoOptions?.nsfwChecker,

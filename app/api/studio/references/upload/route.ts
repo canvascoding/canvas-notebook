@@ -6,9 +6,20 @@ import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_IMAGE_FILE_SIZE = 30 * 1024 * 1024;
+const MAX_VIDEO_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_AUDIO_FILE_SIZE = 15 * 1024 * 1024;
 const MAX_FILES_PER_REQUEST = 20;
-const ALLOWED_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+const ALLOWED_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif']);
+const ALLOWED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
+const ALLOWED_AUDIO_EXTENSIONS = new Set(['mp3', 'wav']);
+
+function allowedFileSize(extension: string): number | null {
+  if (ALLOWED_IMAGE_EXTENSIONS.has(extension)) return MAX_IMAGE_FILE_SIZE;
+  if (ALLOWED_VIDEO_EXTENSIONS.has(extension)) return MAX_VIDEO_FILE_SIZE;
+  if (ALLOWED_AUDIO_EXTENSIONS.has(extension)) return MAX_AUDIO_FILE_SIZE;
+  return null;
+}
 
 function sanitizeFilename(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
@@ -57,18 +68,19 @@ export async function POST(request: NextRequest) {
     }> = [];
 
     for (const file of files) {
-      if (file.size > MAX_FILE_SIZE) {
+      const ext = path.extname(file.name).toLowerCase().replace('.', '');
+      const maxFileSize = allowedFileSize(ext);
+      if (!maxFileSize) {
         return NextResponse.json(
-          { success: false, error: `File "${file.name}" exceeds 20MB limit` },
-          { status: 413 },
+          { success: false, error: `File "${file.name}" is not supported. Allowed: PNG, JPG, JPEG, WebP, BMP, TIFF, GIF, MP4, MOV, MP3, WAV` },
+          { status: 400 },
         );
       }
 
-      const ext = path.extname(file.name).toLowerCase().replace('.', '');
-      if (!ALLOWED_EXTENSIONS.has(ext)) {
+      if (file.size > maxFileSize) {
         return NextResponse.json(
-          { success: false, error: `File "${file.name}" is not a supported image format. Allowed: PNG, JPG, JPEG, WebP` },
-          { status: 400 },
+          { success: false, error: `File "${file.name}" exceeds ${Math.floor(maxFileSize / (1024 * 1024))}MB limit` },
+          { status: 413 },
         );
       }
 

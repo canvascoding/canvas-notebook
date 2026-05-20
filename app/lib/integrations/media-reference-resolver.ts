@@ -19,16 +19,24 @@ const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
 const DEFAULT_EXTERNAL_TIMEOUT_MS = 30_000;
 
 const IMAGE_MIME: Record<string, string> = {
+  bmp: 'image/bmp',
   gif: 'image/gif',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   png: 'image/png',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
   webp: 'image/webp',
 };
 
 const VIDEO_MIME: Record<string, string> = {
   mov: 'video/quicktime',
   mp4: 'video/mp4',
+};
+
+const AUDIO_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
 };
 
 export type MediaReferenceKind =
@@ -40,7 +48,7 @@ export type MediaReferenceKind =
   | 'workspace_absolute'
   | 'external_url';
 
-export type MediaReferenceType = 'image' | 'video';
+export type MediaReferenceType = 'image' | 'video' | 'audio';
 
 export interface ResolvedMediaReference {
   kind: MediaReferenceKind;
@@ -88,6 +96,11 @@ function mimeFromPath(filePath: string): { mimeType: string; mediaType: MediaRef
   const videoMime = VIDEO_MIME[ext];
   if (videoMime) {
     return { mimeType: videoMime, mediaType: 'video' };
+  }
+
+  const audioMime = AUDIO_MIME[ext];
+  if (audioMime) {
+    return { mimeType: audioMime, mediaType: 'audio' };
   }
 
   return { mimeType: 'application/octet-stream', mediaType: 'image' };
@@ -160,7 +173,10 @@ function makeResolvedReference(
     absolutePath,
     relativePath: normalizedRelativePath,
     sourceId: input,
-    fileName: fileNameFromPath(normalizedRelativePath || input, mediaType === 'video' ? 'reference.mp4' : 'reference.png'),
+    fileName: fileNameFromPath(
+      normalizedRelativePath || input,
+      mediaType === 'video' ? 'reference.mp4' : mediaType === 'audio' ? 'reference.mp3' : 'reference.png',
+    ),
     mimeType,
     mediaType,
   };
@@ -329,7 +345,8 @@ export async function loadMediaReference(input: string, options: LoadMediaRefere
   const mimeType = loaded.mimeType === 'application/octet-stream' ? ref.mimeType : loaded.mimeType;
   if (options.allowedTypes?.length) {
     const matchesAllowedType = (options.allowedTypes.includes('image') && mimeType.startsWith('image/')) ||
-      (options.allowedTypes.includes('video') && mimeType.startsWith('video/'));
+      (options.allowedTypes.includes('video') && mimeType.startsWith('video/')) ||
+      (options.allowedTypes.includes('audio') && mimeType.startsWith('audio/'));
     if (!matchesAllowedType) {
       throw new Error(`Unsupported media reference format: ${ref.sourceId}`);
     }
@@ -346,7 +363,9 @@ export async function loadMediaReference(input: string, options: LoadMediaRefere
     bytes: buffer,
     imageBytes: buffer.toString('base64'),
     videoBytes: buffer.toString('base64'),
-    mimeType: mimeType === 'application/octet-stream' ? (ref.mediaType === 'video' ? 'video/mp4' : 'image/png') : mimeType,
+    mimeType: mimeType === 'application/octet-stream'
+      ? (ref.mediaType === 'video' ? 'video/mp4' : ref.mediaType === 'audio' ? 'audio/mpeg' : 'image/png')
+      : mimeType,
     fileName: ref.fileName,
     sourceKind: ref.kind,
     sourceId: ref.sourceId,

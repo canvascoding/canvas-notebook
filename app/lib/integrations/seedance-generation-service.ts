@@ -24,10 +24,13 @@ const DEFAULT_POLL_INTERVAL_MS = 10_000;
 export type SeedanceResolution = '480p' | '720p' | '1080p';
 export type SeedanceAspectRatio = '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '21:9' | 'adaptive';
 
-export interface SeedanceReferenceImage {
+export type SeedanceReferenceMediaKind = 'image' | 'video' | 'audio';
+
+export interface SeedanceReferenceMedia {
   imageBytes: string;
   mimeType: string;
   fileName?: string;
+  kind?: SeedanceReferenceMediaKind;
 }
 
 export interface GenerateSeedanceVideoRequest {
@@ -35,9 +38,11 @@ export interface GenerateSeedanceVideoRequest {
   aspectRatio?: SeedanceAspectRatio;
   resolution?: SeedanceResolution;
   durationSeconds?: number;
-  firstFrame?: SeedanceReferenceImage | null;
-  lastFrame?: SeedanceReferenceImage | null;
-  referenceImages?: SeedanceReferenceImage[];
+  firstFrame?: SeedanceReferenceMedia | null;
+  lastFrame?: SeedanceReferenceMedia | null;
+  referenceImages?: SeedanceReferenceMedia[];
+  referenceVideos?: SeedanceReferenceMedia[];
+  referenceAudios?: SeedanceReferenceMedia[];
   generateAudio?: boolean;
   webSearch?: boolean;
   nsfwChecker?: boolean;
@@ -120,7 +125,11 @@ function extensionFromMime(mimeType: string): string {
   return 'mp4';
 }
 
-function extensionForImage(mimeType: string): string {
+function extensionForMedia(mimeType: string): string {
+  if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3';
+  if (mimeType.includes('wav') || mimeType.includes('wave')) return 'wav';
+  if (mimeType.includes('quicktime')) return 'mov';
+  if (mimeType.includes('mp4')) return 'mp4';
   if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
   if (mimeType.includes('webp')) return 'webp';
   if (mimeType.includes('bmp')) return 'bmp';
@@ -187,10 +196,10 @@ async function kieFetch<T>(url: string, apiKey: string, init?: RequestInit): Pro
 
 async function uploadReferenceImage(
   apiKey: string,
-  image: SeedanceReferenceImage,
+  image: SeedanceReferenceMedia,
   index: number,
 ): Promise<string> {
-  const extension = extensionForImage(image.mimeType);
+  const extension = extensionForMedia(image.mimeType);
   const fileName = image.fileName || `studio-reference-${Date.now()}-${index}.${extension}`;
   const body = await kieFetch<KieUploadResponse>(
     `${KIE_UPLOAD_BASE_URL}${BASE64_UPLOAD_PATH}`,
@@ -224,6 +233,8 @@ async function createSeedanceTask(
     firstFrameUrl?: string;
     lastFrameUrl?: string;
     referenceImageUrls: string[];
+    referenceVideoUrls: string[];
+    referenceAudioUrls: string[];
   },
 ): Promise<string> {
   const input: Record<string, unknown> = {
@@ -246,6 +257,12 @@ async function createSeedanceTask(
   }
   if (uploaded.referenceImageUrls.length > 0) {
     input.reference_image_urls = uploaded.referenceImageUrls;
+  }
+  if (uploaded.referenceVideoUrls.length > 0) {
+    input.reference_video_urls = uploaded.referenceVideoUrls;
+  }
+  if (uploaded.referenceAudioUrls.length > 0) {
+    input.reference_audio_urls = uploaded.referenceAudioUrls;
   }
 
   const body = await kieFetch<KieCreateTaskResponse>(
@@ -350,9 +367,12 @@ export async function generateSeedanceVideo(
 
   const hasFrameScenario = Boolean(request.firstFrame || request.lastFrame);
   const referenceImages = (request.referenceImages || []).slice(0, 9);
-  if (hasFrameScenario && referenceImages.length > 0) {
+  const referenceVideos = (request.referenceVideos || []).slice(0, 3);
+  const referenceAudios = (request.referenceAudios || []).slice(0, 3);
+  const multimodalReferenceCount = referenceImages.length + referenceVideos.length + referenceAudios.length;
+  if (hasFrameScenario && multimodalReferenceCount > 0) {
     throw new IntegrationServiceError(
-      'Seedance first/last-frame mode cannot be combined with reference images.',
+      'Seedance first/last-frame mode cannot be combined with multimodal reference images, videos, or audio.',
       400,
     );
   }
@@ -361,7 +381,9 @@ export async function generateSeedanceVideo(
     const references = [
       ...(request.firstFrame ? [{ ...request.firstFrame, role: 'start_frame' as const }] : []),
       ...(request.lastFrame ? [{ ...request.lastFrame, role: 'end_frame' as const }] : []),
-      ...referenceImages.map((image) => ({ ...image, role: 'reference' as const })),
+      ...referenceImages.map((image) => ({ ...image, role: 'reference_image' as const })),
+      ...referenceVideos.map((video) => ({ ...video, role: 'reference_video' as const })),
+      ...referenceAudios.map((audio) => ({ ...audio, role: 'reference_audio' as const })),
     ];
     const managed = await generateManagedMedia({
       capability: 'video',
@@ -410,7 +432,7 @@ export async function generateSeedanceVideo(
     };
   }
 
-  const uploadJobs: Array<Promise<{ kind: 'first' | 'last' | 'reference'; url: string }>> = [];
+  const uploadJobs: Array<Promise<{ kind: 'first' | 'last' | 'reference' | 'referenceVideo' | 'referenceAudio'; url: string }>> = [];
   if (request.firstFrame) {
     uploadJobs.push(uploadReferenceImage(apiKey!, request.firstFrame, 0).then((url) => ({ kind: 'first' as const, url })));
   }
@@ -420,12 +442,20 @@ export async function generateSeedanceVideo(
   referenceImages.forEach((image, index) => {
     uploadJobs.push(uploadReferenceImage(apiKey!, image, index).then((url) => ({ kind: 'reference' as const, url })));
   });
+  referenceVideos.forEach((video, index) => {
+    uploadJobs.push(uploadReferenceImage(apiKey!, video, index).then((url) => ({ kind: 'referenceVideo' as const, url })));
+  });
+  referenceAudios.forEach((audio, index) => {
+    uploadJobs.push(uploadReferenceImage(apiKey!, audio, index).then((url) => ({ kind: 'referenceAudio' as const, url })));
+  });
 
   const uploadedResults = await Promise.all(uploadJobs);
   const uploaded = {
     firstFrameUrl: uploadedResults.find((item) => item.kind === 'first')?.url,
     lastFrameUrl: uploadedResults.find((item) => item.kind === 'last')?.url,
     referenceImageUrls: uploadedResults.filter((item) => item.kind === 'reference').map((item) => item.url),
+    referenceVideoUrls: uploadedResults.filter((item) => item.kind === 'referenceVideo').map((item) => item.url),
+    referenceAudioUrls: uploadedResults.filter((item) => item.kind === 'referenceAudio').map((item) => item.url),
   };
 
   const taskId = await createSeedanceTask(apiKey!, request, uploaded);

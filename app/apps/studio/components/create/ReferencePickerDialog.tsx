@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckSquare2, CircleDot } from 'lucide-react';
+import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckSquare2, CircleDot, FileVideo, Music } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
@@ -23,6 +23,7 @@ import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { ReferenceHoverCard } from './ReferenceHoverCard';
 
 type Source = 'workspace' | 'studio' | 'upload' | 'urls';
+type MediaKind = 'image' | 'video' | 'audio';
 
 interface ImageAsset {
   path: string;
@@ -30,6 +31,7 @@ interface ImageAsset {
   mediaUrl: string;
   previewUrl: string;
   modified?: number;
+  kind?: MediaKind;
 }
 
 interface ReferencePickerDialogProps {
@@ -38,43 +40,65 @@ interface ReferencePickerDialogProps {
   onConfirm: (paths: string[]) => void;
   multiple?: boolean;
   maxSelection?: number;
+  mediaKind?: MediaKind;
 }
 
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp']);
-function isImage(name: string) {
+const MEDIA_EXTS: Record<MediaKind, Set<string>> = {
+  image: new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif']),
+  video: new Set(['mp4', 'mov']),
+  audio: new Set(['mp3', 'wav']),
+};
+const MEDIA_ACCEPT: Record<MediaKind, string> = {
+  image: 'image/*',
+  video: 'video/mp4,video/quicktime,.mp4,.mov',
+  audio: 'audio/mpeg,audio/wav,.mp3,.wav',
+};
+const MEDIA_LABEL: Record<MediaKind, string> = {
+  image: 'image',
+  video: 'video',
+  audio: 'audio',
+};
+
+function mediaIcon(kind: MediaKind, className = 'h-4 w-4 text-muted-foreground') {
+  if (kind === 'video') return <FileVideo className={className} />;
+  if (kind === 'audio') return <Music className={className} />;
+  return <ImageIcon className={className} />;
+}
+
+function isMedia(name: string, kind: MediaKind) {
   const ext = name.split('.').pop()?.toLowerCase();
-  return IMAGE_EXTS.has(ext || '');
+  return MEDIA_EXTS[kind].has(ext || '');
 }
 
-function walkImages(nodes: FileNode[], list: FileNode[] = []) {
+function walkMedia(nodes: FileNode[], kind: MediaKind, list: FileNode[] = []) {
   for (const node of nodes) {
-    if (node.type === 'file' && isImage(node.name)) list.push(node);
-    if (node.children?.length) walkImages(node.children, list);
+    if (node.type === 'file' && isMedia(node.name, kind)) list.push(node);
+    if (node.children?.length) walkMedia(node.children, kind, list);
   }
   return list;
 }
 
-function pruneEmptyImageDirs(nodes: FileNode[]): FileNode[] {
+function pruneEmptyMediaDirs(nodes: FileNode[], kind: MediaKind): FileNode[] {
   return nodes
     .map((node) => {
       if (node.type === 'file') return node;
-      const prunedChildren = node.children ? pruneEmptyImageDirs(node.children) : [];
+      const prunedChildren = node.children ? pruneEmptyMediaDirs(node.children, kind) : [];
       return { ...node, children: prunedChildren };
     })
     .filter((node) => {
-      if (node.type === 'file') return true;
+      if (node.type === 'file') return isMedia(node.name, kind);
       return (node.children?.length ?? 0) > 0;
     });
 }
 
-function filterTreeBySearch(nodes: FileNode[], query: string): FileNode[] {
+function filterTreeBySearch(nodes: FileNode[], query: string, kind: MediaKind): FileNode[] {
   const lowerQuery = query.toLowerCase();
   return nodes
     .map((node) => {
       if (node.type === 'file') {
-        return isImage(node.name) && node.name.toLowerCase().includes(lowerQuery) ? node : null;
+        return isMedia(node.name, kind) && node.name.toLowerCase().includes(lowerQuery) ? node : null;
       }
-      const filteredChildren = node.children ? filterTreeBySearch(node.children, query) : [];
+      const filteredChildren = node.children ? filterTreeBySearch(node.children, query, kind) : [];
       return { ...node, children: filteredChildren };
     })
     .filter((node): node is FileNode => {
@@ -87,22 +111,26 @@ function filterTreeBySearch(nodes: FileNode[], query: string): FileNode[] {
 function SelectionChip({
   asset,
   onRemove,
+  mediaKind,
 }: {
   asset: ImageAsset;
   onRemove: () => void;
+  mediaKind: MediaKind;
 }) {
   return (
     <ReferenceHoverCard
       name={asset.name}
       type="file"
       thumbnailPath={asset.path}
-      fallbackIcon={<ImageIcon className="h-4 w-4 text-rose-600" />}
+      fallbackIcon={mediaIcon(mediaKind, 'h-4 w-4 text-rose-600')}
       bgColor="bg-rose-50"
       onRemove={onRemove}
     >
       <div className="h-9 w-9 rounded-md border-2 border-rose-400 bg-rose-50 flex items-center justify-center overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={toPreviewUrl(asset.path, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        {mediaKind === 'image' ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={toPreviewUrl(asset.path, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        ) : mediaIcon(mediaKind, 'h-4 w-4 text-rose-600')}
       </div>
       <button
         type="button"
@@ -123,6 +151,7 @@ function TreeNode({
   onToggleDir,
   onToggleSelect,
   multiple,
+  mediaKind,
 }: {
   node: FileNode;
   depth?: number;
@@ -131,9 +160,10 @@ function TreeNode({
   onToggleDir: (path: string) => void;
   onToggleSelect: (path: string) => void;
   multiple: boolean;
+  mediaKind: MediaKind;
 }) {
   if (node.type === 'file') {
-    if (!isImage(node.name)) return null;
+    if (!isMedia(node.name, mediaKind)) return null;
     const isSelected = selectedPaths.has(node.path);
     return (
       <button
@@ -159,7 +189,7 @@ function TreeNode({
           path={node.path}
           name={node.name}
           className="h-5 w-5 rounded-sm"
-          fallbackIcon={<ImageIcon className="h-4 w-4 text-muted-foreground" />}
+          fallbackIcon={mediaIcon(mediaKind)}
         />
         <span className="truncate">{node.name}</span>
       </button>
@@ -189,13 +219,14 @@ function TreeNode({
             onToggleDir={onToggleDir}
             onToggleSelect={onToggleSelect}
             multiple={multiple}
+            mediaKind={mediaKind}
           />
         ))}
     </div>
   );
 }
 
-export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple = true, maxSelection = 10 }: ReferencePickerDialogProps) {
+export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple = true, maxSelection = 10, mediaKind = 'image' }: ReferencePickerDialogProps) {
   const t = useTranslations('studio.referencePicker');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [tab, setTab] = useState<Source>('studio');
@@ -224,19 +255,19 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   const [isDragOver, setIsDragOver] = useState(false);
 
   const displayTree = useMemo(() => {
-    let result = pruneEmptyImageDirs(tree);
+    let result = pruneEmptyMediaDirs(tree, mediaKind);
     if (search.trim()) {
-      result = filterTreeBySearch(result, search.trim());
+      result = filterTreeBySearch(result, search.trim(), mediaKind);
     }
     return result;
-  }, [tree, search]);
+  }, [tree, search, mediaKind]);
 
   const loadStudioAssets = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const query = search.trim();
-      const url = `/api/studio/references/assets?kind=image&limit=300${query ? `&q=${encodeURIComponent(query)}` : ''}`;
+      const url = `/api/studio/references/assets?kind=${mediaKind}&limit=300${query ? `&q=${encodeURIComponent(query)}` : ''}`;
       const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Failed loading assets');
@@ -247,7 +278,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     } finally {
       setIsLoading(false);
     }
-  }, [search]);
+  }, [search, mediaKind]);
 
   const loadWorkspaceTree = async () => {
     setIsTreeLoading(true);
@@ -296,6 +327,8 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const activeTab = mediaKind !== 'image' && tab === 'urls' ? 'studio' : tab;
+
   useEffect(() => {
     if (!open) return;
     if (tab === 'studio') {
@@ -330,16 +363,17 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   const currentSelectionDisplay = useMemo(() => {
     const allAssets: ImageAsset[] = [];
     allAssets.push(...assets);
-    allAssets.push(...walkImages(tree).map((n) => ({
+    allAssets.push(...walkMedia(tree, mediaKind).map((n) => ({
       path: n.path,
       name: n.name,
       mediaUrl: toMediaUrl(n.path),
       previewUrl: toPreviewUrl(n.path, 200),
+      kind: mediaKind,
     })));
     return Array.from(selectedPaths)
       .map((p) => allAssets.find((a) => a.path === p))
       .filter(Boolean) as ImageAsset[];
-  }, [assets, selectedPaths, tree]);
+  }, [assets, mediaKind, selectedPaths, tree]);
 
   const handleUploadFiles = useCallback(async (files: FileList | null, convertParams?: (ConvertParams | null)[]) => {
     if (!files || files.length === 0) return;
@@ -471,8 +505,8 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.dataTransfer.types.includes('Files')) {
-      setIsDragOver(true);
+      if (e.dataTransfer.types.includes('Files')) {
+        setIsDragOver(true);
     }
   }, []);
 
@@ -492,9 +526,10 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     setIsDragOver(false);
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
-      void preprocessFileSelection(files);
+      if (mediaKind === 'image') void preprocessFileSelection(files);
+      else void handleUploadFiles(files);
     }
-  }, [preprocessFileSelection]);
+  }, [handleUploadFiles, mediaKind, preprocessFileSelection]);
 
   return (
     <>
@@ -522,12 +557,12 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
             <DialogDescription>{t('description')}</DialogDescription>
           </DialogHeader>
 
-          <Tabs value={tab} onValueChange={(val) => setTab(val as Source)} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <TabsList className="grid w-full grid-cols-4 shrink-0">
+	          <Tabs value={activeTab} onValueChange={(val) => setTab(val as Source)} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+	            <TabsList className={cn('grid w-full shrink-0', mediaKind === 'image' ? 'grid-cols-4' : 'grid-cols-3')}>
               <TabsTrigger value="studio">{t('tabs.studio')}</TabsTrigger>
               <TabsTrigger value="workspace">{t('tabs.workspace')}</TabsTrigger>
               <TabsTrigger value="upload">{t('tabs.upload')}</TabsTrigger>
-              <TabsTrigger value="urls">{t('tabs.urls')}</TabsTrigger>
+	              {mediaKind === 'image' ? <TabsTrigger value="urls">{t('tabs.urls')}</TabsTrigger> : null}
             </TabsList>
 
             {/* Studio tab */}
@@ -555,10 +590,12 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                       return (
                         <button key={asset.path} type="button" onClick={() => toggleSelect(asset.path)}
                           className={cn('relative overflow-hidden border rounded-lg text-left transition', selected ? 'border-primary ring-2 ring-primary/20 bg-primary/5' : 'border-border bg-card hover:border-primary/50')}>
-                          <div className="aspect-video w-full bg-muted">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={asset.previewUrl} alt={asset.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
-                          </div>
+	                          <div className="aspect-video w-full bg-muted flex items-center justify-center">
+	                            {mediaKind === 'image' ? (
+	                              // eslint-disable-next-line @next/next/no-img-element
+	                              <img src={asset.previewUrl} alt={asset.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
+	                            ) : mediaIcon(mediaKind, 'h-7 w-7 text-muted-foreground')}
+	                          </div>
                           <div className="p-2">
                             <p className="truncate text-xs font-medium">{asset.name}</p>
                             {selected && (
@@ -601,7 +638,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                 ) : (
                   <div className="space-y-0.5">
                     {displayTree.map((node) => (
-                      <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} multiple={multiple} />
+	                      <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} multiple={multiple} mediaKind={mediaKind} />
                     ))}
                   </div>
                 )}
@@ -617,15 +654,18 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                 )}
               >
                 <div className="text-center space-y-1">
-                  <p className="text-sm text-muted-foreground">{t('upload.hint')}</p>
+	                  <p className="text-sm text-muted-foreground">{mediaKind === 'image' ? t('upload.hint') : `Upload ${MEDIA_LABEL[mediaKind]} references`}</p>
                   <p className="text-xs text-muted-foreground">{t('upload.dragHint')}</p>
                 </div>
                 <Button type="button" variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
                   {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   {t('upload.selectFiles')}
                 </Button>
-                <input ref={fileInputRef} type="file" className="hidden" accept="image/*" multiple={multiple} onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) { void preprocessFileSelection(e.target.files); }
+	                <input ref={fileInputRef} type="file" className="hidden" accept={MEDIA_ACCEPT[mediaKind]} multiple={multiple} onChange={(e) => {
+	                  if (e.target.files && e.target.files.length > 0) {
+	                    if (mediaKind === 'image') void preprocessFileSelection(e.target.files);
+	                    else void handleUploadFiles(e.target.files);
+	                  }
                   e.target.value = '';
                 }} />
                 {error && <p className="text-sm text-destructive mt-2">{error}</p>}
@@ -697,7 +737,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
               <div className="flex flex-wrap gap-2">
                 {currentSelectionDisplay.map((asset) => (
                   <div key={asset.path} className="relative inline-flex">
-                    <SelectionChip asset={asset} onRemove={() => toggleSelect(asset.path)} />
+	                    <SelectionChip asset={asset} mediaKind={mediaKind} onRemove={() => toggleSelect(asset.path)} />
                   </div>
                 ))}
               </div>

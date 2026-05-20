@@ -38,7 +38,9 @@ When the user asks you to modify or refine an existing image:
 4. The generation will create a new output while preserving the original.
 
 ### How to use references for video
-For videos, use **start_frame_path** and **end_frame_path** only when the user asks for a start/end frame animation. These frame fields accept the same local Studio/workspace image path formats listed above. For general visual references or images that the video should follow, put the image file path(s) in **extra_reference_urls**.
+For videos, use **start_frame_path** and **end_frame_path** only when the user asks for a strict start/end frame animation. These frame fields accept the same local Studio/workspace image path formats listed above. For general visual reference images, put image paths in **extra_reference_urls**.
+
+For Bytedance Seedance multimodal reference-to-video, put video references in **reference_video_urls** and audio references in **reference_audio_urls**. Do not combine Seedance start/end frame fields with multimodal image/video/audio references; use one scenario or the other.
 
 ### How to use references for sound
 For sound or music generation, use **studio_generate_sound**. It accepts up to 10 images in **extra_reference_urls**. Use image references as visual inspiration for mood, colors, setting, product feel, persona energy, and style. Do not call image or video tools for audio-only requests.
