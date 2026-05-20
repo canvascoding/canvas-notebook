@@ -1581,10 +1581,16 @@
     },
     "triggers": {
       "loadingApps": "Loading apps with webhook triggers...",
+      "loadingEvents": "Loading events for this app...",
       "setupRequiredTitle": "Composio is not ready yet",
       "setupRequiredDescription": "Connect Composio in Integrations so external apps can trigger automations in Canvas Notebook.",
       "openIntegrations": "Open Integrations",
       "noApps": "No app with available webhook triggers was found.",
+      "noAppSearchResults": "No matching app found.",
+      "noEventSearchResults": "No matching event found.",
+      "selectAppFirst": "Select an app first.",
+      "appCount": "{count} apps",
+      "eventCount": "{count} events",
       "notConnected": "not connected",
       "connectTitle": "Connect {app}",
       "connectDescription": "This app must be connected before it can trigger webhook automations.",
@@ -1609,10 +1615,13 @@
       },
       "placeholders": {
         "name": "Gmail: Handle new request",
-        "prompt": "If the event is relevant, inspect the content, decide the next steps, and perform the appropriate action..."
+        "prompt": "If the event is relevant, inspect the content, decide the next steps, and perform the appropriate action...",
+        "searchApps": "Search apps...",
+        "searchEvents": "Search events..."
       },
       "errors": {
         "loadApps": "Composio triggers could not be loaded.",
+        "loadEvents": "Events for this app could not be loaded.",
         "create": "Trigger automation could not be created.",
         "connect": "App could not be connected.",
         "connectFirst": "Connect the app first."

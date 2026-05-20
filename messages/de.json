@@ -1580,10 +1580,16 @@
     },
     "triggers": {
       "loadingApps": "Lade Apps mit Webhook-Triggern...",
+      "loadingEvents": "Lade Events für diese App...",
       "setupRequiredTitle": "Composio ist noch nicht bereit",
       "setupRequiredDescription": "Verbinde Composio in den Integrationen, damit externe Apps Automationen im Canvas Notebook auslösen können.",
       "openIntegrations": "Integrationen öffnen",
       "noApps": "Keine App mit verfügbaren Webhook-Triggern gefunden.",
+      "noAppSearchResults": "Keine passende App gefunden.",
+      "noEventSearchResults": "Kein passendes Event gefunden.",
+      "selectAppFirst": "Wähle zuerst eine App aus.",
+      "appCount": "{count} Apps",
+      "eventCount": "{count} Events",
       "notConnected": "nicht verbunden",
       "connectTitle": "{app} verbinden",
       "connectDescription": "Diese App muss verbunden sein, bevor sie Webhook-Automationen auslösen kann.",
@@ -1608,10 +1614,13 @@
       },
       "placeholders": {
         "name": "Gmail: Neue Anfrage bearbeiten",
-        "prompt": "Wenn das Event relevant ist, prüfe den Inhalt, entscheide die nächsten Schritte und führe die passende Aktion aus..."
+        "prompt": "Wenn das Event relevant ist, prüfe den Inhalt, entscheide die nächsten Schritte und führe die passende Aktion aus...",
+        "searchApps": "Apps suchen...",
+        "searchEvents": "Events suchen..."
       },
       "errors": {
         "loadApps": "Composio-Trigger konnten nicht geladen werden.",
+        "loadEvents": "Events für diese App konnten nicht geladen werden.",
         "create": "Trigger-Automation konnte nicht erstellt werden.",
         "connect": "App konnte nicht verbunden werden.",
         "connectFirst": "Verbinde die App zuerst."
