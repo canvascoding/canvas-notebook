@@ -460,7 +460,12 @@ export async function ensureLocalWebhookSubscription(options?: { forceRefresh?: 
   const apiKey = await import('./composio-client').then((m) => m.getLocalComposioApiKey());
   if (!apiKey) throw new Error('Composio API key is required to create a webhook subscription.');
   const existing = await getLocalWebhookSubscription();
+  const currentUrl = `${appBaseUrl()}/api/composio/webhook`;
   if (existing && !options?.forceRefresh) {
+    if (existing.webhookUrl !== currentUrl) {
+      logComposioTrigger('Webhook URL changed, re-registering subscription', { old: existing.webhookUrl, new: currentUrl });
+      return ensureLocalWebhookSubscription({ forceRefresh: true });
+    }
     return existing;
   }
   const webhookUrl = `${appBaseUrl()}/api/composio/webhook`;

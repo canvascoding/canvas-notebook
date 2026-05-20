@@ -3,6 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getComposioMode } from '@/app/lib/composio/composio-client';
 import { ensureLocalWebhookSubscription, getLocalWebhookSubscription } from '@/app/lib/composio/composio-gateway';
 
+function currentWebhookUrl(): string {
+  const baseUrl = process.env.BASE_URL || process.env.APP_BASE_URL;
+  const base = baseUrl
+    ? baseUrl.replace(/\/+$/, '')
+    : `http://localhost:${process.env.PORT || '3000'}`;
+  return `${base}/api/composio/webhook`;
+}
+
 export async function GET() {
   const mode = await getComposioMode();
   if (mode !== 'local') {
@@ -13,19 +21,25 @@ export async function GET() {
   }
 
   const subscription = await getLocalWebhookSubscription();
+  const expectedUrl = currentWebhookUrl();
   if (!subscription) {
     return NextResponse.json({
       configured: false,
       webhookUrl: null,
+      expectedUrl,
+      urlMismatch: false,
       eventTypes: [],
       secretPreview: null,
       mode: 'local',
     });
   }
 
+  const urlMismatch = subscription.webhookUrl !== expectedUrl;
   return NextResponse.json({
     configured: true,
     webhookUrl: subscription.webhookUrl,
+    expectedUrl,
+    urlMismatch,
     eventTypes: subscription.eventTypes ? JSON.parse(subscription.eventTypes) : [],
     secretPreview: subscription.secretPreview,
     subscriptionId: subscription.subscriptionId,

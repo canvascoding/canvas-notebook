@@ -130,7 +130,7 @@ export function ToolkitToolsDialog({
   const [triggerPrompt, setTriggerPrompt] = useState(DEFAULT_PROMPT);
   const [triggerConfigText, setTriggerConfigText] = useState('{}');
   const [targetOutputPath, setTargetOutputPath] = useState('');
-  const [webhookSubStatus, setWebhookSubStatus] = useState<{ configured: boolean; webhookUrl?: string; mode?: string } | null>(null);
+  const [webhookSubStatus, setWebhookSubStatus] = useState<{ configured: boolean; webhookUrl?: string; expectedUrl?: string; urlMismatch?: boolean; mode?: string } | null>(null);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -194,7 +194,7 @@ export function ToolkitToolsDialog({
         const subResponse = await fetch('/api/composio/webhook/subscription', { credentials: 'include' });
         if (subResponse.ok) {
           const subData = await subResponse.json();
-          setWebhookSubStatus({ configured: subData.configured, webhookUrl: subData.webhookUrl, mode: subData.mode });
+          setWebhookSubStatus({ configured: subData.configured, webhookUrl: subData.webhookUrl, expectedUrl: subData.expectedUrl, urlMismatch: subData.urlMismatch, mode: subData.mode });
         } else {
           setWebhookSubStatus({ configured: false });
         }
@@ -523,11 +523,18 @@ export function ToolkitToolsDialog({
                 )}
 
                 {webhookSubStatus && webhookSubStatus.mode === 'local' && (
-                  <div className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${webhookSubStatus.configured ? 'border-primary/30 bg-primary/5 text-primary' : 'border-destructive/30 bg-destructive/5 text-destructive'}`}>
-                    <span className={`inline-block h-2 w-2 rounded-full ${webhookSubStatus.configured ? 'bg-primary' : 'bg-destructive'}`} />
-                    {webhookSubStatus.configured
-                      ? <span>Webhook subscription active — {webhookSubStatus.webhookUrl}</span>
-                      : <span>Webhook subscription not configured — events will not be received</span>}
+                  <div className={`flex flex-col gap-1 rounded-md border px-3 py-2 text-xs ${webhookSubStatus.configured ? (webhookSubStatus.urlMismatch ? 'border-yellow-500/30 bg-yellow-500/5 text-yellow-600' : 'border-primary/30 bg-primary/5 text-primary') : 'border-destructive/30 bg-destructive/5 text-destructive'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block h-2 w-2 rounded-full ${webhookSubStatus.configured ? (webhookSubStatus.urlMismatch ? 'bg-yellow-500' : 'bg-primary') : 'bg-destructive'}`} />
+                      {!webhookSubStatus.configured
+                        ? <span>Webhook subscription not configured — events will not be received</span>
+                        : webhookSubStatus.urlMismatch
+                          ? <span>Webhook URL mismatch — will auto-update on next trigger creation</span>
+                          : <span>Webhook subscription active — {webhookSubStatus.webhookUrl}</span>}
+                    </div>
+                    {webhookSubStatus.urlMismatch && webhookSubStatus.expectedUrl && (
+                      <span className="pl-4 text-[11px] text-muted-foreground">Expected: {webhookSubStatus.expectedUrl}</span>
+                    )}
                   </div>
                 )}
 
