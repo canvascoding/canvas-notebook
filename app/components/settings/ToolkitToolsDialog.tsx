@@ -53,12 +53,27 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+async function readJsonResponse(response: Response, context: string): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch (error) {
+    console.error(`[Composio Triggers UI] ${context} returned non-JSON`, {
+      status: response.status,
+      bodyPreview: text.slice(0, 500),
+      error,
+    });
+    throw new Error(`${context} returned an invalid response.`);
+  }
+}
+
 function normalizeTriggerType(value: unknown): TriggerTypeInfo | null {
   const record = asRecord(value);
   const slug = stringValue(record.slug) || stringValue(record.name);
   if (!slug) return null;
   const displayName = stringValue(record.displayName) || stringValue(record.name) || slug;
-  const configSchema = asRecord(record.configSchema ?? record.config_schema ?? record.inputParameters ?? record.input_parameters);
+  const configSchema = asRecord(record.configSchema ?? record.config_schema ?? record.config ?? record.inputParameters ?? record.input_parameters);
   return {
     slug,
     name: displayName,
@@ -71,13 +86,14 @@ function normalizeActiveTrigger(value: unknown): ActiveTriggerInfo | null {
   const record = asRecord(value);
   const triggerId = stringValue(record.triggerId) || stringValue(record.trigger_id) || stringValue(record.id);
   if (!triggerId) return null;
-  const triggerSlug = stringValue(record.triggerSlug) || stringValue(record.trigger_slug) || stringValue(record.slug);
+  const triggerSlug = stringValue(record.triggerSlug) || stringValue(record.trigger_slug) || stringValue(record.triggerName) || stringValue(record.trigger_name) || stringValue(record.slug);
   const toolkitSlug = stringValue(record.toolkitSlug) || stringValue(record.toolkit_slug) || stringValue(asRecord(record.toolkit).slug);
+  const disabledAt = record.disabledAt ?? record.disabled_at;
   return {
     triggerId,
     triggerSlug,
     toolkitSlug,
-    status: stringValue(record.status) || (record.enabled === false ? 'paused' : 'active'),
+    status: stringValue(record.status) || (disabledAt ? 'paused' : record.enabled === false ? 'paused' : 'active'),
     connectedAccountId: stringValue(record.connectedAccountId) || stringValue(record.connected_account_id),
   };
 }
@@ -153,14 +169,16 @@ export function ToolkitToolsDialog({
         fetch('/api/composio/triggers', { credentials: 'include' }),
       ]);
       const [typesPayload, activePayload] = await Promise.all([
-        typesResponse.json(),
-        activeResponse.json(),
+        readJsonResponse(typesResponse, 'Trigger types fetch'),
+        readJsonResponse(activeResponse, 'Active triggers fetch'),
       ]);
-      if (!typesResponse.ok) throw new Error(typesPayload.error || 'Failed to load trigger types');
-      if (!activeResponse.ok) throw new Error(activePayload.error || 'Failed to load active triggers');
+      if (!typesResponse.ok) throw new Error(stringValue(typesPayload.error) || 'Failed to load trigger types');
+      if (!activeResponse.ok) throw new Error(stringValue(activePayload.error) || 'Failed to load active triggers');
 
-      const rawTypes: unknown[] = Array.isArray(typesPayload.data?.triggerTypes) ? typesPayload.data.triggerTypes : [];
-      const rawTriggers: unknown[] = Array.isArray(activePayload.data?.triggers) ? activePayload.data.triggers : [];
+      const typesData = asRecord(typesPayload.data);
+      const activeData = asRecord(activePayload.data);
+      const rawTypes: unknown[] = Array.isArray(typesData.triggerTypes) ? typesData.triggerTypes : [];
+      const rawTriggers: unknown[] = Array.isArray(activeData.triggers) ? activeData.triggers : [];
       const normalizedTypes = rawTypes.map(normalizeTriggerType).filter((entry): entry is TriggerTypeInfo => Boolean(entry));
       setTriggerTypes(normalizedTypes);
       setActiveTriggers(
@@ -171,6 +189,7 @@ export function ToolkitToolsDialog({
       );
       setSelectedTriggerSlug((current) => current || normalizedTypes[0]?.slug || '');
     } catch (err) {
+      console.error('[Composio Triggers UI] Failed to load triggers', { toolkit: slug, error: err });
       setTriggersError(err instanceof Error ? err.message : 'Failed to load triggers');
     } finally {
       setTriggersLoading(false);
@@ -289,13 +308,14 @@ export function ToolkitToolsDialog({
           targetOutputPath: targetOutputPath.trim() || null,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to create trigger');
+      const data = await readJsonResponse(response, 'Create trigger fetch');
+      if (!response.ok) throw new Error(stringValue(data.error) || 'Failed to create trigger');
       setTriggerName('');
       setTargetOutputPath('');
       setTriggerConfigText('{}');
       await loadTriggers();
     } catch (err) {
+      console.error('[Composio Triggers UI] Failed to create trigger', { toolkit: slug, triggerSlug: selectedTriggerSlug, error: err });
       setTriggersError(err instanceof Error ? err.message : 'Failed to create trigger');
     } finally {
       setTriggerActionId(null);
@@ -312,10 +332,11 @@ export function ToolkitToolsDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to update trigger');
+      const data = await readJsonResponse(response, 'Update trigger fetch');
+      if (!response.ok) throw new Error(stringValue(data.error) || 'Failed to update trigger');
       await loadTriggers();
     } catch (err) {
+      console.error('[Composio Triggers UI] Failed to update trigger', { toolkit: slug, triggerId: trigger.triggerId, status, error: err });
       setTriggersError(err instanceof Error ? err.message : 'Failed to update trigger');
     } finally {
       setTriggerActionId(null);
@@ -330,10 +351,11 @@ export function ToolkitToolsDialog({
         method: 'DELETE',
         credentials: 'include',
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to delete trigger');
+      const data = await readJsonResponse(response, 'Delete trigger fetch');
+      if (!response.ok) throw new Error(stringValue(data.error) || 'Failed to delete trigger');
       await loadTriggers();
     } catch (err) {
+      console.error('[Composio Triggers UI] Failed to delete trigger', { toolkit: slug, triggerId: trigger.triggerId, error: err });
       setTriggersError(err instanceof Error ? err.message : 'Failed to delete trigger');
     } finally {
       setTriggerActionId(null);

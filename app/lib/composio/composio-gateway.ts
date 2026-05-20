@@ -63,6 +63,53 @@ function appBaseUrl(): string {
   return `http://localhost:${port}`;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function logComposioTrigger(message: string, details?: Record<string, unknown>): void {
+  if (details) {
+    console.log(`[Composio Triggers] ${message}`, details);
+  } else {
+    console.log(`[Composio Triggers] ${message}`);
+  }
+}
+
+function logComposioTriggerError(message: string, error: unknown, details?: Record<string, unknown>): void {
+  console.error(`[Composio Triggers] ${message}`, {
+    ...details,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function normalizeLocalTriggerInstance(
+  value: unknown,
+  accountById: Map<string, ComposioConnectedAccount>,
+): Record<string, unknown> {
+  const record = asRecord(value);
+  const connectedAccountId = stringValue(record.connectedAccountId) || stringValue(record.connected_account_id);
+  const account = connectedAccountId ? accountById.get(connectedAccountId) : undefined;
+  const disabledAt = record.disabledAt ?? record.disabled_at;
+  const triggerSlug = stringValue(record.triggerSlug)
+    || stringValue(record.trigger_slug)
+    || stringValue(record.triggerName)
+    || stringValue(record.trigger_name)
+    || stringValue(record.slug);
+
+  return {
+    ...record,
+    triggerId: stringValue(record.triggerId) || stringValue(record.trigger_id) || stringValue(record.id),
+    triggerSlug,
+    toolkitSlug: stringValue(record.toolkitSlug) || stringValue(record.toolkit_slug) || account?.toolkit?.slug || '',
+    connectedAccountId,
+    status: disabledAt ? 'paused' : 'active',
+  };
+}
+
 async function managedRequest<T>(
   path: string,
   options: { method?: string; body?: Record<string, unknown>; query?: URLSearchParams } = {},
@@ -72,17 +119,38 @@ async function managedRequest<T>(
   if (options.query) {
     options.query.forEach((value, key) => url.searchParams.set(key, value));
   }
-  const response = await fetch(url, {
-    method: options.method || 'GET',
-    headers: {
-      'Authorization': `Bearer ${instanceToken()}`,
-      'Content-Type': 'application/json',
-      'X-Canvas-Composio-User-Id': userId,
-    },
-    body: options.body ? JSON.stringify({ ...options.body, composioUserId: userId }) : undefined,
-  });
+  const method = options.method || 'GET';
+  logComposioTrigger('Managed fetch started', { method, path, query: url.searchParams.toString() });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${instanceToken()}`,
+        'Content-Type': 'application/json',
+        'X-Canvas-Composio-User-Id': userId,
+      },
+      body: options.body ? JSON.stringify({ ...options.body, composioUserId: userId }) : undefined,
+    });
+  } catch (error) {
+    logComposioTriggerError('Managed fetch failed', error, { method, path });
+    throw error;
+  }
+
   const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
+  let data: Record<string, unknown>;
+  try {
+    data = text ? JSON.parse(text) as Record<string, unknown> : {};
+  } catch (error) {
+    logComposioTriggerError('Managed fetch returned non-JSON response', error, {
+      method,
+      path,
+      status: response.status,
+      bodyPreview: text.slice(0, 500),
+    });
+    throw new Error(`Managed Composio request returned invalid JSON (${response.status})`);
+  }
+  logComposioTrigger('Managed fetch completed', { method, path, status: response.status, ok: response.ok });
   if (!response.ok) {
     if (data && typeof data === 'object' && 'auth_required' in data) {
       return data as T;
@@ -305,10 +373,12 @@ export async function getGatewayTriggerTypes(toolkit: string) {
 
   const composio = await getComposio();
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
+  logComposioTrigger('Listing local trigger types', { toolkit });
   const result = await composio.triggers.listTypes({
     ...(toolkit ? { toolkits: [toolkit] } : {}),
     limit: 1000,
   });
+  logComposioTrigger('Listed local trigger types', { toolkit, count: result.items.length, hasMore: Boolean(result.nextCursor) });
   return {
     triggerTypes: result.items,
     totalCount: result.items.length,
@@ -324,16 +394,23 @@ export async function listGatewayTriggers() {
 
   const composio = await getComposio();
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  const composioUserId = await getComposioUserId();
+  const accounts = await getConnectedAccounts();
+  const accountById = new Map(accounts.map((account) => [account.id, account as ComposioConnectedAccount]));
+  const connectedAccountIds = Array.from(accountById.keys());
+  if (connectedAccountIds.length === 0) {
+    logComposioTrigger('Skipped local active trigger listing because no connected accounts exist');
+    return { triggers: [] };
+  }
+  logComposioTrigger('Listing local active triggers', { connectedAccountCount: connectedAccountIds.length });
   const result = await composio.triggers.listActive({
+    connectedAccountIds,
     showDisabled: true,
     limit: 1000,
   });
+  const triggers = result.items.map((item) => normalizeLocalTriggerInstance(item, accountById));
+  logComposioTrigger('Listed local active triggers', { count: triggers.length });
   return {
-    triggers: result.items.filter((item) => {
-      const trigger = item as { userId?: string; user_id?: string };
-      return trigger.userId === composioUserId || trigger.user_id === composioUserId;
-    }),
+    triggers,
   };
 }
 
@@ -356,18 +433,42 @@ export async function createGatewayTrigger(input: {
 
   const composio = await getComposio();
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
+  logComposioTrigger('Creating local trigger', {
+    triggerSlug: input.triggerSlug,
+    toolkitSlug: input.toolkitSlug,
+    hasConnectedAccountId: Boolean(input.connectedAccountId),
+    hasTriggerConfig: Boolean(input.triggerConfig && Object.keys(input.triggerConfig).length > 0),
+  });
   const triggerType = await composio.triggers.getType(input.triggerSlug);
-  const result = await composio.triggers.create(await getComposioUserId(), input.triggerSlug, {
+  const composioUserId = await getComposioUserId();
+  const result = await composio.triggers.create(composioUserId, input.triggerSlug, {
     connectedAccountId: input.connectedAccountId,
     triggerConfig: input.triggerConfig || {},
   });
+  const triggerId = result.triggerId;
+  let connectedAccountId = input.connectedAccountId || '';
+  try {
+    const activeResult = await composio.triggers.listActive({
+      triggerIds: [triggerId],
+      showDisabled: true,
+      limit: 1,
+    });
+    const activeTrigger = asRecord(activeResult.items[0]);
+    connectedAccountId = stringValue(activeTrigger.connectedAccountId) || stringValue(activeTrigger.connected_account_id) || connectedAccountId;
+  } catch (error) {
+    logComposioTriggerError('Failed to fetch created trigger details', error, { triggerId, triggerSlug: input.triggerSlug });
+  }
+  if (!connectedAccountId) {
+    throw new Error('Composio created the trigger but did not return the connected account ID.');
+  }
+  logComposioTrigger('Created local trigger', { triggerId, triggerSlug: input.triggerSlug, connectedAccountId });
   return {
     trigger: {
-      triggerId: result.triggerId,
+      triggerId,
       triggerSlug: input.triggerSlug,
       toolkitSlug: input.toolkitSlug || triggerType.toolkit.slug,
-      connectedAccountId: input.connectedAccountId || '',
-      composioUserId: await getComposioUserId(),
+      connectedAccountId,
+      composioUserId,
       triggerConfig: input.triggerConfig || {},
     },
   };
