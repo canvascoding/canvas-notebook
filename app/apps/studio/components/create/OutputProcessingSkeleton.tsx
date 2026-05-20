@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 
 interface OutputProcessingSkeletonProps {
   mode: 'image' | 'video';
@@ -24,7 +25,9 @@ export function OutputProcessingSkeleton({ mode, prompt }: OutputProcessingSkele
         <div className="space-y-2">
           <p className="text-sm font-semibold text-foreground">{title}</p>
           {prompt ? (
-            <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{prompt}</p>
+            <div className="line-clamp-2">
+              <MarkdownRenderer content={prompt} variant="muted" />
+            </div>
           ) : (
             <>
               <div className="h-3 w-32 rounded-full bg-muted" />

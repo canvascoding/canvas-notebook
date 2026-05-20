@@ -11,6 +11,7 @@ import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -215,7 +216,9 @@ export function StudioPreview({
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground sm:text-base">{prompt}</h2>
+            <div className="min-w-0 truncate text-sm font-semibold text-foreground sm:text-base [&_p]:my-0 [&_p]:inline">
+              <MarkdownRenderer content={prompt} variant="default" />
+            </div>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
               <span className="capitalize">{output.type}</span>
               <span>AR {aspectRatioLabel}</span>
@@ -466,7 +469,9 @@ export function StudioPreview({
 
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Prompt</p>
-                  <p className="max-w-4xl text-sm leading-6 text-foreground">{prompt}</p>
+                  <div className="max-w-4xl">
+                    <MarkdownRenderer content={prompt} variant="default" className="[&_p]:leading-6" />
+                  </div>
                 </div>
 
                 {hasAnyReferences && (
