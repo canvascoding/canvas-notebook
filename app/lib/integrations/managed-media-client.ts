@@ -18,7 +18,7 @@ export interface ManagedMediaOutput {
 }
 
 export interface ManagedMediaGenerateRequest {
-  capability: 'image' | 'video';
+  capability: 'image' | 'video' | 'sound';
   provider: 'gemini' | 'openai' | 'kie';
   model?: string | null;
   prompt?: string | null;

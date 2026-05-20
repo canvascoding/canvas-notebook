@@ -2,6 +2,8 @@ import 'server-only';
 
 import { GoogleGenAI } from '@google/genai';
 import { getGeminiApiKeyFromIntegrations } from './env-config';
+import { IntegrationServiceError } from './integration-service-error';
+import { generateManagedMedia, isManagedMediaFallbackAvailable } from './managed-media-client';
 
 export const LYRIA_CLIP_MODEL_ID = 'lyria-3-clip-preview';
 export const LYRIA_PRO_MODEL_ID = 'lyria-3-pro-preview';
@@ -31,6 +33,9 @@ export interface GenerateSoundResult {
     outputFormat: SoundOutputFormat;
     referenceImageCount: number;
     textParts: string[];
+    managedFallback?: boolean;
+    controlPlaneJobId?: string;
+    providerMetadata?: Record<string, unknown>;
   };
 }
 
@@ -76,15 +81,54 @@ function extractLyriaParts(response: unknown): { audioBytes: Buffer; mimeType: s
 }
 
 export async function generateSound(request: GenerateSoundRequest): Promise<GenerateSoundResult> {
-  const apiKey = await getGeminiApiKeyFromIntegrations();
-  if (!apiKey) {
-    throw new Error('Gemini API key is missing. Configure GEMINI_API_KEY in /settings?tab=integrations.');
-  }
-
   const model = resolveModel(request.model);
   const outputFormat = resolveOutputFormat(model, request.outputFormat);
   const referenceImages = (request.referenceImages || []).slice(0, 10);
-  const ai = new GoogleGenAI({ apiKey });
+  const apiKey = await getGeminiApiKeyFromIntegrations();
+  const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
+  if (!apiKey && !useManagedFallback) {
+    throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings?tab=integrations.', 400);
+  }
+
+  if (useManagedFallback) {
+    const managed = await generateManagedMedia({
+      capability: 'sound',
+      provider: 'gemini',
+      model,
+      prompt: request.prompt,
+      parameters: {
+        outputFormat,
+      },
+      references: referenceImages.map((image) => ({
+        imageBytes: image.imageBytes,
+        mimeType: image.mimeType,
+        role: 'reference',
+      })),
+    });
+    const output = managed.outputs[0];
+    if (!output) {
+      throw new IntegrationServiceError('Managed Gemini sound generation completed without output.', 500);
+    }
+    const rawTextParts = Array.isArray(output.metadata?.textParts) ? output.metadata.textParts : [];
+    const textParts = rawTextParts.filter((item): item is string => typeof item === 'string' && item.length > 0);
+    return {
+      audioBytes: output.bytes,
+      mimeType: output.mimeType,
+      lyricsText: textParts.length > 0 ? textParts.join('\n\n') : null,
+      metadata: {
+        provider: 'gemini',
+        model,
+        outputFormat,
+        referenceImageCount: referenceImages.length,
+        textParts,
+        managedFallback: true,
+        controlPlaneJobId: managed.jobId,
+        providerMetadata: output.metadata,
+      },
+    };
+  }
+
+  const ai = new GoogleGenAI({ apiKey: apiKey! });
   type GenerateContentConfig = NonNullable<Parameters<typeof ai.models.generateContent>[0]['config']>;
   const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
     { text: request.prompt },
