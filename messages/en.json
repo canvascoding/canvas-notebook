@@ -488,6 +488,8 @@
     "scrollToBottom": "Scroll to bottom",
     "loadEarlierMessages": "Load earlier messages",
     "loadingOlderMessages": "Loading…",
+    "workedForWithSteps": "Worked for {duration} · {count, plural, one {# step} other {# steps}}",
+    "workedSteps": "{count, plural, one {# step} other {# steps}} hidden",
     "activeToolPrefix": "Active:",
     "imageMessage": "Image message",
     "steerAction": "Steer",

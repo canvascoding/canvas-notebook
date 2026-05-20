@@ -487,6 +487,8 @@
     "scrollToBottom": "Nach unten scrollen",
     "loadEarlierMessages": "Frühere Nachrichten laden",
     "loadingOlderMessages": "Laden…",
+    "workedForWithSteps": "Gearbeitet für {duration} · {count, plural, one {# Schritt} other {# Schritte}}",
+    "workedSteps": "{count, plural, one {# Schritt} other {# Schritte}} ausgeblendet",
     "activeToolPrefix": "Aktiv:",
     "imageMessage": "Bildnachricht",
     "steerAction": "Steuern",
