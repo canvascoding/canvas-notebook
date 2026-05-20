@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -132,6 +132,7 @@ function getOutputReference(output: StudioGenerationOutput) {
 
 export function CreateView() {
   const t = useTranslations('studio');
+  const router = useRouter();
   const searchParams = useSearchParams();
   const setChatContext = useSetStudioChatContext();
   const generationHook = useStudioGeneration();
@@ -341,15 +342,31 @@ export function CreateView() {
     store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
   }, [personas, presets, products, store, styles]);
 
+  const replaceFileRefsWithOutput = useCallback((output: StudioGenerationOutput) => {
+    const ref = getOutputReference(output);
+    store.setFileRefs(ref ? [ref] : []);
+  }, [store]);
+
   const handleUseAspectRatio = useCallback((generation: StudioGeneration, output: StudioGenerationOutput, aspectRatio: string) => {
     applyGenerationSettingsToPrompt(generation);
     store.setAspectRatio(aspectRatio);
     store.setRawPrompt(`Make the aspect ratio ${aspectRatio}`);
-    const ref = getOutputReference(output);
-    if (ref) store.addFileRef(ref);
+    replaceFileRefsWithOutput(output);
     setSelectedGenerationId(null);
     setSelectedOutputId(null);
-  }, [applyGenerationSettingsToPrompt, store]);
+  }, [applyGenerationSettingsToPrompt, replaceFileRefsWithOutput, store]);
+
+  const handleOpenCustomAspectRatio = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
+    if (output.type !== 'image' || !output.filePath) return;
+
+    const params = new URLSearchParams({ ref: output.filePath });
+    if (generation.provider) params.set('provider', generation.provider);
+    if (generation.model) params.set('model', generation.model);
+
+    setSelectedGenerationId(null);
+    setSelectedOutputId(null);
+    router.push(`/studio/aspect-ratio?${params.toString()}`);
+  }, [router]);
 
   const handleOpenEditSelection = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
     if (output.type !== 'image' || !output.mediaUrl) return;
@@ -405,11 +422,11 @@ export function CreateView() {
 
   useEffect(() => {
     if (!initialRefPath) return;
-    store.addFileRef({
+    store.setFileRefs([{
       id: initialRefPath,
       name: initialRefPath.split('/').pop() || initialRefPath,
       thumbnailPath: initialRefPath,
-    });
+    }]);
   }, [initialRefPath, store]);
 
   useEffect(() => {
@@ -573,8 +590,7 @@ export function CreateView() {
                 store.setAspectRatio(generation.aspectRatio || '1:1');
                 store.setProvider(generation.provider || 'gemini');
                 store.setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
-                const ref = getOutputReference(output);
-                if (ref) store.addFileRef(ref);
+                replaceFileRefsWithOutput(output);
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
               }}
@@ -593,8 +609,7 @@ export function CreateView() {
                 store.setAspectRatio(['16:9', '9:16'].includes(generation.aspectRatio) ? generation.aspectRatio : '16:9');
                 store.setProvider('veo');
                 store.setModel(getDefaultModelForProvider('video', 'veo'));
-                const ref = getOutputReference(output);
-                if (ref) store.addFileRef(ref);
+                replaceFileRefsWithOutput(output);
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
               }}
@@ -804,6 +819,7 @@ export function CreateView() {
         }}
         onEditSelection={handleOpenEditSelection}
         onUseAspectRatio={handleUseAspectRatio}
+        onOpenCustomAspectRatio={handleOpenCustomAspectRatio}
         onCreateVariation={(generation, output) => {
           store.setMode('image');
           store.setRawPrompt(generation.rawPrompt || generation.prompt || '');
@@ -819,8 +835,7 @@ export function CreateView() {
           store.setAspectRatio(generation.aspectRatio || '1:1');
           store.setProvider(generation.provider || 'gemini');
           store.setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
-          const ref = getOutputReference(output);
-          if (ref) store.addFileRef(ref);
+          replaceFileRefsWithOutput(output);
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
         }}
@@ -839,8 +854,7 @@ export function CreateView() {
           store.setAspectRatio(generation.aspectRatio || '1:1');
           store.setProvider(generation.provider || 'gemini');
           store.setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
-          const ref = getOutputReference(output);
-          if (ref) store.addFileRef(ref);
+          replaceFileRefsWithOutput(output);
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
         }}
