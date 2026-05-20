@@ -106,7 +106,7 @@ export const VEO_MODEL_CAPABILITIES: Record<VideoModelId, VideoModelCapabilities
     personGeneration: ['allow_all', 'allow_adult'],
   },
   'veo-3.0-generate-001': {
-    extension: true,
+    extension: false,
     references: false,
     firstLastFrame: true,
     resolutions: ['720p', '1080p'],
@@ -115,7 +115,7 @@ export const VEO_MODEL_CAPABILITIES: Record<VideoModelId, VideoModelCapabilities
     personGeneration: ['allow_all', 'allow_adult'],
   },
   'veo-3.0-fast-generate-001': {
-    extension: true,
+    extension: false,
     references: false,
     firstLastFrame: true,
     resolutions: ['720p', '1080p'],
