@@ -5,6 +5,10 @@ import { auth } from '@/app/lib/auth';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 
+function hasNodeErrorCode(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -71,15 +75,15 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] File read error:', error);
-    
     // If the error is ENOENT (file not found), return a 404 status
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+    if (hasNodeErrorCode(error, 'ENOENT')) {
       return NextResponse.json(
         { success: false, error: 'File not found' },
         { status: 404 }
       );
     }
+
+    console.error('[API] File read error:', error);
     
     const message = error instanceof Error ? error.message : 'Failed to read file';
     return NextResponse.json(

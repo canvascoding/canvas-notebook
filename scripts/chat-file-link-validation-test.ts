@@ -40,6 +40,9 @@ async function main() {
     assert.match(fetchCalls[0], /meta=1/);
 
     assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
+    assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
+    const missingFetchMatches = fetchCalls.join('\n').match(new RegExp(encodeURIComponent('missing/nope.md'), 'g')) ?? [];
+    assert.equal(missingFetchMatches.length, 1);
 
     const revealFetchCalls: string[] = [];
     useFileStore.setState({
