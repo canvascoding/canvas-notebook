@@ -309,6 +309,7 @@
     "download": "Herunterladen",
     "share": "Teilen",
     "openInStudio": "Als Referenz in Studio öffnen",
+    "resizeInStudio": "Bild im AR Editor öffnen",
     "protectedFolderRename": "Dieser App-Output-Ordner kann nicht umbenannt werden.",
     "protectedFolderMove": "Dieser App-Output-Ordner kann nicht verschoben werden.",
     "renameTitle": "\"{name}\" umbenennen",
