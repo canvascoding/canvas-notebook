@@ -8,7 +8,6 @@ import rehypeHighlight from 'rehype-highlight';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
 import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
-import type { Usage } from '@mariozechner/pi-ai';
 import { useTranslations } from 'next-intl';
 import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 import {
@@ -76,7 +75,6 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, Dia
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
-import { formatUsageBreakdown, formatUsageCompact, hasRenderableUsage } from '@/app/lib/pi/usage-format';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
@@ -451,87 +449,6 @@ function extractImageAttachments(content: unknown): Attachment[] | undefined {
   }, []);
 
   return attachments.length > 0 ? attachments : undefined;
-}
-
-function getAssistantUsage(message?: AgentMessage | null) {
-  if (!message || message.role !== 'assistant' || !hasRenderableUsage(message.usage)) {
-    return null;
-  }
-
-  return message.usage;
-}
-
-const EMPTY_USAGE: Usage = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    total: 0,
-  },
-};
-
-function sumUsage(left: Usage, right: Usage): Usage {
-  return {
-    input: left.input + right.input,
-    output: left.output + right.output,
-    cacheRead: left.cacheRead + right.cacheRead,
-    cacheWrite: left.cacheWrite + right.cacheWrite,
-    totalTokens: left.totalTokens + right.totalTokens,
-    cost: {
-      input: left.cost.input + right.cost.input,
-      output: left.cost.output + right.cost.output,
-      cacheRead: left.cost.cacheRead + right.cost.cacheRead,
-      cacheWrite: left.cost.cacheWrite + right.cost.cacheWrite,
-      total: left.cost.total + right.cost.total,
-    },
-  };
-}
-
-function getAssistantChainUsage(messages: ChatMessage[], index: number): Usage | null {
-  const currentMessage = messages[index];
-  if (!currentMessage || currentMessage.role !== 'assistant') {
-    return null;
-  }
-
-  let chainStart = index;
-  while (chainStart > 0 && messages[chainStart - 1]?.role !== 'user') {
-    chainStart -= 1;
-  }
-
-  let chainEnd = index;
-  while (chainEnd + 1 < messages.length && messages[chainEnd + 1]?.role !== 'user') {
-    chainEnd += 1;
-  }
-
-  let lastAssistantIndex = -1;
-  let aggregatedUsage: Usage | null = null;
-
-  for (let cursor = chainStart; cursor <= chainEnd; cursor += 1) {
-    const message = messages[cursor];
-    if (message?.role !== 'assistant') {
-      continue;
-    }
-
-    lastAssistantIndex = cursor;
-    const usage = getAssistantUsage(message.piMessage);
-    if (!usage) {
-      continue;
-    }
-
-    aggregatedUsage = aggregatedUsage ? sumUsage(aggregatedUsage, usage) : sumUsage(EMPTY_USAGE, usage);
-  }
-
-  if (lastAssistantIndex !== index || !aggregatedUsage || !hasRenderableUsage(aggregatedUsage)) {
-    return null;
-  }
-
-  return aggregatedUsage;
 }
 
 function getSessionDisplayLabel(sessionTitle: string | null, fallbackTitle: string): string {
@@ -3838,7 +3755,6 @@ export default function CanvasAgentChat({
             const isTool = message.role === 'toolResult';
             const isSystem = message.role === 'system';
             const isSystemError = isSystem && message.status === 'error';
-            const usage = getAssistantChainUsage(messages, index);
             const isCompactBreak = message.type === 'compact_break';
             const isStreamingAssistant = isAssistant && message.status === 'sending';
 
@@ -4004,13 +3920,6 @@ export default function CanvasAgentChat({
                     const filePaths = extractFilePaths(bodyContent);
                     return filePaths.length > 0 ? <FileReferenceCard paths={filePaths} /> : null;
                   })()}
-
-                  {usage ? (
-                    <div data-testid="chat-usage-footer" className="mt-3 border-t border-border/70 pt-2 text-[11px] text-muted-foreground">
-                      <div className="font-medium text-foreground/80">{formatUsageCompact(usage)}</div>
-                      <div>{formatUsageBreakdown(usage)}</div>
-                    </div>
-                  ) : null}
                 </div>
               </div>
             );
