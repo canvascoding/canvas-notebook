@@ -198,6 +198,7 @@ interface FileStoreState {
   loadFileTree: (path?: string, depth?: number, noCache?: boolean) => Promise<void>;
   refreshRootTree: (noCache?: boolean) => Promise<void>;
   refreshDirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
+  refreshVisibleTree: () => Promise<void>;
   loadSubdirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
   loadFile: (path: string, noCache?: boolean) => Promise<void>;
   revealAndLoadFile: (path: string) => Promise<void>;
@@ -453,6 +454,42 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
 
     await get().loadSubdirectory(dirPath, noCache);
+  },
+
+  refreshVisibleTree: async () => {
+    const { browserMode, currentDirectory, expandedDirs } = get();
+    await get().refreshRootTree(true);
+
+    const dirsToRefresh = new Set<string>();
+    if (currentDirectory !== '.') {
+      for (const dirPath of getParentDirectories(`${currentDirectory}/_`)) {
+        dirsToRefresh.add(dirPath);
+      }
+      dirsToRefresh.add(currentDirectory);
+    }
+
+    if (browserMode === 'tree') {
+      for (const dirPath of expandedDirs) {
+        if (dirPath !== '.') dirsToRefresh.add(dirPath);
+      }
+    }
+
+    const sortedDirs = Array.from(dirsToRefresh).sort((a, b) => {
+      const depthDiff = a.split('/').length - b.split('/').length;
+      return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
+    });
+
+    for (const dirPath of sortedDirs) {
+      const parentDir = getParentDirectory(dirPath);
+      const tree = get().fileTree;
+      const parentExists = parentDir === '.'
+        ? tree.some((node) => node.path === dirPath.split('/')[0] && node.type === 'directory')
+        : findPathInTree(parentDir, tree);
+
+      if (parentExists) {
+        await get().loadSubdirectory(dirPath, true);
+      }
+    }
   },
 
   loadSubdirectory: async (dirPath: string, noCache = false) => {

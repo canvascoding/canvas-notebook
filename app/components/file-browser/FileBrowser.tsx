@@ -51,7 +51,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
   const {
     refreshDirectory,
-    refreshRootTree,
+    refreshVisibleTree,
     selectedNode,
     createPath,
     deletePath,
@@ -192,8 +192,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   }, [isFullscreen, onFileSelect]);
 
   const handleRefresh = useCallback(() => {
-    void refreshRootTree(true);
-  }, [refreshRootTree]);
+    void refreshVisibleTree();
+  }, [refreshVisibleTree]);
 
   const toolbarHandlers: FileToolbarHandlers = {
     onToggleMultiSelect: toggleMultiSelectMode,
