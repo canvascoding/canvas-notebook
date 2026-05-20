@@ -1501,10 +1501,17 @@
       "refresh": "Reload automations",
       "loading": "Loading automations...",
       "empty": "No automation created yet.",
+      "emptySelectionTitle": "Choose an automation",
+      "emptySelectionDescription": "Open an existing automation or create a new recurring agent job.",
       "total": "Total",
       "successful": "Successful",
       "nextRun": "Next run",
-      "lastStatus": "Last status"
+      "lastStatus": "Last status",
+      "groups": {
+        "needsAttention": "Needs attention",
+        "running": "Running now",
+        "integration": "Integration triggers"
+      }
     },
     "editor": {
       "newTitle": "New automation",
@@ -1557,6 +1564,12 @@
       "save": "Save",
       "runNow": "Run now",
       "delete": "Delete"
+    },
+    "templates": {
+      "title": "Templates"
+    },
+    "runDetails": {
+      "summary": "Summary"
     },
     "runs": {
       "title": "Run history",
@@ -1617,7 +1630,8 @@
     "triggerType": {
       "scheduled": "Scheduled",
       "manual": "Manual",
-      "retry": "Retry"
+      "retry": "Retry",
+      "webhook": "Webhook"
     },
     "intervalUnits": {
       "minutes": "minutes",
