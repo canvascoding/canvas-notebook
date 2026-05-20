@@ -1500,10 +1500,17 @@
       "refresh": "Automationen neu laden",
       "loading": "Lade Automationen...",
       "empty": "Noch keine Automation angelegt.",
+      "emptySelectionTitle": "Wähle eine Automation",
+      "emptySelectionDescription": "Öffne eine bestehende Automation oder erstelle einen neuen wiederkehrenden Agent-Auftrag.",
       "total": "Gesamt",
       "successful": "Erfolgreich",
       "nextRun": "Nächster Lauf",
-      "lastStatus": "Letzter Status"
+      "lastStatus": "Letzter Status",
+      "groups": {
+        "needsAttention": "Prüfen",
+        "running": "Läuft gerade",
+        "integration": "Integration Trigger"
+      }
     },
     "editor": {
       "newTitle": "Neue Automation",
@@ -1556,6 +1563,12 @@
       "save": "Speichern",
       "runNow": "Jetzt ausführen",
       "delete": "Löschen"
+    },
+    "templates": {
+      "title": "Vorlagen"
+    },
+    "runDetails": {
+      "summary": "Übersicht"
     },
     "runs": {
       "title": "Laufhistorie",
@@ -1616,7 +1629,8 @@
     "triggerType": {
       "scheduled": "Geplant",
       "manual": "Manuell",
-      "retry": "Retry"
+      "retry": "Retry",
+      "webhook": "Webhook"
     },
     "intervalUnits": {
       "minutes": "Minuten",
