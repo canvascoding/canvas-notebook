@@ -73,6 +73,9 @@ export function MarkdownRenderer({
     }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
       return (
+        // Markdown image sources can be arbitrary user-provided URLs, so next/image
+        // domain restrictions are not a good fit for this renderer.
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
           alt={alt || ''}
