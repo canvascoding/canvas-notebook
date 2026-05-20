@@ -684,11 +684,23 @@ function MarkdownMessage({
   onMediaClick?: (mediaUrl: string) => void;
 }) {
   const sharedClasses =
-    'break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
+    'min-w-0 max-w-full break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
   const toneClasses =
     variant === 'user'
-      ? '[&_blockquote]:border-primary-foreground/40 [&_pre]:border-primary-foreground/20 [&_pre]:bg-primary-foreground/10 [&_code]:bg-primary-foreground/15 [&_th]:border-primary-foreground/20 [&_td]:border-primary-foreground/20'
-      : '[&_blockquote]:border-border/80 [&_pre]:border-border [&_pre]:bg-background/80 [&_code]:bg-background/80 [&_th]:border-border [&_td]:border-border';
+      ? '[&_blockquote]:border-primary-foreground/40 [&_pre]:border-primary-foreground/20 [&_pre]:bg-primary-foreground/10 [&_code]:bg-primary-foreground/15'
+      : '[&_blockquote]:border-border/80 [&_pre]:border-border [&_pre]:bg-background/80 [&_code]:bg-background/80';
+  const tableBorderClasses =
+    variant === 'user'
+      ? 'border-primary-foreground/20'
+      : 'border-border';
+  const tableHeaderClasses =
+    variant === 'user'
+      ? 'bg-primary-foreground/10 text-primary-foreground'
+      : 'bg-background/70 text-foreground';
+  const tableCellClasses =
+    variant === 'user'
+      ? 'border-primary-foreground/20'
+      : 'border-border';
 
   const extractColorCode = (props: Record<string, unknown>): string | null => {
     const colorCode = props['data-color-code'] ?? props.dataColorCode ?? props.datacolorcode;
@@ -718,6 +730,38 @@ function MarkdownMessage({
         </a>
       );
     },
+    table: ({ children }: React.TableHTMLAttributes<HTMLTableElement>) => (
+      <div className={`my-3 max-w-full overflow-x-auto rounded-md border ${tableBorderClasses}`}>
+        <table className="w-max min-w-full border-collapse text-left text-sm">
+          {children}
+        </table>
+      </div>
+    ),
+    th: ({ children, className, ...props }: React.ThHTMLAttributes<HTMLTableCellElement>) => (
+      <th
+        className={cn(
+          'whitespace-nowrap border px-2.5 py-1.5 align-top text-xs font-semibold',
+          tableCellClasses,
+          tableHeaderClasses,
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </th>
+    ),
+    td: ({ children, className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
+      <td
+        className={cn(
+          'whitespace-nowrap border px-2.5 py-1.5 align-top',
+          tableCellClasses,
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </td>
+    ),
     img: ({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
       const clickable = Boolean(onMediaClick);
