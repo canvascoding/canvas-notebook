@@ -204,6 +204,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     name: job.name,
     workspaceContextPaths: job.workspaceContextPaths,
     prompt: job.prompt,
+    preferredSkill: job.preferredSkill,
     effectiveTargetOutputPath,
     runArtifactDir: outputPaths.outputDir,
     webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,

@@ -2,7 +2,7 @@ import { type AutomationJobRecord } from './types';
 
 type BuildAutomationPromptInput = Pick<
   AutomationJobRecord,
-  'name' | 'workspaceContextPaths' | 'prompt'
+  'name' | 'workspaceContextPaths' | 'prompt' | 'preferredSkill'
 > & {
   effectiveTargetOutputPath: string;
   runArtifactDir?: string | null;
@@ -34,6 +34,9 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
   }
 
   sections.push(`Write final deliverables to: ${input.effectiveTargetOutputPath}`);
+  if (input.preferredSkill && input.preferredSkill !== 'auto') {
+    sections.push(`Preferred skill: /${input.preferredSkill}`);
+  }
   sections.push('Store logs and run metadata in the automation run folder automatically; do not duplicate them unless useful.');
 
   if (input.runArtifactDir) {

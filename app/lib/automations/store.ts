@@ -45,10 +45,8 @@ function normalizeString(value: unknown, field: string, maxLength = 4000): strin
 
 function ensurePreferredSkill(value: unknown): AutomationPreferredSkill {
   const normalized = typeof value === 'string' ? value.trim() : '';
-  if (normalized === 'auto') {
-    return 'auto';
-  }
-  return 'auto';
+  if (!normalized) return 'auto';
+  return normalized.slice(0, 120);
 }
 
 function normalizeWorkspaceContextPaths(value: unknown): string[] {
@@ -253,7 +251,7 @@ export async function getAutomationRun(runId: string): Promise<AutomationRunReco
 export async function createAutomationJob(input: CreateAutomationJobInput, userId: string): Promise<AutomationJobRecord> {
   const name = normalizeString(input.name, 'Name', 120);
   const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
-  const preferredSkill: AutomationPreferredSkill = 'auto';
+  const preferredSkill = ensurePreferredSkill(input.preferredSkill);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const { schedule, error } = validateFriendlySchedule(input.schedule);
@@ -294,7 +292,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
 export async function createWebhookAutomationJob(input: CreateWebhookAutomationJobInput, userId: string): Promise<AutomationJobRecord> {
   const name = normalizeString(input.name, 'Name', 120);
   const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
-  const preferredSkill: AutomationPreferredSkill = 'auto';
+  const preferredSkill = ensurePreferredSkill(input.preferredSkill);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const composioTriggerId = normalizeString(input.composioTriggerId, 'Composio trigger ID', 500);
@@ -367,7 +365,9 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
     .set({
       name: input.name ? normalizeString(input.name, 'Name', 120) : existing.name,
       prompt: input.prompt ? normalizeString(input.prompt, 'Prompt', 12_000) : existing.prompt,
-      preferredSkill: ensurePreferredSkill(existing.preferredSkill),
+      preferredSkill: input.preferredSkill === undefined
+        ? ensurePreferredSkill(existing.preferredSkill)
+        : ensurePreferredSkill(input.preferredSkill),
       workspaceContextPathsJson: input.workspaceContextPaths
         ? JSON.stringify(normalizeWorkspaceContextPaths(input.workspaceContextPaths))
         : existing.workspaceContextPathsJson,
