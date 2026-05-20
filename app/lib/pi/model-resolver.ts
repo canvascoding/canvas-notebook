@@ -16,8 +16,17 @@ export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
 export const CANVAS_CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
 
 type ManagedControlPlaneProvider = 'openrouter' | 'groq' | 'openai-compatible';
+type ManagedControlPlanePricing = {
+  currency: string;
+  inputPer1m: number;
+  outputPer1m: number;
+  cacheReadPer1m: number;
+  cacheWritePer1m: number;
+  source?: string;
+};
 type ManagedControlPlaneModel = Model<'openai-completions'> & {
   managedProvider: ManagedControlPlaneProvider;
+  managedPricing?: ManagedControlPlanePricing | null;
 };
 
   // Recommended Ollama models with metadata
@@ -84,6 +93,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function numberValue(value: unknown, fallback = 0) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 function managedProviderPath(provider: ManagedControlPlaneProvider): string {
   if (provider === 'groq') return 'groq';
   if (provider === 'openai-compatible') return 'openai-compatible';
@@ -117,6 +130,15 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
   const input = Array.isArray(value.input) && value.input.every((entry) => entry === 'text' || entry === 'image')
     ? value.input as ('text' | 'image')[]
     : ['text', 'image'] as ('text' | 'image')[];
+  const pricingValue = isRecord(value.pricing) ? value.pricing : null;
+  const pricing = pricingValue ? {
+    currency: typeof pricingValue.currency === 'string' ? pricingValue.currency : 'usd',
+    inputPer1m: numberValue(pricingValue.inputPer1m),
+    outputPer1m: numberValue(pricingValue.outputPer1m),
+    cacheReadPer1m: numberValue(pricingValue.cacheReadPer1m, numberValue(pricingValue.inputPer1m)),
+    cacheWritePer1m: numberValue(pricingValue.cacheWritePer1m, numberValue(pricingValue.inputPer1m)),
+    source: typeof pricingValue.source === 'string' ? pricingValue.source : undefined,
+  } : null;
 
   if (!id || !managedProvider) return null;
 
@@ -129,9 +151,15 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
     baseUrl: '',
     reasoning: Boolean(value.reasoning),
     input,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    cost: {
+      input: pricing?.inputPer1m ?? 0,
+      output: pricing?.outputPer1m ?? 0,
+      cacheRead: pricing?.cacheReadPer1m ?? pricing?.inputPer1m ?? 0,
+      cacheWrite: pricing?.cacheWritePer1m ?? pricing?.inputPer1m ?? 0,
+    },
     contextWindow,
     maxTokens,
+    managedPricing: pricing,
   };
 }
 
