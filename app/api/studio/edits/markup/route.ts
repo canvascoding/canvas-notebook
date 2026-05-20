@@ -34,6 +34,39 @@ function buildMarkupFileName(sourcePath: string) {
   return `${safeBase}-markup-${timestamp}-${id}.png`;
 }
 
+async function normalizeMarkupOverlay(maskBuffer: Buffer, width: number, height: number) {
+  const { data, info } = await sharp(maskBuffer, { limitInputPixels: false })
+    .resize(width, height, { fit: 'fill' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const output = Buffer.from(data);
+  const maxAlpha = 72;
+  const minAlpha = 28;
+
+  for (let index = 0; index < output.length; index += info.channels) {
+    const alpha = output[index + 3] || 0;
+    if (alpha === 0) continue;
+
+    output[index] = 38;
+    output[index + 1] = 132;
+    output[index + 2] = 255;
+    output[index + 3] = Math.min(maxAlpha, Math.max(minAlpha, Math.round(alpha * 0.45)));
+  }
+
+  return sharp(output, {
+    raw: {
+      width: info.width,
+      height: info.height,
+      channels: info.channels,
+    },
+    limitInputPixels: false,
+  })
+    .png()
+    .toBuffer();
+}
+
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -71,10 +104,7 @@ export async function POST(request: NextRequest) {
       .resize(width, height, { fit: 'fill' })
       .png()
       .toBuffer();
-    const normalizedMask = await sharp(mask.buffer, { limitInputPixels: false })
-      .resize(width, height, { fit: 'fill' })
-      .png()
-      .toBuffer();
+    const normalizedMask = await normalizeMarkupOverlay(mask.buffer, width, height);
 
     const output = await sharp(normalizedSource, { limitInputPixels: false })
       .composite([{ input: normalizedMask, left: 0, top: 0 }])

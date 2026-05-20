@@ -17,7 +17,7 @@ interface ImageEditSelectionViewProps {
 }
 
 const BRUSH_SIZE = 76;
-const MARKER_COLOR = 'rgba(38, 132, 255, 0.58)';
+const MARKER_COLOR = 'rgba(38, 132, 255, 0.28)';
 
 export function ImageEditSelectionView({
   open,
