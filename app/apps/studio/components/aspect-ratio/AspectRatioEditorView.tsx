@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Crop, FolderInput, ImageIcon, Loader2, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { ReferencePickerDialog } from '@/app/apps/studio/components/create/ReferencePickerDialog';
@@ -182,6 +183,7 @@ function ProviderControls({
   onBackgroundChange: (value: 'auto' | 'transparent' | 'opaque') => void;
   onImageSizeChange: (value: string) => void;
 }) {
+  const t = useTranslations('studio.aspectRatioEditor');
   const activeProvider = providers.find((item) => item.id === provider);
   const models = activeProvider?.models ?? [];
   const imageSizes = provider === 'gemini' ? getImageSizesForModel(model) : [];
@@ -190,10 +192,10 @@ function ProviderControls({
     <div className="space-y-3 rounded-lg border border-border bg-background p-3">
       <div className="flex items-center gap-2 text-sm font-medium">
         <WandSparkles className="h-4 w-4 text-primary" />
-        AI Extend
+        {t('mode.aiExtend')}
       </div>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-xs text-muted-foreground">Provider</span>
+        <span className="text-xs text-muted-foreground">{t('provider')}</span>
         <select
           className="h-9 rounded-md border border-input bg-background px-2"
           value={provider}
@@ -205,7 +207,7 @@ function ProviderControls({
         </select>
       </label>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-xs text-muted-foreground">Model</span>
+        <span className="text-xs text-muted-foreground">{t('model')}</span>
         <select className="h-9 rounded-md border border-input bg-background px-2" value={model} onChange={(event) => onModelChange(event.target.value)}>
           {models.map((item) => (
             <option key={item.id} value={item.id}>{item.shortLabel || item.id}</option>
@@ -215,19 +217,19 @@ function ProviderControls({
       {provider === 'openai' ? (
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs text-muted-foreground">Quality</span>
+            <span className="text-xs text-muted-foreground">{t('quality')}</span>
             <select className="h-9 rounded-md border border-input bg-background px-2" value={quality} onChange={(event) => onQualityChange(event.target.value as typeof quality)}>
               {['auto', 'low', 'medium', 'high'].map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs text-muted-foreground">Format</span>
+            <span className="text-xs text-muted-foreground">{t('format')}</span>
             <select className="h-9 rounded-md border border-input bg-background px-2" value={outputFormat} onChange={(event) => onOutputFormatChange(event.target.value as typeof outputFormat)}>
               {['png', 'jpeg', 'webp'].map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}
             </select>
           </label>
           <label className="col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-xs text-muted-foreground">Background</span>
+            <span className="text-xs text-muted-foreground">{t('background')}</span>
             <select className="h-9 rounded-md border border-input bg-background px-2" value={background} onChange={(event) => onBackgroundChange(event.target.value as typeof background)}>
               {['auto', 'transparent', 'opaque'].map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
@@ -236,7 +238,7 @@ function ProviderControls({
       ) : null}
       {provider === 'gemini' && imageSizes.length > 0 ? (
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs text-muted-foreground">Resolution</span>
+          <span className="text-xs text-muted-foreground">{t('resolution')}</span>
           <select className="h-9 rounded-md border border-input bg-background px-2" value={imageSize} onChange={(event) => onImageSizeChange(event.target.value)}>
             {imageSizes.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
@@ -257,6 +259,7 @@ function WorkspaceCopyDialog({
   preview: PreviewResult | null;
   onCopied: (path: string) => void;
 }) {
+  const t = useTranslations('studio.aspectRatioEditor');
   const { fileTree, loadFileTree, refreshDirectory } = useFileStore();
   const [selectedDir, setSelectedDir] = useState('.');
   const [expandedDirs, setExpandedDirs] = useState(new Set<string>());
@@ -296,12 +299,12 @@ function WorkspaceCopyDialog({
         }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Copy failed');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.copyFailed'));
       await refreshDirectory(selectedDir, true);
       onCopied(payload.path);
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Kopieren fehlgeschlagen');
+      toast.error(error instanceof Error ? error.message : t('errors.copyFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -311,25 +314,25 @@ function WorkspaceCopyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>In Workspace kopieren</DialogTitle>
-          <DialogDescription>Waehle Zielordner und Dateiname fuer das fertige Edit.</DialogDescription>
+          <DialogTitle>{t('workspaceDialog.title')}</DialogTitle>
+          <DialogDescription>{t('workspaceDialog.description')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs font-medium text-muted-foreground">Dateiname</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('workspaceDialog.fileName')}</span>
             <Input value={fileName} onChange={(event) => setFileName(event.target.value)} />
           </label>
           <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Zielordner</p>
-            <p className="mt-1 truncate font-mono text-sm">{selectedDir === '.' ? 'Workspace root' : selectedDir}</p>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{t('workspaceDialog.targetFolder')}</p>
+            <p className="mt-1 truncate font-mono text-sm">{selectedDir === '.' ? t('workspaceDialog.workspaceRoot') : selectedDir}</p>
           </div>
           <DirectoryBrowser tree={fileTree} selectedPath={selectedDir} onSelect={setSelectedDir} expandedDirs={expandedDirs} onToggleDir={handleToggleDir} />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Abbrechen</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancel')}</Button>
           <Button onClick={handleSave} disabled={!preview || isSaving || !fileName.trim()}>
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />}
-            Kopieren
+            {t('copy')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -338,6 +341,7 @@ function WorkspaceCopyDialog({
 }
 
 export function AspectRatioEditorView() {
+  const t = useTranslations('studio.aspectRatioEditor');
   const setChatContext = useSetStudioChatContext();
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -378,7 +382,7 @@ export function AspectRatioEditorView() {
       try {
         const response = await fetch('/api/studio/aspect-ratio/models', { credentials: 'include', cache: 'no-store' });
         const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || 'Modelle konnten nicht geladen werden');
+        if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.modelsFailed'));
         if (!cancelled) {
           const nextProviders = payload.providers || [];
           setProviders(nextProviders);
@@ -389,11 +393,11 @@ export function AspectRatioEditorView() {
           }
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Modelle konnten nicht geladen werden');
+        toast.error(error instanceof Error ? error.message : t('errors.modelsFailed'));
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [t]);
 
   const resetView = useCallback((width: number, height: number) => {
     const initialZoom = Math.min(1, 680 / Math.max(width, height));
@@ -535,11 +539,11 @@ export function AspectRatioEditorView() {
         }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Preview failed');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.previewFailed'));
       setPreview(payload.preview);
-      toast.success('Preview in /data/studio/edits gespeichert');
+      toast.success(t('toasts.previewSaved'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Preview fehlgeschlagen');
+      toast.error(error instanceof Error ? error.message : t('errors.previewFailed'));
     } finally {
       setIsGenerating(false);
     }
@@ -555,10 +559,10 @@ export function AspectRatioEditorView() {
         body: JSON.stringify({ action: 'keep_edit', previewPath: preview.path }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Save failed');
-      toast.success('Edit bleibt in /data/studio/edits');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.saveFailed'));
+      toast.success(t('toasts.keepEdit'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Speichern fehlgeschlagen');
+      toast.error(error instanceof Error ? error.message : t('errors.saveFailed'));
     }
   };
 
@@ -577,11 +581,11 @@ export function AspectRatioEditorView() {
         }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Overwrite failed');
-      toast.success('Original ueberschrieben');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.overwriteFailed'));
+      toast.success(t('toasts.originalOverwritten'));
       setOverwriteDialogOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Ueberschreiben fehlgeschlagen');
+      toast.error(error instanceof Error ? error.message : t('errors.overwriteFailed'));
     }
   };
 
@@ -592,24 +596,24 @@ export function AspectRatioEditorView() {
     height: frame.height * zoom,
   };
 
-  const sourceName = sourcePath?.split('/').pop() || 'Kein Bild';
+  const sourceName = sourcePath?.split('/').pop() || t('noImage');
 
   return (
     <div className="flex min-h-full flex-col bg-background">
       <div className="border-b border-border bg-background px-4 py-3 md:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold">Aspect Ratio Editor</h2>
-            <p className="text-sm text-muted-foreground">Crop lokal oder erweitere fehlende Raender mit OpenAI/Gemini.</p>
+            <h2 className="text-lg font-semibold">{t('title')}</h2>
+            <p className="text-sm text-muted-foreground">{t('description')}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setPickerOpen(true)}>
               <ImageIcon className="h-4 w-4" />
-              Bild auswaehlen
+              {t('selectImage')}
             </Button>
             <Button variant="outline" disabled={!sourcePath} onClick={() => imageSize.width && resetView(imageSize.width, imageSize.height)}>
               <RefreshCw className="h-4 w-4" />
-              Reset
+              {t('reset')}
             </Button>
           </div>
         </div>
@@ -637,8 +641,8 @@ export function AspectRatioEditorView() {
                     <ImageIcon className="h-7 w-7" />
                   </div>
                   <div>
-                    <p className="font-medium">Ein Bild auswaehlen</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Der gleiche Studio Image Picker wird im Single-Select-Modus genutzt.</p>
+                    <p className="font-medium">{t('empty.title')}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{t('empty.description')}</p>
                   </div>
                 </button>
               </div>
@@ -671,13 +675,13 @@ export function AspectRatioEditorView() {
                   >
                     <div className="pointer-events-none absolute inset-0 bg-background/5" />
                     <div className="pointer-events-none absolute left-2 top-2 rounded bg-background/90 px-2 py-1 text-xs font-medium shadow-sm">
-                      {mode === 'crop' ? 'Crop' : 'AI Extend'} · {aspectRatio === 'freeform' ? 'Freeform' : aspectRatio}
+                      {mode === 'crop' ? t('mode.crop') : t('mode.aiExtend')} · {aspectRatio === 'freeform' ? t('freeform') : aspectRatio}
                     </div>
                     {(['nw', 'ne', 'sw', 'se'] as const).map((handle) => (
                       <button
                         key={handle}
                         type="button"
-                        aria-label={`Resize ${handle}`}
+                        aria-label={t('resizeHandle', { handle })}
                         onPointerDown={(event) => startFrameResize(event, handle)}
                         className={cn(
                           'absolute h-4 w-4 rounded-full border-2 border-background bg-primary shadow',
@@ -696,7 +700,7 @@ export function AspectRatioEditorView() {
         <aside className="min-h-0 overflow-y-auto border-l border-border bg-card/70 p-4">
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-background p-3">
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Quelle</p>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{t('source')}</p>
               <p className="mt-1 truncate text-sm font-medium">{sourceName}</p>
               {imageSize.width > 0 ? (
                 <p className="mt-1 text-xs text-muted-foreground">{imageSize.width} x {imageSize.height}px · Zoom {Math.round(zoom * 100)}%</p>
@@ -706,7 +710,7 @@ export function AspectRatioEditorView() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Maximize2 className="h-4 w-4 text-primary" />
-                Presets
+                {t('presets')}
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {PRESETS.map((preset) => {
@@ -724,23 +728,23 @@ export function AspectRatioEditorView() {
                   );
                 })}
               </div>
-              <p className="text-xs text-muted-foreground">Shift beim Ziehen haelt das aktuelle Seitenverhaeltnis. Mausrad zoomt, Hintergrund ziehen verschiebt die Arbeitsflaeche.</p>
+              <p className="text-xs text-muted-foreground">{t('presetHint')}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg border border-border bg-background p-3">
                 <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   {mode === 'crop' ? <Crop className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  Modus
+                  {t('mode.label')}
                 </div>
                 <p className={cn('mt-2 text-sm font-semibold', mode === 'crop' ? 'text-emerald-600' : 'text-amber-600')}>
-                  {mode === 'crop' ? 'Crop' : 'AI Extend'}
+                  {mode === 'crop' ? t('mode.crop') : t('mode.aiExtend')}
                 </p>
               </div>
               <div className="rounded-lg border border-border bg-background p-3">
                 <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   <ZoomIn className="h-3.5 w-3.5" />
-                  Output
+                  {t('output')}
                 </div>
                 <p className="mt-2 text-sm font-semibold">{targetSize.width} x {targetSize.height}</p>
               </div>
@@ -768,27 +772,27 @@ export function AspectRatioEditorView() {
               />
             ) : (
               <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">
-                Der Frame liegt im Bild. Das Ergebnis wird lokal zugeschnitten, ohne KI-Aufruf.
+                {t('cropNotice')}
               </div>
             )}
 
             {mode === 'ai_extend' && !canUseCurrentRatioForAi ? (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                Dieses Seitenverhaeltnis wird vom gewaehlten Provider nicht unterstuetzt. Waehle ein Preset aus der aktiven Provider-Liste.
+                {t('unsupportedRatio')}
               </div>
             ) : null}
 
             <Button className="w-full" disabled={!canGenerate || isGenerating} onClick={handleGeneratePreview}>
               {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'crop' ? <Crop className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-              {isGenerating ? 'Erstelle Preview...' : 'Preview erstellen'}
+              {isGenerating ? t('creatingPreview') : t('createPreview')}
             </Button>
 
             {preview ? (
               <div className="space-y-3 rounded-lg border border-border bg-background p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-medium">Preview</p>
-                    <p className="text-xs text-muted-foreground">Gespeichert in /data/studio/edits</p>
+                    <p className="text-sm font-medium">{t('preview')}</p>
+                    <p className="text-xs text-muted-foreground">{t('savedInEdits')}</p>
                   </div>
                   <Check className="h-4 w-4 text-emerald-600" />
                 </div>
@@ -798,15 +802,15 @@ export function AspectRatioEditorView() {
                 <div className="grid gap-2">
                   <Button variant="outline" onClick={handleKeepEdit}>
                     <Save className="h-4 w-4" />
-                    In edits behalten
+                    {t('keepInEdits')}
                   </Button>
                   <Button variant="outline" onClick={() => setCopyDialogOpen(true)}>
                     <FolderInput className="h-4 w-4" />
-                    In Workspace kopieren
+                    {t('copyToWorkspace')}
                   </Button>
                   <Button variant="destructive" onClick={() => setOverwriteDialogOpen(true)}>
                     <ShieldAlert className="h-4 w-4" />
-                    Original ueberschreiben
+                    {t('overwriteOriginal')}
                   </Button>
                 </div>
               </div>
@@ -832,21 +836,21 @@ export function AspectRatioEditorView() {
         open={copyDialogOpen}
         onOpenChange={setCopyDialogOpen}
         preview={preview}
-        onCopied={(path) => toast.success(`Nach ${path} kopiert`)}
+        onCopied={(path) => toast.success(t('toasts.copiedTo', { path }))}
       />
 
       <AlertDialog open={overwriteDialogOpen} onOpenChange={setOverwriteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Original wirklich ueberschreiben?</AlertDialogTitle>
+            <AlertDialogTitle>{t('overwriteDialog.title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Diese Aktion ersetzt die aktuelle Quelldatei durch das Preview aus `/data/studio/edits`. Das Preview bleibt separat erhalten.
+              {t('overwriteDialog.description')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={handleOverwriteOriginal}>
-              Original ueberschreiben
+              {t('overwriteOriginal')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
