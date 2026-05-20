@@ -154,6 +154,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
       return (
         <SidebarMenuItem>
           <div
+            data-file-path={node.path}
             className={cn(
               'group relative flex w-full items-center px-2 text-foreground transition-colors',
               isMobile ? 'py-1.5' : 'py-0.5',
@@ -208,6 +209,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
       <Collapsible open={isExpanded} onOpenChange={handleToggle}>
         <SidebarMenuItem>
           <div
+            data-file-path={node.path}
             className={cn(
               'group relative flex w-full items-center px-2 text-foreground transition-colors',
               isMobile ? 'py-1.5' : 'py-0.5',
@@ -286,6 +288,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
   return (
     <SidebarMenuItem>
       <div
+        data-file-path={node.path}
         className={cn(
           'group relative flex w-full items-center px-2 text-foreground transition-colors',
           isMobile ? 'py-1.5' : 'py-0.5',

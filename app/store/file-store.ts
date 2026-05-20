@@ -104,13 +104,29 @@ function getParentDirectory(path: string) {
   return path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
 }
 
+function getParentDirectories(filePath: string): string[] {
+  const parts = filePath.split('/').filter(Boolean);
+  const dirs: string[] = [];
+  for (let i = 1; i < parts.length; i += 1) {
+    dirs.push(parts.slice(0, i).join('/'));
+  }
+  return dirs;
+}
+
+function findNodeInTree(searchPath: string, nodes: FileNode[]): FileNode | null {
+  for (const node of nodes) {
+    if (node.path === searchPath) return node;
+    if (node.children) {
+      const found = findNodeInTree(searchPath, node.children);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 export function findPathInTree(searchPath: string, tree: FileNode[]): boolean {
   if (searchPath === '.') return true;
-  for (const node of tree) {
-    if (node.path === searchPath) return true;
-    if (node.children && findPathInTree(searchPath, node.children)) return true;
-  }
-  return false;
+  return findNodeInTree(searchPath, tree) !== null;
 }
 
 interface FileStoreState {
@@ -184,6 +200,7 @@ interface FileStoreState {
   refreshDirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
   loadSubdirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
   loadFile: (path: string, noCache?: boolean) => Promise<void>;
+  revealAndLoadFile: (path: string) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
   selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean) => void;
   createPath: (path: string, type: 'file' | 'directory') => Promise<void>;
@@ -570,6 +587,50 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         isLoadingFile: false,
       });
     }
+  },
+
+  revealAndLoadFile: async (path: string) => {
+    const normalizedPath = path.replace(/^\.\/|\/$/g, '');
+    if (!normalizedPath) return;
+
+    const parentDir = getParentDirectory(normalizedPath);
+    const parentDirs = getParentDirectories(normalizedPath);
+
+    set({ searchQuery: '' });
+
+    await get().refreshRootTree(true);
+
+    for (const dirPath of parentDirs) {
+      await get().loadSubdirectory(dirPath, true);
+    }
+
+    const node = findNodeInTree(normalizedPath, get().fileTree);
+    const fileName = normalizedPath.split('/').pop() || normalizedPath;
+
+    const nextExpandedDirs = new Set(get().expandedDirs);
+    for (const dirPath of parentDirs) {
+      nextExpandedDirs.add(dirPath);
+    }
+    get().setExpandedDirs(nextExpandedDirs);
+
+    if (node) {
+      get().selectNode(node);
+    } else {
+      set({
+        selectedNode: { path: normalizedPath, type: 'file', name: fileName },
+        currentDirectory: parentDir,
+        multiSelectPaths: new Set<string>(),
+        isMultiSelectMode: false,
+        lastSelectedPath: normalizedPath,
+      });
+      persistExplorerState({
+        currentDirectory: parentDir,
+        expandedDirs: nextExpandedDirs,
+      });
+    }
+
+    await get().loadFile(normalizedPath, true);
+    get().mobileFileOpened();
   },
 
   saveFile: async (path: string, content: string) => {

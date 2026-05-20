@@ -110,6 +110,7 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
 
   return (
     <div
+      data-file-path={node.path}
       className={cn(
         'group relative flex flex-col items-center rounded-lg border transition-all cursor-pointer',
         'hover:bg-accent/50 hover:border-primary/30',
