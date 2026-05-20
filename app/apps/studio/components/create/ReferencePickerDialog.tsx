@@ -19,6 +19,7 @@ import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { ReferenceHoverCard } from './ReferenceHoverCard';
 
 type Source = 'workspace' | 'studio' | 'upload' | 'urls';
@@ -154,7 +155,12 @@ function TreeNode({
         ) : (
           <div className="h-4 w-4 shrink-0 rounded-sm border border-muted-foreground/30" />
         )}
-        <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <ImageThumbnailIcon
+          path={node.path}
+          name={node.name}
+          className="h-5 w-5 rounded-sm"
+          fallbackIcon={<ImageIcon className="h-4 w-4 text-muted-foreground" />}
+        />
         <span className="truncate">{node.name}</span>
       </button>
     );
