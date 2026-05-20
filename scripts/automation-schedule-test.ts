@@ -89,11 +89,13 @@ const prompt = buildAutomationPrompt({
   name: 'Daily Briefing',
   workspaceContextPaths: ['README.md'],
   prompt: 'Fasse die relevanten Dateien zusammen.',
+  preferredSkill: 'pdf',
   effectiveTargetOutputPath: 'reports/daily',
   runArtifactDir: 'automationen/daily-briefing/runs/test-run',
 });
 
 assert.match(prompt, /Write final deliverables to: reports\/daily/);
+assert.match(prompt, /Preferred skill: \/pdf/);
 assert.match(prompt, /Store logs and run metadata in the automation run folder automatically/);
 
 console.log('automation schedule tests passed');

@@ -1525,6 +1525,7 @@
         "status": "Status",
         "prompt": "Was soll erledigt werden?",
         "timeZone": "Zeitzone",
+        "preferredSkill": "Skill",
         "workspaceContext": "Relevante Dateien oder Ordner"
       },
       "placeholders": {
@@ -1570,6 +1571,10 @@
     },
     "templates": {
       "title": "Vorlagen"
+    },
+    "skills": {
+      "auto": "Automatisch wählen",
+      "description": "Optional. Der Agent bekommt diese Skill-Präferenz bei jedem Lauf."
     },
     "runDetails": {
       "summary": "Übersicht"

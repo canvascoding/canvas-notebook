@@ -55,6 +55,7 @@ type JobDraft = {
   id: string | null;
   name: string;
   prompt: string;
+  preferredSkill: string;
   workspaceContextText: string;
   targetOutputPath: string;
   status: 'active' | 'paused';
@@ -87,6 +88,12 @@ type AutomationTemplate = {
   targetOutputPath?: string;
 };
 
+type SkillOption = {
+  name: string;
+  description?: string;
+  enabled?: boolean;
+};
+
 type AutomationsClientProps = {
   initialJobId?: string | null;
 };
@@ -102,6 +109,7 @@ function defaultDraft(): JobDraft {
     id: null,
     name: '',
     prompt: '',
+    preferredSkill: 'auto',
     workspaceContextText: '',
     targetOutputPath: '',
     status: 'active',
@@ -212,6 +220,7 @@ function buildPayload(draft: JobDraft) {
   return {
     name: draft.name,
     prompt: draft.prompt,
+    preferredSkill: draft.preferredSkill || 'auto',
     workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
     targetOutputPath: draft.targetOutputPath.trim() || null,
     status: draft.status,
@@ -290,6 +299,7 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.id = job.id;
   draft.name = job.name;
   draft.prompt = job.prompt;
+  draft.preferredSkill = job.preferredSkill || 'auto';
   draft.workspaceContextText = job.workspaceContextPaths.join('\n');
   draft.targetOutputPath = job.targetOutputPath || '';
   draft.status = job.status;
@@ -323,6 +333,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [logContent, setLogContent] = useState('');
   const [sessionMessages, setSessionMessages] = useState<PersistedAutomationSessionMessage[]>([]);
+  const [skills, setSkills] = useState<SkillOption[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningNow, setIsRunningNow] = useState(false);
@@ -336,6 +347,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) || null, [jobs, selectedJobId]);
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
   const templates = useMemo(() => getAutomationTemplates(locale), [locale]);
+  const enabledSkills = useMemo(() => skills.filter((skill) => skill.enabled !== false), [skills]);
 
   const automationGroups = useMemo(() => {
     const running = jobs.filter((job) => job.lastRunStatus === 'running' || job.lastRunStatus === 'pending' || job.lastRunStatus === 'retry_scheduled');
@@ -443,9 +455,22 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     }
   }
 
+  async function loadSkills() {
+    try {
+      const response = await fetch('/api/skills', { cache: 'no-store', credentials: 'include' });
+      const payload = await response.json();
+      if (response.ok && payload.success && Array.isArray(payload.skills)) {
+        setSkills(payload.skills as SkillOption[]);
+      }
+    } catch {
+      setSkills([]);
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadJobsEvent();
+    void loadSkills();
   }, []);
 
   useEffect(() => {
@@ -587,6 +612,26 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       weeklyDays: template.weeklyDays || current.weeklyDays,
       targetOutputPath: template.targetOutputPath || current.targetOutputPath,
     }));
+  }
+
+  function renderSkillSelect(id: string) {
+    return (
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-xs text-muted-foreground">{t('editor.fields.preferredSkill')}</span>
+        <select
+          id={id}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={draft.preferredSkill}
+          onChange={(event) => setDraft((current) => ({ ...current, preferredSkill: event.target.value }))}
+        >
+          <option value="auto">{t('skills.auto')}</option>
+          {enabledSkills.map((skill) => (
+            <option key={skill.name} value={skill.name}>/{skill.name}</option>
+          ))}
+        </select>
+        <span className="text-xs text-muted-foreground">{t('skills.description')}</span>
+      </label>
+    );
   }
 
   return (
@@ -732,6 +777,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                       <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
                       <textarea data-testid="automation-context-paths" className="h-24 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs" value={draft.workspaceContextText} onChange={(event) => setDraft((current) => ({ ...current, workspaceContextText: event.target.value }))} placeholder="00_dashboard&#10;03_offer-and-sales" />
                     </label>
+                    {renderSkillSelect('automation-preferred-skill')}
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2 rounded-md border bg-muted/20 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -834,22 +882,19 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
             <div className="space-y-4">
               <input data-testid="automation-name" className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
               <textarea data-testid="automation-prompt" className="min-h-[18rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder={t('editor.placeholders.prompt')} />
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <select className="h-10 min-w-36 rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind} onChange={(event) => setDraft((current) => ({ ...current, scheduleKind: event.target.value as ScheduleKind }))}>
-                  <option value="once">{t('schedule.kind.once')}</option>
-                  <option value="daily">{t('schedule.kind.daily')}</option>
-                  <option value="weekly">{t('schedule.kind.weekly')}</option>
-                  <option value="interval">{t('schedule.kind.interval')}</option>
-                </select>
-                <input type="time" className="h-10 min-w-28 rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind === 'weekly' ? draft.weeklyTime : draft.dailyTime} onChange={(event) => setDraft((current) => ({ ...current, dailyTime: event.target.value, weeklyTime: event.target.value }))} />
-                <Button type="button" variant="outline" className="justify-start" onClick={() => setIsDirectoryPickerOpen(true)}>
-                  <Folder className="mr-2 h-4 w-4" />
-                  {t('output.pickInWorkspace')}
-                </Button>
-                <Button className="sm:ml-auto" onClick={() => void handleSave()} disabled={isSaving}>
-                  {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  {t('actions.save')}
-                </Button>
+              <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} compact />
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                {renderSkillSelect('automation-composer-preferred-skill')}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <Button type="button" variant="outline" className="justify-start" onClick={() => setIsDirectoryPickerOpen(true)}>
+                    <Folder className="mr-2 h-4 w-4" />
+                    {t('output.pickInWorkspace')}
+                  </Button>
+                  <Button onClick={() => void handleSave()} disabled={isSaving}>
+                    {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    {t('actions.save')}
+                  </Button>
+                </div>
               </div>
               <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath}</span></p>
             </div>
@@ -949,11 +994,13 @@ function ScheduleEditor({
   setDraft,
   t,
   weekdayLabels,
+  compact = false,
 }: {
   draft: JobDraft;
   setDraft: Dispatch<SetStateAction<JobDraft>>;
   t: (key: string, values?: Record<string, string | number>) => string;
   weekdayLabels: Record<AutomationWeekday, string>;
+  compact?: boolean;
 }) {
   return (
     <div className="space-y-3 rounded-md border bg-muted/20 p-3">
@@ -961,7 +1008,7 @@ function ScheduleEditor({
         <Clock3 className="h-4 w-4 text-muted-foreground" />
         <p className="text-sm font-medium">{t('schedule.title')}</p>
       </div>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className={`grid gap-4 ${compact ? 'sm:grid-cols-3' : 'md:grid-cols-3'}`}>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-xs text-muted-foreground">{t('schedule.fields.kind')}</span>
           <select data-testid="automation-schedule-kind" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind} onChange={(event) => setDraft((current) => ({ ...current, scheduleKind: event.target.value as ScheduleKind }))}>

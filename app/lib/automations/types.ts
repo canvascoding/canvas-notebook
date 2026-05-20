@@ -1,7 +1,7 @@
 export type AutomationJobStatus = 'active' | 'paused';
 export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'retry_scheduled';
 export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook';
-export type AutomationPreferredSkill = 'auto';
+export type AutomationPreferredSkill = string;
 export type AutomationJobType = 'default' | 'heartbeat' | 'webhook';
 export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval' | 'webhook';
 export type AutomationWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
@@ -92,6 +92,7 @@ export type CreateAutomationJobInput = {
   prompt: string;
   workspaceContextPaths?: string[];
   targetOutputPath?: string | null;
+  preferredSkill?: AutomationPreferredSkill;
   schedule: FriendlySchedule;
   status?: AutomationJobStatus;
 };
@@ -101,6 +102,7 @@ export type CreateWebhookAutomationJobInput = {
   prompt: string;
   workspaceContextPaths?: string[];
   targetOutputPath?: string | null;
+  preferredSkill?: AutomationPreferredSkill;
   status?: AutomationJobStatus;
   composioTriggerId: string;
   composioTriggerSlug: string;
