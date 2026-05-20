@@ -58,7 +58,11 @@
     "closeChat": "Close chat",
     "canvasNotebook": "CANVAS NOTEBOOK",
     "notebook": "Notebook",
-    "openAppLauncher": "Open apps"
+    "openAppLauncher": "Open apps",
+    "openAppActions": "Open {app} actions",
+    "appActions": "{app} actions",
+    "openApp": "Open {app}",
+    "openInNewTab": "Open in new tab"
   },
   "login": {
     "title": "Canvas Notebook",
@@ -1692,7 +1696,8 @@
       "create": "Create",
       "bulk": "Bulk",
       "models": "Models",
-      "presets": "Presets"
+      "presets": "Presets",
+      "resize": "Resize"
     },
     "modelLibrary": {
       "products": "Products",
