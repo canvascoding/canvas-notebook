@@ -3,13 +3,20 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Download, Film, ImageIcon, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
+import { ArrowLeft, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Film, ImageIcon, Maximize2, MoreHorizontal, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import type { StudioPreset } from '../../types/presets';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +44,8 @@ interface StudioPreviewProps {
   allVisibleOutputs: VisibleOutputEntry[];
   onClose: () => void;
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onEditSelection?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
+  onUseAspectRatio?: (generation: StudioGeneration, output: StudioGenerationOutput, aspectRatio: string) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
@@ -52,6 +61,20 @@ function getAspectRatioLabel(output: StudioGenerationOutput, generation: StudioG
   return generation.aspectRatio;
 }
 
+function AspectRatioGlyph({ ratio }: { ratio: string }) {
+  const shape: Record<string, string> = {
+    '1:1': 'h-3.5 w-3.5',
+    '3:4': 'h-4 w-3',
+    '9:16': 'h-5 w-2.5',
+    '4:3': 'h-3 w-4',
+    '16:9': 'h-2.5 w-5',
+  };
+
+  return <span className={`inline-block rounded-[2px] border border-current ${shape[ratio] ?? 'h-3.5 w-3.5'}`} />;
+}
+
+const DETAIL_ASPECT_RATIOS = ['1:1', '3:4', '9:16', '4:3', '16:9'] as const;
+
 export function StudioPreview({
   generation,
   output,
@@ -63,6 +86,8 @@ export function StudioPreview({
   allVisibleOutputs,
   onClose,
   onToggleFavorite,
+  onEditSelection,
+  onUseAspectRatio,
   onCreateVariation,
   onCreateVideo,
   onDelete,
@@ -162,24 +187,130 @@ export function StudioPreview({
 
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
+  const canEditImage = output.type === 'image' && Boolean(output.mediaUrl) && Boolean(onEditSelection);
+  const canUseAspectRatio = output.type === 'image' && Boolean(output.mediaUrl) && Boolean(onUseAspectRatio);
 
   return (
     <section
       aria-label="Studio output preview"
       className="absolute inset-0 z-40 flex min-h-0 flex-col overflow-hidden bg-background"
     >
-      <div className="flex items-center justify-between border-b border-border/70 px-4 py-3 sm:px-6">
-        <Button variant="ghost" size="sm" className="gap-2 rounded-full" onClick={handleClose}>
-          <ArrowLeft className="h-4 w-4" />
-          Zurück zum Grid
-        </Button>
-        <Badge variant="outline" className="rounded-full px-3 py-1 uppercase tracking-[0.18em]">
-          {output.type}
-        </Badge>
+      <div className="flex min-h-16 items-center justify-between gap-3 border-b border-border/70 px-3 py-2 sm:px-5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={handleClose} aria-label="Zurück zum Grid">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold text-foreground sm:text-base">{prompt}</h2>
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="capitalize">{output.type}</span>
+              <span>AR {aspectRatioLabel}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden gap-2 rounded-full sm:inline-flex"
+            onClick={() => onEditSelection?.(generation, output)}
+            disabled={!canEditImage}
+          >
+            <Brush className="h-4 w-4" />
+            Edit
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="hidden gap-2 rounded-full sm:inline-flex" disabled={!canUseAspectRatio}>
+                <Maximize2 className="h-4 w-4" />
+                Aspect ratio
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72 p-2">
+              <div className="px-2 pb-2 pt-1 text-sm leading-5 text-muted-foreground">
+                Generate this image with a different aspect ratio
+              </div>
+              {DETAIL_ASPECT_RATIOS.map((ratio) => (
+                <DropdownMenuItem
+                  key={ratio}
+                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-base"
+                  onSelect={() => onUseAspectRatio?.(generation, output, ratio)}
+                >
+                  <AspectRatioGlyph ratio={ratio} />
+                  <span className="flex-1">
+                    {ratio === '1:1' ? 'Square' : ratio === '3:4' ? 'Portrait' : ratio === '9:16' ? 'Story' : ratio === '4:3' ? 'Landscape' : 'Widescreen'}
+                    <span className="ml-2 text-muted-foreground">{ratio}</span>
+                  </span>
+                  {generation.aspectRatio === ratio && <Check className="h-4 w-4" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button variant="outline" size="sm" className="hidden gap-2 rounded-full md:inline-flex" onClick={() => onCreateVariation(generation, output)}>
+            <RefreshCcw className="h-4 w-4" />
+            Remix
+          </Button>
+          <Button variant="outline" size="icon" className="rounded-full" onClick={handleDownload} disabled={!output.mediaUrl} aria-label="Download">
+            <Download className="h-4 w-4" />
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-full" aria-label="More actions">
+                <MoreHorizontal className="h-5 w-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onSelect={() => onEditSelection?.(generation, output)} disabled={!canEditImage}>
+                <Brush className="mr-2 h-4 w-4" />
+                Edit selection
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {DETAIL_ASPECT_RATIOS.map((ratio) => (
+                <DropdownMenuItem
+                  key={`mobile-ar-${ratio}`}
+                  onSelect={() => onUseAspectRatio?.(generation, output, ratio)}
+                  disabled={!canUseAspectRatio}
+                >
+                  <AspectRatioGlyph ratio={ratio} />
+                  <span className="ml-2">Make AR {ratio}</span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onCreateVariation(generation, output)}>
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Remix
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onCreateVideo(generation, output)} disabled={output.type !== 'image'}>
+                <Film className="mr-2 h-4 w-4" />
+                Create video
+              </DropdownMenuItem>
+              {onSaveToWorkspace && (
+                <DropdownMenuItem onSelect={() => onSaveToWorkspace(generation, output)}>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save to Workspace
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onToggleFavorite(generation, output)}>
+                <Star className={`mr-2 h-4 w-4 ${output.isFavorite ? 'fill-current text-amber-500' : ''}`} />
+                Favorite
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={() => setShowDeleteDialog(true)}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.10),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.10),_transparent_32%)]">
-        <div className="relative flex min-h-[40vh] sm:min-h-0 flex-1 items-center justify-center px-4 py-4 sm:px-6 sm:py-6">
+        <div className="relative flex min-h-[44vh] flex-1 items-center justify-center px-3 py-3 sm:min-h-0 sm:px-6 sm:py-6">
           {hasPrev && (
             <button
               type="button"
@@ -191,11 +322,11 @@ export function StudioPreview({
             </button>
           )}
 
-          <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[28px] border border-border/60 bg-card/70 p-3 shadow-sm">
+          <div className="flex h-full w-full items-center justify-center overflow-hidden bg-background/35 p-1 shadow-sm sm:p-3">
             {output.mediaUrl ? (
               output.type === 'video' ? (
                 <video
-                  className="max-h-full max-w-full rounded-2xl object-contain"
+                  className="max-h-full max-w-full object-contain shadow-2xl"
                   src={output.mediaUrl}
                   controls
                   playsInline
@@ -203,7 +334,7 @@ export function StudioPreview({
                 />
               ) : (
                 <img
-                  className="max-h-full max-w-full rounded-2xl object-contain"
+                  className="max-h-full max-w-full object-contain shadow-2xl"
                   src={output.mediaUrl}
                   alt={output.filePath}
                 />
@@ -233,7 +364,8 @@ export function StudioPreview({
           </div>
         )}
 
-        <div className="flex-shrink-0 overflow-y-auto border-t border-border/70 bg-background/92 px-4 py-4 backdrop-blur sm:px-6" style={{ maxHeight: '45vh' }}>
+        <div className="flex-shrink-0 overflow-y-auto border-t border-border/70 bg-background/94 px-4 py-4 backdrop-blur sm:px-6" style={{ maxHeight: '42vh' }}>
+              <div className="mx-auto max-w-6xl space-y-4">
                 <div className="flex flex-wrap gap-2">
                   {resolvedPreset ? (
                     <Badge variant="secondary" className="gap-1.5 rounded-full px-3 py-1">
@@ -400,39 +532,6 @@ export function StudioPreview({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" className="gap-2 rounded-full" onClick={handleDownload} disabled={!output.mediaUrl}>
-                    <Download className="h-4 w-4" />
-                    Download
-                  </Button>
-                  <Button variant="outline" className="gap-2 rounded-full" onClick={() => onToggleFavorite(generation, output)}>
-                    <Star className={`h-4 w-4 ${output.isFavorite ? 'fill-current text-amber-500' : ''}`} />
-                    Favorit
-                  </Button>
-                  <Button variant="outline" className="gap-2 rounded-full" onClick={() => onCreateVariation(generation, output)}>
-                    <RefreshCcw className="h-4 w-4" />
-                    Remix
-                  </Button>
-                  <Button variant="outline" className="gap-2 rounded-full" onClick={() => onCreateVideo(generation, output)} disabled={output.type !== 'image'}>
-                    <Film className="h-4 w-4" />
-                    Video
-                  </Button>
-                  {onSaveToWorkspace && (
-                    <Button variant="outline" className="gap-2 rounded-full" onClick={() => onSaveToWorkspace(generation, output)}>
-                      <Save className="h-4 w-4" />
-                      In Workspace
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    className="gap-2 rounded-full text-red-600 hover:bg-red-500/10 hover:text-red-700"
-                    onClick={() => setShowDeleteDialog(true)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Löschen
-                  </Button>
-                </div>
-
                 <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
                   <AlertDialogContent className="max-w-sm">
                     <AlertDialogHeader>
@@ -453,6 +552,7 @@ export function StudioPreview({
                   </AlertDialogContent>
                 </AlertDialog>
               </div>
+      </div>
       </div>
     </section>
   );

@@ -14,6 +14,7 @@ import { useStudioBatchActions } from '../../hooks/useStudioBatchActions';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
+import { ImageEditSelectionView } from './ImageEditSelectionView';
 import { OutputGrid, type OutputDateFilter, type OutputMediaFilter, type OutputSortOrder } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
 import { FilterBar } from './FilterBar';
@@ -172,6 +173,11 @@ export function CreateView() {
   const [sortOrder, setSortOrder] = useState<OutputSortOrder>('newest');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showBatchDeleteDialog, setShowBatchDeleteDialog] = useState(false);
+  const [editSelection, setEditSelection] = useState<{
+    generation: StudioGeneration;
+    output: StudioGenerationOutput;
+  } | null>(null);
+  const [savingEditSelection, setSavingEditSelection] = useState(false);
   const promptOverlayRef = useRef<HTMLDivElement | null>(null);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
 
@@ -314,6 +320,77 @@ export function CreateView() {
     setSelectedGenerationId(generationId);
     setSelectedOutputId(outputId);
   };
+
+  const applyGenerationSettingsToPrompt = useCallback((generation: StudioGeneration) => {
+    store.setMode('image');
+    store.setProvider(generation.provider || 'gemini');
+    store.setModel(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini'));
+    store.setCount(1);
+    store.setProductRefs((generation.product_ids ?? []).map((id) => {
+      const p = products.find((product) => product.id === id);
+      return { id, name: p?.name || id };
+    }));
+    store.setPersonaRefs((generation.persona_ids ?? []).map((id) => {
+      const p = personas.find((persona) => persona.id === id);
+      return { id, name: p?.name || id };
+    }));
+    store.setStyleRefs((generation.style_ids ?? []).map((id) => {
+      const s = styles.find((style) => style.id === id);
+      return { id, name: s?.name || id };
+    }));
+    store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
+  }, [personas, presets, products, store, styles]);
+
+  const handleUseAspectRatio = useCallback((generation: StudioGeneration, output: StudioGenerationOutput, aspectRatio: string) => {
+    applyGenerationSettingsToPrompt(generation);
+    store.setAspectRatio(aspectRatio);
+    store.setRawPrompt(`Make the aspect ratio ${aspectRatio}`);
+    const ref = getOutputReference(output);
+    if (ref) store.addFileRef(ref);
+    setSelectedGenerationId(null);
+    setSelectedOutputId(null);
+  }, [applyGenerationSettingsToPrompt, store]);
+
+  const handleOpenEditSelection = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
+    if (output.type !== 'image' || !output.mediaUrl) return;
+    setEditSelection({ generation, output });
+  }, []);
+
+  const handleImportEditSelection = useCallback(async ({ prompt, maskDataUrl }: { prompt: string; maskDataUrl: string }) => {
+    if (!editSelection) return;
+    setSavingEditSelection(true);
+    try {
+      const response = await fetch('/api/studio/edits/markup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          sourcePath: editSelection.output.filePath,
+          maskDataUrl,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success || !payload.edit?.path) {
+        throw new Error(payload.error || 'Failed to create edit markup');
+      }
+
+      applyGenerationSettingsToPrompt(editSelection.generation);
+      store.setAspectRatio(editSelection.generation.aspectRatio || '1:1');
+      store.setRawPrompt(prompt);
+      store.setFileRefs([{
+        id: payload.edit.path,
+        name: payload.edit.name || payload.edit.path.split('/').pop() || 'marked-edit.png',
+        thumbnailPath: payload.edit.path,
+      }]);
+      setEditSelection(null);
+      setSelectedGenerationId(null);
+      setSelectedOutputId(null);
+    } catch (error) {
+      console.error('Failed to import edit selection', error);
+    } finally {
+      setSavingEditSelection(false);
+    }
+  }, [applyGenerationSettingsToPrompt, editSelection, store]);
 
   useEffect(() => {
     void fetchGenerations();
@@ -723,6 +800,8 @@ export function CreateView() {
         onToggleFavorite={(generation, output) => {
           void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
         }}
+        onEditSelection={handleOpenEditSelection}
+        onUseAspectRatio={handleUseAspectRatio}
         onCreateVariation={(generation, output) => {
           store.setMode('image');
           store.setRawPrompt(generation.rawPrompt || generation.prompt || '');
@@ -773,6 +852,16 @@ export function CreateView() {
         onClose={() => {
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
+        }}
+      />
+      <ImageEditSelectionView
+        open={editSelection !== null}
+        imageUrl={editSelection?.output.mediaUrl ?? null}
+        imageAlt={editSelection?.output.filePath}
+        isSaving={savingEditSelection}
+        onClose={() => setEditSelection(null)}
+        onSubmit={(payload) => {
+          void handleImportEditSelection(payload);
         }}
       />
       <SaveToWorkspaceDialog
