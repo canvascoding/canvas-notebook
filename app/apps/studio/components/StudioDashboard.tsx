@@ -147,21 +147,27 @@ export function StudioDashboard() {
       store.productRefs.length > 0 ||
       store.personaRefs.length > 0 ||
       store.presetRef !== null ||
-      store.fileRefs.length > 0
+      store.fileRefs.length > 0 ||
+      store.videoReferenceRefs.length > 0 ||
+      store.audioReferenceRefs.length > 0
     );
-  }, [store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length]);
+  }, [store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length]);
 
   const hasVideoImageInput = store.mode === 'video' && (
     !!store.startFramePath ||
     store.productRefs.length > 0 ||
     store.personaRefs.length > 0 ||
     store.styleRefs.length > 0 ||
-    store.fileRefs.length > 0
+    store.fileRefs.length > 0 ||
+    store.videoReferenceRefs.length > 0 ||
+    store.audioReferenceRefs.length > 0
   );
   const personGeneration = hasVideoImageInput ? 'allow_adult' as const : 'allow_all' as const;
 
   const handleGenerate = useCallback(async () => {
     const fileUrls = store.fileRefs.map(getReferenceRequestValue).slice(0, store.mode === 'sound' ? 10 : undefined);
+    const videoReferenceUrls = store.videoReferenceRefs.map(getReferenceRequestValue).slice(0, 3);
+    const audioReferenceUrls = store.audioReferenceRefs.map(getReferenceRequestValue).slice(0, 3);
     const result = await generationHook.generate({
       prompt: store.rawPrompt.trim(),
       mode: store.mode,
@@ -181,6 +187,8 @@ export function StudioDashboard() {
       background: store.provider === 'openai' ? store.background : undefined,
       image_size: store.mode === 'image' && store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
       extra_reference_urls: fileUrls,
+      video_reference_urls: store.mode === 'video' && store.provider === 'bytedance' ? videoReferenceUrls : undefined,
+      audio_reference_urls: store.mode === 'video' && store.provider === 'bytedance' ? audioReferenceUrls : undefined,
       video_resolution: store.mode === 'video' ? store.videoResolution : undefined,
       video_duration: store.mode === 'video' ? store.videoDuration : undefined,
       start_frame_path: store.mode === 'video' ? store.startFramePath : undefined,
@@ -259,6 +267,10 @@ export function StudioDashboard() {
 
         <PromptBar
           value={promptBarValue}
+          mode={store.mode}
+          provider={store.provider}
+          videoReferenceRefs={store.videoReferenceRefs}
+          audioReferenceRefs={store.audioReferenceRefs}
           products={products}
           personas={personas}
           styles={styles}
@@ -273,11 +285,23 @@ export function StudioDashboard() {
             else if (type === 'persona') store.removePersonaRef(id);
             else if (type === 'style') store.removeStyleRef(id);
             else if (type === 'file') store.removeFileRef(id);
+            else if (type === 'videoReference') store.removeVideoReferenceRef(id);
+            else if (type === 'audioReference') store.removeAudioReferenceRef(id);
             else if (type === 'preset') store.removePresetRef();
           }}
           onFileAdd={(paths) => {
             for (const path of paths) {
               store.addFileRef({ id: path, name: path.split('/').pop() || path, thumbnailPath: path });
+            }
+          }}
+          onVideoReferenceAdd={(paths) => {
+            for (const path of paths) {
+              store.addVideoReferenceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'video' });
+            }
+          }}
+          onAudioReferenceAdd={(paths) => {
+            for (const path of paths) {
+              store.addAudioReferenceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'audio' });
             }
           }}
           onPasteImage={async (file) => {

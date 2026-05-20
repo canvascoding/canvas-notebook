@@ -21,6 +21,8 @@ import {
   Car,
   Loader2,
   Layers,
+  FileVideo,
+  Music,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -57,6 +59,10 @@ interface PromptBarValue {
 
 interface PromptBarProps {
   value: PromptBarValue;
+  mode?: 'image' | 'video' | 'sound';
+  provider?: string;
+  videoReferenceRefs?: ReferenceTag[];
+  audioReferenceRefs?: ReferenceTag[];
   products: StudioProduct[];
   personas: StudioPersona[];
   styles: StudioStyle[];
@@ -66,8 +72,10 @@ interface PromptBarProps {
   onPersonaAdd: (persona: StudioPersona) => void;
   onStyleAdd: (style: StudioStyle) => void;
   onPresetSelect: (preset: StudioPreset) => void;
-  onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file', id: string) => void;
+  onReferenceRemove: (type: 'product' | 'persona' | 'style' | 'preset' | 'file' | 'videoReference' | 'audioReference', id: string) => void;
   onFileAdd: (paths: string[]) => void;
+  onVideoReferenceAdd?: (paths: string[]) => void;
+  onAudioReferenceAdd?: (paths: string[]) => void;
   onPasteImage?: (file: File) => void;
 }
 
@@ -117,9 +125,31 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
 }
 
 
-export function PromptBar({ value, products, personas, styles, presets: _presets, onRawPromptChange, onProductAdd, onPersonaAdd, onStyleAdd, onPresetSelect: _onPresetSelect, onReferenceRemove, onFileAdd, onPasteImage }: PromptBarProps) {
+export function PromptBar({
+  value,
+  mode,
+  provider,
+  videoReferenceRefs = [],
+  audioReferenceRefs = [],
+  products,
+  personas,
+  styles,
+  presets: _presets,
+  onRawPromptChange,
+  onProductAdd,
+  onPersonaAdd,
+  onStyleAdd,
+  onPresetSelect: _onPresetSelect,
+  onReferenceRemove,
+  onFileAdd,
+  onVideoReferenceAdd,
+  onAudioReferenceAdd,
+  onPasteImage,
+}: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [mediaPicker, setMediaPicker] = useState<'image' | 'video' | 'audio'>('image');
+  const isSeedanceVideo = mode === 'video' && provider === 'bytedance';
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     if (!onPasteImage) return;
@@ -161,7 +191,7 @@ export function PromptBar({ value, products, personas, styles, presets: _presets
             <DropdownMenuContent align="start" className="w-72">
               <DropdownMenuLabel>{t('referenceCategories')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setPickerOpen(true)}><ImageIcon className="h-4 w-4 mr-2" />{t('imageReference')}</DropdownMenuItem>
+	              <DropdownMenuItem onSelect={() => { setMediaPicker('image'); setPickerOpen(true); }}><ImageIcon className="h-4 w-4 mr-2" />{t('imageReference')}</DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger><Package2 className="h-4 w-4" />{t('product')}</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-72">
@@ -237,7 +267,7 @@ export function PromptBar({ value, products, personas, styles, presets: _presets
       </div>
 
       {/* Unified references above textarea */}
-      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0) ? (
+      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0 || videoReferenceRefs.length > 0 || audioReferenceRefs.length > 0) ? (
         <div className="mb-3 flex flex-wrap gap-2">
           {value.productRefs.map((product) => (
             <ReferenceHoverCard
@@ -346,13 +376,82 @@ export function PromptBar({ value, products, personas, styles, presets: _presets
               />
             </ReferenceHoverCard>
           ))}
+          {videoReferenceRefs.map((file) => (
+            <ReferenceHoverCard
+              key={file.id}
+              name={file.name}
+              type="file"
+              fallbackIcon={<FileVideo className="h-4 w-4 text-indigo-600" />}
+              bgColor="bg-indigo-50"
+              onRemove={() => onReferenceRemove('videoReference', file.id)}
+            >
+              <ReferenceChip
+                label={`@video ${file.name}`}
+                borderColor="border-indigo-400"
+                bgColor="bg-indigo-50"
+                icon={<FileVideo className="h-4 w-4 text-indigo-600" />}
+                onRemove={() => onReferenceRemove('videoReference', file.id)}
+                isLoading={file.status === 'loading'}
+              />
+            </ReferenceHoverCard>
+          ))}
+          {audioReferenceRefs.map((file) => (
+            <ReferenceHoverCard
+              key={file.id}
+              name={file.name}
+              type="file"
+              fallbackIcon={<Music className="h-4 w-4 text-teal-600" />}
+              bgColor="bg-teal-50"
+              onRemove={() => onReferenceRemove('audioReference', file.id)}
+            >
+              <ReferenceChip
+                label={`@audio ${file.name}`}
+                borderColor="border-teal-400"
+                bgColor="bg-teal-50"
+                icon={<Music className="h-4 w-4 text-teal-600" />}
+                onRemove={() => onReferenceRemove('audioReference', file.id)}
+                isLoading={file.status === 'loading'}
+              />
+            </ReferenceHoverCard>
+          ))}
 
         </div>
       ) : null}
 
       <textarea value={value.rawPrompt} onChange={(event) => onRawPromptChange(event.target.value)} onPaste={handlePaste} placeholder={t('placeholder')} className="min-h-24 w-full resize-y rounded-3xl border border-border/80 bg-background/95 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15" />
 
-      <ReferencePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onConfirm={(paths) => { onFileAdd(paths); setPickerOpen(false); }} />
+      {isSeedanceVideo ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('image'); setPickerOpen(true); }}>
+            <ImageIcon className="h-4 w-4" />
+            Image refs
+            <span className="ml-auto text-xs text-muted-foreground">{value.fileRefs.length}/9</span>
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('video'); setPickerOpen(true); }}>
+            <FileVideo className="h-4 w-4" />
+            Video refs
+            <span className="ml-auto text-xs text-muted-foreground">{videoReferenceRefs.length}/3</span>
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('audio'); setPickerOpen(true); }}>
+            <Music className="h-4 w-4" />
+            Audio refs
+            <span className="ml-auto text-xs text-muted-foreground">{audioReferenceRefs.length}/3</span>
+          </Button>
+        </div>
+      ) : null}
+
+      <ReferencePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        mediaKind={mediaPicker}
+        maxSelection={mediaPicker === 'image' ? 9 : 3}
+        onConfirm={(paths) => {
+          if (mediaPicker === 'video') onVideoReferenceAdd?.(paths);
+          else if (mediaPicker === 'audio') onAudioReferenceAdd?.(paths);
+          else onFileAdd(paths);
+          setPickerOpen(false);
+        }}
+      />
     </div>
   );
 }

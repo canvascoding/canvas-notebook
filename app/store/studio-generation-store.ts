@@ -8,6 +8,7 @@ export interface ReferenceTag {
   name: string;
   thumbnailPath?: string;
   status?: 'loading' | string;
+  mediaKind?: 'image' | 'video' | 'audio';
 }
 
 interface StudioGenerationState {
@@ -88,6 +89,16 @@ interface StudioGenerationState {
   addFileRef: (file: ReferenceTag) => void;
   removeFileRef: (id: string) => void;
   setFileRefs: (refs: ReferenceTag[]) => void;
+
+  videoReferenceRefs: ReferenceTag[];
+  addVideoReferenceRef: (file: ReferenceTag) => void;
+  removeVideoReferenceRef: (id: string) => void;
+  setVideoReferenceRefs: (refs: ReferenceTag[]) => void;
+
+  audioReferenceRefs: ReferenceTag[];
+  addAudioReferenceRef: (file: ReferenceTag) => void;
+  removeAudioReferenceRef: (id: string) => void;
+  setAudioReferenceRefs: (refs: ReferenceTag[]) => void;
 
   startFramePath: string | null;
   setStartFramePath: (path: string | null) => void;
@@ -204,6 +215,28 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
     set((state) => ({ fileRefs: state.fileRefs.filter((r) => r.id !== id) })),
   setFileRefs: (fileRefs) => set({ fileRefs }),
 
+  videoReferenceRefs: [],
+  addVideoReferenceRef: (file) =>
+    set((state) =>
+      state.videoReferenceRefs.some((r) => r.id === file.id)
+        ? state
+        : { videoReferenceRefs: [...state.videoReferenceRefs, file] },
+    ),
+  removeVideoReferenceRef: (id) =>
+    set((state) => ({ videoReferenceRefs: state.videoReferenceRefs.filter((r) => r.id !== id) })),
+  setVideoReferenceRefs: (videoReferenceRefs) => set({ videoReferenceRefs }),
+
+  audioReferenceRefs: [],
+  addAudioReferenceRef: (file) =>
+    set((state) =>
+      state.audioReferenceRefs.some((r) => r.id === file.id)
+        ? state
+        : { audioReferenceRefs: [...state.audioReferenceRefs, file] },
+    ),
+  removeAudioReferenceRef: (id) =>
+    set((state) => ({ audioReferenceRefs: state.audioReferenceRefs.filter((r) => r.id !== id) })),
+  setAudioReferenceRefs: (audioReferenceRefs) => set({ audioReferenceRefs }),
+
   startFramePath: null,
   setStartFramePath: (startFramePath) => set({ startFramePath }),
 
@@ -214,6 +247,8 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
     set({
       rawPrompt: '',
       fileRefs: [],
+      videoReferenceRefs: [],
+      audioReferenceRefs: [],
       startFramePath: null,
       endFramePath: null,
     }),

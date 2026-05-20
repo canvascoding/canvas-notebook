@@ -344,7 +344,7 @@ export function createStudioGenerateVideoTool(
       'Generates videos using the Studio system. The preferred tool for all video creation. Takes 3-10 minutes. ' +
       'Supports products, personas, styles, and presets for branded content. ' +
       'Providers: veo (default, Veo 3.x models) or bytedance (Seedance). ' +
-      'For visual reference images from file paths, put one or more image paths in extra_reference_urls. Use start_frame_path/end_frame_path only for explicit start/end frame animation. ' +
+      'For visual reference images from file paths, put one or more image paths in extra_reference_urls. For Seedance video/audio references, use reference_video_urls and reference_audio_urls. Use start_frame_path/end_frame_path only for explicit start/end frame animation. ' +
       'Output files are saved to /data/studio/outputs/ — absolute paths are returned so the agent can copy results to the workspace.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the video to generate.' }),
@@ -366,6 +366,8 @@ export function createStudioGenerateVideoTool(
       nsfw_checker: Type.Optional(Type.Boolean({ description: 'Enable NSFW checker. Bytedance only. Default: false.' })),
       source_output_id: Type.Optional(Type.String({ description: 'ID of a previous Studio output to use as a visual reference. Prefer this when you have the output ID.' })),
       extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Reference image file paths or URLs to load as visual input for video generation. Put general reference images here; do not only write paths in the prompt. Accepts Studio/workspace paths such as studio/outputs/studio-gen-xxx.png, /api/studio/media/studio/outputs/studio-gen-xxx.png, /api/studio/references/reference.png, studio/assets/references/reference.png, products/image.png, personas/image.png, styles/image.png, workspace paths like 09_asset-library/photo.png or /api/media/09_asset-library/photo.png, plus https image URLs.' })),
+      reference_video_urls: Type.Optional(Type.Array(Type.String(), { description: 'Seedance only. Reference video file paths or URLs for multimodal reference-to-video. Accepts Studio/workspace video paths or HTTPS video URLs. Max 3.' })),
+      reference_audio_urls: Type.Optional(Type.Array(Type.String(), { description: 'Seedance only. Reference audio file paths or URLs for multimodal reference-to-video. Accepts Studio/workspace audio paths or HTTPS audio URLs. Max 3.' })),
     }),
     execute: async (toolCallId, params) => {
       const p = params as Record<string, unknown>;
@@ -394,6 +396,8 @@ export function createStudioGenerateVideoTool(
           video_nsfw_checker: p.nsfw_checker as boolean | undefined,
           source_output_id: p.source_output_id as string | undefined,
           extra_reference_urls: p.extra_reference_urls as string[] | undefined,
+          video_reference_urls: p.reference_video_urls as string[] | undefined,
+          audio_reference_urls: p.reference_audio_urls as string[] | undefined,
         };
         const result = await executeFn(userId, request);
         const outputsRoot = getStudioOutputsRoot();
