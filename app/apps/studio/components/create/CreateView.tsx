@@ -148,6 +148,7 @@ export function CreateView() {
     hasMoreGenerations,
     loadingMore,
     loadMoreGenerations,
+    fetchGeneration,
     watchGeneration,
   } = generationHook;
   const { fetchProducts, products } = productsHook;
@@ -180,6 +181,7 @@ export function CreateView() {
   } | null>(null);
   const [savingEditSelection, setSavingEditSelection] = useState(false);
   const promptOverlayRef = useRef<HTMLDivElement | null>(null);
+  const openedRoutePreviewRef = useRef<string | null>(null);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
 
   const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
@@ -419,6 +421,7 @@ export function CreateView() {
 
   const initialRefPath = searchParams.get('ref');
   const initialGenerationId = searchParams.get('generation');
+  const initialOutputId = searchParams.get('output');
 
   useEffect(() => {
     if (!initialRefPath) return;
@@ -433,6 +436,30 @@ export function CreateView() {
     if (!initialGenerationId) return;
     watchGeneration(initialGenerationId);
   }, [initialGenerationId, watchGeneration]);
+
+  useEffect(() => {
+    if (!initialGenerationId || !initialOutputId) return;
+    const routePreviewKey = `${initialGenerationId}:${initialOutputId}`;
+    if (openedRoutePreviewRef.current === routePreviewKey) return;
+
+    const matchingGeneration = generations.find((generation) => generation.id === initialGenerationId);
+    const matchingOutput = matchingGeneration?.outputs.find((output) => output.id === initialOutputId);
+
+    if (matchingGeneration && matchingOutput) {
+      openedRoutePreviewRef.current = routePreviewKey;
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setSelectedGenerationId(matchingGeneration.id);
+        setSelectedOutputId(matchingOutput.id);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void fetchGeneration(initialGenerationId, { silent: true });
+  }, [fetchGeneration, generations, initialGenerationId, initialOutputId]);
 
   useEffect(() => {
     const node = promptOverlayRef.current;

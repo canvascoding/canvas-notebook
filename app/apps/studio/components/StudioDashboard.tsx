@@ -504,8 +504,7 @@ export function StudioDashboard() {
                   key={generation.id}
                   type="button"
                   onClick={() => {
-                    setSelectedGenerationId(generation.id);
-                    setSelectedOutputId(output.id);
+                    router.push(`/studio/create?generation=${encodeURIComponent(generation.id)}&output=${encodeURIComponent(output.id)}`);
                   }}
                   className="group relative aspect-square overflow-hidden rounded-2xl border border-border/60 bg-card/70 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
                 >
