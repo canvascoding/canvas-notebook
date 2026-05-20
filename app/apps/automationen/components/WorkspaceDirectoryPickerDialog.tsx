@@ -236,19 +236,20 @@ export function WorkspaceDirectoryPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[85dvh] max-h-[85dvh] w-[95vw] max-w-5xl flex-col overflow-hidden p-0">
-        <DialogHeader className="px-6 pt-6 pb-2">
+      <DialogContent layout="viewport" className="mx-auto max-w-5xl">
+        <DialogHeader className="shrink-0 border-b px-4 pt-5 pb-4 sm:px-6">
           <DialogTitle>{t('title')}</DialogTitle>
-          <DialogDescription>{t('description')}</DialogDescription>
+          <DialogDescription className="max-w-3xl">{t('description')}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6 lg:flex-row">
-          <div className="flex min-h-[150px] flex-1 flex-col gap-3">
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:grid-rows-1">
+          <div className="flex min-h-0 min-w-0 flex-col gap-3">
             <div className="flex gap-2">
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder={t('searchPlaceholder')}
+                className="min-w-0"
               />
               <Button
                 variant="outline"
@@ -264,7 +265,7 @@ export function WorkspaceDirectoryPickerDialog({
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-background p-2" data-testid="automation-directory-picker">
+            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto rounded-md border border-border bg-background p-2" data-testid="automation-directory-picker">
               {isLoading ? (
                 <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -276,11 +277,11 @@ export function WorkspaceDirectoryPickerDialog({
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <div className="rounded-md border border-transparent bg-background">
+                  <div className="min-w-0 rounded-md border border-transparent bg-background">
                     <button
                       type="button"
                       data-testid="automation-directory-option-root"
-                      className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-muted ${
+                      className={`flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-muted ${
                         !selectedPath ? 'border border-primary bg-primary/5' : ''
                       }`}
                       onClick={() => {
@@ -289,7 +290,7 @@ export function WorkspaceDirectoryPickerDialog({
                       }}
                     >
                       <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="font-mono text-xs">{t('workspaceRoot')}</span>
+                      <span className="min-w-0 truncate font-mono text-xs">{t('workspaceRoot')}</span>
                     </button>
                   </div>
                   {renderDirectoryNodes(filteredDirectories)}
@@ -298,7 +299,7 @@ export function WorkspaceDirectoryPickerDialog({
             </div>
           </div>
 
-          <div className="flex max-h-[200px] shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4 lg:max-h-none lg:overflow-visible lg:w-72">
+          <div className="flex min-h-0 shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4 lg:overflow-visible">
             <div>
               <p className="text-sm font-medium">{t('currentSelection')}</p>
               <p className="mt-2 break-all rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
