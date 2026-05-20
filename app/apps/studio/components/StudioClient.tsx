@@ -8,7 +8,8 @@ import { StudioDashboard } from './StudioDashboard';
 import { CreateView } from './create/CreateView';
 import { ModelLibrary } from './models/ModelLibrary';
 import { PresetLibrary } from './presets/PresetLibrary';
-import { ImagePlus, Layers, LayoutGrid, Sparkles, SwatchBook } from 'lucide-react';
+import { AspectRatioEditorView } from './aspect-ratio/AspectRatioEditorView';
+import { ImagePlus, Layers, LayoutGrid, Sparkles, SwatchBook, Ratio } from 'lucide-react';
 
 const tabs = [
   { key: 'dashboard', path: '/studio', icon: Sparkles },
@@ -16,6 +17,7 @@ const tabs = [
   { key: 'models', path: '/studio/models', icon: LayoutGrid },
   { key: 'presets', path: '/studio/presets', icon: SwatchBook },
   { key: 'bulk', path: '/studio/bulk', icon: Layers },
+  { key: 'aspectRatio', path: '/studio/aspect-ratio', icon: Ratio },
 ] as const;
 
 export function StudioClient() {
@@ -60,6 +62,7 @@ export function StudioClient() {
         {activeTab === 'bulk' && <BulkGenerateView />}
         {activeTab === 'models' && <ModelLibrary />}
         {activeTab === 'presets' && <PresetLibrary />}
+        {activeTab === 'aspectRatio' && <AspectRatioEditorView />}
       </div>
     </div>
   );
