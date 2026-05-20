@@ -372,6 +372,7 @@ test.describe('PI Chat E2E', () => {
     });
 
     await mockEmptyChatBootstrap(page);
+    await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
     await page.goto('/chat');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
@@ -383,22 +384,16 @@ test.describe('PI Chat E2E', () => {
     await expect(assistantMessage.locator('li')).toHaveCount(2);
     await expect(assistantMessage.locator('p').first()).toHaveText(/Here is bold output/);
 
-    const toolMessage = page.getByTestId('chat-message-toolResult').first();
-    await expect(toolMessage).toContainText('ls');
-    await expect(toolMessage).toContainText('alpha.md');
-    await expect(toolMessage).not.toContainText('Assistant');
-    await expect(toolMessage.getByTestId('chat-tool-body')).toHaveCount(0);
+    await expect(page.getByTestId('chat-message-toolResult')).toHaveCount(0);
 
-    await toolMessage.getByTestId('chat-tool-toggle').click();
-    await expect(toolMessage.getByTestId('chat-tool-body')).toBeVisible();
-    await expect(toolMessage.getByTestId('chat-tool-body')).toContainText('alpha.md');
-    await expect(toolMessage.getByTestId('chat-tool-body')).toContainText('beta.ts');
-    await expect(toolMessage.getByText('Input')).toBeVisible();
-
-    const messageOrder = await page.locator('[data-testid^="chat-message-"]').evaluateAll((nodes) =>
-      nodes.map((node) => node.getAttribute('data-testid')),
-    );
-    expect(messageOrder.indexOf('chat-message-toolResult')).toBeLessThan(messageOrder.indexOf('chat-message-assistant'));
+    const runDisclosure = page.getByTestId('chat-run-disclosure').first();
+    await expect(runDisclosure).toBeVisible();
+    await runDisclosure.getByTestId('chat-run-disclosure-toggle').click();
+    const runSteps = runDisclosure.getByTestId('chat-run-steps');
+    await expect(runSteps).toContainText('ls');
+    await expect(runSteps).toContainText('alpha.md');
+    await expect(runSteps).toContainText('beta.ts');
+    await expect(runSteps.getByText('Input')).toBeVisible();
   });
 
   test('should show studio media tool inputs for image and video generation calls', async ({ page }) => {
@@ -482,30 +477,30 @@ test.describe('PI Chat E2E', () => {
     });
 
     await mockEmptyChatBootstrap(page);
+    await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
     await page.goto('/chat');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
     await input.fill('Use the Studio media tools with workspace assets.');
     await page.getByTestId('chat-send').click();
 
-    const toolMessages = page.getByTestId('chat-message-toolResult');
-    await expect(toolMessages).toHaveCount(2);
+    await expect(page.getByTestId('chat-message-toolResult')).toHaveCount(0);
+    const runDisclosure = page.getByTestId('chat-run-disclosure').first();
+    await expect(runDisclosure).toBeVisible();
+    await runDisclosure.getByTestId('chat-run-disclosure-toggle').click();
+    const runSteps = runDisclosure.getByTestId('chat-run-steps');
 
-    const imageToolMessage = toolMessages.filter({ hasText: 'studio_generate_image' }).first();
-    await expect(imageToolMessage).toContainText('studio_generate_image');
-    await imageToolMessage.getByTestId('chat-tool-toggle').click();
-    await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText('extra_reference_urls');
-    await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText(imageReferencePath);
-    await expect(imageToolMessage.getByTestId('chat-tool-body')).toContainText('Use the same composition with a colder blue palette.');
+    await expect(runSteps).toContainText('studio_generate_image');
+    await expect(runSteps).toContainText('extra_reference_urls');
+    await expect(runSteps).toContainText(imageReferencePath);
+    await expect(runSteps).toContainText('Use the same composition with a colder blue palette.');
 
-    const videoToolMessage = toolMessages.filter({ hasText: 'studio_generate_video' }).first();
-    await expect(videoToolMessage).toContainText('studio_generate_video');
-    await videoToolMessage.getByTestId('chat-tool-toggle').click();
-    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText('start_frame_path');
-    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText(videoStartFramePath);
-    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText('end_frame_path');
-    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText(videoEndFramePath);
-    await expect(videoToolMessage.getByTestId('chat-tool-body')).toContainText('is_looping');
+    await expect(runSteps).toContainText('studio_generate_video');
+    await expect(runSteps).toContainText('start_frame_path');
+    await expect(runSteps).toContainText(videoStartFramePath);
+    await expect(runSteps).toContainText('end_frame_path');
+    await expect(runSteps).toContainText(videoEndFramePath);
+    await expect(runSteps).toContainText('is_looping');
   });
 
   test('should hide assistant text behind a streaming placeholder until the final message arrives', async ({ page }) => {
@@ -946,11 +941,15 @@ test.describe('PI Chat E2E', () => {
     const firstAssistantMessage = page.getByTestId('chat-message-assistant').filter({ hasText: 'Ich sammle zuerst die Daten.' }).last();
     const finalAssistantMessage = page.getByTestId('chat-message-assistant').filter({ hasText: 'Hier ist die zusammengefasste Antwort.' }).last();
 
-    await expect(firstAssistantMessage).toBeVisible();
+    await expect(firstAssistantMessage).toHaveCount(0);
     await expect(finalAssistantMessage).toBeVisible();
-    await expect(firstAssistantMessage.getByTestId('chat-usage-footer')).toHaveCount(0);
     await expect(finalAssistantMessage.getByTestId('chat-usage-footer')).toHaveCount(0);
     await expect(page.getByTestId('chat-usage-footer')).toHaveCount(0);
+
+    const runDisclosure = page.getByTestId('chat-run-disclosure').first();
+    await expect(runDisclosure).toBeVisible();
+    await runDisclosure.getByTestId('chat-run-disclosure-toggle').click();
+    await expect(runDisclosure.getByTestId('chat-run-steps')).toContainText('Ich sammle zuerst die Daten.');
   });
 
   test('should show runtime status, queue state, and context budget in the chat UI', async ({ page }) => {

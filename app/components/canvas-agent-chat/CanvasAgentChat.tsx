@@ -88,7 +88,7 @@ import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
-import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
+import { useToolVerbosityStore, type ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import { getToolDisplayInfo, type ToolDisplayTone } from '@/app/lib/pi/tool-display';
 import { cn } from '@/lib/utils';
 
@@ -192,6 +192,14 @@ type PersistedToolCallPart = {
 };
 type UserPiMessage = Extract<AgentMessage, { role: 'user' }>;
 type UserPiContent = UserPiMessage['content'];
+
+type CollapsedRun = {
+  key: string;
+  finalAssistantId: string;
+  steps: ChatMessage[];
+  startedAt: number | null;
+  endedAt: number | null;
+};
 
 type DiscoveryModel = {
   id: string;
@@ -297,6 +305,99 @@ function contentToString(content: unknown): string {
       .join('\n');
   }
   return '';
+}
+
+function getChatMessageTimestamp(message: ChatMessage | undefined): number | null {
+  if (!message?.piMessage) {
+    return null;
+  }
+
+  const timestamp = (message.piMessage as { timestamp?: unknown }).timestamp;
+  if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
+    return timestamp;
+  }
+
+  if (typeof timestamp === 'string') {
+    const parsed = Date.parse(timestamp);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function formatRunDuration(startedAt: number | null, endedAt: number | null): string | null {
+  if (!startedAt || !endedAt || endedAt <= startedAt) {
+    return null;
+  }
+
+  const totalSeconds = Math.max(1, Math.round((endedAt - startedAt) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes > 0 && seconds > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
+function buildCollapsedRunMap(messages: ChatMessage[], isRuntimeBusy: boolean): Map<string, CollapsedRun> {
+  const runs = new Map<string, CollapsedRun>();
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message?.role !== 'user') {
+      continue;
+    }
+
+    let runEnd = messages.length;
+    for (let cursor = index + 1; cursor < messages.length; cursor += 1) {
+      if (messages[cursor]?.role === 'user') {
+        runEnd = cursor;
+        break;
+      }
+    }
+
+    if (isRuntimeBusy && runEnd === messages.length) {
+      continue;
+    }
+
+    let finalAssistantIndex = -1;
+    for (let cursor = runEnd - 1; cursor > index; cursor -= 1) {
+      if (messages[cursor]?.role === 'assistant') {
+        finalAssistantIndex = cursor;
+        break;
+      }
+    }
+
+    if (finalAssistantIndex === -1) {
+      index = runEnd - 1;
+      continue;
+    }
+
+    const steps = messages.slice(index + 1, finalAssistantIndex).filter((step) => (
+      step.type !== 'compact_break' &&
+      step.type !== 'composio_auth_required' &&
+      (step.role === 'assistant' || step.role === 'toolResult' || step.role === 'system')
+    ));
+
+    if (steps.length > 0) {
+      const finalAssistant = messages[finalAssistantIndex];
+      runs.set(finalAssistant.id, {
+        key: `${message.id}-${finalAssistant.id}`,
+        finalAssistantId: finalAssistant.id,
+        steps,
+        startedAt: getChatMessageTimestamp(message),
+        endedAt: getChatMessageTimestamp(finalAssistant) || getChatMessageTimestamp(steps[steps.length - 1]),
+      });
+    }
+
+    index = runEnd - 1;
+  }
+
+  return runs;
 }
 
 async function safeFetchJson<T = unknown>(res: Response): Promise<T | null> {
@@ -846,6 +947,116 @@ function ToolCallPill({
   );
 }
 
+function RunStepItem({
+  message,
+  toolVerbosity,
+  onMediaClick,
+}: {
+  message: ChatMessage;
+  toolVerbosity: ToolVerbosity;
+  onMediaClick?: (mediaUrl: string) => void;
+}) {
+  const t = useTranslations('chat');
+  const locale = useLocale();
+  const isTool = message.role === 'toolResult';
+  const isAssistant = message.role === 'assistant';
+  const display = isTool ? getToolDisplayInfo(message.toolName, locale) : null;
+  const Icon = display ? (TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default) : MessageStepIcon;
+  const title = isTool ? (display?.label || message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
+  const bodyContent =
+    contentToString(message.content) ||
+    (message.status === 'sending' ? (isTool ? t('runningTool') : t('agentWorking')) : '');
+  const preview = message.previewText || truncatePreview(bodyContent || t('noOutputYet'));
+  const showDetails = toolVerbosity === 'verbose';
+
+  return (
+    <div data-testid="chat-run-step" className="rounded-md border border-border/70 bg-background/70 p-2">
+      <div className="flex min-w-0 items-start gap-2">
+        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-foreground">{title}</span>
+            {isTool && message.toolName && toolVerbosity === 'verbose' ? (
+              <span className="font-mono text-[10px] text-muted-foreground">{message.toolName}</span>
+            ) : null}
+          </div>
+          {toolVerbosity !== 'minimal' ? (
+            <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{preview}</div>
+          ) : null}
+        </div>
+      </div>
+
+      {showDetails ? (
+        <div className="mt-3 space-y-3">
+          {isTool && message.toolArgs ? (
+            <div className="rounded-md border border-border/70 bg-muted/35 p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolInput')}</div>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/85">{message.toolArgs}</pre>
+            </div>
+          ) : null}
+          {bodyContent ? (
+            <MarkdownMessage content={bodyContent} variant={isTool ? 'tool' : 'assistant'} onMediaClick={onMediaClick} />
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MessageStepIcon({ className }: { className?: string }) {
+  return <Sparkles className={className} />;
+}
+
+function AgentRunDisclosure({
+  run,
+  expanded,
+  onToggle,
+  toolVerbosity,
+  onMediaClick,
+}: {
+  run: CollapsedRun;
+  expanded: boolean;
+  onToggle: () => void;
+  toolVerbosity: ToolVerbosity;
+  onMediaClick?: (mediaUrl: string) => void;
+}) {
+  const t = useTranslations('chat');
+  const duration = formatRunDuration(run.startedAt, run.endedAt);
+  const summary = duration
+    ? t('workedForWithSteps', { duration, count: run.steps.length })
+    : t('workedSteps', { count: run.steps.length });
+
+  return (
+    <div data-testid="chat-run-disclosure" className="flex justify-start">
+      <div className="w-full max-w-[90%]">
+        <button
+          type="button"
+          data-testid="chat-run-disclosure-toggle"
+          onClick={onToggle}
+          className="group flex w-full items-center gap-2 border-t border-border/70 py-2 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+          aria-expanded={expanded}
+        >
+          {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+          <span>{summary}</span>
+        </button>
+
+        {expanded ? (
+          <div data-testid="chat-run-steps" className="mb-2 space-y-2 pl-6">
+            {run.steps.map((step) => (
+              <RunStepItem
+                key={step.id}
+                message={step}
+                toolVerbosity={toolVerbosity}
+                onMediaClick={onMediaClick}
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function StarterPromptButton({
   prompt,
   onSelect,
@@ -957,6 +1168,7 @@ export default function CanvasAgentChat({
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [expandedRunKeys, setExpandedRunKeys] = useState<Set<string>>(() => new Set());
 
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
@@ -2127,6 +2339,7 @@ export default function CanvasAgentChat({
     setHasMoreBefore(false);
     setOldestTimestamp(null);
     setIsLoadingOlder(false);
+    setExpandedRunKeys(new Set());
     // Always close history on mobile when starting new chat, conditionally on desktop
     if (isMobile || shouldShowHistoryAsOverlay) {
       setShowHistory(false);
@@ -2249,6 +2462,7 @@ export default function CanvasAgentChat({
     setOldestTimestamp(null);
     setOldestMessageId(null);
     setIsLoadingOlder(false);
+    setExpandedRunKeys(new Set());
     setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
     // Always close history on mobile, conditionally on desktop
     if (isMobile || shouldShowHistoryAsOverlay) {
@@ -3029,6 +3243,16 @@ export default function CanvasAgentChat({
   const isRuntimeBusy = Boolean(runtimeStatus && runtimeStatus.phase !== 'idle');
   const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
   const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
+  const collapsedRunMap = useMemo(() => buildCollapsedRunMap(messages, isRuntimeBusy), [messages, isRuntimeBusy]);
+  const hiddenStepIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const run of collapsedRunMap.values()) {
+      for (const step of run.steps) {
+        ids.add(step.id);
+      }
+    }
+    return ids;
+  }, [collapsedRunMap]);
   const contextCompactLabel = runtimeStatus
     ? t('contextCompactLabel', {
         percent: runtimeStatus.contextUsagePercent,
@@ -3050,6 +3274,18 @@ export default function CanvasAgentChat({
   const scrollButtonOffset = composerHeight + 16;
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
+
+  const toggleRunDisclosure = useCallback((runKey: string) => {
+    setExpandedRunKeys((current) => {
+      const next = new Set(current);
+      if (next.has(runKey)) {
+        next.delete(runKey);
+      } else {
+        next.add(runKey);
+      }
+      return next;
+    });
+  }, []);
 
   const filteredHistory = useMemo(() => {
     let filtered = [...history];
@@ -3749,7 +3985,11 @@ export default function CanvasAgentChat({
             </button>
           )}
 
-          {messages.map((message, index) => {
+          {messages.map((message) => {
+            if (hiddenStepIds.has(message.id)) {
+              return null;
+            }
+
             const isUser = message.role === 'user';
             const isAssistant = message.role === 'assistant';
             const isTool = message.role === 'toolResult';
@@ -3757,6 +3997,7 @@ export default function CanvasAgentChat({
             const isSystemError = isSystem && message.status === 'error';
             const isCompactBreak = message.type === 'compact_break';
             const isStreamingAssistant = isAssistant && message.status === 'sending';
+            const collapsedRun = isAssistant ? collapsedRunMap.get(message.id) : undefined;
 
             if (isTool && toolVerbosity === 'minimal') {
               return null;
@@ -3841,8 +4082,8 @@ export default function CanvasAgentChat({
             const toolBodyVisible = isTool ? !message.isCollapsed : true;
             const toolStatusLabel = isTool ? getToolStatusLabel(message, t) : null;
 
-            return (
-              <div key={message.id} data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+            const renderedMessage = (
+              <div data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[96%] border p-3 sm:max-w-[90%] overflow-hidden min-w-0 ${bubbleClass}`}>
                   {isTool ? (
                     <div>
@@ -3922,6 +4163,27 @@ export default function CanvasAgentChat({
                   })()}
                 </div>
               </div>
+            );
+
+            if (collapsedRun) {
+              return (
+                <React.Fragment key={message.id}>
+                  <AgentRunDisclosure
+                    run={collapsedRun}
+                    expanded={expandedRunKeys.has(collapsedRun.key)}
+                    onToggle={() => toggleRunDisclosure(collapsedRun.key)}
+                    toolVerbosity={toolVerbosity}
+                    onMediaClick={onMediaClick}
+                  />
+                  {renderedMessage}
+                </React.Fragment>
+              );
+            }
+
+            return (
+              <React.Fragment key={message.id}>
+                {renderedMessage}
+              </React.Fragment>
             );
           })}
           {toolVerbosity === 'minimal' && runtimeStatus?.phase === 'running_tool' ? (
