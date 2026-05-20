@@ -1845,6 +1845,69 @@
       "add": "Hinzufügen",
       "urlPlaceholder": "https://example.com/reference.jpg"
     },
+    "aspectRatioEditor": {
+      "title": "Seitenverhältnis-Editor",
+      "description": "Schneide lokal zu oder erweitere fehlende Ränder mit OpenAI/Gemini.",
+      "selectImage": "Bild auswählen",
+      "reset": "Zurücksetzen",
+      "empty": {
+        "title": "Ein Bild auswählen",
+        "description": "Der gleiche Studio Image Picker wird im Single-Select-Modus genutzt."
+      },
+      "source": "Quelle",
+      "noImage": "Kein Bild",
+      "presets": "Formate",
+      "freeform": "Freiform",
+      "presetHint": "Shift beim Ziehen hält das aktuelle Seitenverhältnis. Mausrad zoomt, Hintergrund ziehen verschiebt die Arbeitsfläche.",
+      "mode": {
+        "label": "Modus",
+        "crop": "Zuschnitt",
+        "aiExtend": "KI-Erweiterung"
+      },
+      "output": "Ausgabe",
+      "cropNotice": "Der Frame liegt im Bild. Das Ergebnis wird lokal zugeschnitten, ohne KI-Aufruf.",
+      "unsupportedRatio": "Dieses Seitenverhältnis wird vom gewählten Provider nicht unterstützt. Wähle ein Format aus der aktiven Provider-Liste.",
+      "createPreview": "Preview erstellen",
+      "creatingPreview": "Preview wird erstellt...",
+      "preview": "Preview",
+      "savedInEdits": "Gespeichert in /data/studio/edits",
+      "keepInEdits": "In edits behalten",
+      "copyToWorkspace": "In Workspace kopieren",
+      "overwriteOriginal": "Original überschreiben",
+      "provider": "Provider",
+      "model": "Modell",
+      "quality": "Qualität",
+      "format": "Format",
+      "background": "Hintergrund",
+      "resolution": "Auflösung",
+      "cancel": "Abbrechen",
+      "copy": "Kopieren",
+      "resizeHandle": "Größe ändern: {handle}",
+      "workspaceDialog": {
+        "title": "In Workspace kopieren",
+        "description": "Wähle Zielordner und Dateiname für das fertige Edit.",
+        "fileName": "Dateiname",
+        "targetFolder": "Zielordner",
+        "workspaceRoot": "Workspace-Root"
+      },
+      "overwriteDialog": {
+        "title": "Original wirklich überschreiben?",
+        "description": "Diese Aktion ersetzt die aktuelle Quelldatei durch das Preview aus /data/studio/edits. Das Preview bleibt separat erhalten."
+      },
+      "toasts": {
+        "previewSaved": "Preview in /data/studio/edits gespeichert",
+        "keepEdit": "Edit bleibt in /data/studio/edits",
+        "originalOverwritten": "Original überschrieben",
+        "copiedTo": "Nach {path} kopiert"
+      },
+      "errors": {
+        "modelsFailed": "Modelle konnten nicht geladen werden",
+        "previewFailed": "Preview fehlgeschlagen",
+        "saveFailed": "Speichern fehlgeschlagen",
+        "copyFailed": "Kopieren fehlgeschlagen",
+        "overwriteFailed": "Überschreiben fehlgeschlagen"
+      }
+    },
     "aspectRatio": {
       "auto": "Auto",
       "tips": {

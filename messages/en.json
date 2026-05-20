@@ -1846,6 +1846,69 @@
       "add": "Add",
       "urlPlaceholder": "https://example.com/reference.jpg"
     },
+    "aspectRatioEditor": {
+      "title": "Aspect Ratio Editor",
+      "description": "Crop locally or extend missing edges with OpenAI/Gemini.",
+      "selectImage": "Select image",
+      "reset": "Reset",
+      "empty": {
+        "title": "Select an image",
+        "description": "The same Studio Image Picker is used in single-select mode."
+      },
+      "source": "Source",
+      "noImage": "No image",
+      "presets": "Formats",
+      "freeform": "Freeform",
+      "presetHint": "Hold Shift while dragging to keep the current aspect ratio. Use the mouse wheel to zoom, drag the background to move the canvas.",
+      "mode": {
+        "label": "Mode",
+        "crop": "Crop",
+        "aiExtend": "AI Extend"
+      },
+      "output": "Output",
+      "cropNotice": "The frame is inside the image. The result will be cropped locally without an AI request.",
+      "unsupportedRatio": "This aspect ratio is not supported by the selected provider. Choose a format from the active provider list.",
+      "createPreview": "Create preview",
+      "creatingPreview": "Creating preview...",
+      "preview": "Preview",
+      "savedInEdits": "Saved in /data/studio/edits",
+      "keepInEdits": "Keep in edits",
+      "copyToWorkspace": "Copy to workspace",
+      "overwriteOriginal": "Overwrite original",
+      "provider": "Provider",
+      "model": "Model",
+      "quality": "Quality",
+      "format": "Format",
+      "background": "Background",
+      "resolution": "Resolution",
+      "cancel": "Cancel",
+      "copy": "Copy",
+      "resizeHandle": "Resize {handle}",
+      "workspaceDialog": {
+        "title": "Copy to workspace",
+        "description": "Choose a target folder and file name for the finished edit.",
+        "fileName": "File name",
+        "targetFolder": "Target folder",
+        "workspaceRoot": "Workspace root"
+      },
+      "overwriteDialog": {
+        "title": "Overwrite original?",
+        "description": "This action replaces the current source file with the preview from /data/studio/edits. The preview remains stored separately."
+      },
+      "toasts": {
+        "previewSaved": "Preview saved in /data/studio/edits",
+        "keepEdit": "Edit remains in /data/studio/edits",
+        "originalOverwritten": "Original overwritten",
+        "copiedTo": "Copied to {path}"
+      },
+      "errors": {
+        "modelsFailed": "Models could not be loaded",
+        "previewFailed": "Preview failed",
+        "saveFailed": "Save failed",
+        "copyFailed": "Copy failed",
+        "overwriteFailed": "Overwrite failed"
+      }
+    },
     "aspectRatio": {
       "auto": "Auto",
       "tips": {
