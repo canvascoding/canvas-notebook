@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
   let verified: Awaited<ReturnType<typeof composio.triggers.verifyWebhook>>;
   try {
-    const secret = decryptWebhookSecret(subscription.encryptedSecret);
+    const secret = await decryptWebhookSecret(subscription.encryptedSecret);
     verified = await composio.triggers.verifyWebhook({
       id: webhookId,
       payload: rawBody,

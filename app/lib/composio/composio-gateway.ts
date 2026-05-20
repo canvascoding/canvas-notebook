@@ -21,6 +21,19 @@ const HIDDEN_TOOLKIT_SLUGS = new Set([
   'google',
 ]);
 
+const TRIGGER_APP_CACHE_TTL_MS = 30 * 60 * 1000;
+
+let triggerAppCache: {
+  expiresAt: number;
+  apps: Array<{
+    slug: string;
+    name: string;
+    logo?: string;
+    description?: string;
+    triggerCount: number;
+  }>;
+} | null = null;
+
 export interface ComposioConnectedAccount {
   id: string;
   toolkit?: {
@@ -221,6 +234,70 @@ export async function getGatewayToolkits() {
   if (mode === 'disabled') return { toolkits: [] };
   if (mode === 'managed') return managedRequest<{ toolkits: unknown[] }>('/toolkits');
   return { toolkits: await getAvailableToolkits() };
+}
+
+export async function getGatewayTriggerApps() {
+  const mode = await getComposioMode();
+  if (mode === 'disabled') {
+    return {
+      apps: [],
+      totalCount: 0,
+      status: { configured: false, apiKeyValid: false, mode, webhookSubscription: null, connectedAccounts: [] },
+    };
+  }
+
+  const now = Date.now();
+  let baseApps = triggerAppCache && triggerAppCache.expiresAt > now ? triggerAppCache.apps : null;
+  if (!baseApps) {
+    const result = await getGatewayTriggerTypes('');
+    const bySlug = new Map<string, {
+      slug: string;
+      name: string;
+      logo?: string;
+      description?: string;
+      triggerCount: number;
+    }>();
+
+    for (const item of result.triggerTypes || []) {
+      const record = asRecord(item);
+      const toolkit = asRecord(record.toolkit);
+      const slug = stringValue(toolkit.slug)
+        || stringValue(record.toolkitSlug)
+        || stringValue(record.toolkit_slug);
+      if (!slug || HIDDEN_TOOLKIT_SLUGS.has(slug)) continue;
+
+      const existing = bySlug.get(slug);
+      bySlug.set(slug, {
+        slug,
+        name: existing?.name || stringValue(toolkit.name) || slug,
+        logo: existing?.logo || stringValue(toolkit.logo),
+        description: existing?.description || stringValue(toolkit.description) || stringValue(record.description),
+        triggerCount: (existing?.triggerCount || 0) + 1,
+      });
+    }
+
+    baseApps = Array.from(bySlug.values()).sort((a, b) => a.name.localeCompare(b.name));
+    triggerAppCache = {
+      apps: baseApps,
+      expiresAt: now + TRIGGER_APP_CACHE_TTL_MS,
+    };
+  }
+
+  const status = await getGatewayStatus();
+  const connectedBySlug = new Map(status.connectedAccounts.map((account) => [account.toolkit.slug, account]));
+  const apps = baseApps
+    .map((app) => {
+      const connected = connectedBySlug.get(app.slug);
+      return {
+        ...app,
+        connected: Boolean(connected),
+        connectedAccountId: connected?.id || '',
+        connectedAccountStatus: connected?.status || '',
+      };
+    })
+    .sort((a, b) => Number(b.connected) - Number(a.connected) || a.name.localeCompare(b.name));
+
+  return { apps, totalCount: apps.length, status };
 }
 
 export async function getGatewayToolkitTools(toolkit: string, search: string) {
@@ -509,7 +586,7 @@ export async function ensureLocalWebhookSubscription(options?: { forceRefresh?: 
       id: `comp-sub-${randomUUID()}`,
       subscriptionId,
       webhookUrl: returnedUrl || webhookUrl,
-      encryptedSecret: encryptWebhookSecret(secret),
+      encryptedSecret: await encryptWebhookSecret(secret),
       secretPreview: previewWebhookSecret(secret),
       eventTypes: JSON.stringify(eventTypes),
       status: 'active',
@@ -521,7 +598,7 @@ export async function ensureLocalWebhookSubscription(options?: { forceRefresh?: 
       target: composioWebhookSubscriptions.subscriptionId,
       set: {
         webhookUrl: returnedUrl || webhookUrl,
-        encryptedSecret: encryptWebhookSecret(secret),
+        encryptedSecret: await encryptWebhookSecret(secret),
         secretPreview: previewWebhookSecret(secret),
         eventTypes: JSON.stringify(eventTypes),
         status: 'active',
@@ -627,4 +704,5 @@ export async function deleteGatewayTrigger(triggerId: string) {
 
 export function clearComposioGatewayCaches(): void {
   clearToolkitCache();
+  triggerAppCache = null;
 }

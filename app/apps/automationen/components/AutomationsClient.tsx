@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useEffectEvent, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   AlertTriangle,
@@ -18,6 +20,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Sparkles,
   Trash2,
   WandSparkles,
@@ -50,6 +53,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Link, useRouter } from '@/i18n/navigation';
+import { cn } from '@/lib/utils';
 
 type ScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
 type ComposerMode = 'scheduled' | 'trigger';
@@ -119,7 +123,7 @@ type TriggerCapableApp = Omit<ComposioToolkitInfo, 'connected' | 'connectedAccou
   connected: boolean;
   connectedAccountId: string;
   connectedAccountStatus: string;
-  triggers: TriggerTypeInfo[];
+  triggerCount?: number;
 };
 
 type TriggerComposerDraft = {
@@ -306,6 +310,19 @@ function normalizeToolkit(value: unknown): ComposioToolkitInfo | null {
   };
 }
 
+function normalizeTriggerApp(value: unknown): TriggerCapableApp | null {
+  const record = asRecord(value);
+  const toolkit = normalizeToolkit(value);
+  if (!toolkit) return null;
+  return {
+    ...toolkit,
+    connected: Boolean(record.connected),
+    connectedAccountId: stringValue(record.connectedAccountId),
+    connectedAccountStatus: stringValue(record.connectedAccountStatus),
+    triggerCount: typeof record.triggerCount === 'number' ? record.triggerCount : undefined,
+  };
+}
+
 function normalizeTriggerType(value: unknown, toolkitSlug: string): TriggerTypeInfo | null {
   const record = asRecord(value);
   const slug = stringValue(record.slug) || stringValue(record.name);
@@ -360,6 +377,19 @@ function buildTriggerConfigFromSchema(schema: Record<string, unknown> | null, va
     }
   }
   return config;
+}
+
+function AppLogo({ app }: { app: TriggerCapableApp }) {
+  const fallback = app.name.slice(0, 2).toUpperCase();
+  return (
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-background text-xs font-semibold text-muted-foreground">
+      {app.logo ? (
+        <img src={app.logo} alt="" className="h-full w-full object-contain p-1.5" loading="lazy" />
+      ) : (
+        fallback
+      )}
+    </span>
+  );
 }
 
 function buildPayload(draft: JobDraft) {
@@ -497,9 +527,14 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [composerMode, setComposerMode] = useState<ComposerMode>('scheduled');
   const [triggerApps, setTriggerApps] = useState<TriggerCapableApp[]>([]);
+  const [triggerTypesByToolkit, setTriggerTypesByToolkit] = useState<Record<string, TriggerTypeInfo[]>>({});
+  const [appSearch, setAppSearch] = useState('');
+  const [triggerSearch, setTriggerSearch] = useState('');
   const [composioStatus, setComposioStatus] = useState<ComposioStatus | null>(null);
   const [isLoadingTriggerApps, setIsLoadingTriggerApps] = useState(false);
+  const [loadingTriggerToolkitSlug, setLoadingTriggerToolkitSlug] = useState<string | null>(null);
   const [triggerAppsError, setTriggerAppsError] = useState<string | null>(null);
+  const [triggerTypesError, setTriggerTypesError] = useState<string | null>(null);
   const [triggerActionSlug, setTriggerActionSlug] = useState<string | null>(null);
   const [directoryPickerTarget, setDirectoryPickerTarget] = useState<'scheduled' | 'trigger'>('scheduled');
   const [isLoadingJobs, setIsLoadingJobs] = useState(true);
@@ -520,10 +555,38 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     () => triggerApps.find((app) => app.slug === triggerDraft.toolkitSlug) || null,
     [triggerApps, triggerDraft.toolkitSlug],
   );
-  const selectedTriggerType = useMemo(
-    () => selectedTriggerApp?.triggers.find((trigger) => trigger.slug === triggerDraft.triggerSlug) || null,
-    [selectedTriggerApp, triggerDraft.triggerSlug],
+  const selectedTriggerTypes = useMemo(
+    () => triggerDraft.toolkitSlug ? triggerTypesByToolkit[triggerDraft.toolkitSlug] || [] : [],
+    [triggerDraft.toolkitSlug, triggerTypesByToolkit],
   );
+  const selectedTriggerType = useMemo(
+    () => selectedTriggerTypes.find((trigger) => trigger.slug === triggerDraft.triggerSlug) || null,
+    [selectedTriggerTypes, triggerDraft.triggerSlug],
+  );
+  const filteredTriggerApps = useMemo(() => {
+    const query = appSearch.trim().toLowerCase();
+    if (!query) return triggerApps;
+    return triggerApps.filter((app) => (
+      app.name.toLowerCase().includes(query) ||
+      app.slug.toLowerCase().includes(query) ||
+      (app.description || '').toLowerCase().includes(query)
+    ));
+  }, [appSearch, triggerApps]);
+  const filteredTriggerTypes = useMemo(() => {
+    const query = triggerSearch.trim().toLowerCase();
+    if (!query) return selectedTriggerTypes;
+    return selectedTriggerTypes.filter((trigger) => (
+      trigger.name.toLowerCase().includes(query) ||
+      trigger.slug.toLowerCase().includes(query) ||
+      trigger.description.toLowerCase().includes(query)
+    ));
+  }, [selectedTriggerTypes, triggerSearch]);
+  const isLoadingSelectedTriggerTypes = loadingTriggerToolkitSlug === triggerDraft.toolkitSlug;
+  const selectedTriggerAppHasLoadedTypes = Boolean(triggerDraft.toolkitSlug && triggerTypesByToolkit[triggerDraft.toolkitSlug]);
+  const visibleSelectedTriggerType = filteredTriggerTypes.find((trigger) => trigger.slug === triggerDraft.triggerSlug) || null;
+  const selectedAppTriggerCountLabel = selectedTriggerApp?.triggerCount
+    ? t('triggers.eventCount', { count: selectedTriggerApp.triggerCount })
+    : null;
 
   const automationGroups = useMemo(() => {
     const running = jobs.filter((job) => job.lastRunStatus === 'running' || job.lastRunStatus === 'pending' || job.lastRunStatus === 'retry_scheduled');
@@ -647,71 +710,31 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     setIsLoadingTriggerApps(true);
     setTriggerAppsError(null);
     try {
-      const [statusResponse, toolkitsResponse] = await Promise.all([
-        fetch('/api/composio/status', { cache: 'no-store', credentials: 'include' }),
-        fetch('/api/composio/toolkits', { cache: 'no-store', credentials: 'include' }),
-      ]);
-      const [statusPayload, toolkitsPayload] = await Promise.all([
-        readJsonResponse(statusResponse, 'Composio status'),
-        readJsonResponse(toolkitsResponse, 'Composio toolkits'),
-      ]);
-      if (!statusResponse.ok) throw new Error(stringValue(statusPayload.error) || t('triggers.errors.loadApps'));
-      if (!toolkitsResponse.ok) throw new Error(stringValue(toolkitsPayload.error) || t('triggers.errors.loadApps'));
+      const appsResponse = await fetch('/api/composio/trigger-apps', { cache: 'no-store', credentials: 'include' });
+      const appsPayload = await readJsonResponse(appsResponse, 'Composio trigger apps');
+      if (!appsResponse.ok) throw new Error(stringValue(appsPayload.error) || t('triggers.errors.loadApps'));
 
-      const status = statusPayload as ComposioStatus;
+      const status = asRecord(appsPayload.status) as ComposioStatus;
       setComposioStatus(status);
       if (!status.configured || status.mode === 'disabled' || status.apiKeyValid === false) {
         setTriggerApps([]);
         return;
       }
 
-      const connectedBySlug = new Map<string, NonNullable<ComposioStatus['connectedAccounts']>[number]>();
-      for (const account of status.connectedAccounts || []) {
-        const slug = account.toolkit?.slug || '';
-        if (slug) connectedBySlug.set(slug, account);
-      }
-      const rawToolkits = Array.isArray(toolkitsPayload.toolkits) ? toolkitsPayload.toolkits : [];
-      const toolkits = rawToolkits
-        .map(normalizeToolkit)
-        .filter((entry): entry is ComposioToolkitInfo => Boolean(entry))
-        .map((toolkit) => {
-          const connected = connectedBySlug.get(toolkit.slug);
-          return {
-            ...toolkit,
-            connected: toolkit.connected || Boolean(connected),
-            connectedAccountId: toolkit.connectedAccountId || connected?.id || '',
-            connectedAccountStatus: toolkit.connectedAccountStatus || connected?.status || '',
-          };
-        });
-
-      const appResults = await Promise.allSettled(toolkits.map(async (toolkit) => {
-        const response = await fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(toolkit.slug)}`, {
-          cache: 'no-store',
-          credentials: 'include',
-        });
-        const payload = await readJsonResponse(response, `Trigger types for ${toolkit.slug}`);
-        if (!response.ok) return null;
-        const data = asRecord(payload.data);
-        const rawTriggers = Array.isArray(data.triggerTypes) ? data.triggerTypes : [];
-        const triggers = rawTriggers
-          .map((entry) => normalizeTriggerType(entry, toolkit.slug))
-          .filter((entry): entry is TriggerTypeInfo => Boolean(entry));
-        return triggers.length > 0 ? { ...toolkit, triggers } : null;
-      }));
-
-      const nextApps = appResults
-        .map((result) => result.status === 'fulfilled' ? result.value : null)
+      const rawApps = Array.isArray(appsPayload.apps) ? appsPayload.apps : [];
+      const nextApps = rawApps
+        .map(normalizeTriggerApp)
         .filter((entry): entry is TriggerCapableApp => Boolean(entry))
         .sort((a, b) => Number(b.connected) - Number(a.connected) || a.name.localeCompare(b.name));
       setTriggerApps(nextApps);
       setTriggerDraft((current) => {
         const selectedApp = nextApps.find((app) => app.slug === current.toolkitSlug) || nextApps[0] || null;
-        const selectedTrigger = selectedApp?.triggers.find((trigger) => trigger.slug === current.triggerSlug) || selectedApp?.triggers[0] || null;
         return {
           ...current,
           toolkitSlug: selectedApp?.slug || '',
-          triggerSlug: selectedTrigger?.slug || '',
-          name: current.name || (selectedApp && selectedTrigger ? `${selectedApp.name}: ${selectedTrigger.name}` : ''),
+          triggerSlug: selectedApp?.slug === current.toolkitSlug ? current.triggerSlug : '',
+          name: current.name,
+          configValues: selectedApp?.slug === current.toolkitSlug ? current.configValues : {},
         };
       });
     } catch (error) {
@@ -719,6 +742,34 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       setTriggerAppsError(error instanceof Error ? error.message : t('triggers.errors.loadApps'));
     } finally {
       setIsLoadingTriggerApps(false);
+    }
+  }
+
+  async function loadTriggerTypesForApp(toolkitSlug: string) {
+    if (!toolkitSlug || triggerTypesByToolkit[toolkitSlug] || loadingTriggerToolkitSlug === toolkitSlug) return;
+    setLoadingTriggerToolkitSlug(toolkitSlug);
+    setTriggerTypesError(null);
+    try {
+      const response = await fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(toolkitSlug)}`, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      const payload = await readJsonResponse(response, `Trigger types for ${toolkitSlug}`);
+      if (!response.ok || payload.success === false) {
+        throw new Error(stringValue(payload.error) || t('triggers.errors.loadEvents'));
+      }
+      const data = asRecord(payload.data);
+      const rawTriggers = Array.isArray(data.triggerTypes) ? data.triggerTypes : [];
+      const triggers = rawTriggers
+        .map((entry) => normalizeTriggerType(entry, toolkitSlug))
+        .filter((entry): entry is TriggerTypeInfo => Boolean(entry))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setTriggerTypesByToolkit((current) => ({ ...current, [toolkitSlug]: triggers }));
+    } catch (error) {
+      setTriggerTypesError(error instanceof Error ? error.message : t('triggers.errors.loadEvents'));
+      setTriggerTypesByToolkit((current) => ({ ...current, [toolkitSlug]: [] }));
+    } finally {
+      setLoadingTriggerToolkitSlug((current) => (current === toolkitSlug ? null : current));
     }
   }
 
@@ -734,6 +785,40 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     void loadTriggerApps();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- catalog loading is only needed when opening the trigger tab
   }, [isComposerOpen, composerMode, triggerApps.length, isLoadingTriggerApps]);
+
+  useEffect(() => {
+    if (!isComposerOpen || composerMode !== 'trigger' || !triggerDraft.toolkitSlug) return;
+    let cancelled = false;
+    const toolkitSlug = triggerDraft.toolkitSlug;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      void loadTriggerTypesForApp(toolkitSlug);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selected toolkit drives lazy trigger loading
+  }, [isComposerOpen, composerMode, triggerDraft.toolkitSlug]);
+
+  useEffect(() => {
+    if (!selectedTriggerApp || selectedTriggerTypes.length === 0) return;
+    const currentTrigger = selectedTriggerTypes.find((trigger) => trigger.slug === triggerDraft.triggerSlug);
+    if (currentTrigger) return;
+    const nextTrigger = selectedTriggerTypes[0];
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setTriggerDraft((current) => ({
+        ...current,
+        triggerSlug: nextTrigger.slug,
+        name: current.name || `${selectedTriggerApp.name}: ${nextTrigger.name}`,
+        configValues: {},
+      }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTriggerApp, selectedTriggerTypes, triggerDraft.triggerSlug]);
 
   useEffect(() => {
     if (!selectedJobId) {
@@ -939,6 +1024,8 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     setDraft(defaultDraft());
     setTriggerDraft(defaultTriggerDraft());
     setComposerMode('scheduled');
+    setAppSearch('');
+    setTriggerSearch('');
     setIsComposerOpen(true);
   }
 
@@ -997,18 +1084,19 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
 
   function handleTriggerAppChange(toolkitSlug: string) {
     const app = triggerApps.find((candidate) => candidate.slug === toolkitSlug) || null;
-    const trigger = app?.triggers[0] || null;
     setTriggerDraft((current) => ({
       ...current,
       toolkitSlug,
-      triggerSlug: trigger?.slug || '',
-      name: app && trigger ? `${app.name}: ${trigger.name}` : current.name,
+      triggerSlug: '',
+      name: current.name,
       configValues: {},
     }));
+    setTriggerSearch('');
+    if (app) void loadTriggerTypesForApp(app.slug);
   }
 
   function handleTriggerTypeChange(triggerSlug: string) {
-    const trigger = selectedTriggerApp?.triggers.find((candidate) => candidate.slug === triggerSlug) || null;
+    const trigger = selectedTriggerTypes.find((candidate) => candidate.slug === triggerSlug) || null;
     setTriggerDraft((current) => ({
       ...current,
       triggerSlug,
@@ -1345,23 +1433,93 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{t('triggers.noApps')}</div>
                   ) : (
                     <>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="flex flex-col gap-1 text-sm">
-                          <span className="text-xs text-muted-foreground">{t('triggers.fields.app')}</span>
-                          <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={triggerDraft.toolkitSlug} onChange={(event) => handleTriggerAppChange(event.target.value)}>
-                            {triggerApps.map((app) => (
-                              <option key={app.slug} value={app.slug}>{app.name}{app.connected ? '' : ` · ${t('triggers.notConnected')}`}</option>
+                      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                        <section className="min-w-0 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium text-muted-foreground">{t('triggers.fields.app')}</span>
+                            <span className="text-xs text-muted-foreground">{t('triggers.appCount', { count: triggerApps.length })}</span>
+                          </div>
+                          <label className="relative block">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                              className="h-10 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm"
+                              value={appSearch}
+                              onChange={(event) => setAppSearch(event.target.value)}
+                              placeholder={t('triggers.placeholders.searchApps')}
+                            />
+                          </label>
+                          <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                            {filteredTriggerApps.length === 0 ? (
+                              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('triggers.noAppSearchResults')}</div>
+                            ) : filteredTriggerApps.map((app) => (
+                              <button
+                                key={app.slug}
+                                type="button"
+                                onClick={() => handleTriggerAppChange(app.slug)}
+                                className={cn(
+                                  'flex w-full min-w-0 items-start gap-3 rounded-md border bg-background p-3 text-left transition hover:border-primary/40 hover:bg-primary/5',
+                                  triggerDraft.toolkitSlug === app.slug && 'border-primary/60 bg-primary/5',
+                                )}
+                              >
+                                <AppLogo app={app} />
+                                <span className="min-w-0 flex-1">
+                                  <span className="flex items-center gap-2">
+                                    <span className="truncate text-sm font-medium">{app.name}</span>
+                                    {app.connected ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" /> : null}
+                                  </span>
+                                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                    {app.triggerCount ? t('triggers.eventCount', { count: app.triggerCount }) : app.slug}
+                                    {!app.connected ? ` · ${t('triggers.notConnected')}` : ''}
+                                  </span>
+                                </span>
+                              </button>
                             ))}
-                          </select>
-                        </label>
-                        <label className="flex flex-col gap-1 text-sm">
-                          <span className="text-xs text-muted-foreground">{t('triggers.fields.event')}</span>
-                          <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={triggerDraft.triggerSlug} onChange={(event) => handleTriggerTypeChange(event.target.value)}>
-                            {(selectedTriggerApp?.triggers || []).map((trigger) => (
-                              <option key={trigger.slug} value={trigger.slug}>{trigger.name}</option>
+                          </div>
+                        </section>
+
+                        <section className="min-w-0 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium text-muted-foreground">{t('triggers.fields.event')}</span>
+                            {selectedAppTriggerCountLabel ? <span className="text-xs text-muted-foreground">{selectedAppTriggerCountLabel}</span> : null}
+                          </div>
+                          <label className="relative block">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                              className="h-10 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm"
+                              value={triggerSearch}
+                              onChange={(event) => setTriggerSearch(event.target.value)}
+                              placeholder={t('triggers.placeholders.searchEvents')}
+                              disabled={!selectedTriggerApp}
+                            />
+                          </label>
+                          <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                            {!selectedTriggerApp ? (
+                              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('triggers.selectAppFirst')}</div>
+                            ) : isLoadingSelectedTriggerTypes && !selectedTriggerAppHasLoadedTypes ? (
+                              <div className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                {t('triggers.loadingEvents')}
+                              </div>
+                            ) : triggerTypesError ? (
+                              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{triggerTypesError}</div>
+                            ) : filteredTriggerTypes.length === 0 ? (
+                              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('triggers.noEventSearchResults')}</div>
+                            ) : filteredTriggerTypes.map((trigger) => (
+                              <button
+                                key={trigger.slug}
+                                type="button"
+                                onClick={() => handleTriggerTypeChange(trigger.slug)}
+                                className={cn(
+                                  'w-full rounded-md border bg-background p-3 text-left transition hover:border-primary/40 hover:bg-primary/5',
+                                  triggerDraft.triggerSlug === trigger.slug && 'border-primary/60 bg-primary/5',
+                                )}
+                              >
+                                <span className="block text-sm font-medium">{trigger.name}</span>
+                                <span className="mt-1 line-clamp-2 block text-xs text-muted-foreground">{trigger.description || trigger.slug}</span>
+                              </button>
                             ))}
-                          </select>
-                        </label>
+                          </div>
+                        </section>
                       </div>
                       {selectedTriggerApp && !selectedTriggerApp.connected ? (
                         <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1375,7 +1533,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                           </Button>
                         </div>
                       ) : null}
-                      {selectedTriggerType?.description ? <p className="text-xs text-muted-foreground">{selectedTriggerType.description}</p> : null}
+                      {visibleSelectedTriggerType?.description ? <p className="text-xs text-muted-foreground">{visibleSelectedTriggerType.description}</p> : null}
                       <input className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={triggerDraft.name} onChange={(event) => setTriggerDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('triggers.placeholders.name')} />
                       <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
                         <p className="font-medium text-foreground">{t('triggers.promptHintTitle')}</p>
