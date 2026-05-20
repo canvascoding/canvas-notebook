@@ -184,6 +184,12 @@ interface ChatEvent {
 type PersistedChatMessage = AgentMessage & {
   id?: number | string;
 };
+type PersistedToolCallPart = {
+  type: 'toolCall';
+  id: string;
+  name: string;
+  arguments: unknown;
+};
 type UserPiMessage = Extract<AgentMessage, { role: 'user' }>;
 type UserPiContent = UserPiMessage['content'];
 
@@ -402,6 +408,19 @@ function extractToolResultText(content: unknown[] | undefined): string {
       .map((part) => (isTextPart(part) ? part.text : ''))
       .filter(Boolean)
       .join('\n'),
+  );
+}
+
+function isToolCallPart(part: unknown): part is PersistedToolCallPart {
+  return (
+    !!part &&
+    typeof part === 'object' &&
+    'type' in part &&
+    part.type === 'toolCall' &&
+    'id' in part &&
+    typeof part.id === 'string' &&
+    'name' in part &&
+    typeof part.name === 'string'
   );
 }
 
@@ -2249,7 +2268,10 @@ export default function CanvasAgentChat({
     toolMessageIdsRef.current = {};
   }, [agentConfig, resetStreamConnection, isMobile, shouldShowHistoryAsOverlay]);
 
-  const mapRawMessage = useCallback((rawMessage: PersistedChatMessage): ChatMessage => {
+  const mapRawMessage = useCallback((
+    rawMessage: PersistedChatMessage,
+    toolCallsById: Map<string, PersistedToolCallPart> = new Map(),
+  ): ChatMessage => {
     if (rawMessage.role === 'compact-break') {
       const cb = rawMessage as unknown as CompactBreakMessage;
       return {
@@ -2284,6 +2306,10 @@ export default function CanvasAgentChat({
     }
 
     const isToolResult = rawMessage.role === 'toolResult';
+    const toolCallId = isToolResult && 'toolCallId' in rawMessage && typeof rawMessage.toolCallId === 'string'
+      ? rawMessage.toolCallId
+      : undefined;
+    const persistedToolCall = toolCallId ? toolCallsById.get(toolCallId) : undefined;
     const content = isToolResult
       ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
       : extractPiMessageText(rawMessage);
@@ -2296,11 +2322,32 @@ export default function CanvasAgentChat({
       type: isToolResult ? 'tool_result' : undefined,
       attachments: extractImageAttachments(rawMessage.content),
       piMessage: rawMessage,
+      toolCallId,
+      toolName: persistedToolCall?.name || (isToolResult && 'toolName' in rawMessage && typeof rawMessage.toolName === 'string' ? rawMessage.toolName : undefined),
+      toolArgs: persistedToolCall ? formatToolArgs(persistedToolCall.arguments) : undefined,
       isCollapsed: isToolResult,
       autoCollapsedAtEnd: isToolResult,
       previewText: isToolResult ? truncatePreview(content) : undefined,
     };
-  }, []);
+  }, [formatToolArgs]);
+
+  const mapRawMessages = useCallback((rawMessages: PersistedChatMessage[]): ChatMessage[] => {
+    const toolCallsById = new Map<string, PersistedToolCallPart>();
+
+    for (const rawMessage of rawMessages) {
+      if (rawMessage.role !== 'assistant' || !Array.isArray(rawMessage.content)) {
+        continue;
+      }
+
+      for (const part of rawMessage.content) {
+        if (isToolCallPart(part)) {
+          toolCallsById.set(part.id, part);
+        }
+      }
+    }
+
+    return rawMessages.map((rawMessage) => mapRawMessage(rawMessage, toolCallsById));
+  }, [mapRawMessage]);
 
   const loadSession = useCallback(async (session: AISession) => {
     resetStreamConnection();
@@ -2378,7 +2425,7 @@ export default function CanvasAgentChat({
 
       if (messagesPayload.success && messagesPayload.messages) {
         setMessages(
-          messagesPayload.messages.map(mapRawMessage),
+          mapRawMessages(messagesPayload.messages),
         );
         if (typeof messagesPayload.hasMoreBefore === 'boolean') {
           setHasMoreBefore(messagesPayload.hasMoreBefore);
@@ -2424,7 +2471,7 @@ export default function CanvasAgentChat({
       console.error('Failed to load messages', err);
       setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
     }
-  }, [agentConfig, ensureSessionSubscribed, mapRawMessage, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
+  }, [agentConfig, ensureSessionSubscribed, mapRawMessages, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -2442,7 +2489,7 @@ export default function CanvasAgentChat({
       const payload = await response.json();
 
       if (payload.success && payload.messages) {
-        const olderMessages: ChatMessage[] = payload.messages.map(mapRawMessage);
+        const olderMessages: ChatMessage[] = mapRawMessages(payload.messages);
 
         if (olderMessages.length === 0) {
           setHasMoreBefore(false);
@@ -2471,7 +2518,7 @@ export default function CanvasAgentChat({
     } finally {
       setIsLoadingOlder(false);
     }
-  }, [hasMoreBefore, isLoadingOlder, mapRawMessage, oldestMessageId, oldestTimestamp]);
+  }, [hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestTimestamp]);
 
   const clearSessionParamFromUrl = useCallback(() => {
     if (typeof window === 'undefined' || !window.location.search.includes('session=')) {
