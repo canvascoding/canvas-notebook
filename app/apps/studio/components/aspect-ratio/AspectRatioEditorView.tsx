@@ -637,8 +637,9 @@ export function AspectRatioEditorView() {
               <div className="absolute inset-0 flex items-center justify-center p-6">
                 <button
                   type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => setPickerOpen(true)}
-                  className="flex max-w-md flex-col items-center gap-4 rounded-lg border border-dashed border-border bg-background/90 px-8 py-10 text-center shadow-sm hover:border-primary/60"
+                  className="flex max-w-md cursor-pointer flex-col items-center gap-4 rounded-lg border border-dashed border-border bg-background/90 px-8 py-10 text-center shadow-sm hover:border-primary/60"
                 >
                   <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
                     <ImageIcon className="h-7 w-7" />
