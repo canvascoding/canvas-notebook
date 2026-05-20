@@ -345,6 +345,9 @@ export function AspectRatioEditorView() {
   const t = useTranslations('studio.aspectRatioEditor');
   const searchParams = useSearchParams();
   const initialRefPath = searchParams.get('ref');
+  const initialProviderParam = searchParams.get('provider');
+  const initialProvider = initialProviderParam === 'gemini' || initialProviderParam === 'openai' ? initialProviderParam : null;
+  const initialModel = searchParams.get('model');
   const setChatContext = useSetStudioChatContext();
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -357,8 +360,8 @@ export function AspectRatioEditorView() {
   const [frame, setFrame] = useState<Frame>({ x: 0, y: 0, width: 100, height: 100 });
   const [aspectRatio, setAspectRatio] = useState<string>('1:1');
   const [providers, setProviders] = useState<ProviderOption[]>([]);
-  const [provider, setProvider] = useState<'gemini' | 'openai'>('openai');
-  const [model, setModel] = useState('gpt-image-2');
+  const [provider, setProvider] = useState<'gemini' | 'openai'>(() => initialProvider ?? 'openai');
+  const [model, setModel] = useState(() => initialModel || 'gpt-image-2');
   const [quality, setQuality] = useState<'auto' | 'low' | 'medium' | 'high'>('auto');
   const [outputFormat, setOutputFormat] = useState<'png' | 'jpeg' | 'webp'>('png');
   const [background, setBackground] = useState<'auto' | 'transparent' | 'opaque'>('auto');
@@ -389,10 +392,15 @@ export function AspectRatioEditorView() {
         if (!cancelled) {
           const nextProviders = payload.providers || [];
           setProviders(nextProviders);
-          const firstOpenAI = nextProviders.find((item: ProviderOption) => item.id === 'openai') || nextProviders[0];
-          if (firstOpenAI) {
-            setProvider(firstOpenAI.id);
-            setModel(firstOpenAI.models[0]?.id || '');
+          const preferredProvider = (initialProvider ? nextProviders.find((item: ProviderOption) => item.id === initialProvider) : null)
+            || nextProviders.find((item: ProviderOption) => item.id === 'openai')
+            || nextProviders[0];
+          if (preferredProvider) {
+            const preferredModel = initialModel && preferredProvider.models.some((item: { id: string }) => item.id === initialModel)
+              ? initialModel
+              : preferredProvider.models[0]?.id || '';
+            setProvider(preferredProvider.id);
+            setModel(preferredModel);
           }
         }
       } catch (error) {
@@ -400,7 +408,7 @@ export function AspectRatioEditorView() {
       }
     })();
     return () => { cancelled = true; };
-  }, [t]);
+  }, [initialModel, initialProvider, t]);
 
   const resetView = useCallback((width: number, height: number) => {
     const initialZoom = Math.min(1, 680 / Math.max(width, height));

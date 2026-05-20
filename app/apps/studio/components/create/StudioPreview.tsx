@@ -48,6 +48,7 @@ interface StudioPreviewProps {
   onToggleFavorite: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onEditSelection?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onUseAspectRatio?: (generation: StudioGeneration, output: StudioGenerationOutput, aspectRatio: string) => void;
+  onOpenCustomAspectRatio?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVariation: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
@@ -90,6 +91,7 @@ export function StudioPreview({
   onToggleFavorite,
   onEditSelection,
   onUseAspectRatio,
+  onOpenCustomAspectRatio,
   onCreateVariation,
   onCreateVideo,
   onDelete,
@@ -204,6 +206,7 @@ export function StudioPreview({
   const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
   const canEditImage = output.type === 'image' && Boolean(output.mediaUrl) && Boolean(onEditSelection);
   const canUseAspectRatio = output.type === 'image' && Boolean(output.mediaUrl) && Boolean(onUseAspectRatio);
+  const canOpenCustomAspectRatio = output.type === 'image' && Boolean(output.filePath) && Boolean(onOpenCustomAspectRatio);
 
   return (
     <section
@@ -272,6 +275,15 @@ export function StudioPreview({
                   {generation.aspectRatio === ratio && <Check className="h-4 w-4" />}
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-base"
+                onSelect={() => onOpenCustomAspectRatio?.(generation, output)}
+                disabled={!canOpenCustomAspectRatio}
+              >
+                <Maximize2 className="h-4 w-4" />
+                <span className="flex-1">Custom aspect ratio</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -301,6 +313,15 @@ export function StudioPreview({
                   {generation.aspectRatio === ratio && <Check className="h-4 w-4" />}
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-base"
+                onSelect={() => onOpenCustomAspectRatio?.(generation, output)}
+                disabled={!canOpenCustomAspectRatio}
+              >
+                <Maximize2 className="h-4 w-4" />
+                <span className="flex-1">Custom aspect ratio</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -334,6 +355,10 @@ export function StudioPreview({
                   <span className="ml-2">Make AR {ratio}</span>
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuItem onSelect={() => onOpenCustomAspectRatio?.(generation, output)} disabled={!canOpenCustomAspectRatio}>
+                <Maximize2 className="mr-2 h-4 w-4" />
+                Custom aspect ratio
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => onCreateVariation(generation, output)}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
