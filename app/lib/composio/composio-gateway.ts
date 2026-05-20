@@ -553,11 +553,7 @@ export async function createGatewayTrigger(input: {
 
   const composio = await getComposio();
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  try {
-    await ensureLocalWebhookSubscription();
-  } catch (error) {
-    logComposioTriggerError('Failed to ensure local webhook subscription (continuing with trigger creation)', error, { triggerSlug: input.triggerSlug });
-  }
+  await ensureLocalWebhookSubscription();
   logComposioTrigger('Creating local trigger', {
     triggerSlug: input.triggerSlug,
     toolkitSlug: input.toolkitSlug,

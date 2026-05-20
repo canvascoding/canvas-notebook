@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock3,
+  Link2,
   ExternalLink,
   FileText,
   Folder,
@@ -13,6 +14,7 @@ import {
   MessageSquare,
   PauseCircle,
   Play,
+  Plug,
   Plus,
   RefreshCw,
   Save,
@@ -50,6 +52,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Link, useRouter } from '@/i18n/navigation';
 
 type ScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
+type ComposerMode = 'scheduled' | 'trigger';
 
 type JobDraft = {
   id: string | null;
@@ -94,6 +97,56 @@ type SkillOption = {
   enabled?: boolean;
 };
 
+type ComposioToolkitInfo = {
+  slug: string;
+  name: string;
+  logo?: string;
+  description?: string;
+  connected?: boolean;
+  connectedAccountId?: string;
+  connectedAccountStatus?: string;
+};
+
+type TriggerTypeInfo = {
+  slug: string;
+  name: string;
+  description: string;
+  configSchema: Record<string, unknown> | null;
+  toolkitSlug: string;
+};
+
+type TriggerCapableApp = Omit<ComposioToolkitInfo, 'connected' | 'connectedAccountId' | 'connectedAccountStatus'> & {
+  connected: boolean;
+  connectedAccountId: string;
+  connectedAccountStatus: string;
+  triggers: TriggerTypeInfo[];
+};
+
+type TriggerComposerDraft = {
+  toolkitSlug: string;
+  triggerSlug: string;
+  name: string;
+  prompt: string;
+  preferredSkill: string;
+  workspaceContextText: string;
+  targetOutputPath: string;
+  configValues: Record<string, string | boolean>;
+};
+
+type ComposioStatus = {
+  configured: boolean;
+  apiKeyValid?: boolean;
+  mode?: string;
+  connectedAccounts?: Array<{
+    id: string;
+    toolkit?: {
+      slug?: string;
+      name?: string;
+    };
+    status?: string;
+  }>;
+};
+
 type AutomationsClientProps = {
   initialJobId?: string | null;
 };
@@ -122,6 +175,19 @@ function defaultDraft(): JobDraft {
     weeklyDays: ['mon'],
     intervalEvery: '1',
     intervalUnit: 'days',
+  };
+}
+
+function defaultTriggerDraft(): TriggerComposerDraft {
+  return {
+    toolkitSlug: '',
+    triggerSlug: '',
+    name: '',
+    prompt: '',
+    preferredSkill: 'auto',
+    workspaceContextText: '',
+    targetOutputPath: '',
+    configValues: {},
   };
 }
 
@@ -205,6 +271,95 @@ function getAutomationTemplates(locale: string): AutomationTemplate[] {
 
 function parseWorkspaceContext(text: string): string[] {
   return Array.from(new Set(text.split(/\n|,/).map((entry) => entry.trim()).filter(Boolean)));
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+async function readJsonResponse(response: Response, context: string): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`${context} returned an invalid response.`);
+  }
+}
+
+function normalizeToolkit(value: unknown): ComposioToolkitInfo | null {
+  const record = asRecord(value);
+  const slug = stringValue(record.slug);
+  if (!slug) return null;
+  return {
+    slug,
+    name: stringValue(record.name) || slug,
+    logo: stringValue(record.logo),
+    description: stringValue(record.description),
+    connected: Boolean(record.connected),
+    connectedAccountId: stringValue(record.connectedAccountId),
+    connectedAccountStatus: stringValue(record.connectedAccountStatus),
+  };
+}
+
+function normalizeTriggerType(value: unknown, toolkitSlug: string): TriggerTypeInfo | null {
+  const record = asRecord(value);
+  const slug = stringValue(record.slug) || stringValue(record.name);
+  if (!slug) return null;
+  const configSchema = asRecord(record.configSchema ?? record.config_schema ?? record.config ?? record.inputParameters ?? record.input_parameters);
+  return {
+    slug,
+    name: stringValue(record.displayName) || stringValue(record.name) || slug,
+    description: stringValue(record.description),
+    configSchema: Object.keys(configSchema).length > 0 ? configSchema : null,
+    toolkitSlug,
+  };
+}
+
+function getSchemaProperties(schema: Record<string, unknown> | null): Array<{
+  key: string;
+  label: string;
+  description: string;
+  type: string;
+  enumValues: string[];
+  required: boolean;
+}> {
+  if (!schema) return [];
+  const properties = asRecord(schema.properties ?? schema);
+  const required = Array.isArray(schema.required) ? schema.required.filter((entry): entry is string => typeof entry === 'string') : [];
+  return Object.entries(properties).map(([key, value]) => {
+    const property = asRecord(value);
+    const enumValues = Array.isArray(property.enum) ? property.enum.map(String) : [];
+    return {
+      key,
+      label: stringValue(property.title) || stringValue(property.display_name) || key,
+      description: stringValue(property.description),
+      type: stringValue(property.type) || (enumValues.length > 0 ? 'string' : 'string'),
+      enumValues,
+      required: required.includes(key),
+    };
+  });
+}
+
+function buildTriggerConfigFromSchema(schema: Record<string, unknown> | null, values: Record<string, string | boolean>): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  for (const property of getSchemaProperties(schema)) {
+    const rawValue = values[property.key];
+    if (rawValue === undefined || rawValue === '') continue;
+    if (property.type === 'boolean') {
+      config[property.key] = Boolean(rawValue);
+    } else if (property.type === 'number' || property.type === 'integer') {
+      const numeric = Number(rawValue);
+      if (Number.isFinite(numeric)) config[property.key] = property.type === 'integer' ? Math.floor(numeric) : numeric;
+    } else {
+      config[property.key] = String(rawValue);
+    }
+  }
+  return config;
 }
 
 function buildPayload(draft: JobDraft) {
@@ -294,6 +449,11 @@ function formatAutomationSessionRole(role: string, translate: (key: string) => s
   return role;
 }
 
+function getWebhookMetadata(run: AutomationRunRecord | null): Record<string, unknown> | null {
+  const webhook = run?.metadataJson?.webhook;
+  return webhook && typeof webhook === 'object' && !Array.isArray(webhook) ? webhook as Record<string, unknown> : null;
+}
+
 function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   const draft = defaultDraft();
   draft.id = job.id;
@@ -329,11 +489,19 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [jobs, setJobs] = useState<AutomationJobRecord[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [draft, setDraft] = useState<JobDraft>(() => defaultDraft());
+  const [triggerDraft, setTriggerDraft] = useState<TriggerComposerDraft>(() => defaultTriggerDraft());
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [logContent, setLogContent] = useState('');
   const [sessionMessages, setSessionMessages] = useState<PersistedAutomationSessionMessage[]>([]);
   const [skills, setSkills] = useState<SkillOption[]>([]);
+  const [composerMode, setComposerMode] = useState<ComposerMode>('scheduled');
+  const [triggerApps, setTriggerApps] = useState<TriggerCapableApp[]>([]);
+  const [composioStatus, setComposioStatus] = useState<ComposioStatus | null>(null);
+  const [isLoadingTriggerApps, setIsLoadingTriggerApps] = useState(false);
+  const [triggerAppsError, setTriggerAppsError] = useState<string | null>(null);
+  const [triggerActionSlug, setTriggerActionSlug] = useState<string | null>(null);
+  const [directoryPickerTarget, setDirectoryPickerTarget] = useState<'scheduled' | 'trigger'>('scheduled');
   const [isLoadingJobs, setIsLoadingJobs] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningNow, setIsRunningNow] = useState(false);
@@ -348,6 +516,14 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
   const templates = useMemo(() => getAutomationTemplates(locale), [locale]);
   const enabledSkills = useMemo(() => skills.filter((skill) => skill.enabled !== false), [skills]);
+  const selectedTriggerApp = useMemo(
+    () => triggerApps.find((app) => app.slug === triggerDraft.toolkitSlug) || null,
+    [triggerApps, triggerDraft.toolkitSlug],
+  );
+  const selectedTriggerType = useMemo(
+    () => selectedTriggerApp?.triggers.find((trigger) => trigger.slug === triggerDraft.triggerSlug) || null,
+    [selectedTriggerApp, triggerDraft.triggerSlug],
+  );
 
   const automationGroups = useMemo(() => {
     const running = jobs.filter((job) => job.lastRunStatus === 'running' || job.lastRunStatus === 'pending' || job.lastRunStatus === 'retry_scheduled');
@@ -467,11 +643,97 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     }
   }
 
+  async function loadTriggerApps() {
+    setIsLoadingTriggerApps(true);
+    setTriggerAppsError(null);
+    try {
+      const [statusResponse, toolkitsResponse] = await Promise.all([
+        fetch('/api/composio/status', { cache: 'no-store', credentials: 'include' }),
+        fetch('/api/composio/toolkits', { cache: 'no-store', credentials: 'include' }),
+      ]);
+      const [statusPayload, toolkitsPayload] = await Promise.all([
+        readJsonResponse(statusResponse, 'Composio status'),
+        readJsonResponse(toolkitsResponse, 'Composio toolkits'),
+      ]);
+      if (!statusResponse.ok) throw new Error(stringValue(statusPayload.error) || t('triggers.errors.loadApps'));
+      if (!toolkitsResponse.ok) throw new Error(stringValue(toolkitsPayload.error) || t('triggers.errors.loadApps'));
+
+      const status = statusPayload as ComposioStatus;
+      setComposioStatus(status);
+      if (!status.configured || status.mode === 'disabled' || status.apiKeyValid === false) {
+        setTriggerApps([]);
+        return;
+      }
+
+      const connectedBySlug = new Map<string, NonNullable<ComposioStatus['connectedAccounts']>[number]>();
+      for (const account of status.connectedAccounts || []) {
+        const slug = account.toolkit?.slug || '';
+        if (slug) connectedBySlug.set(slug, account);
+      }
+      const rawToolkits = Array.isArray(toolkitsPayload.toolkits) ? toolkitsPayload.toolkits : [];
+      const toolkits = rawToolkits
+        .map(normalizeToolkit)
+        .filter((entry): entry is ComposioToolkitInfo => Boolean(entry))
+        .map((toolkit) => {
+          const connected = connectedBySlug.get(toolkit.slug);
+          return {
+            ...toolkit,
+            connected: toolkit.connected || Boolean(connected),
+            connectedAccountId: toolkit.connectedAccountId || connected?.id || '',
+            connectedAccountStatus: toolkit.connectedAccountStatus || connected?.status || '',
+          };
+        });
+
+      const appResults = await Promise.allSettled(toolkits.map(async (toolkit) => {
+        const response = await fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(toolkit.slug)}`, {
+          cache: 'no-store',
+          credentials: 'include',
+        });
+        const payload = await readJsonResponse(response, `Trigger types for ${toolkit.slug}`);
+        if (!response.ok) return null;
+        const data = asRecord(payload.data);
+        const rawTriggers = Array.isArray(data.triggerTypes) ? data.triggerTypes : [];
+        const triggers = rawTriggers
+          .map((entry) => normalizeTriggerType(entry, toolkit.slug))
+          .filter((entry): entry is TriggerTypeInfo => Boolean(entry));
+        return triggers.length > 0 ? { ...toolkit, triggers } : null;
+      }));
+
+      const nextApps = appResults
+        .map((result) => result.status === 'fulfilled' ? result.value : null)
+        .filter((entry): entry is TriggerCapableApp => Boolean(entry))
+        .sort((a, b) => Number(b.connected) - Number(a.connected) || a.name.localeCompare(b.name));
+      setTriggerApps(nextApps);
+      setTriggerDraft((current) => {
+        const selectedApp = nextApps.find((app) => app.slug === current.toolkitSlug) || nextApps[0] || null;
+        const selectedTrigger = selectedApp?.triggers.find((trigger) => trigger.slug === current.triggerSlug) || selectedApp?.triggers[0] || null;
+        return {
+          ...current,
+          toolkitSlug: selectedApp?.slug || '',
+          triggerSlug: selectedTrigger?.slug || '',
+          name: current.name || (selectedApp && selectedTrigger ? `${selectedApp.name}: ${selectedTrigger.name}` : ''),
+        };
+      });
+    } catch (error) {
+      setTriggerApps([]);
+      setTriggerAppsError(error instanceof Error ? error.message : t('triggers.errors.loadApps'));
+    } finally {
+      setIsLoadingTriggerApps(false);
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadJobsEvent();
     void loadSkills();
   }, []);
+
+  useEffect(() => {
+    if (!isComposerOpen || composerMode !== 'trigger' || triggerApps.length > 0 || isLoadingTriggerApps) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadTriggerApps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- catalog loading is only needed when opening the trigger tab
+  }, [isComposerOpen, composerMode, triggerApps.length, isLoadingTriggerApps]);
 
   useEffect(() => {
     if (!selectedJobId) {
@@ -522,7 +784,16 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   async function handleSave() {
     setIsSaving(true);
     try {
-      const payload = buildPayload(draft);
+      const payload = selectedJob?.jobType === 'webhook'
+        ? {
+            name: draft.name,
+            prompt: draft.prompt,
+            preferredSkill: draft.preferredSkill || 'auto',
+            workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
+            targetOutputPath: draft.targetOutputPath.trim() || null,
+            status: draft.status,
+          }
+        : buildPayload(draft);
       const response = await fetch(draft.id ? `/api/automations/jobs/${draft.id}` : '/api/automations/jobs', {
         method: draft.id ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -543,6 +814,74 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       toast.error(error instanceof Error ? error.message : t('errors.saveJob'));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleCreateTriggerAutomation() {
+    if (!selectedTriggerApp || !selectedTriggerType) return;
+    if (!selectedTriggerApp.connected) {
+      toast.error(t('triggers.errors.connectFirst'));
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const triggerConfig = buildTriggerConfigFromSchema(selectedTriggerType.configSchema, triggerDraft.configValues);
+      const response = await fetch('/api/composio/triggers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: triggerDraft.name.trim(),
+          prompt: triggerDraft.prompt.trim(),
+          preferredSkill: triggerDraft.preferredSkill || 'auto',
+          toolkitSlug: selectedTriggerApp.slug,
+          triggerSlug: selectedTriggerType.slug,
+          connectedAccountId: selectedTriggerApp.connectedAccountId || undefined,
+          triggerConfig,
+          workspaceContextPaths: parseWorkspaceContext(triggerDraft.workspaceContextText),
+          targetOutputPath: triggerDraft.targetOutputPath.trim() || null,
+          status: 'active',
+        }),
+      });
+      const result = await readJsonResponse(response, 'Create Composio trigger');
+      if (!response.ok || result.success === false) throw new Error(stringValue(result.error) || t('triggers.errors.create'));
+      const data = asRecord(result.data);
+      const savedJob = data.job as AutomationJobRecord;
+      if (!savedJob?.id) throw new Error(t('triggers.errors.create'));
+      toast.success(t('toasts.jobCreated'));
+      setIsComposerOpen(false);
+      setComposerMode('scheduled');
+      setTriggerDraft(defaultTriggerDraft());
+      setSelectedJobId(savedJob.id);
+      setDraft(mapJobToDraft(savedJob));
+      await loadJobs({ keepSelection: true });
+      router.push(`/automationen/${savedJob.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('triggers.errors.create'));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleConnectTriggerApp(app: TriggerCapableApp) {
+    setTriggerActionSlug(app.slug);
+    try {
+      const response = await fetch(`/api/composio/connect/${encodeURIComponent(app.slug)}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const payload = await readJsonResponse(response, 'Connect Composio app');
+      if (!response.ok) throw new Error(stringValue(payload.error) || t('triggers.errors.connect'));
+      const redirectUrl = stringValue(payload.redirectUrl);
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+        return;
+      }
+      await loadTriggerApps();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('triggers.errors.connect'));
+    } finally {
+      setTriggerActionSlug(null);
     }
   }
 
@@ -598,6 +937,8 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     setSelectedRunId(null);
     setLogContent('');
     setDraft(defaultDraft());
+    setTriggerDraft(defaultTriggerDraft());
+    setComposerMode('scheduled');
     setIsComposerOpen(true);
   }
 
@@ -632,6 +973,53 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
         <span className="text-xs text-muted-foreground">{t('skills.description')}</span>
       </label>
     );
+  }
+
+  function renderTriggerSkillSelect(id: string) {
+    return (
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-xs text-muted-foreground">{t('editor.fields.preferredSkill')}</span>
+        <select
+          id={id}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={triggerDraft.preferredSkill}
+          onChange={(event) => setTriggerDraft((current) => ({ ...current, preferredSkill: event.target.value }))}
+        >
+          <option value="auto">{t('skills.auto')}</option>
+          {enabledSkills.map((skill) => (
+            <option key={skill.name} value={skill.name}>/{skill.name}</option>
+          ))}
+        </select>
+        <span className="text-xs text-muted-foreground">{t('skills.description')}</span>
+      </label>
+    );
+  }
+
+  function handleTriggerAppChange(toolkitSlug: string) {
+    const app = triggerApps.find((candidate) => candidate.slug === toolkitSlug) || null;
+    const trigger = app?.triggers[0] || null;
+    setTriggerDraft((current) => ({
+      ...current,
+      toolkitSlug,
+      triggerSlug: trigger?.slug || '',
+      name: app && trigger ? `${app.name}: ${trigger.name}` : current.name,
+      configValues: {},
+    }));
+  }
+
+  function handleTriggerTypeChange(triggerSlug: string) {
+    const trigger = selectedTriggerApp?.triggers.find((candidate) => candidate.slug === triggerSlug) || null;
+    setTriggerDraft((current) => ({
+      ...current,
+      triggerSlug,
+      name: selectedTriggerApp && trigger ? `${selectedTriggerApp.name}: ${trigger.name}` : current.name,
+      configValues: {},
+    }));
+  }
+
+  function openDirectoryPicker(target: 'scheduled' | 'trigger') {
+    setDirectoryPickerTarget(target);
+    setIsDirectoryPickerOpen(true);
   }
 
   return (
@@ -786,7 +1174,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                           <p className="text-sm font-medium">{t('output.title')}</p>
                           <p className="text-xs text-muted-foreground">{t('output.description')}</p>
                         </div>
-                        <Button type="button" variant="outline" size="sm" onClick={() => setIsDirectoryPickerOpen(true)} data-testid="automation-target-output-picker">
+                        <Button type="button" variant="outline" size="sm" onClick={() => openDirectoryPicker('scheduled')} data-testid="automation-target-output-picker">
                           <Folder className="mr-2 h-4 w-4" />
                           {t('output.pickInWorkspace')}
                         </Button>
@@ -795,7 +1183,24 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                       <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath}</span></p>
                     </div>
                   </div>
-                  <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} />
+                  {selectedJob.jobType === 'webhook' ? (
+                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                      <div className="flex items-center gap-2">
+                        <Webhook className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-sm font-medium">{t('triggers.detailTitle')}</p>
+                      </div>
+                      <div className="grid gap-2 text-xs sm:grid-cols-2">
+                        <span className="text-muted-foreground">{t('triggers.fields.app')}</span>
+                        <span className="font-mono">{selectedJob.composioToolkitSlug || t('noneYet')}</span>
+                        <span className="text-muted-foreground">{t('triggers.fields.event')}</span>
+                        <span className="font-mono">{selectedJob.composioTriggerSlug || t('noneYet')}</span>
+                        <span className="text-muted-foreground">{t('triggers.fields.triggerId')}</span>
+                        <span className="break-all font-mono">{selectedJob.composioTriggerId || t('noneYet')}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} />
+                  )}
                   <div className="flex flex-wrap gap-2 border-t pt-4">
                     <Button variant="outline" onClick={handleDelete} disabled={isDeleting}>
                       {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
@@ -878,36 +1283,149 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
             <DialogTitle>{t('editor.newTitle')}</DialogTitle>
             <DialogDescription>{t('editor.description')}</DialogDescription>
           </DialogHeader>
-          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-            <div className="space-y-4">
-              <input data-testid="automation-name" className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
-              <textarea data-testid="automation-prompt" className="min-h-[18rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder={t('editor.placeholders.prompt')} />
-              <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} compact />
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                {renderSkillSelect('automation-composer-preferred-skill')}
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                  <Button type="button" variant="outline" className="justify-start" onClick={() => setIsDirectoryPickerOpen(true)}>
-                    <Folder className="mr-2 h-4 w-4" />
-                    {t('output.pickInWorkspace')}
-                  </Button>
-                  <Button onClick={() => void handleSave()} disabled={isSaving}>
-                    {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    {t('actions.save')}
-                  </Button>
-                </div>
-              </div>
-              <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath}</span></p>
+          <Tabs value={composerMode} onValueChange={(value) => setComposerMode(value as ComposerMode)} className="min-h-0 flex-1 gap-0 overflow-hidden">
+            <div className="border-b px-4 py-3 sm:px-6">
+              <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+                <TabsTrigger value="scheduled"><Clock3 className="mr-2 h-4 w-4" />{t('composer.tabs.scheduled')}</TabsTrigger>
+                <TabsTrigger value="trigger"><Webhook className="mr-2 h-4 w-4" />{t('composer.tabs.trigger')}</TabsTrigger>
+              </TabsList>
             </div>
-            <aside className="space-y-2">
-              <p className="text-sm font-medium">{t('templates.title')}</p>
-              {templates.map((template) => (
-                <button key={template.id} type="button" className="w-full rounded-md border bg-background p-3 text-left transition hover:border-primary/40 hover:bg-primary/5" onClick={() => applyTemplate(template)}>
-                  <p className="text-sm font-medium">{template.name}</p>
-                  <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">{template.prompt}</p>
-                </button>
-              ))}
-            </aside>
-          </div>
+            <TabsContent value="scheduled" className="m-0 min-h-0 flex-1 overflow-y-auto">
+              <div className="grid min-h-0 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <div className="space-y-4">
+                  <input data-testid="automation-name" className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
+                  <textarea data-testid="automation-prompt" className="min-h-[18rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder={t('editor.placeholders.prompt')} />
+                  <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} compact />
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    {renderSkillSelect('automation-composer-preferred-skill')}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                      <Button type="button" variant="outline" className="justify-start" onClick={() => openDirectoryPicker('scheduled')}>
+                        <Folder className="mr-2 h-4 w-4" />
+                        {t('output.pickInWorkspace')}
+                      </Button>
+                      <Button onClick={() => void handleSave()} disabled={isSaving}>
+                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                        {t('actions.save')}
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath}</span></p>
+                </div>
+                <aside className="space-y-2">
+                  <p className="text-sm font-medium">{t('templates.title')}</p>
+                  {templates.map((template) => (
+                    <button key={template.id} type="button" className="w-full rounded-md border bg-background p-3 text-left transition hover:border-primary/40 hover:bg-primary/5" onClick={() => applyTemplate(template)}>
+                      <p className="text-sm font-medium">{template.name}</p>
+                      <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">{template.prompt}</p>
+                    </button>
+                  ))}
+                </aside>
+              </div>
+            </TabsContent>
+            <TabsContent value="trigger" className="m-0 min-h-0 flex-1 overflow-y-auto">
+              <div className="grid min-h-0 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <div className="space-y-4">
+                  {isLoadingTriggerApps ? (
+                    <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-8 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {t('triggers.loadingApps')}
+                    </div>
+                  ) : triggerAppsError ? (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{triggerAppsError}</div>
+                  ) : composioStatus && (!composioStatus.configured || composioStatus.mode === 'disabled' || composioStatus.apiKeyValid === false) ? (
+                    <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground">{t('triggers.setupRequiredTitle')}</p>
+                      <p className="mt-1">{t('triggers.setupRequiredDescription')}</p>
+                      <Link href="/settings?tab=integrations" className="mt-3 inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline">
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        {t('triggers.openIntegrations')}
+                      </Link>
+                    </div>
+                  ) : triggerApps.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{t('triggers.noApps')}</div>
+                  ) : (
+                    <>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="text-xs text-muted-foreground">{t('triggers.fields.app')}</span>
+                          <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={triggerDraft.toolkitSlug} onChange={(event) => handleTriggerAppChange(event.target.value)}>
+                            {triggerApps.map((app) => (
+                              <option key={app.slug} value={app.slug}>{app.name}{app.connected ? '' : ` · ${t('triggers.notConnected')}`}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="text-xs text-muted-foreground">{t('triggers.fields.event')}</span>
+                          <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={triggerDraft.triggerSlug} onChange={(event) => handleTriggerTypeChange(event.target.value)}>
+                            {(selectedTriggerApp?.triggers || []).map((trigger) => (
+                              <option key={trigger.slug} value={trigger.slug}>{trigger.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      {selectedTriggerApp && !selectedTriggerApp.connected ? (
+                        <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-medium">{t('triggers.connectTitle', { app: selectedTriggerApp.name })}</p>
+                            <p className="text-xs text-muted-foreground">{t('triggers.connectDescription')}</p>
+                          </div>
+                          <Button type="button" onClick={() => void handleConnectTriggerApp(selectedTriggerApp)} disabled={triggerActionSlug === selectedTriggerApp.slug}>
+                            {triggerActionSlug === selectedTriggerApp.slug ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plug className="mr-2 h-4 w-4" />}
+                            {t('triggers.connect')}
+                          </Button>
+                        </div>
+                      ) : null}
+                      {selectedTriggerType?.description ? <p className="text-xs text-muted-foreground">{selectedTriggerType.description}</p> : null}
+                      <input className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={triggerDraft.name} onChange={(event) => setTriggerDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('triggers.placeholders.name')} />
+                      <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">{t('triggers.promptHintTitle')}</p>
+                        <p className="mt-1">{t('triggers.promptHintDescription')}</p>
+                      </div>
+                      <textarea className="min-h-[14rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm" value={triggerDraft.prompt} onChange={(event) => setTriggerDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder={t('triggers.placeholders.prompt')} />
+                      <TriggerConfigFields
+                        schema={selectedTriggerType?.configSchema || null}
+                        values={triggerDraft.configValues}
+                        onChange={(key, value) => setTriggerDraft((current) => ({ ...current, configValues: { ...current.configValues, [key]: value } }))}
+                        emptyLabel={t('triggers.noConfig')}
+                      />
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
+                          <textarea className="h-24 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs" value={triggerDraft.workspaceContextText} onChange={(event) => setTriggerDraft((current) => ({ ...current, workspaceContextText: event.target.value }))} placeholder="00_dashboard&#10;03_offer-and-sales" />
+                        </label>
+                        {renderTriggerSkillSelect('automation-trigger-preferred-skill')}
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+                          <span className="text-xs text-muted-foreground">{t('triggers.fields.targetOutputPath')}</span>
+                          <input className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs" value={triggerDraft.targetOutputPath} onChange={(event) => setTriggerDraft((current) => ({ ...current, targetOutputPath: event.target.value }))} placeholder={t('triggers.optional')} />
+                        </label>
+                        <Button type="button" variant="outline" className="justify-start" onClick={() => openDirectoryPicker('trigger')}>
+                          <Folder className="mr-2 h-4 w-4" />
+                          {t('output.pickInWorkspace')}
+                        </Button>
+                        <Button onClick={() => void handleCreateTriggerAutomation()} disabled={isSaving || !selectedTriggerApp?.connected || !triggerDraft.name.trim() || !triggerDraft.prompt.trim() || !triggerDraft.triggerSlug}>
+                          {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+                          {t('triggers.create')}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <aside className="space-y-3">
+                  <p className="text-sm font-medium">{t('triggers.sidebarTitle')}</p>
+                  <div className="rounded-md border bg-background p-3 text-xs text-muted-foreground">
+                    <p className="font-medium text-foreground">{t('triggers.sidebarWebhookTitle')}</p>
+                    <p className="mt-1">{t('triggers.sidebarWebhookDescription')}</p>
+                  </div>
+                  <div className="rounded-md border bg-background p-3 text-xs text-muted-foreground">
+                    <p className="font-medium text-foreground">{t('triggers.sidebarModesTitle')}</p>
+                    <p className="mt-1">{t('triggers.sidebarModesDescription')}</p>
+                  </div>
+                </aside>
+              </div>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
@@ -924,6 +1442,15 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
               <TabsTrigger value="session"><MessageSquare className="mr-2 h-4 w-4" />{t('session.title')}</TabsTrigger>
             </TabsList>
             <TabsContent value="summary" className="mt-4 space-y-4">
+              {getWebhookMetadata(selectedRun) ? (
+                <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                  <p className="font-medium">{t('triggers.eventSummary')}</p>
+                  <div className="mt-2 grid gap-1 text-xs">
+                    <span className="text-muted-foreground">{String(getWebhookMetadata(selectedRun)?.toolkitSlug || '')} · {String(getWebhookMetadata(selectedRun)?.triggerSlug || '')}</span>
+                    <span className="break-all font-mono text-muted-foreground">{String(getWebhookMetadata(selectedRun)?.eventId || '')}</span>
+                  </div>
+                </div>
+              ) : null}
               <div className="rounded-md border bg-muted/20 p-3 text-sm">
                 <p className="font-medium">{t('results.title')}</p>
                 <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{selectedRun?.effectiveTargetOutputPath || selectedJob?.effectiveTargetOutputPath || t('noneYet')}</p>
@@ -982,8 +1509,14 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       <WorkspaceDirectoryPickerDialog
         open={isDirectoryPickerOpen}
         onOpenChange={setIsDirectoryPickerOpen}
-        selectedPath={draft.targetOutputPath}
-        onSelect={(path) => setDraft((current) => ({ ...current, targetOutputPath: path }))}
+        selectedPath={directoryPickerTarget === 'trigger' ? triggerDraft.targetOutputPath : draft.targetOutputPath}
+        onSelect={(path) => {
+          if (directoryPickerTarget === 'trigger') {
+            setTriggerDraft((current) => ({ ...current, targetOutputPath: path }));
+          } else {
+            setDraft((current) => ({ ...current, targetOutputPath: path }));
+          }
+        }}
       />
     </div>
   );
@@ -1049,6 +1582,72 @@ function ScheduleEditor({
           <label className="flex max-w-xs flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.weeklyTime} onChange={(event) => setDraft((current) => ({ ...current, weeklyTime: event.target.value }))} /></label>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function TriggerConfigFields({
+  schema,
+  values,
+  onChange,
+  emptyLabel,
+}: {
+  schema: Record<string, unknown> | null;
+  values: Record<string, string | boolean>;
+  onChange: (key: string, value: string | boolean) => void;
+  emptyLabel: string;
+}) {
+  const fields = getSchemaProperties(schema);
+  if (fields.length === 0) {
+    return <p className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">{emptyLabel}</p>;
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {fields.map((field) => {
+          const value = values[field.key];
+          if (field.type === 'boolean') {
+            return (
+              <label key={field.key} className="flex min-h-10 items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={Boolean(value)}
+                  onChange={(event) => onChange(field.key, event.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate">{field.label}{field.required ? ' *' : ''}</span>
+                  {field.description ? <span className="block text-xs text-muted-foreground">{field.description}</span> : null}
+                </span>
+              </label>
+            );
+          }
+
+          return (
+            <label key={field.key} className="flex flex-col gap-1 text-sm">
+              <span className="text-xs text-muted-foreground">{field.label}{field.required ? ' *' : ''}</span>
+              {field.enumValues.length > 0 ? (
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  value={typeof value === 'string' ? value : ''}
+                  onChange={(event) => onChange(field.key, event.target.value)}
+                >
+                  <option value="" />
+                  {field.enumValues.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+                </select>
+              ) : (
+                <input
+                  type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  value={typeof value === 'string' ? value : ''}
+                  onChange={(event) => onChange(field.key, event.target.value)}
+                />
+              )}
+              {field.description ? <span className="text-xs text-muted-foreground">{field.description}</span> : null}
+            </label>
+          );
+        })}
+      </div>
     </div>
   );
 }

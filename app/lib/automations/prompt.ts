@@ -33,7 +33,7 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
     sections.push('Relevant workspace paths:\n- none selected');
   }
 
-  sections.push(`Write final deliverables to: ${input.effectiveTargetOutputPath}`);
+  sections.push(`If you create workspace deliverables, write them to: ${input.effectiveTargetOutputPath}`);
   if (input.preferredSkill && input.preferredSkill !== 'auto') {
     sections.push(`Preferred skill: /${input.preferredSkill}`);
   }

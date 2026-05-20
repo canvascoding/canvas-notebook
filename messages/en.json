@@ -1570,8 +1570,53 @@
       "runNow": "Run now",
       "delete": "Delete"
     },
+    "composer": {
+      "tabs": {
+        "scheduled": "Schedule",
+        "trigger": "App trigger"
+      }
+    },
     "templates": {
       "title": "Templates"
+    },
+    "triggers": {
+      "loadingApps": "Loading apps with webhook triggers...",
+      "setupRequiredTitle": "Composio is not ready yet",
+      "setupRequiredDescription": "Connect Composio in Integrations so external apps can trigger automations in Canvas Notebook.",
+      "openIntegrations": "Open Integrations",
+      "noApps": "No app with available webhook triggers was found.",
+      "notConnected": "not connected",
+      "connectTitle": "Connect {app}",
+      "connectDescription": "This app must be connected before it can trigger webhook automations.",
+      "connect": "Connect",
+      "create": "Create trigger",
+      "optional": "optional",
+      "noConfig": "This trigger does not need additional fields.",
+      "promptHintTitle": "Write the prompt deliberately",
+      "promptHintDescription": "Describe when the agent should react, what it should do with the event, and whether it should only take actions or create files in the workspace.",
+      "sidebarTitle": "Webhook automations",
+      "sidebarWebhookTitle": "What happens here?",
+      "sidebarWebhookDescription": "Composio sends an event to Canvas. Canvas verifies the event and then starts this exact automation.",
+      "sidebarModesTitle": "Local and managed",
+      "sidebarModesDescription": "The UI uses the same Canvas endpoints. Local uses the local Composio key, managed runs through the Control Plane.",
+      "detailTitle": "Composio trigger",
+      "eventSummary": "Webhook event",
+      "fields": {
+        "app": "App",
+        "event": "Event",
+        "targetOutputPath": "Target folder",
+        "triggerId": "Trigger ID"
+      },
+      "placeholders": {
+        "name": "Gmail: Handle new request",
+        "prompt": "If the event is relevant, inspect the content, decide the next steps, and perform the appropriate action..."
+      },
+      "errors": {
+        "loadApps": "Composio triggers could not be loaded.",
+        "create": "Trigger automation could not be created.",
+        "connect": "App could not be connected.",
+        "connectFirst": "Connect the app first."
+      }
     },
     "skills": {
       "auto": "Choose automatically",

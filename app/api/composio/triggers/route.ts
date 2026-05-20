@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
       prompt,
       workspaceContextPaths: Array.isArray(payload.workspaceContextPaths) ? payload.workspaceContextPaths.filter((entry): entry is string => typeof entry === 'string') : [],
       targetOutputPath: typeof payload.targetOutputPath === 'string' ? payload.targetOutputPath : null,
+      preferredSkill: stringValue(payload.preferredSkill) || 'auto',
       status: payload.status === 'paused' ? 'paused' : 'active',
       composioTriggerId: triggerId,
       composioTriggerSlug: stringValue(trigger.triggerSlug) || triggerSlug,
