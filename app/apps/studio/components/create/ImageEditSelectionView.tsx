@@ -49,13 +49,19 @@ export function ImageEditSelectionView({
   }, [imageSize]);
 
   useEffect(() => {
-    if (!open) {
+    if (open) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
       setPrompt('');
       setImageSize(null);
       setUndoStack([]);
       setRedoStack([]);
       setHasMarkup(false);
-    }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {

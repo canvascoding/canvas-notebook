@@ -144,9 +144,15 @@ export function StudioPreview({
   }, [handleClose, open, hasPrev, hasNext, currentIndex, navigateToIndex]);
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
       setMobileDetailsOpen(false);
-    }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [open, output?.id]);
 
   if (!open || !generation || !output) {
