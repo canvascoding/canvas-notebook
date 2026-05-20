@@ -94,7 +94,7 @@ const prompt = buildAutomationPrompt({
   runArtifactDir: 'automationen/daily-briefing/runs/test-run',
 });
 
-assert.match(prompt, /Write final deliverables to: reports\/daily/);
+assert.match(prompt, /If you create workspace deliverables, write them to: reports\/daily/);
 assert.match(prompt, /Preferred skill: \/pdf/);
 assert.match(prompt, /Store logs and run metadata in the automation run folder automatically/);
 

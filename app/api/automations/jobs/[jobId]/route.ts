@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
 import { deleteAutomationJob, getAutomationJob, updateAutomationJob } from '@/app/lib/automations/store';
+import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
@@ -45,6 +46,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!existing || existing.createdByUserId !== session.user.id) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
+    if (existing.composioTriggerId && (payload?.status === 'active' || payload?.status === 'paused')) {
+      await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status });
+    }
     const updated = await updateAutomationJob(jobId, payload);
     if (!updated) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
@@ -73,6 +77,9 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   const existing = await getAutomationJob(jobId);
   if (!existing || existing.createdByUserId !== session.user.id) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
+  }
+  if (existing.composioTriggerId) {
+    await deleteGatewayTrigger(existing.composioTriggerId);
   }
   const deleted = await deleteAutomationJob(jobId);
   if (!deleted) {

@@ -1569,8 +1569,53 @@
       "runNow": "Jetzt ausführen",
       "delete": "Löschen"
     },
+    "composer": {
+      "tabs": {
+        "scheduled": "Zeitplan",
+        "trigger": "App Trigger"
+      }
+    },
     "templates": {
       "title": "Vorlagen"
+    },
+    "triggers": {
+      "loadingApps": "Lade Apps mit Webhook-Triggern...",
+      "setupRequiredTitle": "Composio ist noch nicht bereit",
+      "setupRequiredDescription": "Verbinde Composio in den Integrationen, damit externe Apps Automationen im Canvas Notebook auslösen können.",
+      "openIntegrations": "Integrationen öffnen",
+      "noApps": "Keine App mit verfügbaren Webhook-Triggern gefunden.",
+      "notConnected": "nicht verbunden",
+      "connectTitle": "{app} verbinden",
+      "connectDescription": "Diese App muss verbunden sein, bevor sie Webhook-Automationen auslösen kann.",
+      "connect": "Verbinden",
+      "create": "Trigger erstellen",
+      "optional": "optional",
+      "noConfig": "Für diesen Trigger sind keine weiteren Felder nötig.",
+      "promptHintTitle": "Prompt bewusst formulieren",
+      "promptHintDescription": "Beschreibe genau, wann der Agent reagieren soll, was er mit dem Event tun soll und ob er nur Aktionen ausführt oder Dateien im Workspace anlegt.",
+      "sidebarTitle": "Webhook-Automationen",
+      "sidebarWebhookTitle": "Was passiert hier?",
+      "sidebarWebhookDescription": "Composio sendet ein Event an Canvas. Canvas prüft das Event und startet dann genau diese Automation.",
+      "sidebarModesTitle": "Local und Managed",
+      "sidebarModesDescription": "Die UI nutzt dieselben Canvas-Endpunkte. Local nutzt den lokalen Composio-Key, Managed läuft über die Control Plane.",
+      "detailTitle": "Composio Trigger",
+      "eventSummary": "Webhook Event",
+      "fields": {
+        "app": "App",
+        "event": "Event",
+        "targetOutputPath": "Zielordner",
+        "triggerId": "Trigger ID"
+      },
+      "placeholders": {
+        "name": "Gmail: Neue Anfrage bearbeiten",
+        "prompt": "Wenn das Event relevant ist, prüfe den Inhalt, entscheide die nächsten Schritte und führe die passende Aktion aus..."
+      },
+      "errors": {
+        "loadApps": "Composio-Trigger konnten nicht geladen werden.",
+        "create": "Trigger-Automation konnte nicht erstellt werden.",
+        "connect": "App konnte nicht verbunden werden.",
+        "connectFirst": "Verbinde die App zuerst."
+      }
     },
     "skills": {
       "auto": "Automatisch wählen",
