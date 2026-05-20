@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Crop, FolderInput, ImageIcon, Loader2, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -342,12 +343,14 @@ function WorkspaceCopyDialog({
 
 export function AspectRatioEditorView() {
   const t = useTranslations('studio.aspectRatioEditor');
+  const searchParams = useSearchParams();
+  const initialRefPath = searchParams.get('ref');
   const setChatContext = useSetStudioChatContext();
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [sourcePath, setSourcePath] = useState<string | null>(null);
+  const [sourcePath, setSourcePath] = useState<string | null>(() => initialRefPath);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [pan, setPan] = useState({ x: 80, y: 60 });
   const [zoom, setZoom] = useState(1);

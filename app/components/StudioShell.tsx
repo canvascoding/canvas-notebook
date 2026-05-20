@@ -36,6 +36,10 @@ const CHAT_WIDTH_MIN = 390;
 const CHAT_WIDTH_MAX = 600;
 const DEFAULT_CHAT_WIDTH = 420;
 
+function isAspectRatioPath(pathname: string | null) {
+  return Boolean(pathname?.startsWith('/studio/aspect-ratio'));
+}
+
 function getStoredBoolean(key: string, fallback: boolean) {
   if (typeof window === 'undefined') return fallback;
   const stored = window.localStorage.getItem(key);
@@ -69,7 +73,7 @@ function getBackHref(pathname: string | null) {
 }
 
 function getStudioTitle(pathname: string | null, tStudio: ReturnType<typeof useTranslations>) {
-  if (pathname?.startsWith('/studio/aspect-ratio')) return 'Aspect Ratio Editor';
+  if (pathname?.startsWith('/studio/aspect-ratio')) return tStudio('aspectRatioEditor.title');
   if (pathname?.startsWith('/studio/create')) return tStudio('tabs.create');
   if (pathname?.startsWith('/studio/bulk')) return tStudio('tabs.bulk');
   if (pathname?.startsWith('/studio/models')) return tStudio('tabs.models');
@@ -83,9 +87,11 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
   const tChat = useTranslations('chat');
   const tStudio = useTranslations('studio');
   const pathname = usePathname();
+  const isAspectRatioEditor = isAspectRatioPath(pathname);
   const { chatContext } = useStudioChatContext();
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
-  const [chatVisible, setChatVisible] = useState(() => getStoredBoolean('studio.chatVisible', true));
+  const [defaultChatVisible, setDefaultChatVisible] = useState(() => getStoredBoolean('studio.chatVisible', true));
+  const [aspectRatioChatVisible, setAspectRatioChatVisible] = useState(() => getStoredBoolean('studio.chatVisible.aspectRatio', false));
   const [chatWidth, setChatWidth] = useState(getStoredChatWidth);
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -101,9 +107,16 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
     [chatContext, pathname]
   );
 
+  const chatVisible = isAspectRatioEditor ? aspectRatioChatVisible : defaultChatVisible;
+  const setChatVisible = isAspectRatioEditor ? setAspectRatioChatVisible : setDefaultChatVisible;
+
   useEffect(() => {
-    window.localStorage.setItem('studio.chatVisible', String(chatVisible));
-  }, [chatVisible]);
+    window.localStorage.setItem('studio.chatVisible', String(defaultChatVisible));
+  }, [defaultChatVisible]);
+
+  useEffect(() => {
+    window.localStorage.setItem('studio.chatVisible.aspectRatio', String(aspectRatioChatVisible));
+  }, [aspectRatioChatVisible]);
 
   useEffect(() => {
     window.localStorage.setItem('studio.chatWidth', String(chatWidth));
@@ -131,7 +144,7 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
   const openDesktopChat = useCallback((mode: DesktopChatMode) => {
     setDesktopChatMode(mode);
     setChatVisible(true);
-  }, []);
+  }, [setChatVisible]);
 
   const handleDesktopChatPrimaryAction = useCallback(() => {
     if (!chatVisible) {
@@ -145,7 +158,7 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
     }
 
     setChatVisible(false);
-  }, [chatVisible, desktopChatMode, openDesktopChat]);
+  }, [chatVisible, desktopChatMode, openDesktopChat, setChatVisible]);
 
   const handleMouseMove = useCallback((event: MouseEvent) => {
     if (!isResizing.current) return;

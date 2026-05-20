@@ -310,6 +310,7 @@
     "download": "Download",
     "share": "Share",
     "openInStudio": "Open as reference in Studio",
+    "resizeInStudio": "Open image in AR Editor",
     "protectedFolderRename": "This app output folder cannot be renamed.",
     "protectedFolderMove": "This app output folder cannot be moved.",
     "renameTitle": "Rename \"{name}\"",

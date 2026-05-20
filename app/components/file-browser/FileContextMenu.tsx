@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Download, FilePlus, FolderPlus, Pencil, Trash2, Copy, Move, Share2, ClipboardCopy, ClipboardPaste, CopyPlus, ImagePlus } from 'lucide-react';
+import { Download, FilePlus, FolderPlus, Pencil, Trash2, Copy, Move, Share2, ClipboardCopy, ClipboardPaste, CopyPlus, ImagePlus, Maximize2 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -104,6 +104,13 @@ export function FileContextMenu() {
     if (!node) return;
     closeContextMenu();
     const url = `/${locale}/studio/create?ref=${encodeURIComponent(node.path)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleResizeInStudio = () => {
+    if (!node) return;
+    closeContextMenu();
+    const url = `/${locale}/studio/aspect-ratio?ref=${encodeURIComponent(node.path)}`;
     window.open(url, '_blank');
   };
 
@@ -372,10 +379,16 @@ export function FileContextMenu() {
             </DropdownMenuItem>
           )}
           {isImageFile && (
-            <DropdownMenuItem onSelect={handleOpenInStudio}>
-              <ImagePlus className="h-4 w-4" />
-              {t('openInStudio')}
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem onSelect={handleOpenInStudio}>
+                <ImagePlus className="h-4 w-4" />
+                {t('openInStudio')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleResizeInStudio}>
+                <Maximize2 className="h-4 w-4" />
+                {t('resizeInStudio')}
+              </DropdownMenuItem>
+            </>
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
