@@ -204,19 +204,23 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [searchParams]);
 
   useEffect(() => {
-    const nextPath = currentFile?.path ?? null;
-    const previousPath = previousCurrentFilePathRef.current;
-    previousCurrentFilePathRef.current = nextPath;
+    previousCurrentFilePathRef.current = useFileStore.getState().currentFile?.path ?? null;
 
-    if (!nextPath || nextPath === previousPath) {
-      return;
-    }
+    const unsubscribe = useFileStore.subscribe((state) => {
+      const nextPath = state.currentFile?.path ?? null;
+      const previousPath = previousCurrentFilePathRef.current;
+      previousCurrentFilePathRef.current = nextPath;
 
-    if (viewportMode === 'desktop') {
+      if (!nextPath || nextPath === previousPath || viewportMode !== 'desktop') {
+        return;
+      }
+
       setChatVisible(true);
       setDesktopChatMode('side');
-    }
-  }, [currentFile?.path, viewportMode]);
+    });
+
+    return unsubscribe;
+  }, [viewportMode]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;
