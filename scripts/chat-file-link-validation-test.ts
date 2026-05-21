@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { extractFilePaths, normalizeChatFilePath } from '../app/lib/chat/extract-file-paths';
 import { validateFileExists } from '../app/lib/chat/validate-file-paths';
 import { useFileStore } from '../app/store/file-store';
 import type { FileNode } from '../app/store/file-store';
@@ -31,8 +32,17 @@ async function main() {
   }) as typeof fetch;
 
   try {
+    assert.equal(normalizeChatFilePath('/data/workspace/generated/page.html'), 'generated/page.html');
+    assert.deepEqual(
+      extractFilePaths('Open [/data/workspace/generated/page.html](/data/workspace/generated/page.html).'),
+      [{ path: 'generated/page.html', label: '/data/workspace/generated/page.html' }],
+    );
+
     assert.equal(await validateFileExists('docs/loaded.md', fileTree), true);
     assert.deepEqual(fetchCalls, [], 'loaded tree entries should not hit the API');
+
+    assert.equal(await validateFileExists('/data/workspace/docs/loaded.md', fileTree), true);
+    assert.deepEqual(fetchCalls, [], 'absolute workspace tree entries should not hit the API');
 
     assert.equal(await validateFileExists('generated/new-file.md', fileTree), true);
     assert.equal(fetchCalls.length, 1);

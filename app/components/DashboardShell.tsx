@@ -62,12 +62,6 @@ function normalizeNotebookFilePath(path: string | null) {
   return normalized || null;
 }
 
-function getParentDirectory(path: string) {
-  const trimmed = path.replace(/\/+$/, '');
-  const lastSlash = trimmed.lastIndexOf('/');
-  return lastSlash > 0 ? trimmed.slice(0, lastSlash) : '.';
-}
-
 function readStoredNotebookOpenFilePath() {
   if (typeof window === 'undefined') return null;
 
@@ -230,9 +224,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const normalizedPath = normalizeNotebookFilePath(path);
     if (!normalizedPath) return;
 
-    const { loadFile, setCurrentDirectory } = useFileStore.getState();
-    setCurrentDirectory(getParentDirectory(normalizedPath));
-    await loadFile(normalizedPath, true);
+    await useFileStore.getState().revealAndLoadFile(normalizedPath);
 
     const loadedPath = useFileStore.getState().currentFile?.path ?? null;
     if (loadedPath === normalizedPath) {

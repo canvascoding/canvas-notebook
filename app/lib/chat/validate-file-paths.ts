@@ -1,4 +1,5 @@
 import type { FileNode } from '@/app/store/file-store';
+import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 
 const POSITIVE_VALIDATION_CACHE_TTL_MS = 30_000;
 const NEGATIVE_VALIDATION_CACHE_TTL_MS = 10_000;
@@ -15,7 +16,7 @@ export async function validateFileExists(
   filePath: string,
   fileTree: FileNode[]
 ): Promise<boolean> {
-  const normalizedPath = filePath.replace(/^\.\/|\/$/g, '');
+  const normalizedPath = normalizeChatFilePath(filePath);
 
   const nodeInTree = findNodeInTree(normalizedPath, fileTree);
   if (nodeInTree !== null) {

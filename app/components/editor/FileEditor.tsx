@@ -158,7 +158,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const saveTimeoutRef = useRef<number | null>(null);
   const imagePreviewRef = useRef<HTMLDivElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
-  const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('preview');
+  const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('code');
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
   const [isClosingPreview, setIsClosingPreview] = useState(false);
 

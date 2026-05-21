@@ -3,6 +3,15 @@ export interface FilePathEntry {
   label: string;
 }
 
+const ABSOLUTE_WORKSPACE_PREFIX = '/data/workspace/';
+
+export function normalizeChatFilePath(filePath: string): string {
+  return filePath
+    .replace(/^["'`]|["'`]$/g, '')
+    .replace(/^\.\/|\/$/g, '')
+    .replace(/^\/data\/workspace\//, '');
+}
+
 export function isFilePath(href: string): boolean {
   if (!href || href.startsWith('http') || href.startsWith('#') || href.startsWith('mailto:')) {
     return false;
@@ -12,13 +21,13 @@ export function isFilePath(href: string): boolean {
     return false;
   }
 
-  if (href.startsWith('/') && !href.startsWith('/data/workspace/')) {
+  if (href.startsWith('/') && !href.startsWith(ABSOLUTE_WORKSPACE_PREFIX)) {
     return false;
   }
 
   const hasExtension = /\.[^./\\]+$/.test(href);
   const isRelativePath = !href.startsWith('/') && (href.includes('/') || hasExtension);
-  const isAbsoluteWorkspacePath = href.startsWith('/data/workspace/');
+  const isAbsoluteWorkspacePath = href.startsWith(ABSOLUTE_WORKSPACE_PREFIX);
 
   return isRelativePath || isAbsoluteWorkspacePath;
 }
@@ -29,9 +38,7 @@ const FILE_PATH_REGEX =
 const MARKDOWN_LINK_REGEX = /\[([^\]]*)\]\(([^)]+)\)/g;
 
 function normalizePath(path: string): string {
-  return path
-    .replace(/^\.\/|\/$/g, '')
-    .replace(/^["'`]|["'`]$/g, '');
+  return normalizeChatFilePath(path);
 }
 
 function getFileName(path: string): string {
