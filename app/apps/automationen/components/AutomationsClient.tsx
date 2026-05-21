@@ -638,7 +638,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
         setDraft(nextSelected ? mapJobToDraft(nextSelected) : defaultDraft());
       } else if (selectedJobId) {
         const nextSelected = nextJobs.find((job) => job.id === selectedJobId);
-        if (nextSelected) setDraft(mapJobToDraft(nextSelected));
+        if (!nextSelected) {
+          setSelectedJobId(null);
+        }
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.loadJobs'));
