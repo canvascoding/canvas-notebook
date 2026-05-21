@@ -37,7 +37,7 @@ test.describe('Automationen UI', () => {
 
   test('creates an automation, starts a run immediately, and links its chat session', async ({ page }) => {
     const uniqueName = `PW Automation ${Date.now()} mit langem Titel für Overflow-Test`;
-    const targetDir = `automationen/playwright-target-${Date.now()}`;
+    const targetDir = `test-output/playwright-target-${Date.now()}`;
 
     await page.goto('/automationen');
     await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automationen$/);
@@ -50,8 +50,7 @@ test.describe('Automationen UI', () => {
     await page.getByTestId('automation-context-paths').fill('README.md');
     await page.getByTestId('automation-target-output-picker').click();
     await expect(page.getByTestId('automation-directory-picker')).toBeVisible();
-    await page.getByTestId('automation-directory-option-automationen').evaluate((element: HTMLElement) => element.click());
-    await expect(page.getByTestId('automation-target-output-path')).toHaveValue('automationen');
+    await page.getByTestId('automation-directory-option-root').evaluate((element: HTMLElement) => element.click());
     await page.getByTestId('automation-target-output-path').fill(targetDir);
     await page.getByTestId('automation-schedule-kind').selectOption('interval');
     await page.getByTestId('automation-interval-every').fill('1');
@@ -93,8 +92,8 @@ test.describe('Automationen UI', () => {
         }),
       )
       .toBeLessThan(900);
-    await expect(page.getByTestId('automation-result-folder')).toHaveText(targetDir);
-    await expect(page.getByTestId('automation-artifact-folder')).toBeVisible();
+    await expect(page.getByTestId('automation-workspace-target')).toHaveText(targetDir);
+    await expect(page.getByTestId('automation-result-text')).toBeVisible();
     await expect(page.getByTestId('automation-log-scroll')).toBeVisible();
     await page.getByTestId('automation-log-toggle').click();
     await expect(page.getByTestId('automation-log-scroll')).toBeHidden();

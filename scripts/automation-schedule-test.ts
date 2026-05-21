@@ -66,7 +66,7 @@ assert.equal(onceRun.toISOString(), '2026-03-20T14:45:00.000Z');
 
 assert.equal(
   getDefaultAutomationTargetOutputPath('Täglicher Markt-Check'),
-  'automationen/t-glicher-markt-check/output',
+  '',
 );
 
 assert.equal(
@@ -82,7 +82,7 @@ assert.equal(
     name: 'Täglicher Markt-Check',
     targetOutputPath: null,
   }),
-  'automationen/t-glicher-markt-check/output',
+  '',
 );
 
 const prompt = buildAutomationPrompt({
@@ -91,11 +91,10 @@ const prompt = buildAutomationPrompt({
   prompt: 'Fasse die relevanten Dateien zusammen.',
   preferredSkill: 'pdf',
   effectiveTargetOutputPath: 'reports/daily',
-  runArtifactDir: 'automationen/daily-briefing/runs/test-run',
 });
 
 assert.match(prompt, /If you create workspace deliverables, write them to: reports\/daily/);
 assert.match(prompt, /Preferred skill: \/pdf/);
-assert.match(prompt, /Store logs and run metadata in the automation run folder automatically/);
+assert.match(prompt, /Run logs and metadata are stored automatically in the database/);
 
 console.log('automation schedule tests passed');

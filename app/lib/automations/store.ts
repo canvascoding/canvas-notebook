@@ -150,6 +150,7 @@ function mapRunRow(
     piSessionId: row.piSessionId,
     piSessionTitle: sessionMetadata?.title ?? null,
     hasPersistedSession: Boolean(row.piSessionId && sessionMetadata),
+    resultText: row.resultText ?? null,
     createdAt: row.createdAt.toISOString(),
     // Parse metadata from JSON strings
     eventsLog: row.eventsLog ? (JSON.parse(row.eventsLog) as string[]) : null,
@@ -435,6 +436,7 @@ export async function createPendingAutomationRun(
         resultPath: null,
         errorMessage: null,
         piSessionId: null,
+        resultText: null,
         metadataJson: options.metadataJson ? JSON.stringify(options.metadataJson) : null,
         createdAt: now,
       })
@@ -634,6 +636,7 @@ export async function scheduleAutomationJobRun(jobId: string, triggerType: Autom
         resultPath: null,
         errorMessage: null,
         piSessionId: null,
+        resultText: null,
         createdAt: now,
       })
       .returning()
@@ -674,11 +677,11 @@ export async function advanceAutomationJobSchedule(jobId: string, anchor = new D
 export async function markAutomationRunStarted(
   runId: string,
   values: {
-    outputDir: string;
+    outputDir: string | null;
     targetOutputPath: string | null;
-    effectiveTargetOutputPath: string;
+    effectiveTargetOutputPath: string | null;
     logPath: string;
-    resultPath: string;
+    resultPath: string | null;
     piSessionId: string;
     eventsLog: string[];
   },
@@ -696,6 +699,7 @@ export async function markAutomationRunStarted(
       resultPath: values.resultPath,
       errorMessage: null,
       piSessionId: values.piSessionId,
+      resultText: null,
       eventsLog: JSON.stringify(values.eventsLog),
     })
     .where(
@@ -721,6 +725,7 @@ export async function markAutomationRunRetryScheduled(
   errorMessage: string,
   eventsLog: string[],
   metadataJson: Record<string, unknown>,
+  resultText?: string | null,
 ): Promise<AutomationRunRecord | null> {
   return db.transaction((tx) => {
     const current = tx.query.automationRuns.findFirst({
@@ -736,6 +741,7 @@ export async function markAutomationRunRetryScheduled(
         status: 'retry_scheduled',
         scheduledFor: nextAttemptAt,
         errorMessage,
+        resultText: resultText ?? current.resultText,
         finishedAt: new Date(),
         attemptNumber: current.attemptNumber + 1,
         eventsLog: JSON.stringify(eventsLog),
@@ -768,6 +774,7 @@ export async function markAutomationRunFinished(
   values: {
     status: 'success' | 'failed';
     errorMessage?: string | null;
+    resultText?: string | null;
     eventsLog: string[];
     metadataJson: Record<string, unknown>;
   },
@@ -786,6 +793,7 @@ export async function markAutomationRunFinished(
       .set({
         status: values.status,
         errorMessage: values.errorMessage ?? null,
+        resultText: values.resultText ?? current.resultText,
         finishedAt: now,
         eventsLog: JSON.stringify(values.eventsLog),
         metadataJson: JSON.stringify({

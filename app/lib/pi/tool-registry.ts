@@ -179,7 +179,7 @@ const VALID_AUTOMATION_INTERVAL_UNITS: AutomationIntervalUnit[] = ['minutes', 'h
 
 function formatAutomationJob(job: AutomationJobRecord): string {
   const schedule = JSON.stringify(job.schedule);
-  const outputPath = job.targetOutputPath || job.effectiveTargetOutputPath;
+  const outputPath = job.targetOutputPath || job.effectiveTargetOutputPath || 'none';
   return [
     `ID: ${job.id}`,
     `Name: ${job.name}`,
