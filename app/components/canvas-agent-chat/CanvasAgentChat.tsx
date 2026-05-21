@@ -400,6 +400,25 @@ function buildCollapsedRunMap(messages: ChatMessage[], isRuntimeBusy: boolean): 
   return runs;
 }
 
+function hasEarlierVisibleAssistantInRun(messages: ChatMessage[], messageIndex: number, hiddenMessageIds: Set<string>): boolean {
+  for (let index = messageIndex - 1; index >= 0; index -= 1) {
+    const previousMessage = messages[index];
+    if (previousMessage.role === 'user') {
+      return false;
+    }
+
+    if (hiddenMessageIds.has(previousMessage.id) || previousMessage.role !== 'assistant') {
+      continue;
+    }
+
+    if (previousMessage.status === 'sending' || contentToString(previousMessage.content).trim().length > 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function safeFetchJson<T = unknown>(res: Response): Promise<T | null> {
   if (!res.ok) {
     return null;
@@ -4108,7 +4127,7 @@ export default function CanvasAgentChat({
             </button>
           )}
 
-          {messages.map((message) => {
+          {messages.map((message, messageIndex) => {
             if (hiddenStepIds.has(message.id)) {
               return null;
             }
@@ -4121,6 +4140,9 @@ export default function CanvasAgentChat({
             const isCompactBreak = message.type === 'compact_break';
             const isStreamingAssistant = isAssistant && message.status === 'sending';
             const collapsedRun = isAssistant ? collapsedRunMap.get(message.id) : undefined;
+            const rawBodyContent = contentToString(message.content);
+            const hasVisibleAssistantContent = rawBodyContent.trim().length > 0;
+            const suppressAssistantTitle = isAssistant && hasEarlierVisibleAssistantInRun(messages, messageIndex, hiddenStepIds);
 
             if (isTool && toolVerbosity === 'minimal') {
               return null;
@@ -4180,6 +4202,10 @@ export default function CanvasAgentChat({
               );
             }
 
+            if (isAssistant && !isStreamingAssistant && !hasVisibleAssistantContent && message.status !== 'error') {
+              return null;
+            }
+
             const bubbleClass = isUser
               ? 'border-primary bg-primary text-primary-foreground shadow-sm'
               : isAssistant
@@ -4191,7 +4217,6 @@ export default function CanvasAgentChat({
                     : 'border-border bg-background/80 text-muted-foreground';
 
             const title = isUser ? t('you') : isTool ? (message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
-            const rawBodyContent = contentToString(message.content);
             const bodyContent =
               rawBodyContent ||
               (message.status === 'queued_follow_up'
@@ -4250,12 +4275,14 @@ export default function CanvasAgentChat({
                     </div>
                   ) : (
                     <>
-                      <div className="mb-2 flex items-center gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
-                        {message.status === 'aborting' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />}
-                        {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('queue')}</span> : null}
-                        {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('steer')}</span> : null}
-                      </div>
+                      {!isAssistant || !suppressAssistantTitle ? (
+                        <div className="mb-2 flex items-center gap-2">
+                          <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
+                          {message.status === 'aborting' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />}
+                          {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('queue')}</span> : null}
+                          {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('steer')}</span> : null}
+                        </div>
+                      ) : null}
 
                       {isUser ? (
                         <MarkdownMessage content={bodyContent} variant="user" onMediaClick={onMediaClick} />
