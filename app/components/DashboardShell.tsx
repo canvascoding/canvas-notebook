@@ -183,6 +183,22 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     typeof window !== 'undefined'
     && Boolean(window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY));
   const shouldForceChatOpen = hasSessionTarget || hasStoredInitialPrompt;
+  const openDesktopSideChat = useCallback(() => {
+    setChatVisible(true);
+    setDesktopChatMode('side');
+  }, []);
+
+  const openInitialNotebookChat = useCallback((mode: 'mobile' | 'desktop') => {
+    setChatVisible(true);
+
+    if (mode === 'desktop') {
+      setDesktopChatMode('fullscreen');
+      return;
+    }
+
+    setMobileSurface('editor');
+    setMobileChatOpen(false);
+  }, []);
 
   useEffect(() => {
     const storedWidth = Number(window.localStorage.getItem('canvas.leftSidebarWidth'));
@@ -243,17 +259,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       void openNotebookFile(targetPath);
 
       if (viewportMode === 'desktop') {
-        setChatVisible(true);
-        setDesktopChatMode('side');
+        queueMicrotask(openDesktopSideChat);
       }
     }
 
     const sessionParam = searchParams.get('session');
     if (sessionParam) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setChatVisible(true);
+      queueMicrotask(() => setChatVisible(true));
     }
-  }, [openNotebookFile, searchParams, viewportMode]);
+  }, [openDesktopSideChat, openNotebookFile, searchParams, viewportMode]);
 
   useEffect(() => {
     if (viewportMode === null || initialNotebookStateResolvedRef.current) return;
@@ -262,10 +276,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     const targetPath = normalizeNotebookFilePath(searchParams.get('path'));
     if (targetPath) {
-      setChatVisible(true);
-      if (viewportMode === 'desktop') {
-        setDesktopChatMode('side');
-      }
       return;
     }
 
@@ -273,23 +283,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (storedPath) {
       openedPathRef.current = storedPath;
       void openNotebookFile(storedPath);
-      setChatVisible(true);
       if (viewportMode === 'desktop') {
-        setDesktopChatMode('side');
+        queueMicrotask(openDesktopSideChat);
       }
       return;
     }
 
     useFileStore.getState().clearCurrentFile();
-    setChatVisible(true);
-
-    if (viewportMode === 'desktop') {
-      setDesktopChatMode('fullscreen');
-    } else {
-      setMobileSurface('editor');
-      setMobileChatOpen(false);
-    }
-  }, [openNotebookFile, searchParams, viewportMode]);
+    queueMicrotask(() => openInitialNotebookChat(viewportMode));
+  }, [openDesktopSideChat, openInitialNotebookChat, openNotebookFile, searchParams, viewportMode]);
 
   useEffect(() => {
     previousCurrentFilePathRef.current = useFileStore.getState().currentFile?.path ?? null;
@@ -307,12 +309,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         return;
       }
 
-      setChatVisible(true);
-      setDesktopChatMode('side');
+      openDesktopSideChat();
     });
 
     return unsubscribe;
-  }, [viewportMode]);
+  }, [openDesktopSideChat, viewportMode]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;

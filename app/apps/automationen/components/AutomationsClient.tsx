@@ -1017,12 +1017,6 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     }
   }
 
-  function handleSelectJob(job: AutomationJobRecord) {
-    setSelectedJobId(job.id);
-    setDraft(mapJobToDraft(job));
-    router.push(`/automationen/${job.id}`);
-  }
-
   function handleNewAutomation() {
     setSelectedJobId(null);
     setRuns([]);
