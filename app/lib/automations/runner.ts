@@ -22,7 +22,7 @@ import {
   markAutomationRunRetryScheduled,
   markAutomationRunStarted,
 } from './store';
-import { type AutomationJobRecord, type AutomationRunRecord } from './types';
+import { type AutomationRunRecord } from './types';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
