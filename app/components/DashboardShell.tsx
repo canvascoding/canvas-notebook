@@ -52,7 +52,7 @@ import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants
 type MobileSurface = 'editor' | 'terminal';
 type DesktopChatMode = 'side' | 'fullscreen';
 
-const LEFT_SIDEBAR_MIN = 400;
+const LEFT_SIDEBAR_MIN = 410;
 const LEFT_SIDEBAR_MAX = 940;
 const MIN_EDITOR_WIDTH = 360;
 const NOTEBOOK_OPEN_FILE_STORAGE_KEY = 'canvas.notebookOpenFilePath';
@@ -160,7 +160,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const searchParams = useSearchParams();
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(400);
+  const [sidebarWidth, setSidebarWidth] = useState(410);
   const [chatVisible, setChatVisible] = useState(true);
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [terminalVisible, setTerminalVisible] = useState(false);
@@ -760,7 +760,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             <div
               id="onboarding-notebook-fileBrowser"
               style={{ '--desktop-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
-              className="relative z-[80] w-[var(--desktop-sidebar-width)] flex-shrink-0 bg-card border-r border-border"
+              className="relative z-[80] min-w-[410px] w-[var(--desktop-sidebar-width)] flex-shrink-0 bg-card border-r border-border"
             >
               <div className="flex h-full flex-col">
                 <div className="flex-1 min-w-0 overflow-hidden">
