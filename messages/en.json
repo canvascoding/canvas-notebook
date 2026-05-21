@@ -1637,6 +1637,7 @@
     },
     "runDetails": {
       "summary": "Summary",
+      "details": "Details",
       "result": "Run result",
       "noResult": "No run result stored yet."
     },
@@ -1665,7 +1666,6 @@
     },
     "artifacts": {
       "title": "Run history",
-      "openResultFile": "Open result",
       "piSession": "PI session"
     },
     "session": {
