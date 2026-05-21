@@ -1211,6 +1211,19 @@ export default function CanvasAgentChat({
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isResolvingInitialChatState, setIsResolvingInitialChatState] = useState(() => {
+    if (initialPrompt?.trim() || resolvedRequestedSessionId) {
+      return true;
+    }
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    const hasStoredInitialPrompt = Boolean(
+      initialPromptStorageKey && window.sessionStorage.getItem(initialPromptStorageKey),
+    );
+    const hasStoredSession = Boolean(window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY));
+    return hasStoredInitialPrompt || hasStoredSession;
+  });
   const [expandedRunKeys, setExpandedRunKeys] = useState<Set<string>>(() => new Set());
 
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
@@ -2276,9 +2289,6 @@ export default function CanvasAgentChat({
     setInput('');
     setAttachments([]);
 
-    const targetSessionId = await ensureSession(rawText);
-    setOptimisticRuntimePhase('streaming', targetSessionId);
-    
     const isBusySend = action === 'send' && runtimeStatus?.phase !== 'idle';
     const optimisticStatus: ChatMessage['status'] = action === 'follow_up'
       ? 'queued_follow_up'
@@ -2293,6 +2303,10 @@ export default function CanvasAgentChat({
         ? 'steer'
         : undefined;
     const optimisticMessageId = appendOptimisticUserMessage(rawText, messageAttachments, optimisticStatus, optimisticQueueKind, userMessage);
+    setIsResolvingInitialChatState(false);
+
+    const targetSessionId = await ensureSession(rawText);
+    setOptimisticRuntimePhase('streaming', targetSessionId);
     
     const activeFilePath = currentFile?.path ?? null;
 
@@ -3059,6 +3073,7 @@ export default function CanvasAgentChat({
       try {
         await handleControlAction('send', { text: promptText, attachments: promptAttachments });
       } catch (error) {
+        setIsResolvingInitialChatState(false);
         appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
       }
     };
@@ -3112,6 +3127,7 @@ export default function CanvasAgentChat({
     }
     if (userStartedNewChatRef.current) return;
     if (!resolvedRequestedSessionId) return;
+    setIsResolvingInitialChatState(true);
 
     const loadRequestedSession = async () => {
       try {
@@ -3129,6 +3145,8 @@ export default function CanvasAgentChat({
         }
       } catch (err) {
         console.error('Failed to load requested session', err);
+      } finally {
+        setIsResolvingInitialChatState(false);
       }
     };
 
@@ -3149,7 +3167,11 @@ export default function CanvasAgentChat({
     const storedSessionId = typeof window !== 'undefined'
       ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
       : null;
-    if (!storedSessionId) return;
+    if (!storedSessionId) {
+      setIsResolvingInitialChatState(false);
+      return;
+    }
+    setIsResolvingInitialChatState(true);
 
     const restoreSession = async () => {
       try {
@@ -3165,6 +3187,8 @@ export default function CanvasAgentChat({
         }
       } catch (err) {
         console.error('Failed to restore previous session', err);
+      } finally {
+        setIsResolvingInitialChatState(false);
       }
     };
 
@@ -3317,6 +3341,8 @@ export default function CanvasAgentChat({
   const scrollButtonOffset = composerHeight + 16;
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
+  const showInitialChatLoader = messages.length === 0 && isResolvingInitialChatState;
+  const showStarterScreen = messages.length === 0 && !isResolvingInitialChatState;
 
   const toggleRunDisclosure = useCallback((runKey: string) => {
     setExpandedRunKeys((current) => {
@@ -3991,7 +4017,16 @@ export default function CanvasAgentChat({
             overflowAnchor: isAtBottom ? 'auto' : 'none',
           }}
         >
-          {messages.length === 0 && (
+          {showInitialChatLoader && (
+            <div className="flex min-h-full items-center justify-center py-8">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>{t('loadingSessions')}</span>
+              </div>
+            </div>
+          )}
+
+          {showStarterScreen && (
             <div className="flex min-h-full flex-col justify-start py-4 md:justify-center md:py-0">
               <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-5 text-center">
                 <div className="space-y-2">
