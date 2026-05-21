@@ -28,9 +28,15 @@ type ToolkitInfo = {
   logo: string;
   description: string;
   toolsCount: number;
+  triggerCount?: number;
   connected: boolean;
   connectedAccountId?: string;
   connectedAccountStatus?: string;
+};
+
+type TriggerAppInfo = {
+  slug: string;
+  triggerCount?: number;
 };
 
 type ComposioStatus = {
@@ -45,6 +51,7 @@ export function ConnectedAppsPanel() {
 
   const [status, setStatus] = useState<ComposioStatus | null>(null);
   const [toolkits, setToolkits] = useState<ToolkitInfo[]>([]);
+  const [triggerCountsByToolkit, setTriggerCountsByToolkit] = useState<Record<string, number>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [toolkitsLoading, setToolkitsLoading] = useState(false);
@@ -89,6 +96,24 @@ export function ConnectedAppsPanel() {
       // toolkits may fail if not configured, that's ok
     } finally {
       setToolkitsLoading(false);
+    }
+  }, [t]);
+
+  const loadTriggerCounts = useCallback(async () => {
+    try {
+      const response = await fetch('/api/composio/trigger-apps', { credentials: 'include' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || t('loadError'));
+      const apps: TriggerAppInfo[] = Array.isArray(data.apps) ? data.apps : [];
+      const nextCounts: Record<string, number> = {};
+      for (const app of apps) {
+        if (app.slug && typeof app.triggerCount === 'number' && app.triggerCount > 0) {
+          nextCounts[app.slug] = app.triggerCount;
+        }
+      }
+      setTriggerCountsByToolkit(nextCounts);
+    } catch {
+      setTriggerCountsByToolkit({});
     }
   }, [t]);
 
@@ -160,18 +185,20 @@ export function ConnectedAppsPanel() {
     if (status?.configured && status?.apiKeyValid) {
       startTransition(() => {
         void loadToolkits();
+        void loadTriggerCounts();
       });
     }
-  }, [status?.configured, status?.apiKeyValid, loadToolkits]);
+  }, [status?.configured, status?.apiKeyValid, loadToolkits, loadTriggerCounts]);
 
   useEffect(() => {
     const connectedParam = searchParams.get('connected');
     if (connectedParam && status?.configured && status?.apiKeyValid) {
       startTransition(() => {
         void loadToolkits();
+        void loadTriggerCounts();
       });
     }
-  }, [searchParams, status?.configured, status?.apiKeyValid, loadToolkits]);
+  }, [searchParams, status?.configured, status?.apiKeyValid, loadToolkits, loadTriggerCounts]);
 
   const handleConnect = async (toolkitSlug: string) => {
     setActionInProgress(`connect-${toolkitSlug}`);
@@ -186,6 +213,7 @@ export function ConnectedAppsPanel() {
       if (data.noAuth) {
         void loadStatus();
         void loadToolkits();
+        void loadTriggerCounts();
         return;
       }
       if (data.redirectUrl) {
@@ -211,6 +239,7 @@ export function ConnectedAppsPanel() {
       setConnectedPage(1);
       void loadStatus();
       void loadToolkits();
+      void loadTriggerCounts();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('disconnectError'));
     } finally {
@@ -229,6 +258,7 @@ export function ConnectedAppsPanel() {
       if (!response.ok) throw new Error(data.error || t('refreshError'));
       void loadStatus();
       void loadToolkits();
+      void loadTriggerCounts();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('refreshError'));
     } finally {
@@ -258,6 +288,7 @@ export function ConnectedAppsPanel() {
   }
 
   const connectedToolkits = toolkits
+    .map((tk) => ({ ...tk, triggerCount: triggerCountsByToolkit[tk.slug] }))
     .filter((tk) => tk.connected)
     .sort((a, b) => a.name.localeCompare(b.name));
   const filteredConnected = connectedSearchQuery
@@ -270,7 +301,9 @@ export function ConnectedAppsPanel() {
   const pagedConnected = connectedSearchQuery ? filteredConnected : filteredConnected.slice(0, connectedPage * CONNECTED_PAGE_SIZE);
   const hasMoreConnected = !connectedSearchQuery && filteredConnected.length > pagedConnected.length;
   const effectiveAvailableOpen = availableOpen ?? (connectedToolkits.length === 0);
-  const availableToolkits = toolkits.filter((tk) => !tk.connected);
+  const availableToolkits = toolkits
+    .map((tk) => ({ ...tk, triggerCount: triggerCountsByToolkit[tk.slug] }))
+    .filter((tk) => !tk.connected);
   const filteredAvailable = searchQuery
     ? availableToolkits.filter(
         (tk) =>
@@ -535,6 +568,7 @@ export function ConnectedAppsPanel() {
           logo={dialogToolkit.logo}
           connected={dialogToolkit.connected}
           toolsCount={dialogToolkit.toolsCount}
+          hasTriggers={Boolean(triggerCountsByToolkit[dialogToolkit.slug] && triggerCountsByToolkit[dialogToolkit.slug] > 0)}
           onClose={() => setDialogToolkit(null)}
           onConnect={dialogToolkit.connected ? undefined : (slug) => { setDialogToolkit(null); void handleConnect(slug); }}
           onDisconnect={(slug) => { setDialogToolkit(null); void handleDisconnect(slug); }}
