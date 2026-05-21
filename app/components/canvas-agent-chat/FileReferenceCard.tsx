@@ -7,7 +7,7 @@ import { useFileStore } from '@/app/store/file-store';
 import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
 import { useLocale } from 'next-intl';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
-import type { FilePathEntry } from '@/app/lib/chat/extract-file-paths';
+import { normalizeChatFilePath, type FilePathEntry } from '@/app/lib/chat/extract-file-paths';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 
 interface FileReferenceCardProps {
@@ -36,7 +36,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
   }, [paths, fileTree]);
 
   const handleOpen = (filePath: string) => {
-    const normalizedPath = filePath.replace(/^\.\/|\/$/g, '');
+    const normalizedPath = normalizeChatFilePath(filePath);
     if (!normalizedPath) return;
 
     if (pathname.includes('/chat')) {

@@ -59,7 +59,7 @@ import {
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
-import { extractFilePaths, isFilePath } from '@/app/lib/chat/extract-file-paths';
+import { extractFilePaths, isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { useFileStore } from '@/app/store/file-store';
@@ -650,7 +650,7 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
   const [isValid, setIsValid] = React.useState<boolean | null>(null);
 
   React.useEffect(() => {
-    const normalizedPath = href.replace(/^\.\/|\/$/g, '');
+    const normalizedPath = normalizeChatFilePath(href);
     validateFileExists(normalizedPath, fileTree).then((exists) => {
       setIsValid(exists);
     });
@@ -660,7 +660,7 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
     e.preventDefault();
     e.stopPropagation();
 
-    const normalizedPath = href.replace(/^\.\/|\/$/g, '');
+    const normalizedPath = normalizeChatFilePath(href);
 
     if (!normalizedPath) return;
 
