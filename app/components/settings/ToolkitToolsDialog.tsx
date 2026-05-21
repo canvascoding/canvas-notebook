@@ -22,6 +22,7 @@ type ToolkitToolsDialogProps = {
   logo: string;
   connected: boolean;
   toolsCount: number;
+  hasTriggers: boolean;
   onClose: () => void;
   onConnect?: (slug: string) => void;
   onDisconnect?: (slug: string) => void;
@@ -104,6 +105,7 @@ export function ToolkitToolsDialog({
   logo,
   connected,
   toolsCount,
+  hasTriggers,
   onClose,
   onConnect,
   onDisconnect,
@@ -155,6 +157,21 @@ export function ToolkitToolsDialog({
     });
   }, [loadTools]);
 
+  const loadActiveTriggers = useCallback(async () => {
+    const activeResponse = await fetch('/api/composio/triggers', { credentials: 'include' });
+    const activePayload = await readJsonResponse(activeResponse, 'Active triggers fetch');
+    if (!activeResponse.ok) throw new Error(stringValue(activePayload.error) || 'Failed to load active triggers');
+
+    const activeData = asRecord(activePayload.data);
+    const rawTriggers: unknown[] = Array.isArray(activeData.triggers) ? activeData.triggers : [];
+    setActiveTriggers(
+      rawTriggers
+        .map(normalizeActiveTrigger)
+        .filter((entry): entry is ActiveTriggerInfo => Boolean(entry))
+        .filter((entry) => entry.toolkitSlug === slug || !entry.toolkitSlug),
+    );
+  }, [slug]);
+
   const loadTriggers = useCallback(async () => {
     if (!connected) {
       setTriggerTypes([]);
@@ -165,30 +182,22 @@ export function ToolkitToolsDialog({
     setTriggersLoading(true);
     setTriggersError(null);
     try {
-      const [typesResponse, activeResponse] = await Promise.all([
-        fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(slug)}`, { credentials: 'include' }),
-        fetch('/api/composio/triggers', { credentials: 'include' }),
-      ]);
-      const [typesPayload, activePayload] = await Promise.all([
-        readJsonResponse(typesResponse, 'Trigger types fetch'),
-        readJsonResponse(activeResponse, 'Active triggers fetch'),
-      ]);
+      const typesResponse = await fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(slug)}`, { credentials: 'include' });
+      const typesPayload = await readJsonResponse(typesResponse, 'Trigger types fetch');
       if (!typesResponse.ok) throw new Error(stringValue(typesPayload.error) || 'Failed to load trigger types');
-      if (!activeResponse.ok) throw new Error(stringValue(activePayload.error) || 'Failed to load active triggers');
 
       const typesData = asRecord(typesPayload.data);
-      const activeData = asRecord(activePayload.data);
       const rawTypes: unknown[] = Array.isArray(typesData.triggerTypes) ? typesData.triggerTypes : [];
-      const rawTriggers: unknown[] = Array.isArray(activeData.triggers) ? activeData.triggers : [];
       const normalizedTypes = rawTypes.map(normalizeTriggerType).filter((entry): entry is TriggerTypeInfo => Boolean(entry));
       setTriggerTypes(normalizedTypes);
-      setActiveTriggers(
-        rawTriggers
-          .map(normalizeActiveTrigger)
-          .filter((entry): entry is ActiveTriggerInfo => Boolean(entry))
-          .filter((entry) => entry.toolkitSlug === slug || !entry.toolkitSlug),
-      );
       setSelectedTriggerSlug((current) => current || normalizedTypes[0]?.slug || '');
+
+      try {
+        await loadActiveTriggers();
+      } catch (activeError) {
+        console.error('[Composio Triggers UI] Failed to load active triggers', { toolkit: slug, error: activeError });
+        setActiveTriggers([]);
+      }
 
       try {
         const subResponse = await fetch('/api/composio/webhook/subscription', { credentials: 'include' });
@@ -207,15 +216,15 @@ export function ToolkitToolsDialog({
     } finally {
       setTriggersLoading(false);
     }
-  }, [connected, slug]);
+  }, [connected, loadActiveTriggers, slug]);
 
   useEffect(() => {
-    if (activeTab === 'triggers') {
+    if (activeTab === 'triggers' && hasTriggers) {
       startTransition(() => {
         void loadTriggers();
       });
     }
-  }, [activeTab, loadTriggers]);
+  }, [activeTab, hasTriggers, loadTriggers]);
 
   const searchTools = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -290,6 +299,7 @@ export function ToolkitToolsDialog({
   const statusText = connected
     ? t('toolsAvailableConnected')
     : t('toolsAvailableNotConnected');
+  const visibleTab = hasTriggers ? activeTab : 'tools';
   const selectedTrigger = useMemo(
     () => triggerTypes.find((trigger) => trigger.slug === selectedTriggerSlug) || null,
     [selectedTriggerSlug, triggerTypes],
@@ -347,7 +357,7 @@ export function ToolkitToolsDialog({
       });
       const data = await readJsonResponse(response, 'Update trigger fetch');
       if (!response.ok) throw new Error(stringValue(data.error) || 'Failed to update trigger');
-      await loadTriggers();
+      await loadActiveTriggers();
     } catch (err) {
       console.error('[Composio Triggers UI] Failed to update trigger', { toolkit: slug, triggerId: trigger.triggerId, status, error: err });
       setTriggersError(err instanceof Error ? err.message : 'Failed to update trigger');
@@ -366,7 +376,7 @@ export function ToolkitToolsDialog({
       });
       const data = await readJsonResponse(response, 'Delete trigger fetch');
       if (!response.ok) throw new Error(stringValue(data.error) || 'Failed to delete trigger');
-      await loadTriggers();
+      await loadActiveTriggers();
     } catch (err) {
       console.error('[Composio Triggers UI] Failed to delete trigger', { toolkit: slug, triggerId: trigger.triggerId, error: err });
       setTriggersError(err instanceof Error ? err.message : 'Failed to delete trigger');
@@ -425,11 +435,18 @@ export function ToolkitToolsDialog({
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'tools' | 'triggers')} className="min-h-0 flex-1 gap-0">
+        <Tabs
+          value={visibleTab}
+          onValueChange={(value) => {
+            if (value === 'triggers' && !hasTriggers) return;
+            setActiveTab(value as 'tools' | 'triggers');
+          }}
+          className="min-h-0 flex-1 gap-0"
+        >
           <div className="border-b border-border px-4 py-3">
             <TabsList className="w-full sm:w-auto">
               <TabsTrigger value="tools">Tools</TabsTrigger>
-              <TabsTrigger value="triggers">Triggers</TabsTrigger>
+              {hasTriggers && <TabsTrigger value="triggers">Triggers</TabsTrigger>}
             </TabsList>
           </div>
 
@@ -506,6 +523,7 @@ export function ToolkitToolsDialog({
             </div>
           </TabsContent>
 
+          {hasTriggers && (
           <TabsContent value="triggers" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             {!connected ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Connect {name} to create webhook automations.</p>
@@ -654,6 +672,7 @@ export function ToolkitToolsDialog({
               </div>
             )}
           </TabsContent>
+          )}
         </Tabs>
 
         <div className="border-t border-border px-4 py-2">
