@@ -2055,6 +2055,24 @@ export default function CanvasAgentChat({
       currentAssistantIdRef.current = existingId;
       return existingId;
     }
+
+    const activeAssistantId = currentAssistantIdRef.current;
+    if (activeAssistantId) {
+      setMessages((prev) => prev.map((chatMessage) => {
+        if (chatMessage.id !== activeAssistantId || chatMessage.role !== 'assistant') {
+          return chatMessage;
+        }
+
+        const nextContent = extractPiMessageText(message);
+        return {
+          ...chatMessage,
+          content: nextContent || chatMessage.content,
+          status: 'sending',
+          piMessage: message || chatMessage.piMessage,
+        };
+      }));
+      return activeAssistantId;
+    }
     
     const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     currentAssistantIdRef.current = assistantId;
@@ -2303,14 +2321,14 @@ export default function CanvasAgentChat({
         ? 'steer'
         : undefined;
     const optimisticMessageId = appendOptimisticUserMessage(rawText, messageAttachments, optimisticStatus, optimisticQueueKind, userMessage);
+    const optimisticAssistantId = action === 'send' && !isBusySend ? createAssistantBubble() : null;
     setIsResolvingInitialChatState(false);
 
-    const targetSessionId = await ensureSession(rawText);
-    setOptimisticRuntimePhase('streaming', targetSessionId);
-    
     const activeFilePath = currentFile?.path ?? null;
 
     try {
+      const targetSessionId = await ensureSession(rawText);
+      setOptimisticRuntimePhase('streaming', targetSessionId);
       await ensureSessionSubscribed(targetSessionId);
       const payload = action === 'send'
         ? await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
@@ -2331,11 +2349,17 @@ export default function CanvasAgentChat({
       setMessages((prev) => prev.map((message) => (
         message.id === optimisticMessageId ? { ...message, status: 'error' as const } : message
       )));
+      if (optimisticAssistantId) {
+        setMessages((prev) => prev.filter((message) => message.id !== optimisticAssistantId));
+        if (currentAssistantIdRef.current === optimisticAssistantId) {
+          currentAssistantIdRef.current = null;
+        }
+      }
       throw error;
     }
 
     return;
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, runtimeStatus?.phase, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, runtimeStatus?.phase, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -3127,6 +3151,7 @@ export default function CanvasAgentChat({
     }
     if (userStartedNewChatRef.current) return;
     if (!resolvedRequestedSessionId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsResolvingInitialChatState(true);
 
     const loadRequestedSession = async () => {
@@ -3168,6 +3193,7 @@ export default function CanvasAgentChat({
       ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
       : null;
     if (!storedSessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsResolvingInitialChatState(false);
       return;
     }
@@ -4165,8 +4191,9 @@ export default function CanvasAgentChat({
                     : 'border-border bg-background/80 text-muted-foreground';
 
             const title = isUser ? t('you') : isTool ? (message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
+            const rawBodyContent = contentToString(message.content);
             const bodyContent =
-              contentToString(message.content) ||
+              rawBodyContent ||
               (message.status === 'queued_follow_up'
                 ? t('queuedAfterCurrentRun')
                 : message.status === 'queued_steering'
@@ -4233,10 +4260,25 @@ export default function CanvasAgentChat({
                       {isUser ? (
                         <MarkdownMessage content={bodyContent} variant="user" onMediaClick={onMediaClick} />
                       ) : isAssistant ? (
-                        isStreamingAssistant ? (
+                        isStreamingAssistant && !rawBodyContent ? (
                           <StreamingMessageIndicator />
                         ) : (
-                          <MarkdownMessage content={bodyContent} variant="assistant" onMediaClick={onMediaClick} />
+                          <>
+                            <MarkdownMessage content={bodyContent} variant="assistant" onMediaClick={onMediaClick} />
+                            {isStreamingAssistant ? (
+                              <div className="mt-2 inline-flex items-center gap-1 text-muted-foreground/70">
+                                {[0, 160, 320].map((delay) => (
+                                  <span
+                                    key={delay}
+                                    aria-hidden="true"
+                                    className="chat-streaming-dot h-1 w-1 rounded-full bg-current"
+                                    style={{ animationDelay: `${delay}ms` }}
+                                  />
+                                ))}
+                                <span className="sr-only">{t('assistantStreamingSr')}</span>
+                              </div>
+                            ) : null}
+                          </>
                         )
                       ) : (
                         <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
