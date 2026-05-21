@@ -99,6 +99,8 @@ function getWebhookPromptContext(run: AutomationRunRecord) {
   if (!webhook || typeof webhook !== 'object' || Array.isArray(webhook)) return null;
   const record = webhook as Record<string, unknown>;
   return {
+    provider: typeof record.provider === 'string' ? record.provider : 'composio',
+    source: typeof record.source === 'string' ? record.source : 'unknown',
     triggerSlug: typeof record.triggerSlug === 'string' ? record.triggerSlug : 'unknown',
     triggerId: typeof record.triggerId === 'string' ? record.triggerId : 'unknown',
     toolkitSlug: typeof record.toolkitSlug === 'string' ? record.toolkitSlug : 'unknown',
