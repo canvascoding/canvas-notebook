@@ -4,8 +4,7 @@ type BuildAutomationPromptInput = Pick<
   AutomationJobRecord,
   'name' | 'workspaceContextPaths' | 'prompt' | 'preferredSkill'
 > & {
-  effectiveTargetOutputPath: string;
-  runArtifactDir?: string | null;
+  effectiveTargetOutputPath?: string | null;
   webhookContext?: {
     triggerSlug: string;
     triggerId: string;
@@ -33,15 +32,15 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
     sections.push('Relevant workspace paths:\n- none selected');
   }
 
-  sections.push(`If you create workspace deliverables, write them to: ${input.effectiveTargetOutputPath}`);
+  if (input.effectiveTargetOutputPath) {
+    sections.push(`If you create workspace deliverables, write them to: ${input.effectiveTargetOutputPath}`);
+  } else {
+    sections.push('Do not create workspace files unless the configured task explicitly requires a file. Your final answer is stored in the automation run record.');
+  }
   if (input.preferredSkill && input.preferredSkill !== 'auto') {
     sections.push(`Preferred skill: /${input.preferredSkill}`);
   }
-  sections.push('Store logs and run metadata in the automation run folder automatically; do not duplicate them unless useful.');
-
-  if (input.runArtifactDir) {
-    sections.push(`Automation run artifact folder: ${input.runArtifactDir}`);
-  }
+  sections.push('Run logs and metadata are stored automatically in the database. Do not create separate run log or metadata files in the workspace.');
 
   if (input.webhookContext) {
     const eventJson = JSON.stringify(input.webhookContext.data, null, 2);

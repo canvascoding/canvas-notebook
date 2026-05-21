@@ -5,14 +5,14 @@ import type { Api, Provider } from '@mariozechner/pi-ai';
 
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
-import { createDirectory, writeFile } from '@/app/lib/filesystem/workspace-files';
+import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { resolveActivePiModel } from '@/app/lib/pi/model-resolver';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { savePiSession } from '@/app/lib/pi/session-store';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 
-import { getEffectiveAutomationTargetOutputPath, slugifyAutomationName } from './paths';
+import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
 import { executeHeartbeat } from './heartbeat';
 import {
@@ -76,17 +76,6 @@ function getAssistantError(messages: AgentMessage[]): string | null {
   }
 
   return null;
-}
-
-function buildOutputPaths(job: AutomationJobRecord, run: AutomationRunRecord) {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const outputDir = path.posix.join('automationen', slugifyAutomationName(job.name), 'runs', `${timestamp}-${run.id}`);
-
-  return {
-    outputDir,
-    resultPath: path.posix.join(outputDir, 'result.md'),
-    errorPath: path.posix.join(outputDir, 'error.txt'),
-  };
 }
 
 function calculateRetryAt(attemptNumber: number): Date | null {
@@ -160,7 +149,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
   console.log(`[Automationen] Starting run ${runId} for job "${job.name}" (type=${job.jobType})`);
 
-  const outputPaths = buildOutputPaths(job, run);
   const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
 
   if (job.jobType === 'heartbeat') {
@@ -169,11 +157,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     const heartbeatDuration = Date.now() - runStartTime;
 
     await markAutomationRunStarted(run.id, {
-      outputDir: outputPaths.outputDir,
+      outputDir: null,
       targetOutputPath: job.targetOutputPath,
-      effectiveTargetOutputPath: effectiveTargetOutputPath || '',
+      effectiveTargetOutputPath: effectiveTargetOutputPath || null,
       logPath: '',
-      resultPath: outputPaths.resultPath,
+      resultPath: null,
       piSessionId: heartbeatResult.sessionIds[0] || `heartbeat-${run.id}`,
       eventsLog: [],
     });
@@ -197,8 +185,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     return;
   }
 
-  await createDirectory(outputPaths.outputDir);
-  await createDirectory(path.dirname(effectiveTargetOutputPath));
+  if (effectiveTargetOutputPath) {
+    const targetParentDir = path.posix.dirname(effectiveTargetOutputPath);
+    if (targetParentDir && targetParentDir !== '.') {
+      await createDirectory(targetParentDir);
+    }
+  }
 
   const promptText = buildAutomationPrompt({
     name: job.name,
@@ -206,7 +198,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     prompt: job.prompt,
     preferredSkill: job.preferredSkill,
     effectiveTargetOutputPath,
-    runArtifactDir: outputPaths.outputDir,
     webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
   });
 
@@ -243,11 +234,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   };
 
   const startedRun = await markAutomationRunStarted(run.id, {
-    outputDir: outputPaths.outputDir,
+    outputDir: null,
     targetOutputPath: job.targetOutputPath,
-    effectiveTargetOutputPath,
+    effectiveTargetOutputPath: effectiveTargetOutputPath || null,
     logPath: '',
-    resultPath: outputPaths.resultPath,
+    resultPath: null,
     piSessionId,
     eventsLog: [],
   });
@@ -286,7 +277,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     }
 
     const assistantText = extractAssistantText(finalMessages);
-    await writeFile(outputPaths.resultPath, assistantText || 'Run completed without assistant text output.');
     await savePiSession(
       piSessionId,
       job.createdByUserId,
@@ -299,6 +289,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
     await markAutomationRunFinished(run.id, {
       status: 'success',
+      resultText: assistantText || 'Run completed without assistant text output.',
       eventsLog: events,
       metadataJson: {
         provider,
@@ -316,9 +307,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     const persistedMessages = finalMessages.length > 0
       ? finalMessages
       : [promptMessage, createAutomationErrorMessage(message, model.provider, model.id, model.api)];
+    const failureResultText = `Automation failed: ${message}`;
 
-    await writeFile(outputPaths.resultPath, `Automation failed: ${message}\n`);
-    await writeFile(outputPaths.errorPath, message);
     await savePiSession(
       piSessionId,
       job.createdByUserId,
@@ -338,7 +328,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         error: message,
         targetOutputPath: job.targetOutputPath,
         effectiveTargetOutputPath,
-      });
+      }, failureResultText);
       const duration = Date.now() - runStartTime;
       console.warn(`[Automationen] Run ${runId} failed, scheduling retry #${run.attemptNumber} at ${retryAt.toISOString()} (duration=${duration}ms): ${message}`);
       return;
@@ -347,6 +337,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     await markAutomationRunFinished(run.id, {
       status: 'failed',
       errorMessage: message,
+      resultText: failureResultText,
       eventsLog: events,
       metadataJson: {
         provider,

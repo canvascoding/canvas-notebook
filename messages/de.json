@@ -1496,8 +1496,8 @@
   "automationen": {
     "title": "Automationen",
     "intro": {
-      "prefix": "Plane wiederkehrende Agent-Aufträge für denselben Workspace. Run-Artefakte landen unter ",
-      "suffix": ", fachliche Ergebnisse optional in einem eigenen Zielordner."
+      "prefix": "Plane wiederkehrende Agent-Aufträge für denselben Workspace. Die Laufhistorie liegt in der Datenbank; Workspace-Dateien entstehen nur bei gesetztem Zielpfad oder wenn die Aufgabe sie verlangt.",
+      "suffix": ""
     },
     "overview": {
       "title": "Übersicht",
@@ -1537,11 +1537,13 @@
     },
     "output": {
       "title": "Wo sollen die Ergebnisse gespeichert werden?",
-      "description": "Optional. Leer gelassen nutzt die Automation automatisch einen Zielordner pro Job.",
+      "description": "Optional. Leer gelassen bleiben Run-Ergebnisse in der Automation-Historie, außer die Aufgabe legt ausdrücklich Workspace-Dateien an.",
       "pickInWorkspace": "Im Workspace wählen",
       "useDefault": "Standard",
       "suggestedPath": "Vorschlag",
-      "effectivePath": "Effektiver Zielordner"
+      "effectivePath": "Effektiver Zielordner",
+      "placeholder": "Optionaler Workspace-Pfad",
+      "none": "Kein Workspace-Ziel"
     },
     "schedule": {
       "title": "Wann soll das laufen?",
@@ -1633,7 +1635,9 @@
       "description": "Optional. Der Agent bekommt diese Skill-Präferenz bei jedem Lauf."
     },
     "runDetails": {
-      "summary": "Übersicht"
+      "summary": "Übersicht",
+      "result": "Run-Ergebnis",
+      "noResult": "Noch kein Run-Ergebnis gespeichert."
     },
     "runs": {
       "title": "Laufhistorie",
@@ -1654,13 +1658,13 @@
       "empty": "Noch kein Log vorhanden."
     },
     "results": {
-      "title": "Ergebnisordner",
+      "title": "Workspace-Ziel",
       "configured": "Konfiguriert",
       "default": "Standard"
     },
     "artifacts": {
-      "title": "Run-Artefakte",
-      "openResultFile": "Ergebnisdatei öffnen",
+      "title": "Laufhistorie",
+      "openResultFile": "Ergebnis öffnen",
       "piSession": "PI Session"
     },
     "session": {

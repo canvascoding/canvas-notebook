@@ -81,6 +81,7 @@ export type AutomationRunRecord = {
   piSessionId: string | null;
   piSessionTitle: string | null;
   hasPersistedSession: boolean;
+  resultText: string | null;
   createdAt: string;
   // Metadata stored in DB instead of files
   eventsLog: string[] | null; // Parsed from JSON string

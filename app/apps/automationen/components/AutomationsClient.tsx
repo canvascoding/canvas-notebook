@@ -30,7 +30,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automationen/components/WorkspaceDirectoryPickerDialog';
-import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
+import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import type {
   AutomationJobRecord,
   AutomationRunRecord,
@@ -447,10 +447,6 @@ function formatTriggerType(triggerType: AutomationTriggerType, translate: (key: 
   return translate(`triggerType.${triggerType}`);
 }
 
-function toNotebookUrl(filePath: string) {
-  return `/notebook?path=${encodeURIComponent(filePath)}`;
-}
-
 function toChatUrl(sessionId: string) {
   return `/chat?session=${encodeURIComponent(sessionId)}`;
 }
@@ -598,7 +594,6 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     return { active, integration, needsAttention, paused, running };
   }, [jobs]);
 
-  const draftDefaultTargetOutputPath = useMemo(() => getDefaultAutomationTargetOutputPath(draft.name || 'automation'), [draft.name]);
   const draftEffectiveTargetOutputPath = useMemo(
     () => getEffectiveAutomationTargetOutputPath({ name: draft.name || 'automation', targetOutputPath: draft.targetOutputPath }),
     [draft.name, draft.targetOutputPath],
@@ -1120,8 +1115,6 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
           </div>
           <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
             {t('intro.prefix')}
-            <span className="font-mono">automationen/</span>
-            {t('intro.suffix')}
           </p>
         </div>
         <div className="flex gap-2">
@@ -1267,8 +1260,8 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                           {t('output.pickInWorkspace')}
                         </Button>
                       </div>
-                      <input data-testid="automation-target-output-path" className="h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-xs" value={draft.targetOutputPath} onChange={(event) => setDraft((current) => ({ ...current, targetOutputPath: event.target.value }))} placeholder={draftDefaultTargetOutputPath} />
-                      <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath}</span></p>
+                      <input data-testid="automation-target-output-path" className="h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-xs" value={draft.targetOutputPath} onChange={(event) => setDraft((current) => ({ ...current, targetOutputPath: event.target.value }))} placeholder={t('output.placeholder')} />
+                      <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath || t('output.none')}</span></p>
                     </div>
                   </div>
                   {selectedJob.jobType === 'webhook' ? (
@@ -1327,7 +1320,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                   <span className="text-muted-foreground">{t('schedule.fields.kind')}</span>
                   <span className="max-w-[12rem] truncate text-right text-xs">{describeFriendlyScheduleLocalized(selectedJob.schedule, t, weekdayLabels)}</span>
                   <span className="text-muted-foreground">{t('results.title')}</span>
-                  <span className="max-w-[12rem] truncate text-right font-mono text-xs">{selectedJob.effectiveTargetOutputPath}</span>
+                  <span className="max-w-[12rem] truncate text-right font-mono text-xs">{selectedJob.effectiveTargetOutputPath || t('output.none')}</span>
                 </div>
               ) : null}
               <div className="space-y-2" data-testid="automation-run-list">
@@ -1611,16 +1604,14 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
               ) : null}
               <div className="rounded-md border bg-muted/20 p-3 text-sm">
                 <p className="font-medium">{t('results.title')}</p>
-                <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{selectedRun?.effectiveTargetOutputPath || selectedJob?.effectiveTargetOutputPath || t('noneYet')}</p>
+                <p className="mt-2 break-all font-mono text-xs text-muted-foreground" data-testid="automation-workspace-target">{selectedRun?.effectiveTargetOutputPath || selectedJob?.effectiveTargetOutputPath || t('output.none')}</p>
               </div>
-              {selectedRun?.resultPath ? (
-                <Link href={toNotebookUrl(selectedRun.resultPath)} className="inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline">
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  {t('artifacts.openResultFile')}
-                </Link>
-              ) : null}
+              <div className="rounded-md border bg-background p-3 text-sm">
+                <p className="font-medium">{t('runDetails.result')}</p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground" data-testid="automation-result-text">{selectedRun?.resultText || t('runDetails.noResult')}</p>
+              </div>
               {selectedRun?.piSessionId ? (
-                <Link href={toChatUrl(selectedRun.piSessionId)} className="inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline">
+                <Link href={toChatUrl(selectedRun.piSessionId)} className="inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline" data-testid="automation-open-chat-session">
                   <MessageSquare className="mr-2 h-4 w-4" />
                   {t('session.openChat')}
                 </Link>

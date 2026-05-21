@@ -1497,8 +1497,8 @@
   "automationen": {
     "title": "Automations",
     "intro": {
-      "prefix": "Plan recurring agent jobs for the same workspace. Run artifacts are stored under ",
-      "suffix": ", with business outputs optionally written to a dedicated target folder."
+      "prefix": "Plan recurring agent jobs for the same workspace. Run history is stored in the database; workspace files are created only when a target path or task requires them.",
+      "suffix": ""
     },
     "overview": {
       "title": "Overview",
@@ -1538,11 +1538,13 @@
     },
     "output": {
       "title": "Where should the results be stored?",
-      "description": "Optional. If left empty, the automation automatically uses one target folder per job.",
+      "description": "Optional. If left empty, run results stay in the automation history unless the task explicitly creates workspace files.",
       "pickInWorkspace": "Choose in workspace",
       "useDefault": "Default",
       "suggestedPath": "Suggestion",
-      "effectivePath": "Effective target folder"
+      "effectivePath": "Effective target folder",
+      "placeholder": "Optional workspace path",
+      "none": "No workspace target"
     },
     "schedule": {
       "title": "When should this run?",
@@ -1634,7 +1636,9 @@
       "description": "Optional. The agent receives this skill preference for every run."
     },
     "runDetails": {
-      "summary": "Summary"
+      "summary": "Summary",
+      "result": "Run result",
+      "noResult": "No run result stored yet."
     },
     "runs": {
       "title": "Run history",
@@ -1655,13 +1659,13 @@
       "empty": "No log available yet."
     },
     "results": {
-      "title": "Result folder",
+      "title": "Workspace target",
       "configured": "Configured",
       "default": "Default"
     },
     "artifacts": {
-      "title": "Run artifacts",
-      "openResultFile": "Open result file",
+      "title": "Run history",
+      "openResultFile": "Open result",
       "piSession": "PI session"
     },
     "session": {

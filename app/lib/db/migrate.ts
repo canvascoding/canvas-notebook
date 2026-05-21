@@ -179,6 +179,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       result_path TEXT,
       error_message TEXT,
       pi_session_id TEXT,
+      result_text TEXT,
       events_log TEXT,
       metadata_json TEXT,
       created_at INTEGER NOT NULL,
@@ -542,6 +543,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     effective_target_output_path: 'TEXT',
     events_log: 'TEXT',
     metadata_json: 'TEXT',
+    result_text: 'TEXT',
   });
 
   addColumns(sqlite, 'studio_generation_outputs', {

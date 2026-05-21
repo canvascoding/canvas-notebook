@@ -10,8 +10,8 @@ export function slugifyAutomationName(value: string): string {
   return slugify(value);
 }
 
-export function getDefaultAutomationTargetOutputPath(name: string): string {
-  return `automationen/${slugifyAutomationName(name)}/output`;
+export function getDefaultAutomationTargetOutputPath(_name: string): string {
+  return '';
 }
 
 export function getEffectiveAutomationTargetOutputPath(input: {
@@ -19,5 +19,5 @@ export function getEffectiveAutomationTargetOutputPath(input: {
   targetOutputPath?: string | null;
 }): string {
   const candidate = typeof input.targetOutputPath === 'string' ? input.targetOutputPath.trim() : '';
-  return candidate || getDefaultAutomationTargetOutputPath(input.name);
+  return candidate || '';
 }
