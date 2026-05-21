@@ -1032,7 +1032,7 @@ function RunStepItem({
   const preview = message.previewText || truncatePreview(bodyContent || t('noOutputYet'));
   const isMinimal = toolVerbosity === 'minimal';
 
-  if (isTool && toolVerbosity === 'verbose') {
+  if (isTool && toolVerbosity !== 'minimal') {
     return (
       <div data-testid="chat-run-step" className="min-w-0 overflow-hidden">
         <ToolCallPill message={message} onMediaClick={onMediaClick} />

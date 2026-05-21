@@ -372,7 +372,7 @@ test.describe('PI Chat E2E', () => {
     });
 
     await mockEmptyChatBootstrap(page);
-    await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
+    await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'subtle'));
     await page.goto('/chat');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
