@@ -97,4 +97,26 @@ assert.match(prompt, /If you create workspace deliverables, write them to: repor
 assert.match(prompt, /Preferred skill: \/pdf/);
 assert.match(prompt, /Run logs and metadata are stored automatically in the database/);
 
+const composioPrompt = buildAutomationPrompt({
+  name: 'Gmail Follow-up',
+  workspaceContextPaths: [],
+  prompt: 'Handle the incoming message.',
+  preferredSkill: 'auto',
+  effectiveTargetOutputPath: null,
+  webhookContext: {
+    provider: 'composio',
+    source: 'managed',
+    triggerSlug: 'GMAIL_NEW_MESSAGE',
+    triggerId: 'trigger-123',
+    toolkitSlug: 'gmail',
+    eventId: 'event-123',
+    timestamp: '2026-05-21T10:00:00.000Z',
+    data: { subject: 'Hello' },
+  },
+});
+
+assert.match(composioPrompt, /This run was started by a Composio trigger/);
+assert.match(composioPrompt, /Composio integration\/toolkit used: gmail/);
+assert.match(composioPrompt, /Webhook source: managed/);
+
 console.log('automation schedule tests passed');
