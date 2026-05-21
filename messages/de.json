@@ -1636,6 +1636,7 @@
     },
     "runDetails": {
       "summary": "Übersicht",
+      "details": "Details",
       "result": "Run-Ergebnis",
       "noResult": "Noch kein Run-Ergebnis gespeichert."
     },
@@ -1664,7 +1665,6 @@
     },
     "artifacts": {
       "title": "Laufhistorie",
-      "openResultFile": "Ergebnis öffnen",
       "piSession": "PI Session"
     },
     "session": {

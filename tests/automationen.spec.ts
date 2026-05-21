@@ -56,7 +56,8 @@ test.describe('Automationen UI', () => {
     await page.getByTestId('automation-interval-every').fill('1');
     await page.getByTestId('automation-save').click();
 
-    await expect(page.getByTestId('automation-job-list')).toContainText(uniqueName, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automationen\/job-/, { timeout: 15000 });
+    await expect(page.getByText(uniqueName).first()).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId('automation-run-now')).toBeEnabled();
     await expect
       .poll(async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
@@ -71,8 +72,7 @@ test.describe('Automationen UI', () => {
       .poll(
         async () => {
           await page.reload();
-          await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automationen$/);
-          await page.getByText(uniqueName).click();
+          await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automationen\/job-/);
           const firstRun = page.getByTestId('automation-run-list').locator('button[data-testid^="automation-run-"]').first();
           return ((await firstRun.textContent()) || '').toLowerCase();
         },
@@ -80,27 +80,14 @@ test.describe('Automationen UI', () => {
       )
       .toMatch(/running|success|failed|retry_scheduled/);
 
+    await page.getByTestId('automation-run-list').locator('button[data-testid^="automation-run-"]').first().click();
     await expect(page.getByText('Logs', { exact: true })).toBeVisible();
-    await expect(page.getByTestId('automation-job-list-scroll')).toBeVisible();
-    await expect
-      .poll(async () =>
-        page.evaluate(() => {
-          const element = document.querySelector('[data-testid="automation-job-list-scroll"]');
-          if (!element) return null;
-          const rect = element.getBoundingClientRect();
-          return Math.round(rect.height);
-        }),
-      )
-      .toBeLessThan(900);
     await expect(page.getByTestId('automation-workspace-target')).toHaveText(targetDir);
     await expect(page.getByTestId('automation-result-text')).toBeVisible();
+    await page.getByText('Logs', { exact: true }).click();
     await expect(page.getByTestId('automation-log-scroll')).toBeVisible();
-    await page.getByTestId('automation-log-toggle').click();
-    await expect(page.getByTestId('automation-log-scroll')).toBeHidden();
-    await page.getByTestId('automation-log-toggle').click();
-    await expect(page.getByTestId('automation-log-scroll')).toBeVisible();
+    await page.getByText('Run-Chat', { exact: true }).click();
     await expect(page.getByTestId('automation-open-chat-session')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByTestId('automation-continue-chat-session')).toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId('automation-session-scroll')).toBeVisible({ timeout: 30000 });
     await expect
       .poll(async () => page.getByTestId('automation-session-message').count(), { timeout: 30000 })

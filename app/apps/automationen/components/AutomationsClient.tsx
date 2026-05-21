@@ -5,6 +5,7 @@
 import { useEffect, useEffectEvent, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -52,6 +53,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import { Link, useRouter } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 
@@ -512,6 +514,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const t = useTranslations('automationen');
   const locale = useLocale();
   const router = useRouter();
+  const isDetailPage = Boolean(initialJobId);
   const [jobs, setJobs] = useState<AutomationJobRecord[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [draft, setDraft] = useState<JobDraft>(() => defaultDraft());
@@ -593,6 +596,13 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
 
     return { active, integration, needsAttention, paused, running };
   }, [jobs]);
+  const overviewStats = useMemo(() => ({
+    total: jobs.length,
+    active: jobs.filter((job) => job.status === 'active').length,
+    paused: jobs.filter((job) => job.status === 'paused').length,
+    running: automationGroups.running.length,
+    failed: automationGroups.needsAttention.length,
+  }), [automationGroups.needsAttention.length, automationGroups.running.length, jobs]);
 
   const draftEffectiveTargetOutputPath = useMemo(
     () => getEffectiveAutomationTargetOutputPath({ name: draft.name || 'automation', targetOutputPath: draft.targetOutputPath }),
@@ -623,7 +633,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       setJobs(nextJobs);
 
       if (!options?.keepSelection) {
-        const nextSelected = (initialJobId ? nextJobs.find((job) => job.id === initialJobId) : null) || nextJobs[0] || null;
+        const nextSelected = initialJobId ? nextJobs.find((job) => job.id === initialJobId) || null : null;
         setSelectedJobId(nextSelected?.id || null);
         setDraft(nextSelected ? mapJobToDraft(nextSelected) : defaultDraft());
       } else if (selectedJobId) {
@@ -1128,18 +1138,207 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
         </div>
       </div>
 
-      <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
-        <Card className="min-w-0 overflow-hidden xl:h-[calc(100vh-170px)]">
-          <CardContent className="flex h-full min-h-0 flex-col gap-4 p-3 sm:p-4">
-            <div className="flex items-center justify-between gap-3 border-b pb-3">
-              <div>
-                <p className="text-sm font-medium">{t('overview.title')}</p>
-                <p className="text-xs text-muted-foreground">{jobs.length} {t('overview.total').toLowerCase()}</p>
+      {isDetailPage ? (
+        selectedJob ? (
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <Button variant="outline" size="sm" asChild className="w-fit">
+                <Link href="/automationen">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  {t('overview.title')}
+                </Link>
+              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => void handleRunNow()} disabled={isRunningNow} data-testid="automation-run-now">
+                  {isRunningNow ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                  {t('actions.runNow')}
+                </Button>
+                <Button onClick={() => void handleSave()} disabled={isSaving} data-testid="automation-save">
+                  {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  {t('actions.save')}
+                </Button>
               </div>
-              {isLoadingJobs ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
             </div>
-            <ScrollArea className="min-h-0 flex-1" data-testid="automation-job-list-scroll">
-              <div className="space-y-5 pr-2" data-testid="automation-job-list">
+
+            <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]">
+              <Card className="min-w-0 overflow-hidden">
+                <CardHeader className="border-b">
+                  <div className="min-w-0">
+                    <CardTitle className="truncate text-xl">{selectedJob.name}</CardTitle>
+                    <CardDescription className="mt-2">{t('editor.description')}</CardDescription>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-5 p-4 sm:p-6">
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
+                    <label className="flex min-w-0 flex-col gap-1 text-sm">
+                      <span className="text-xs text-muted-foreground">{t('editor.fields.name')}</span>
+                      <input data-testid="automation-name" className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-1 text-sm">
+                      <span className="text-xs text-muted-foreground">{t('editor.fields.status')}</span>
+                      <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as JobDraft['status'] }))}>
+                        <option value="active">{t('jobStatus.active')}</option>
+                        <option value="paused">{t('jobStatus.paused')}</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="flex min-w-0 flex-col gap-1 text-sm">
+                    <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
+                    <textarea data-testid="automation-prompt" className="min-h-48 min-w-0 resize-y rounded-md border border-input bg-background px-3 py-2 text-sm" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} />
+                  </label>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="flex min-w-0 flex-col gap-1 text-sm">
+                      <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
+                      <textarea data-testid="automation-context-paths" className="h-24 min-w-0 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs" value={draft.workspaceContextText} onChange={(event) => setDraft((current) => ({ ...current, workspaceContextText: event.target.value }))} placeholder="00_dashboard&#10;03_offer-and-sales" />
+                    </label>
+                    {renderSkillSelect('automation-preferred-skill')}
+                  </div>
+                  <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{t('output.title')}</p>
+                        <p className="mt-1 max-w-2xl text-xs text-muted-foreground">{t('output.description')}</p>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => openDirectoryPicker('scheduled')} data-testid="automation-target-output-picker">
+                        <Folder className="mr-2 h-4 w-4" />
+                        {t('output.pickInWorkspace')}
+                      </Button>
+                    </div>
+                    <input data-testid="automation-target-output-path" className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 font-mono text-xs" value={draft.targetOutputPath} onChange={(event) => setDraft((current) => ({ ...current, targetOutputPath: event.target.value }))} placeholder={t('output.placeholder')} />
+                    <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath || t('output.none')}</span></p>
+                  </div>
+                  {selectedJob.jobType === 'webhook' ? (
+                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                      <div className="flex items-center gap-2">
+                        <Webhook className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-sm font-medium">{t('triggers.detailTitle')}</p>
+                      </div>
+                      <div className="grid gap-2 text-xs sm:grid-cols-2">
+                        <span className="text-muted-foreground">{t('triggers.fields.app')}</span>
+                        <span className="min-w-0 break-all font-mono">{selectedJob.composioToolkitSlug || t('noneYet')}</span>
+                        <span className="text-muted-foreground">{t('triggers.fields.event')}</span>
+                        <span className="min-w-0 break-all font-mono">{selectedJob.composioTriggerSlug || t('noneYet')}</span>
+                        <span className="text-muted-foreground">{t('triggers.fields.triggerId')}</span>
+                        <span className="min-w-0 break-all font-mono">{selectedJob.composioTriggerId || t('noneYet')}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} />
+                  )}
+                  <div className="flex flex-wrap gap-2 border-t pt-4">
+                    <Button variant="outline" onClick={handleDelete} disabled={isDeleting}>
+                      {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                      {t('actions.delete')}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="min-w-0 overflow-hidden">
+                <CardHeader className="border-b">
+                  <CardTitle className="text-base">{t('runs.title')}</CardTitle>
+                  <CardDescription>{t('runs.description')}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 p-4">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-sm">
+                    <span className="text-muted-foreground">{t('editor.fields.status')}</span>
+                    <Badge variant={selectedJob.status === 'active' ? 'default' : 'secondary'}>{t(`jobStatus.${selectedJob.status}`)}</Badge>
+                    <span className="text-muted-foreground">{t('overview.nextRun')}</span>
+                    <span className="text-right text-xs">{formatDateTime(selectedJob.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
+                    <span className="text-muted-foreground">{t('schedule.fields.kind')}</span>
+                    <span className="min-w-0 max-w-[12rem] truncate text-right text-xs">{describeFriendlyScheduleLocalized(selectedJob.schedule, t, weekdayLabels)}</span>
+                    <span className="text-muted-foreground">{t('results.title')}</span>
+                    <span className="min-w-0 max-w-[12rem] truncate text-right font-mono text-xs">{selectedJob.effectiveTargetOutputPath || t('output.none')}</span>
+                  </div>
+                  <div className="space-y-2" data-testid="automation-run-list">
+                    {isRefreshingRuns && runs.length === 0 ? (
+                      <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {t('runs.loading')}
+                      </div>
+                    ) : runs.length === 0 ? (
+                      <div className="rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">{t('runs.empty')}</div>
+                    ) : (
+                      runs.slice(0, 10).map((run) => (
+                        <button
+                          key={run.id}
+                          type="button"
+                          className={`w-full min-w-0 rounded-md border p-3 text-left transition ${selectedRunId === run.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
+                          onClick={() => {
+                            setSelectedRunId(run.id);
+                            setIsRunSheetOpen(true);
+                          }}
+                          data-testid={`automation-run-${run.id}`}
+                        >
+                          <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-sm font-medium">{formatRunStatus(run.status, t)}</span>
+                            <span className="text-xs text-muted-foreground">{formatDateTime(run.finishedAt || run.scheduledFor, locale, t('scheduleSummary.notScheduled'))}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">{formatTriggerType(run.triggerType, t)} · {t('runs.attempt', { count: run.attemptNumber })}</p>
+                          {run.resultText ? <p className="mt-2 line-clamp-2 break-words text-xs text-muted-foreground">{run.resultText}</p> : null}
+                          {run.errorMessage ? <p className="mt-2 line-clamp-2 break-words text-xs text-destructive">{run.errorMessage}</p> : null}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="flex min-h-[24rem] flex-col items-center justify-center gap-4 p-8 text-center">
+              {isLoadingJobs ? <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /> : <Sparkles className="h-8 w-8 text-muted-foreground" />}
+              <div>
+                <p className="font-medium">{isLoadingJobs ? t('overview.loading') : t('overview.emptySelectionTitle')}</p>
+                <p className="mt-1 max-w-md text-sm text-muted-foreground">{t('overview.emptySelectionDescription')}</p>
+              </div>
+              <Button asChild variant="outline">
+                <Link href="/automationen">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  {t('overview.title')}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )
+      ) : (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {[
+              { label: t('overview.total'), value: overviewStats.total, icon: CalendarClock },
+              { label: t('jobStatus.active'), value: overviewStats.active, icon: CheckCircle2 },
+              { label: t('jobStatus.paused'), value: overviewStats.paused, icon: PauseCircle },
+              { label: t('overview.groups.running'), value: overviewStats.running, icon: Play },
+              { label: t('overview.groups.needsAttention'), value: overviewStats.failed, icon: AlertTriangle },
+            ].map((stat) => {
+              const StatIcon = stat.icon;
+              return (
+                <Card key={stat.label} className="min-w-0">
+                  <CardContent className="flex items-center justify-between gap-3 p-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs text-muted-foreground">{stat.label}</p>
+                      <p className="mt-1 text-2xl font-semibold">{stat.value}</p>
+                    </div>
+                    <StatIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          <Card className="min-w-0 overflow-hidden">
+            <CardHeader className="border-b">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">{t('overview.title')}</CardTitle>
+                  <CardDescription>{jobs.length} {t('overview.total').toLowerCase()}</CardDescription>
+                </div>
+                {isLoadingJobs ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 sm:p-4">
+              <div className="space-y-4" data-testid="automation-job-list">
                 {isLoadingJobs && jobs.length === 0 ? (
                   <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -1164,199 +1363,39 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                           <GroupIcon className="h-3.5 w-3.5" />
                           {group.label}
                         </div>
-                        {group.jobs.map((job) => (
-                          <button
-                            key={job.id}
-                            type="button"
-                            className={`w-full min-w-0 rounded-md border p-3 text-left transition ${
-                              selectedJobId === job.id ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'
-                            }`}
-                            onClick={() => handleSelectJob(job)}
-                            data-testid={`automation-job-${job.id}`}
-                          >
-                            <div className="flex min-w-0 items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium">{job.name}</p>
-                                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{job.prompt}</p>
+                        <div className="space-y-2">
+                          {group.jobs.map((job) => (
+                            <article key={job.id} className="min-w-0 rounded-md border bg-background p-3" data-testid={`automation-job-${job.id}`}>
+                              <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                <div className="min-w-0">
+                                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                    <p className="min-w-0 truncate text-sm font-medium">{job.name}</p>
+                                    <Badge variant={job.status === 'active' ? 'default' : 'secondary'} className="shrink-0">{t(`jobStatus.${job.status}`)}</Badge>
+                                  </div>
+                                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{job.prompt}</p>
+                                  <div className="mt-3 grid min-w-0 gap-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+                                    <span className="min-w-0 truncate">{describeFriendlyScheduleLocalized(job.schedule, t, weekdayLabels)}</span>
+                                    <span className="min-w-0 truncate">{t('overview.nextRun')}: {formatDateTime(job.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
+                                    <span className="min-w-0 truncate">{t('runs.finishedAt')}: {formatDateTime(job.lastRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
+                                    <span className="min-w-0 truncate">{t('results.title')}: {job.effectiveTargetOutputPath || t('output.none')}</span>
+                                  </div>
+                                </div>
+                                <Button asChild size="sm" className="w-full md:w-auto">
+                                  <Link href={`/automationen/${job.id}`}>{t('runDetails.details')}</Link>
+                                </Button>
                               </div>
-                              <Badge variant={job.status === 'active' ? 'default' : 'secondary'} className="shrink-0">
-                                {t(`jobStatus.${job.status}`)}
-                              </Badge>
-                            </div>
-                            <div className="mt-3 flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                              <span className="inline-flex min-w-0 items-center gap-1">
-                                <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-                                <span className="truncate">{describeFriendlyScheduleLocalized(job.schedule, t, weekdayLabels)}</span>
-                              </span>
-                              <span className="truncate">{formatDateTime(job.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
-                            </div>
-                          </button>
-                        ))}
+                            </article>
+                          ))}
+                        </div>
                       </section>
                     );
                   })
                 )}
               </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
-        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
-          <Card className="min-w-0 overflow-hidden">
-            {selectedJob ? (
-              <>
-                <CardHeader className="border-b">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <CardTitle className="truncate text-xl">{selectedJob.name}</CardTitle>
-                      <CardDescription className="mt-2">{t('editor.description')}</CardDescription>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="secondary" onClick={() => void handleRunNow()} disabled={isRunningNow}>
-                        {isRunningNow ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-                        {t('actions.runNow')}
-                      </Button>
-                      <Button onClick={() => void handleSave()} disabled={isSaving} data-testid="automation-save">
-                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                        {t('actions.save')}
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-5 p-4 sm:p-6">
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="text-xs text-muted-foreground">{t('editor.fields.name')}</span>
-                      <input data-testid="automation-name" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="text-xs text-muted-foreground">{t('editor.fields.status')}</span>
-                      <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as JobDraft['status'] }))}>
-                        <option value="active">{t('jobStatus.active')}</option>
-                        <option value="paused">{t('jobStatus.paused')}</option>
-                      </select>
-                    </label>
-                  </div>
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
-                    <textarea data-testid="automation-prompt" className="min-h-48 resize-y rounded-md border border-input bg-background px-3 py-2 text-sm" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} />
-                  </label>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
-                      <textarea data-testid="automation-context-paths" className="h-24 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs" value={draft.workspaceContextText} onChange={(event) => setDraft((current) => ({ ...current, workspaceContextText: event.target.value }))} placeholder="00_dashboard&#10;03_offer-and-sales" />
-                    </label>
-                    {renderSkillSelect('automation-preferred-skill')}
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium">{t('output.title')}</p>
-                          <p className="text-xs text-muted-foreground">{t('output.description')}</p>
-                        </div>
-                        <Button type="button" variant="outline" size="sm" onClick={() => openDirectoryPicker('scheduled')} data-testid="automation-target-output-picker">
-                          <Folder className="mr-2 h-4 w-4" />
-                          {t('output.pickInWorkspace')}
-                        </Button>
-                      </div>
-                      <input data-testid="automation-target-output-path" className="h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-xs" value={draft.targetOutputPath} onChange={(event) => setDraft((current) => ({ ...current, targetOutputPath: event.target.value }))} placeholder={t('output.placeholder')} />
-                      <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath || t('output.none')}</span></p>
-                    </div>
-                  </div>
-                  {selectedJob.jobType === 'webhook' ? (
-                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                      <div className="flex items-center gap-2">
-                        <Webhook className="h-4 w-4 text-muted-foreground" />
-                        <p className="text-sm font-medium">{t('triggers.detailTitle')}</p>
-                      </div>
-                      <div className="grid gap-2 text-xs sm:grid-cols-2">
-                        <span className="text-muted-foreground">{t('triggers.fields.app')}</span>
-                        <span className="font-mono">{selectedJob.composioToolkitSlug || t('noneYet')}</span>
-                        <span className="text-muted-foreground">{t('triggers.fields.event')}</span>
-                        <span className="font-mono">{selectedJob.composioTriggerSlug || t('noneYet')}</span>
-                        <span className="text-muted-foreground">{t('triggers.fields.triggerId')}</span>
-                        <span className="break-all font-mono">{selectedJob.composioTriggerId || t('noneYet')}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} />
-                  )}
-                  <div className="flex flex-wrap gap-2 border-t pt-4">
-                    <Button variant="outline" onClick={handleDelete} disabled={isDeleting}>
-                      {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                      {t('actions.delete')}
-                    </Button>
-                  </div>
-                </CardContent>
-              </>
-            ) : (
-              <CardContent className="flex min-h-[30rem] flex-col items-center justify-center gap-4 p-8 text-center">
-                <Sparkles className="h-8 w-8 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">{t('overview.emptySelectionTitle')}</p>
-                  <p className="mt-1 max-w-md text-sm text-muted-foreground">{t('overview.emptySelectionDescription')}</p>
-                </div>
-                <Button onClick={handleNewAutomation}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t('overview.newAutomation')}
-                </Button>
-              </CardContent>
-            )}
-          </Card>
-
-          <Card className="min-w-0 overflow-hidden">
-            <CardHeader className="border-b">
-              <CardTitle className="text-base">{t('runs.title')}</CardTitle>
-              <CardDescription>{t('runs.description')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 p-4">
-              {selectedJob ? (
-                <div className="grid grid-cols-[1fr_auto] gap-2 text-sm">
-                  <span className="text-muted-foreground">{t('editor.fields.status')}</span>
-                  <Badge variant={selectedJob.status === 'active' ? 'default' : 'secondary'}>{t(`jobStatus.${selectedJob.status}`)}</Badge>
-                  <span className="text-muted-foreground">{t('overview.nextRun')}</span>
-                  <span className="text-right text-xs">{formatDateTime(selectedJob.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
-                  <span className="text-muted-foreground">{t('schedule.fields.kind')}</span>
-                  <span className="max-w-[12rem] truncate text-right text-xs">{describeFriendlyScheduleLocalized(selectedJob.schedule, t, weekdayLabels)}</span>
-                  <span className="text-muted-foreground">{t('results.title')}</span>
-                  <span className="max-w-[12rem] truncate text-right font-mono text-xs">{selectedJob.effectiveTargetOutputPath || t('output.none')}</span>
-                </div>
-              ) : null}
-              <div className="space-y-2" data-testid="automation-run-list">
-                {isRefreshingRuns && runs.length === 0 ? (
-                  <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t('runs.loading')}
-                  </div>
-                ) : !selectedJob || runs.length === 0 ? (
-                  <div className="rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">{t('runs.empty')}</div>
-                ) : (
-                  runs.slice(0, 10).map((run) => (
-                    <button
-                      key={run.id}
-                      type="button"
-                      className={`w-full rounded-md border p-3 text-left transition ${selectedRunId === run.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
-                      onClick={() => {
-                        setSelectedRunId(run.id);
-                        setIsRunSheetOpen(true);
-                      }}
-                      data-testid={`automation-run-${run.id}`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-medium">{formatRunStatus(run.status, t)}</span>
-                        <span className="text-xs text-muted-foreground">{formatDateTime(run.finishedAt || run.scheduledFor, locale, t('scheduleSummary.notScheduled'))}</span>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">{formatTriggerType(run.triggerType, t)} · {t('runs.attempt', { count: run.attemptNumber })}</p>
-                      {run.errorMessage ? <p className="mt-2 line-clamp-2 text-xs text-destructive">{run.errorMessage}</p> : null}
-                    </button>
-                  ))
-                )}
-              </div>
             </CardContent>
           </Card>
         </div>
-      </div>
+      )}
 
       <Dialog open={isComposerOpen} onOpenChange={setIsComposerOpen}>
         <DialogContent layout="viewport" className="mx-auto max-w-5xl">
@@ -1390,7 +1429,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                       </Button>
                     </div>
                   </div>
-                  <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath}</span></p>
+                  <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath || t('output.none')}</span></p>
                 </div>
                 <aside className="space-y-2">
                   <p className="text-sm font-medium">{t('templates.title')}</p>
@@ -1581,18 +1620,38 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       </Dialog>
 
       <Sheet open={isRunSheetOpen} onOpenChange={setIsRunSheetOpen}>
-        <SheetContent className="w-full sm:max-w-2xl">
+        <SheetContent className="w-full overflow-hidden sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>{selectedRun ? formatRunStatus(selectedRun.status, t) : t('runs.title')}</SheetTitle>
             <SheetDescription>{selectedRun ? formatDateTime(selectedRun.finishedAt || selectedRun.scheduledFor, locale, t('scheduleSummary.notScheduled')) : t('runs.description')}</SheetDescription>
           </SheetHeader>
-          <Tabs defaultValue="summary" className="min-h-0 flex-1 px-4 pb-4">
+          <Tabs defaultValue="summary" className="min-h-0 flex-1 overflow-hidden px-4 pb-4">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="summary"><FileText className="mr-2 h-4 w-4" />{t('runDetails.summary')}</TabsTrigger>
               <TabsTrigger value="logs"><Clock3 className="mr-2 h-4 w-4" />{t('logs.title')}</TabsTrigger>
               <TabsTrigger value="session"><MessageSquare className="mr-2 h-4 w-4" />{t('session.title')}</TabsTrigger>
             </TabsList>
-            <TabsContent value="summary" className="mt-4 space-y-4">
+            <TabsContent value="summary" className="mt-4 min-w-0 space-y-4 overflow-y-auto pb-2">
+              {selectedRun ? (
+                <div className="grid gap-2 text-sm sm:grid-cols-2">
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">{t('editor.fields.status')}</p>
+                    <Badge className="mt-2" variant={selectedRun.status === 'success' ? 'default' : selectedRun.status === 'failed' ? 'destructive' : 'secondary'}>{formatRunStatus(selectedRun.status, t)}</Badge>
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">{t('runs.triggeredBy')}</p>
+                    <p className="mt-2 text-sm font-medium">{formatTriggerType(selectedRun.triggerType, t)} · {t('runs.attempt', { count: selectedRun.attemptNumber })}</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">{t('runs.scheduledFor')}</p>
+                    <p className="mt-2 text-sm font-medium">{formatDateTime(selectedRun.scheduledFor, locale, t('scheduleSummary.notScheduled'))}</p>
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-xs text-muted-foreground">{t('runs.finishedAt')}</p>
+                    <p className="mt-2 text-sm font-medium">{formatDateTime(selectedRun.finishedAt, locale, t('scheduleSummary.notScheduled'))}</p>
+                  </div>
+                </div>
+              ) : null}
               {getWebhookMetadata(selectedRun) ? (
                 <div className="rounded-md border bg-muted/20 p-3 text-sm">
                   <p className="font-medium">{t('triggers.eventSummary')}</p>
@@ -1608,22 +1667,26 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
               </div>
               <div className="rounded-md border bg-background p-3 text-sm">
                 <p className="font-medium">{t('runDetails.result')}</p>
-                <p className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground" data-testid="automation-result-text">{selectedRun?.resultText || t('runDetails.noResult')}</p>
+                <div data-testid="automation-result-text">
+                  <MarkdownRenderer content={selectedRun?.resultText || t('runDetails.noResult')} variant="muted" className="mt-2 min-w-0 overflow-x-auto" />
+                </div>
               </div>
               {selectedRun?.piSessionId ? (
-                <Link href={toChatUrl(selectedRun.piSessionId)} className="inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline" data-testid="automation-open-chat-session">
-                  <MessageSquare className="mr-2 h-4 w-4" />
-                  {t('session.openChat')}
-                </Link>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={toChatUrl(selectedRun.piSessionId)} data-testid="automation-open-chat-session">
+                    <MessageSquare className="mr-2 h-4 w-4" />
+                    {t('session.openChat')}
+                  </Link>
+                </Button>
               ) : null}
               {selectedRun?.errorMessage ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{selectedRun.errorMessage}</p> : null}
             </TabsContent>
-            <TabsContent value="logs" className="mt-4">
+            <TabsContent value="logs" className="mt-4 min-w-0">
               <ScrollArea className="h-[calc(100dvh-15rem)] rounded-md border bg-background" data-testid="automation-log-scroll">
-                <pre className="min-h-full whitespace-pre-wrap p-3 text-xs" data-testid="automation-log-content">{logContent || t('logs.empty')}</pre>
+                <pre className="min-h-full min-w-0 whitespace-pre-wrap break-words p-3 text-xs" data-testid="automation-log-content">{logContent || t('logs.empty')}</pre>
               </ScrollArea>
             </TabsContent>
-            <TabsContent value="session" className="mt-4">
+            <TabsContent value="session" className="mt-4 min-w-0">
               {!selectedRun?.piSessionId ? (
                 <p className="text-sm text-muted-foreground">{t('session.noSession')}</p>
               ) : !selectedRun.hasPersistedSession ? (
@@ -1637,13 +1700,13 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                 <p className="text-sm text-muted-foreground">{t('session.empty')}</p>
               ) : (
                 <ScrollArea className="h-[calc(100dvh-15rem)] rounded-md border bg-background" data-testid="automation-session-scroll">
-                  <div className="space-y-3 p-3">
+                  <div className="min-w-0 space-y-3 p-3">
                     {sessionMessages.map((message, index) => {
                       const content = extractAutomationSessionMessageText(message);
                       return (
-                        <div key={message.id?.toString() || `${message.role}-${index}`} className="rounded-md border bg-muted/30 px-3 py-2" data-testid="automation-session-message">
+                        <div key={message.id?.toString() || `${message.role}-${index}`} className="min-w-0 rounded-md border bg-muted/30 px-3 py-2" data-testid="automation-session-message">
                           <p className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">{formatAutomationSessionRole(message.role, t)}</p>
-                          <p className="whitespace-pre-wrap break-words text-xs">{content || t('session.emptyMessage')}</p>
+                          <MarkdownRenderer content={content || t('session.emptyMessage')} variant="muted" className="min-w-0 overflow-x-auto" />
                         </div>
                       );
                     })}
