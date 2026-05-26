@@ -522,6 +522,13 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_bulk_job ON studio_bulk_job_line_items (bulk_job_id);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_status ON studio_bulk_job_line_items (status);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_last_message ON pi_sessions (last_message_at);
+    CREATE INDEX IF NOT EXISTS idx_ai_sessions_user_created ON ai_sessions (user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_ai_sessions_user_session ON ai_sessions (user_id, session_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_messages_session_created ON ai_messages (ai_session_db_id, created_at, id);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_created ON pi_sessions (user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_session ON pi_sessions (user_id, session_id);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_channel_created ON pi_sessions (user_id, channel_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_messages_session_timestamp ON pi_messages (pi_session_db_id, timestamp, id);
   `);
 
   // ── Column additions for existing volumes ────────────────────────────────────

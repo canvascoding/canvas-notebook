@@ -54,7 +54,10 @@ export const aiSessions = sqliteTable("ai_sessions", {
   model: text("model").notNull(), // agent id, e.g. 'claude', 'codex', 'openrouter', 'ollama'
   title: text("title"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+}, (table) => ({
+  userCreatedIdx: index("idx_ai_sessions_user_created").on(table.userId, table.createdAt),
+  userSessionIdx: index("idx_ai_sessions_user_session").on(table.userId, table.sessionId),
+}));
 
 export const aiMessages = sqliteTable("ai_messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -64,7 +67,9 @@ export const aiMessages = sqliteTable("ai_messages", {
   type: text("type"),
   attachments: text("attachments"), // JSON string
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+}, (table) => ({
+  sessionCreatedIdx: index("idx_ai_messages_session_created").on(table.aiSessionDbId, table.createdAt, table.id),
+}));
 
 export const piSessions = sqliteTable("pi_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -85,6 +90,9 @@ export const piSessions = sqliteTable("pi_sessions", {
   channelSessionKey: text("channel_session_key"),
 }, (table) => ({
   channelIdx: index("idx_pi_sessions_channel").on(table.channelId, table.channelSessionKey),
+  userCreatedIdx: index("idx_pi_sessions_user_created").on(table.userId, table.createdAt),
+  userSessionIdx: index("idx_pi_sessions_user_session").on(table.userId, table.sessionId),
+  userChannelIdx: index("idx_pi_sessions_user_channel_created").on(table.userId, table.channelId, table.createdAt),
 }));
 
 export const piMessages = sqliteTable("pi_messages", {
@@ -93,7 +101,9 @@ export const piMessages = sqliteTable("pi_messages", {
   role: text("role").notNull(), // 'user', 'assistant', 'toolResult'
   content: text("content").notNull(), // Full JSON of Message object
   timestamp: integer("timestamp").notNull(),
-});
+}, (table) => ({
+  sessionTimestampIdx: index("idx_pi_messages_session_timestamp").on(table.piSessionDbId, table.timestamp, table.id),
+}));
 
 export const piUsageEvents = sqliteTable("pi_usage_events", {
   id: integer("id").primaryKey({ autoIncrement: true }),

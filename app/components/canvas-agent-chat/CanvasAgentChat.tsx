@@ -1302,6 +1302,8 @@ export default function CanvasAgentChat({
   const messagesRef = useRef<ChatMessage[]>([]);
   const subscribedSessionAckRef = useRef<string | null>(null);
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
+  const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
+  const hasLoadedSessionListRef = useRef(false);
 
   // Sync messagesRef with messages state
   useEffect(() => {
@@ -1408,6 +1410,33 @@ export default function CanvasAgentChat({
     });
   }, [resolveSessionTitle]);
 
+  const loadSessionList = useCallback(async () => {
+    if (sessionListRequestRef.current) {
+      return sessionListRequestRef.current;
+    }
+
+    const request = (async () => {
+      const res = await fetch('/api/sessions');
+      const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
+      if (!data?.success) {
+        return [];
+      }
+      const sessions = applyResolvedTitles(data.sessions || []);
+      hasLoadedSessionListRef.current = true;
+      return sessions;
+    })();
+
+    sessionListRequestRef.current = request;
+
+    try {
+      return await request;
+    } finally {
+      if (sessionListRequestRef.current === request) {
+        sessionListRequestRef.current = null;
+      }
+    }
+  }, [applyResolvedTitles]);
+
   // Session subscription for WebSocket
   useEffect(() => {
     if (!wsConnected || !sessionId) {
@@ -1484,14 +1513,10 @@ export default function CanvasAgentChat({
       if (!sessionFound) {
         void (async () => {
           try {
-            const res = await fetch('/api/sessions');
-            const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
-            if (data?.success) {
-              const sessions = applyResolvedTitles(data.sessions || []);
-              setHistory(sessions);
-              setLatestSession(sessions[0] || null);
-              setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
-            }
+            const sessions = await loadSessionList();
+            setHistory(sessions);
+            setLatestSession(sessions[0] || null);
+            setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
           } catch (error) {
             console.error('Failed to refresh history after session update', error);
           }
@@ -1503,7 +1528,7 @@ export default function CanvasAgentChat({
     return () => {
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
     };
-  }, [applyResolvedTitles, resolveSessionTitle]);
+  }, [loadSessionList, resolveSessionTitle]);
 
   // Session is created on-demand when user sends first message
 
@@ -1656,50 +1681,46 @@ export default function CanvasAgentChat({
   const fetchHistory = useCallback(async () => {
     setIsLoadingHistory(true);
     try {
-      const res = await fetch('/api/sessions');
-      const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
-      if (data?.success) {
-        const currentVisibleSessionId = surfaceVisibleRef.current ? sessionIdRef.current : null;
-        const sessions = applyResolvedTitles(data.sessions || []);
-        const activeVisibleUnreadSession = currentVisibleSessionId
-          ? sessions.find((session: AISession) => session.sessionId === currentVisibleSessionId && session.hasUnread)
-          : null;
-        const visibleSessions = activeVisibleUnreadSession
-          ? sessions.map((session: AISession) => (
-              session.sessionId === currentVisibleSessionId
-                ? {
-                    ...session,
-                    hasUnread: false,
-                    lastViewedAt: session.lastMessageAt || new Date().toISOString(),
-                  }
-                : session
-            ))
-          : sessions;
+      const currentVisibleSessionId = surfaceVisibleRef.current ? sessionIdRef.current : null;
+      const sessions = await loadSessionList();
+      const activeVisibleUnreadSession = currentVisibleSessionId
+        ? sessions.find((session: AISession) => session.sessionId === currentVisibleSessionId && session.hasUnread)
+        : null;
+      const visibleSessions = activeVisibleUnreadSession
+        ? sessions.map((session: AISession) => (
+            session.sessionId === currentVisibleSessionId
+              ? {
+                  ...session,
+                  hasUnread: false,
+                  lastViewedAt: session.lastMessageAt || new Date().toISOString(),
+                }
+              : session
+          ))
+        : sessions;
 
-        if (activeVisibleUnreadSession && currentVisibleSessionId) {
-          setHasUnreadInCurrentSession(false);
-          setShowUnreadBanner(false);
-          void fetch('/api/sessions', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId: currentVisibleSessionId, markAsRead: true }),
-          }).catch((error) => {
-            console.error('Failed to mark active session as read after history refresh', error);
-          });
-        }
+      if (activeVisibleUnreadSession && currentVisibleSessionId) {
+        setHasUnreadInCurrentSession(false);
+        setShowUnreadBanner(false);
+        void fetch('/api/sessions', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: currentVisibleSessionId, markAsRead: true }),
+        }).catch((error) => {
+          console.error('Failed to mark active session as read after history refresh', error);
+        });
+      }
 
-        setHistory(visibleSessions);
-        setLatestSession(visibleSessions[0] || null);
-        
-        // Calculate total unread count
-        const unreadCount = visibleSessions.filter((s: AISession) => s.hasUnread).length;
-        setTotalUnreadCount(unreadCount);
+      setHistory(visibleSessions);
+      setLatestSession(visibleSessions[0] || null);
+      
+      // Calculate total unread count
+      const unreadCount = visibleSessions.filter((s: AISession) => s.hasUnread).length;
+      setTotalUnreadCount(unreadCount);
 
-        if (sessionIdRef.current) {
-          const currentSession = visibleSessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
-          if (currentSession) {
-            setSessionTitle(resolveSessionTitle(currentSession.sessionId, currentSession.title));
-          }
+      if (sessionIdRef.current) {
+        const currentSession = visibleSessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
+        if (currentSession) {
+          setSessionTitle(resolveSessionTitle(currentSession.sessionId, currentSession.title));
         }
       }
     } catch (err) {
@@ -1707,7 +1728,7 @@ export default function CanvasAgentChat({
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [applyResolvedTitles, resolveSessionTitle]);
+  }, [loadSessionList, resolveSessionTitle]);
 
   const markAllAsRead = useCallback(async () => {
     try {
@@ -3205,9 +3226,11 @@ export default function CanvasAgentChat({
   useEffect(() => {
     if (initialPrompt?.trim()) return;
     if (resolvedRequestedSessionId) return;
+    if (isResolvingInitialChatState) return;
+    if (hasLoadedSessionListRef.current) return;
     if (userStartedNewChatRef.current) return;
     void fetchHistory();
-  }, [fetchHistory, initialPrompt, resolvedRequestedSessionId]);
+  }, [fetchHistory, initialPrompt, isResolvingInitialChatState, resolvedRequestedSessionId]);
 
   // Fetch history when showing history panel and it's empty (mobile bug fix)
   useEffect(() => {
@@ -3229,10 +3252,12 @@ export default function CanvasAgentChat({
 
     const loadRequestedSession = async () => {
       try {
-        const res = await fetch('/api/sessions');
-        const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
-        if (data?.success && data.sessions && data.sessions.length > 0) {
-          const targetSession = data.sessions.find((session: AISession) => session.sessionId === resolvedRequestedSessionId);
+        const sessions = await loadSessionList();
+        if (sessions.length > 0) {
+          setHistory(sessions);
+          setLatestSession(sessions[0] || null);
+          setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+          const targetSession = sessions.find((session: AISession) => session.sessionId === resolvedRequestedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
             if (!forcedSessionId) {
@@ -3249,7 +3274,7 @@ export default function CanvasAgentChat({
     };
 
     void loadRequestedSession();
-  }, [clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, resolvedRequestedSessionId]);
+  }, [clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, loadSessionList, resolvedRequestedSessionId]);
 
   // Restore previously active session on remount (mobile Sheet unmount/remount)
   useEffect(() => {
@@ -3274,12 +3299,14 @@ export default function CanvasAgentChat({
 
     const restoreSession = async () => {
       try {
-        const res = await fetch('/api/sessions');
-        const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
+        const sessions = await loadSessionList();
         // A new session may have been created while the fetch was in-flight
         if (sessionIdRef.current) return;
-        if (data?.success && data.sessions && data.sessions.length > 0) {
-          const targetSession = data.sessions.find((s: AISession) => s.sessionId === storedSessionId);
+        if (sessions.length > 0) {
+          setHistory(sessions);
+          setLatestSession(sessions[0] || null);
+          setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+          const targetSession = sessions.find((s: AISession) => s.sessionId === storedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
           }
