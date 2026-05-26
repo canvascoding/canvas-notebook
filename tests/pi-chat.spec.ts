@@ -755,11 +755,13 @@ test.describe('PI Chat E2E', () => {
     await expect(page.getByText('Stream line 30', { exact: false })).toHaveCount(0);
     await page.waitForTimeout(350);
 
-    const lockedScrollTop = await scrollRegion.evaluate((element) => {
-      element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 220);
-      element.dispatchEvent(new Event('scroll'));
-      return element.scrollTop;
-    });
+    await scrollRegion.hover();
+    await page.mouse.wheel(0, -520);
+    await expect
+      .poll(async () => scrollRegion.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight), { timeout: 2000 })
+      .toBeGreaterThan(120);
+
+    const lockedScrollTop = await scrollRegion.evaluate((element) => element.scrollTop);
 
     expect(lockedScrollTop).toBeGreaterThan(0);
     await expect(page.getByTitle('Scroll to bottom')).toBeVisible();

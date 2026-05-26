@@ -256,6 +256,7 @@ const MOBILE_TEXTAREA_MAX_HEIGHT_PX = 192;
 const DESKTOP_TEXTAREA_MAX_HEIGHT_PX = 256;
 const MOBILE_TEXTAREA_MAX_VIEWPORT_RATIO = 0.3;
 const DESKTOP_TEXTAREA_MAX_VIEWPORT_RATIO = 0.35;
+const TOUCH_SCROLL_UNLOCK_THRESHOLD_PX = 8;
 
 const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?: string }>> = {
   command: Terminal,
@@ -594,6 +595,10 @@ function formatContextTokens(value: number): string {
   }
 
   return `${value}`;
+}
+
+function isScrolledNearBottom(container: HTMLElement): boolean {
+  return container.scrollHeight - container.scrollTop - container.clientHeight <= BOTTOM_LOCK_THRESHOLD_PX;
 }
 
 function truncatePreview(value: string, maxLength = 88): string {
@@ -1292,6 +1297,7 @@ export default function CanvasAgentChat({
   const userStartedNewChatRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   const isAtBottomRef = useRef(true);
+  const touchScrollStartYRef = useRef<number | null>(null);
   const referenceRequestIdRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
   const subscribedSessionAckRef = useRef<string | null>(null);
@@ -1547,14 +1553,22 @@ export default function CanvasAgentChat({
     }
   }, []);
 
+  const releaseBottomLock = useCallback(() => {
+    if (!isAtBottomRef.current) {
+      return;
+    }
+
+    isAtBottomRef.current = false;
+    setIsAtBottom(false);
+  }, []);
+
   const syncBottomLockState = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) {
       return true;
     }
 
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-    const nextIsAtBottom = scrollHeight - scrollTop - clientHeight <= BOTTOM_LOCK_THRESHOLD_PX;
+    const nextIsAtBottom = isScrolledNearBottom(scrollContainer);
     isAtBottomRef.current = nextIsAtBottom;
     setIsAtBottom((current) => {
       if (current === nextIsAtBottom) return current;
@@ -1567,13 +1581,51 @@ export default function CanvasAgentChat({
     syncBottomLockState();
   }, [syncBottomLockState]);
 
+  const handleWheel = useCallback((event: WheelEvent) => {
+    if (event.deltaY < 0) {
+      releaseBottomLock();
+    }
+  }, [releaseBottomLock]);
+
+  const handleTouchStart = useCallback((event: TouchEvent) => {
+    touchScrollStartYRef.current = event.touches[0]?.clientY ?? null;
+  }, []);
+
+  const handleTouchMove = useCallback((event: TouchEvent) => {
+    const startY = touchScrollStartYRef.current;
+    const currentY = event.touches[0]?.clientY;
+    if (startY == null || currentY == null) {
+      return;
+    }
+
+    if (currentY - startY > TOUCH_SCROLL_UNLOCK_THRESHOLD_PX) {
+      releaseBottomLock();
+    }
+  }, [releaseBottomLock]);
+
+  const handleTouchEnd = useCallback(() => {
+    touchScrollStartYRef.current = null;
+  }, []);
+
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     syncBottomLockState();
     scrollContainer.addEventListener('scroll', handleScroll);
-    return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [handleScroll, syncBottomLockState]);
+    scrollContainer.addEventListener('wheel', handleWheel, { passive: true });
+    scrollContainer.addEventListener('touchstart', handleTouchStart, { passive: true });
+    scrollContainer.addEventListener('touchmove', handleTouchMove, { passive: true });
+    scrollContainer.addEventListener('touchend', handleTouchEnd);
+    scrollContainer.addEventListener('touchcancel', handleTouchEnd);
+    return () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+      scrollContainer.removeEventListener('wheel', handleWheel);
+      scrollContainer.removeEventListener('touchstart', handleTouchStart);
+      scrollContainer.removeEventListener('touchmove', handleTouchMove);
+      scrollContainer.removeEventListener('touchend', handleTouchEnd);
+      scrollContainer.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [handleScroll, handleTouchEnd, handleTouchMove, handleTouchStart, handleWheel, syncBottomLockState]);
 
   useLayoutEffect(() => {
     if (messages.length === 0) {
@@ -2141,10 +2193,12 @@ export default function CanvasAgentChat({
                   : msg
               )
             );
-            if (isAtBottomRef.current) {
-              const container = scrollContainerRef.current;
-              if (container) {
+            const container = scrollContainerRef.current;
+            if (container && isAtBottomRef.current) {
+              if (isScrolledNearBottom(container)) {
                 container.scrollTop = container.scrollHeight - container.clientHeight;
+              } else {
+                releaseBottomLock();
               }
             }
             streamingRafRef.current = requestAnimationFrame(flush);
@@ -2233,7 +2287,7 @@ export default function CanvasAgentChat({
 
     // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
     // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, releaseBottomLock, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
 
   // Listen for WebSocket agent events (from current tab, other tabs, or background runs).
   useEffect(() => {
