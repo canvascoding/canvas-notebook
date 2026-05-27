@@ -22,7 +22,7 @@ import {
   markAutomationRunRetryScheduled,
   markAutomationRunStarted,
 } from './store';
-import { type AutomationRunRecord } from './types';
+import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
@@ -129,6 +129,19 @@ function createAutomationErrorMessage(message: string, provider: Provider, model
   };
 }
 
+function buildAutomationRunMetadata(job: AutomationJobRecord) {
+  return {
+    agentId: job.agentId,
+    delivery: {
+      mode: job.deliveryMode,
+      channelId: job.deliveryChannelId,
+      sessionMode: job.deliverySessionMode,
+      sessionId: job.deliverySessionId,
+      channelSessionKey: job.deliveryChannelSessionKey,
+    },
+  };
+}
+
 export async function executeAutomationRun(runId: string): Promise<void> {
   const runStartTime = Date.now();
   const run = await getAutomationRun(runId);
@@ -183,6 +196,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider: 'heartbeat',
         model: 'heartbeat',
+        ...buildAutomationRunMetadata(job),
         status: heartbeatResult.usersNotified > 0 ? 'success' : 'skipped',
         heartbeatUsersNotified: heartbeatResult.usersNotified,
         heartbeatSessionIds: heartbeatResult.sessionIds,
@@ -303,7 +317,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider,
         model: model.id,
-        agentId: job.agentId,
+        ...buildAutomationRunMetadata(job),
         status: 'success',
         targetOutputPath: job.targetOutputPath,
         effectiveTargetOutputPath,
@@ -333,7 +347,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       await markAutomationRunRetryScheduled(run.id, retryAt, message, events, {
         provider,
         model: model.id,
-        agentId: job.agentId,
+        ...buildAutomationRunMetadata(job),
         status: 'retry_scheduled',
         retryAt: retryAt.toISOString(),
         error: message,
@@ -353,7 +367,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider,
         model: model.id,
-        agentId: job.agentId,
+        ...buildAutomationRunMetadata(job),
         status: 'failed',
         error: message,
         targetOutputPath: job.targetOutputPath,

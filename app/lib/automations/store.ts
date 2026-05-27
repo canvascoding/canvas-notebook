@@ -12,6 +12,8 @@ import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import {
   type AutomationJobRecord,
   type AutomationJobStatus,
+  type AutomationDeliveryMode,
+  type AutomationDeliverySessionMode,
   type AutomationJobType,
   type AutomationPreferredSkill,
   type AutomationRunRecord,
@@ -23,6 +25,10 @@ import {
 } from './types';
 
 const STALE_AUTOMATION_RUN_TTL_MS = 15 * 60_000;
+const DEFAULT_DELIVERY_MODE: AutomationDeliveryMode = 'web';
+const DEFAULT_DELIVERY_SESSION_MODE: AutomationDeliverySessionMode = 'new_session';
+const DELIVERY_MODES = new Set<AutomationDeliveryMode>(['web', 'origin', 'session', 'channel_home', 'silent']);
+const DELIVERY_SESSION_MODES = new Set<AutomationDeliverySessionMode>(['new_session', 'channel_active', 'fixed_session']);
 
 type AutomationSessionMetadata = {
   sessionId: string;
@@ -59,6 +65,39 @@ function normalizeAgentId(value: unknown): string {
     throw new Error('Agent ID is invalid.');
   }
   return normalized;
+}
+
+function normalizeOptionalShortString(value: unknown, maxLength = 500): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    throw new Error('Expected a string value.');
+  }
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function normalizeDeliveryMode(value: unknown): AutomationDeliveryMode {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    return DEFAULT_DELIVERY_MODE;
+  }
+  if (!DELIVERY_MODES.has(normalized as AutomationDeliveryMode)) {
+    throw new Error('Delivery mode is invalid.');
+  }
+  return normalized as AutomationDeliveryMode;
+}
+
+function normalizeDeliverySessionMode(value: unknown): AutomationDeliverySessionMode {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    return DEFAULT_DELIVERY_SESSION_MODE;
+  }
+  if (!DELIVERY_SESSION_MODES.has(normalized as AutomationDeliverySessionMode)) {
+    throw new Error('Delivery session mode is invalid.');
+  }
+  return normalized as AutomationDeliverySessionMode;
 }
 
 function normalizeWorkspaceContextPaths(value: unknown): string[] {
@@ -128,6 +167,11 @@ function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord
     lastRunStatus: (row.lastRunStatus as AutomationRunStatus | null) ?? null,
     createdByUserId: row.createdByUserId,
     agentId: row.agentId || DEFAULT_MANAGED_AGENT_ID,
+    deliveryMode: normalizeDeliveryMode(row.deliveryMode),
+    deliveryChannelId: row.deliveryChannelId ?? null,
+    deliverySessionMode: normalizeDeliverySessionMode(row.deliverySessionMode),
+    deliverySessionId: row.deliverySessionId ?? null,
+    deliveryChannelSessionKey: row.deliveryChannelSessionKey ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     jobType: (row.jobType as AutomationJobType) || 'default',
@@ -267,6 +311,8 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
   const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
   const preferredSkill = ensurePreferredSkill(input.preferredSkill);
   const agentId = normalizeAgentId(input.agentId);
+  const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
+  const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const { schedule, error } = validateFriendlySchedule(input.schedule);
@@ -296,6 +342,11 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
       lastRunStatus: null,
       createdByUserId: userId,
       agentId,
+      deliveryMode,
+      deliveryChannelId: normalizeOptionalShortString(input.deliveryChannelId, 120),
+      deliverySessionMode,
+      deliverySessionId: normalizeOptionalShortString(input.deliverySessionId, 500),
+      deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
       createdAt: now,
       updatedAt: now,
     })
@@ -310,6 +361,8 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
   const preferredSkill = ensurePreferredSkill(input.preferredSkill);
   const agentId = normalizeAgentId(input.agentId);
+  const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
+  const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const composioTriggerId = normalizeString(input.composioTriggerId, 'Composio trigger ID', 500);
@@ -342,6 +395,11 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       lastRunStatus: null,
       createdByUserId: userId,
       agentId,
+      deliveryMode,
+      deliveryChannelId: normalizeOptionalShortString(input.deliveryChannelId, 120),
+      deliverySessionMode,
+      deliverySessionId: normalizeOptionalShortString(input.deliverySessionId, 500),
+      deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
       createdAt: now,
       updatedAt: now,
       jobType: 'webhook',
@@ -393,6 +451,19 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
         ? existing.targetOutputPath
         : normalizeTargetOutputPath(input.targetOutputPath),
       agentId: input.agentId === undefined ? existing.agentId : normalizeAgentId(input.agentId),
+      deliveryMode: input.deliveryMode === undefined ? existing.deliveryMode : normalizeDeliveryMode(input.deliveryMode),
+      deliveryChannelId: input.deliveryChannelId === undefined
+        ? existing.deliveryChannelId
+        : normalizeOptionalShortString(input.deliveryChannelId, 120),
+      deliverySessionMode: input.deliverySessionMode === undefined
+        ? existing.deliverySessionMode
+        : normalizeDeliverySessionMode(input.deliverySessionMode),
+      deliverySessionId: input.deliverySessionId === undefined
+        ? existing.deliverySessionId
+        : normalizeOptionalShortString(input.deliverySessionId, 500),
+      deliveryChannelSessionKey: input.deliveryChannelSessionKey === undefined
+        ? existing.deliveryChannelSessionKey
+        : normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
       status,
       scheduleKind: schedule.kind,
       scheduleConfigJson: JSON.stringify(schedule),
@@ -899,6 +970,9 @@ export async function upsertHeartbeatJob(data: {
       lastRunAt: null,
       lastRunStatus: null,
       createdByUserId: data.userId,
+      agentId: DEFAULT_MANAGED_AGENT_ID,
+      deliveryMode: 'web',
+      deliverySessionMode: 'new_session',
       createdAt: now,
       updatedAt: now,
       jobType: 'heartbeat',

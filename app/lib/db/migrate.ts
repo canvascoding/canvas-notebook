@@ -166,6 +166,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       last_run_status TEXT,
       created_by_user_id TEXT NOT NULL,
       agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
+      delivery_mode TEXT NOT NULL DEFAULT 'web',
+      delivery_channel_id TEXT,
+      delivery_session_mode TEXT NOT NULL DEFAULT 'new_session',
+      delivery_session_id TEXT,
+      delivery_channel_session_key TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       job_type TEXT NOT NULL DEFAULT 'default',
@@ -612,6 +617,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'automation_jobs', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
+    delivery_mode: "TEXT NOT NULL DEFAULT 'web'",
+    delivery_channel_id: 'TEXT',
+    delivery_session_mode: "TEXT NOT NULL DEFAULT 'new_session'",
+    delivery_session_id: 'TEXT',
+    delivery_channel_session_key: 'TEXT',
     job_type: "TEXT NOT NULL DEFAULT 'default'",
     channel_id: 'TEXT',
     composio_trigger_id: 'TEXT',
