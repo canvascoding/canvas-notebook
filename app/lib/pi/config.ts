@@ -81,6 +81,24 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
   updatedBy: 'system:bootstrap',
 };
 
+export function normalizePiRuntimeConfig(config: PiRuntimeConfig): PiRuntimeConfig {
+  const providers = Object.fromEntries(
+    Object.entries(config.providers).map(([providerId, providerConfig]) => {
+      const normalizedProviderConfig = {
+        ...providerConfig,
+        thinking: (providerConfig.thinking as string) === 'none' ? 'off' : providerConfig.thinking,
+      } as PiProviderConfig;
+
+      return [providerId, normalizedProviderConfig] as const;
+    }),
+  );
+
+  return {
+    ...config,
+    providers,
+  };
+}
+
 /**
  * Validates PI runtime configuration.
  */

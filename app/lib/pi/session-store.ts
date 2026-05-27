@@ -137,6 +137,8 @@ export async function savePiSession(
       .set({ 
         updatedAt: new Date(), 
         title: nextTitle, 
+        provider,
+        model,
         lastMessageAt: lastMessageAt,
         ...summaryFields 
       })

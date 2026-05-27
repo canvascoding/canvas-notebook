@@ -58,6 +58,7 @@ const DEFAULT_INTEGRATIONS_ENV_PATH = resolveDefaultIntegrationsEnvPath();
 const DEFAULT_AGENTS_ENV_PATH = resolveDefaultAgentsEnvPath();
 const LEGACY_WIPE_MARKER_PATH = path.join(AGENT_STORAGE_DIR, '.legacy-session-wipe-done');
 const RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, 'agent-runtime-config.json');
+const PI_RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, 'pi-runtime-config.json');
 
 // Legacy paths for migration
 const LEGACY_AGENT_STORAGE_DIR = '/home/node/canvas-agent';
@@ -139,6 +140,13 @@ async function migrateLegacyFiles(): Promise<void> {
       console.log(`[bootstrap-agent-runtime] Migrating runtime config from legacy location...`);
       await fs.copyFile(legacyRuntimeConfig, RUNTIME_CONFIG_PATH);
       await fs.chmod(RUNTIME_CONFIG_PATH, 0o600);
+    }
+
+    const legacyPiRuntimeConfig = path.join(LEGACY_AGENT_STORAGE_DIR, 'pi-runtime-config.json');
+    if (await fileExists(legacyPiRuntimeConfig) && !(await fileExists(PI_RUNTIME_CONFIG_PATH))) {
+      console.log(`[bootstrap-agent-runtime] Migrating PI runtime config from legacy location...`);
+      await fs.copyFile(legacyPiRuntimeConfig, PI_RUNTIME_CONFIG_PATH);
+      await fs.chmod(PI_RUNTIME_CONFIG_PATH, 0o600);
     }
   }
   
