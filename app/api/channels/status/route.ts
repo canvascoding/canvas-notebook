@@ -3,6 +3,7 @@ import { auth } from '@/app/lib/auth';
 import { getChannelManager } from '@/app/lib/channels/manager';
 import { getTelegramConfigFromIntegrations } from '@/app/lib/integrations/env-config';
 import { getBindingByUser } from '@/app/lib/channels/telegram/link-token';
+import { WEB_CHANNEL_ID } from '@/app/lib/channels/constants';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -23,6 +24,15 @@ export async function GET(request: NextRequest) {
       id,
       ...status,
     }));
+
+    if (!channels.some((c) => c.id === WEB_CHANNEL_ID)) {
+      channels.unshift({
+        id: WEB_CHANNEL_ID,
+        running: true,
+        connected: true,
+        mode: 'websocket',
+      });
+    }
 
     if (!channels.some((c) => c.id === 'telegram')) {
       channels.push({

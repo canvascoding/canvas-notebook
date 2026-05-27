@@ -1,12 +1,12 @@
 import type { Bot, Context } from 'grammy';
 import path from 'node:path';
-import { sendMessage } from '@/app/lib/pi/runtime-service';
 import { saveUploadBuffer } from '@/app/lib/filesystem/upload-handler';
 import { getUserUploadsRoot } from '@/app/lib/runtime-data-paths';
 import { getBinding } from './link-token';
-import { resolveTelegramSession } from './session-resolver';
 import { registerCommands } from './commands';
 import type { InboundMessage } from '../types';
+import { handleInboundChannelMessage } from '@/app/lib/channels/router';
+import { TELEGRAM_CHANNEL_ID, telegramChannelSessionKey } from '@/app/lib/channels/constants';
 
 const MAX_TELEGRAM_DOWNLOAD_SIZE = 10 * 1024 * 1024;
 
@@ -112,8 +112,6 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
       return;
     }
 
-    const sessionId = await resolveTelegramSession(chatId, binding.userId);
-
     const uploads: SavedTelegramUpload[] = [];
     if (ctx.message?.photo) {
       const largestPhoto = ctx.message.photo[ctx.message.photo.length - 1];
@@ -169,8 +167,8 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
     const messageText = [userMessage, uploadContextText].filter(Boolean).join('\n\n');
 
     const inbound: InboundMessage = {
-      channelId: 'telegram',
-      channelSessionKey: `telegram:${chatId}`,
+      channelId: TELEGRAM_CHANNEL_ID,
+      channelSessionKey: telegramChannelSessionKey(chatId),
       userId: binding.userId,
       text: messageText,
       ...(uploads.some((upload) => upload.image) ? { images: uploads.flatMap((upload) => upload.image ? [upload.image] : []) } : {}),
@@ -198,19 +196,12 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
         for (const img of imageParts) {
           contentParts.push({ type: 'image', data: img.data, mimeType: img.mimeType });
         }
-        await sendMessage(sessionId, binding.userId, {
-          role: 'user',
-          content: contentParts,
-          timestamp: Date.now(),
-        }, context);
+        inbound.contentParts = contentParts;
       } else {
-        await sendMessage(sessionId, binding.userId, {
-          role: 'user',
-          content: messageText,
-          timestamp: Date.now(),
-        }, context);
+        inbound.contentParts = [{ type: 'text', text: messageText }];
       }
 
+      await handleInboundChannelMessage(inbound, context);
       await onInbound(inbound);
     } catch (error) {
       console.error('[Telegram Inbound] Error sending message:', error);

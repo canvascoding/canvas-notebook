@@ -36,7 +36,9 @@ export default function OnboardingWizard() {
         return;
       }
 
-      window.location.href = '/';
+      const statusResponse = await fetch('/api/license/status', { cache: 'no-store' });
+      const status = await statusResponse.json().catch(() => ({ licensed: false })) as { licensed?: boolean };
+      window.location.href = status.licensed ? '/' : '/settings?tab=license';
     } catch {
       toast.error(t('unexpectedError'));
     } finally {

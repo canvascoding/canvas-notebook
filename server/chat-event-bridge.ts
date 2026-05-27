@@ -7,7 +7,7 @@
 
 import { getPiRuntimeEventEmitter } from '@/app/lib/pi/runtime-event-emitter';
 import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUser } from './websocket-server';
-import { getChannelRegistry } from '@/app/lib/channels/registry';
+import { deliverToLastActiveExternalChannel, sendTypingToLastActiveExternalChannel } from '@/app/lib/channels/delivery-router';
 import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
@@ -105,27 +105,7 @@ async function sendChannelTypingIndicator(sessionId: string, userId: string, eve
   channelTypingSentAt.set(sessionId, now);
 
   try {
-    const session = await db.query.piSessions.findFirst({
-      where: and(
-        eq(piSessions.sessionId, sessionId),
-        eq(piSessions.userId, userId)
-      ),
-      columns: { channelId: true, channelSessionKey: true }
-    });
-
-    if (!session?.channelId || session.channelId === 'app' || !session.channelSessionKey) {
-      return;
-    }
-
-    const channel = getChannelRegistry().get(session.channelId);
-    const typingChannel = channel as typeof channel & {
-      sendTyping?: (target: { chatId: string }) => Promise<void>;
-    };
-
-    if (!typingChannel?.sendTyping) return;
-
-    const chatId = session.channelSessionKey.replace(/^telegram:/, '');
-    await typingChannel.sendTyping({ chatId });
+    await sendTypingToLastActiveExternalChannel(sessionId, userId);
   } catch (error) {
     console.warn('[WebSocket Bridge] Channel typing indicator failed:', error);
   }
@@ -169,7 +149,7 @@ export function initializeWebSocketBridge(): void {
             eq(piSessions.sessionId, sessionId),
             eq(piSessions.userId, userId)
           ),
-          columns: { title: true, id: true, channelId: true, channelSessionKey: true }
+          columns: { title: true, id: true }
         });
 
         if (!session) {
@@ -216,23 +196,17 @@ export function initializeWebSocketBridge(): void {
           `[WebSocket Bridge] AI response in session ${sessionId}: notification + session_updated dispatched`
         );
 
-        // Channel routing: deliver to Telegram if session belongs to a channel
-        if (session.channelId && session.channelId !== 'app' && session.channelSessionKey) {
-          const channel = getChannelRegistry().get(session.channelId);
-          if (channel) {
-            try {
-              const textPreview = extractAssistantNotificationPreview(event.message);
-              if (textPreview) {
-                const chatId = session.channelSessionKey.replace(/^telegram:/, '');
-                await channel.deliver(
-                  { content: textPreview, role: 'assistant' },
-                  { chatId }
-                );
-              }
-            } catch (err) {
-              console.error(`[WebSocket Bridge] Channel delivery failed for ${session.channelId}:`, err);
-            }
+        try {
+          const textPreview = extractAssistantNotificationPreview(event.message);
+          if (textPreview) {
+            await deliverToLastActiveExternalChannel(
+              sessionId,
+              userId,
+              { content: textPreview, role: 'assistant' },
+            );
           }
+        } catch (err) {
+          console.error('[WebSocket Bridge] Channel delivery failed:', err);
         }
       } catch (error) {
         console.error(`[WebSocket Bridge] Failed to fetch session/message data:`, error);
@@ -245,30 +219,8 @@ export function initializeWebSocketBridge(): void {
       console.log(`[WebSocket Bridge] Received error event for session ${sessionId}: ${event.error}`);
 
       try {
-        const session = await db.query.piSessions.findFirst({
-          where: and(
-            eq(piSessions.sessionId, sessionId),
-            eq(piSessions.userId, userId)
-          ),
-          columns: { channelId: true, channelSessionKey: true }
-        });
-
         const errorText = `[Error] ${event.error}`;
-
-        if (session?.channelId && session.channelId !== 'app' && session.channelSessionKey) {
-          const channel = getChannelRegistry().get(session.channelId);
-          if (channel) {
-            try {
-              const chatId = session.channelSessionKey.replace(/^telegram:/, '');
-              await channel.deliver(
-                { content: errorText, role: 'assistant' },
-                { chatId }
-              );
-            } catch (err) {
-              console.error(`[WebSocket Bridge] Error delivery failed for ${session.channelId}:`, err);
-            }
-          }
-        }
+        await deliverToLastActiveExternalChannel(sessionId, userId, { content: errorText, role: 'assistant' });
       } catch (error) {
         console.error(`[WebSocket Bridge] Failed to handle error event for channel delivery:`, error);
       }

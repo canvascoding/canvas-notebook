@@ -12,6 +12,9 @@ import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
+import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, webChannelSessionKey } from '@/app/lib/channels/constants';
+import { ensureDefaultAgent } from '@/app/lib/channels/agents';
+import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 
 type CreateSessionPayload = {
   title?: string;
@@ -317,14 +320,22 @@ export async function POST(request: NextRequest) {
       const model = requestedModel || providerConfig?.model || 'unknown';
       const thinkingLevel = requestedThinkingLevel || providerConfig?.thinking || 'off';
 
+      await ensureDefaultAgent();
+      const requestedAgentId = normalizeOptionalString(payload.agentId) || DEFAULT_AGENT_ID;
       const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
-      const channelSessionKey = typeof payload.channelSessionKey === 'string' ? payload.channelSessionKey : null;
+      const normalizedChannelId = normalizeStoredChannelId(channelId);
+      const channelSessionKey = typeof payload.channelSessionKey === 'string'
+        ? payload.channelSessionKey
+        : normalizedChannelId === WEB_CHANNEL_ID
+          ? webChannelSessionKey(session.user.id)
+          : null;
 
       const inserted = await db
         .insert(piSessions)
         .values({
           sessionId,
           userId: session.user.id,
+          agentId: requestedAgentId,
           provider,
           model,
           thinkingLevel,
@@ -335,6 +346,15 @@ export async function POST(request: NextRequest) {
           updatedAt: new Date(),
         })
         .returning();
+
+      await ensureSessionChannelLink({
+        sessionId,
+        userId: session.user.id,
+        channelId: normalizedChannelId,
+        channelSessionKey: channelSessionKey || webChannelSessionKey(session.user.id),
+        displayName: title,
+        isPrimary: normalizedChannelId === WEB_CHANNEL_ID,
+      });
 
       return NextResponse.json({
         success: true,

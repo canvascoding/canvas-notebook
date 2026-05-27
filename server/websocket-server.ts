@@ -27,6 +27,10 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
+import { handleInboundChannelMessage } from '@/app/lib/channels/router';
+import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
+import { getLicenseStatus } from '@/app/lib/license';
+import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 
 type ControlAction = 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
@@ -35,6 +39,14 @@ type RuntimeService = typeof import('@/app/lib/pi/runtime-service');
 
 async function getRuntimeService(): Promise<RuntimeService> {
   return import('@/app/lib/pi/runtime-service');
+}
+
+async function isLicensedForRuntime(): Promise<boolean> {
+  if (!isOnboardingEnabled() || !(await isOnboardingComplete())) {
+    return true;
+  }
+  const status = await getLicenseStatus();
+  return status.licensed;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -234,6 +246,13 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     return;
   }
 
+  if (!(await isLicensedForRuntime())) {
+    console.warn('[WebSocket] License activation required. Closing connection.');
+    sendWs(ws, { type: 'auth_error', error: 'License activation required' });
+    ws.close(4003, 'License activation required');
+    return;
+  }
+
   console.log('[WebSocket] Authenticated user:', authResult.userId);
 
   // Create connection state
@@ -369,13 +388,21 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       subscribeConnectionToSession(connection, message.sessionId);
 
       try {
-        const status = await runtimeService.sendMessage(message.sessionId, userId, message.message, context);
+        const status = await handleInboundChannelMessage({
+          channelId: WEB_CHANNEL_ID,
+          channelSessionKey: webChannelSessionKey(userId),
+          requestedSessionId: message.sessionId,
+          userId,
+          text: typeof message.message.content === 'string' ? message.message.content : '',
+          contentParts: Array.isArray(message.message.content) ? message.message.content : undefined,
+          metadata: { displayName: 'Web Chat' },
+        }, context);
         console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime with context:`, context);
         sendWs(ws, {
           type: 'send_message_result',
           requestId: message.requestId,
           success: true,
-          status,
+          status: status.status,
         });
       } catch (error) {
         console.error('[WebSocket] Error sending message:', error);

@@ -75,6 +75,7 @@ export const piSessions = sqliteTable("pi_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sessionId: text("session_id").notNull(),
   userId: text("user_id").notNull().references(() => user.id),
+  agentId: text("agent_id").notNull().default('canvas-agent'),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
   thinkingLevel: text("thinking_level"),
@@ -93,6 +94,21 @@ export const piSessions = sqliteTable("pi_sessions", {
   userCreatedIdx: index("idx_pi_sessions_user_created").on(table.userId, table.createdAt),
   userSessionIdx: index("idx_pi_sessions_user_session").on(table.userId, table.sessionId),
   userChannelIdx: index("idx_pi_sessions_user_channel_created").on(table.userId, table.channelId, table.createdAt),
+  agentIdx: index("idx_pi_sessions_agent").on(table.agentId),
+}));
+
+export const agents = sqliteTable("agents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentId: text("agent_id").notNull().unique(),
+  name: text("name").notNull(),
+  type: text("type").notNull().default('main'),
+  removable: integer("removable", { mode: "boolean" }).notNull().default(false),
+  defaultProvider: text("default_provider"),
+  defaultModel: text("default_model"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  agentIdIdx: uniqueIndex("idx_agents_agent_id").on(table.agentId),
 }));
 
 export const piMessages = sqliteTable("pi_messages", {
@@ -136,6 +152,18 @@ export const onboardingLog = sqliteTable("onboarding_log", {
   notes: text("notes"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+export const licenseCerts = sqliteTable("license_certs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cert: text("cert").notNull(),
+  plan: text("plan").notNull(),
+  instanceId: text("instance_id").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  instanceIdx: index("idx_license_certs_instance").on(table.instanceId),
+}));
 
 export const automationJobs = sqliteTable("automation_jobs", {
   id: text("id").primaryKey(),
@@ -470,9 +498,46 @@ export const channelUserBindings = sqliteTable("channel_user_bindings", {
   channelId: text("channel_id").notNull().default('telegram'),
   channelUserId: text("channel_user_id").notNull(),
   channelUserName: text("channel_user_name"),
+  metadataJson: text("metadata_json"),
+  settingsJson: text("settings_json"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   uniqueBinding: uniqueIndex("idx_channel_user_binding").on(table.channelId, table.channelUserId),
+}));
+
+export const sessionChannelLinks = sqliteTable("session_channel_links", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull(),
+  userId: text("user_id").notNull().references(() => user.id),
+  channelId: text("channel_id").notNull(),
+  channelSessionKey: text("channel_session_key").notNull(),
+  channelThreadKey: text("channel_thread_key").notNull().default(''),
+  displayName: text("display_name"),
+  isPrimary: integer("is_primary", { mode: "boolean" }).notNull().default(false),
+  deliveryPolicy: text("delivery_policy").notNull().default('last_active'),
+  lastInboundAt: integer("last_inbound_at", { mode: "timestamp" }),
+  lastOutboundAt: integer("last_outbound_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  uniqueLink: uniqueIndex("idx_session_channel_links_unique").on(table.sessionId, table.channelId, table.channelSessionKey, table.channelThreadKey),
+  sessionIdx: index("idx_session_channel_links_session").on(table.sessionId),
+  userChannelIdx: index("idx_session_channel_links_user_channel").on(table.userId, table.channelId),
+  channelContextIdx: index("idx_session_channel_links_context").on(table.channelId, table.channelSessionKey, table.channelThreadKey),
+}));
+
+export const channelActiveSessions = sqliteTable("channel_active_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().references(() => user.id),
+  channelId: text("channel_id").notNull(),
+  channelSessionKey: text("channel_session_key").notNull(),
+  channelThreadKey: text("channel_thread_key").notNull().default(''),
+  sessionId: text("session_id").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  uniqueContext: uniqueIndex("idx_channel_active_sessions_context").on(table.channelId, table.channelSessionKey, table.channelThreadKey),
+  userChannelIdx: index("idx_channel_active_sessions_user_channel").on(table.userId, table.channelId),
 }));
 
 export const channelLinkTokens = sqliteTable("channel_link_tokens", {
