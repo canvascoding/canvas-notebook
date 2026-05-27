@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 
 type LicenseStatus = {
   licensed: boolean;
@@ -17,6 +18,7 @@ type LicenseStatus = {
   instanceId: string;
   expiresAt: string | null;
   error?: string;
+  code?: string;
 };
 
 function licenseErrorMessage(error?: string) {
@@ -33,6 +35,10 @@ function licenseErrorMessage(error?: string) {
     default:
       return error;
   }
+}
+
+function errorWithCode(message: string, code?: string) {
+  return code ? `${message} (${code})` : message;
 }
 
 export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string }) {
@@ -69,7 +75,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'License request failed');
+        throw new Error(errorWithCode(payload.error || 'License request failed', payload.code));
       }
       toast.success(`License email sent to ${email}`);
     } catch (error) {
@@ -89,7 +95,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'License activation failed');
+        throw new Error(errorWithCode(payload.error || 'License activation failed', payload.code));
       }
       setStatus(payload);
       toast.success('License activated');
@@ -102,6 +108,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
   }
 
   const isLicensed = Boolean(status?.licensed);
+  const statusCode = status?.code || codeFromLicenseError(status?.error as Parameters<typeof codeFromLicenseError>[0]);
 
   return (
     <div className="space-y-4">
@@ -161,9 +168,10 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
               </div>
 
               {status?.error && (
-                <p className="text-sm text-destructive">
-                  {licenseErrorMessage(status.error)}
-                </p>
+                <div className="space-y-1 text-sm text-destructive">
+                  <p>{licenseErrorMessage(status.error)}</p>
+                  {statusCode && <p className="font-mono text-xs text-muted-foreground">{statusCode}</p>}
+                </div>
               )}
             </>
           )}

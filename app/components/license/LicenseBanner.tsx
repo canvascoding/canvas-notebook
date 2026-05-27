@@ -2,6 +2,7 @@
 
 import { AlertTriangle, KeyRound, ShieldAlert } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
+import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 import type { LicenseStatus } from '@/app/lib/license/types';
 
 export function LicenseBanner({ status }: { status: LicenseStatus }) {
@@ -19,6 +20,7 @@ export function LicenseBanner({ status }: { status: LicenseStatus }) {
         : isPublicKeyUnavailable
           ? 'License verification is unavailable. Configure the license public key or check the Control Plane connection.'
           : 'License activation required.';
+  const code = codeFromLicenseError(status.error);
 
   return (
     <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2">
@@ -28,7 +30,10 @@ export function LicenseBanner({ status }: { status: LicenseStatus }) {
         ) : (
           <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600" />
         )}
-        <span className="min-w-0 flex-1 text-foreground">{message}</span>
+        <span className="min-w-0 flex-1 text-foreground">
+          {message}
+          {code && <span className="ml-2 font-mono text-xs text-muted-foreground">{code}</span>}
+        </span>
         <Link
           href="/settings?tab=license"
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-amber-700"
