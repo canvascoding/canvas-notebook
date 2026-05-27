@@ -99,15 +99,14 @@ export async function savePiSession(
   const lastMessageAt = lastAssistantMessage ? new Date(getAgentMessageTimestamp(lastAssistantMessage)) : null;
 
   if (!session) {
-    const legacyChannelId = options?.channelId ?? 'app';
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
       userId,
       provider,
       model,
       title: resolvedTitle,
-      channelId: legacyChannelId,
-      channelSessionKey: options?.channelSessionKey ?? null,
+      channelId: 'app',
+      channelSessionKey: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       lastMessageAt: lastMessageAt,

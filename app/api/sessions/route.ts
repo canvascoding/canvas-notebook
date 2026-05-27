@@ -358,8 +358,8 @@ export async function POST(request: NextRequest) {
           model,
           thinkingLevel,
           title,
-          channelId,
-          channelSessionKey,
+          channelId: 'app',
+          channelSessionKey: null,
           createdAt: new Date(),
           updatedAt: new Date(),
         })

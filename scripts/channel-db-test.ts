@@ -151,6 +151,37 @@ async function main() {
     'from legacy fallback',
   );
 
+  const { savePiSession } = await import('../app/lib/pi/session-store');
+  const savedSessionId = 'sess-save-link-only';
+  await savePiSession(
+    savedSessionId,
+    userId,
+    'test-provider',
+    'test-model',
+    [{ role: 'user', content: 'saved via session store', timestamp: now.getTime() }],
+    undefined,
+    {
+      titleOverride: 'Saved Link Only',
+      channelId: 'telegram',
+      channelSessionKey: 'telegram:stored-link',
+    },
+  );
+
+  const savedSession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, savedSessionId),
+  });
+  assert.equal(savedSession?.channelId, 'app');
+  assert.equal(savedSession?.channelSessionKey, null);
+
+  const savedLink = await db.query.sessionChannelLinks.findFirst({
+    where: and(
+      eq(sessionChannelLinks.sessionId, savedSessionId),
+      eq(sessionChannelLinks.channelId, 'telegram'),
+      eq(sessionChannelLinks.channelSessionKey, 'telegram:stored-link'),
+    ),
+  });
+  assert.equal(savedLink?.sessionId, savedSessionId);
+
   console.log('channel db tests passed');
 }
 
