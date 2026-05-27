@@ -24,7 +24,7 @@ interface FilePickerFile {
   isImage: boolean;
 }
 
-export function PromptHero() {
+export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean }) {
   const locale = useLocale();
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
@@ -48,6 +48,7 @@ export function PromptHero() {
   const notebookHref = getPathname({ href: '/notebook', locale });
 
   const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
+    if (licenseLocked) return;
     setIsUploading(true);
     setUploadError(null);
 
@@ -97,7 +98,7 @@ export function PromptHero() {
     } finally {
       setIsUploading(false);
     }
-  }, []);
+  }, [licenseLocked]);
 
   const preprocessAndUpload = useCallback(async (files: File[]) => {
     const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
@@ -146,8 +147,9 @@ export function PromptHero() {
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
   const handleFileUpload = useCallback(async (file: File) => {
+    if (licenseLocked) return;
     await preprocessAndUpload([file]);
-  }, [preprocessAndUpload]);
+  }, [licenseLocked, preprocessAndUpload]);
 
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -176,6 +178,7 @@ export function PromptHero() {
   }, []);
 
   const fetchFiles = useCallback(async (query: string = '') => {
+    if (licenseLocked) return;
     setIsLoadingFiles(true);
     try {
       const res = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=50`);
@@ -189,7 +192,7 @@ export function PromptHero() {
     } finally {
       setIsLoadingFiles(false);
     }
-  }, []);
+  }, [licenseLocked]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -274,6 +277,7 @@ export function PromptHero() {
   const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     const normalizedPrompt = prompt.trim();
+    if (licenseLocked) return;
     if (!normalizedPrompt && attachments.length === 0) {
       return;
     }
@@ -350,6 +354,7 @@ export function PromptHero() {
             onPaste={handlePaste}
             placeholder={tHome('hero.placeholder')}
             data-prompt-hero-textarea
+            disabled={licenseLocked}
             className="min-h-24 w-full resize-y rounded-lg border border-border bg-background p-3 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             rows={3}
           />
@@ -392,6 +397,7 @@ export function PromptHero() {
             onClick={() => fileInputRef.current?.click()}
             className="border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-accent rounded-md"
             title={tChat('attachImage')}
+            disabled={licenseLocked}
           >
             <Paperclip className="h-5 w-5" />
           </button>
@@ -406,7 +412,7 @@ export function PromptHero() {
           <button
             type="submit"
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-            disabled={isSubmitting || (!prompt.trim() && attachments.length === 0)}
+            disabled={licenseLocked || isSubmitting || (!prompt.trim() && attachments.length === 0)}
           >
             <Send className="h-4 w-4" />
             {tHome('hero.submit')}

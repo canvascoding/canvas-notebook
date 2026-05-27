@@ -47,11 +47,10 @@ const fs = require('fs');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
-  const { spawn } = require('child_process');
-  const { auth } = require('./app/lib/auth');
-  const {
-    resolveSkillsDataDir,
-  } = require('./app/lib/runtime-data-paths');
+const { auth } = require('./app/lib/auth');
+const {
+  resolveSkillsDataDir,
+} = require('./app/lib/runtime-data-paths');
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = process.env.HOSTNAME || 'localhost';
@@ -373,47 +372,6 @@ try {
   console.log('[Startup] Expired session cleanup scheduled (every 15min)');
 } catch (err) {
   console.warn('[Startup] Session cleanup could not be initialized:', err.message);
-}
-
-// Spawn the standalone HTTP-based scheduler as a child process.
-// This avoids the ESM-only dependency chain (pi-agent-core → pi-ai) that
-// cannot be loaded via tsx's CJS transform in server.js.
-try {
-  console.log('[Startup] Spawning automation-scheduler...');
-  const schedulerProcess = spawn(process.execPath, [path.resolve(__dirname, 'scripts/automation-scheduler.js')], {
-    env: process.env,
-    stdio: 'inherit',
-  });
-  schedulerProcess.on('error', (err) => {
-    console.error('[Startup] automation-scheduler spawn error:', err.message);
-  });
-
-  let isShuttingDown = false;
-  function shutdownSchedulerAndExit(_signal) {
-    if (isShuttingDown) return;
-    isShuttingDown = true;
-    if (!schedulerProcess.killed) {
-      schedulerProcess.kill('SIGTERM');
-    }
-    const forceKillTimer = setTimeout(() => {
-      if (!schedulerProcess.killed) {
-        schedulerProcess.kill('SIGKILL');
-      }
-      process.exit(0);
-    }, 3000);
-    forceKillTimer.unref();
-    schedulerProcess.on('exit', () => {
-      clearTimeout(forceKillTimer);
-      process.exit(0);
-    });
-  }
-
-  process.on('SIGTERM', shutdownSchedulerAndExit);
-  process.on('SIGINT', shutdownSchedulerAndExit);
-
-  console.log('[Startup] automation-scheduler spawned (pid %d)', schedulerProcess.pid);
-} catch (error) {
-  console.error('[Startup] ERROR spawning automation-scheduler:', error.message);
 }
 
 console.log('[Startup] Runtime setup complete');

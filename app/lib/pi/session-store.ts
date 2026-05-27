@@ -1,9 +1,11 @@
 import { db } from '../db';
-import { piSessions, piMessages, aiSessions, aiMessages } from '../db/schema';
+import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
 import { eq, and, asc } from 'drizzle-orm';
 import { type AgentMessage } from '@mariozechner/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
+import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
+import { normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -69,6 +71,7 @@ export async function savePiSession(
     persistedLength?: number;
     channelId?: string;
     channelSessionKey?: string | null;
+    channelThreadKey?: string | null;
   },
 ): Promise<void> {
   // Find or create session
@@ -102,8 +105,8 @@ export async function savePiSession(
       provider,
       model,
       title: resolvedTitle,
-      channelId: options?.channelId ?? 'app',
-      channelSessionKey: options?.channelSessionKey ?? null,
+      channelId: 'app',
+      channelSessionKey: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       lastMessageAt: lastMessageAt,
@@ -124,6 +127,20 @@ export async function savePiSession(
       })
       .where(eq(piSessions.id, sessionDbId));
   }
+
+  const normalizedChannelId = normalizeStoredChannelId(options?.channelId ?? session?.channelId ?? 'app');
+  await ensureSessionChannelLink({
+    sessionId,
+    userId,
+    channelId: normalizedChannelId,
+    channelSessionKey: options?.channelSessionKey
+      ?? session?.channelSessionKey
+      ?? (normalizedChannelId === WEB_CHANNEL_ID ? webChannelSessionKey(userId) : `${normalizedChannelId}:unknown`),
+    channelThreadKey: options?.channelThreadKey ?? null,
+    displayName: resolvedTitle,
+    isPrimary: normalizedChannelId === WEB_CHANNEL_ID,
+    outboundAt: lastMessageAt,
+  });
 
   const startIndex = options?.persistedLength ?? 0;
   if (startIndex === 0) {
@@ -244,8 +261,20 @@ export async function updatePiSessionLastMessageAt(sessionId: string, userId: st
 }
 
 export async function loadPiSessionByChannelKey(channelId: string, channelSessionKey: string): Promise<AgentMessage[] | null> {
+  const normalizedChannelId = normalizeStoredChannelId(channelId);
+  const link = await db.query.sessionChannelLinks.findFirst({
+    where: and(
+      eq(sessionChannelLinks.channelId, normalizedChannelId),
+      eq(sessionChannelLinks.channelSessionKey, channelSessionKey),
+      eq(sessionChannelLinks.channelThreadKey, normalizeChannelThreadKey(null)),
+    ),
+    columns: { sessionId: true },
+  });
+
+  if (!link) return null;
+
   const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.channelId, channelId), eq(piSessions.channelSessionKey, channelSessionKey))
+    where: eq(piSessions.sessionId, link.sessionId),
   });
 
   if (!session) return null;

@@ -9,7 +9,7 @@ import { InspirationPanel } from './InspirationPanel';
 import { ToolCard } from './ToolCard';
 import { MoreToolsSection } from './MoreToolsSection';
 
-export function HomeWorkspaceView() {
+export function HomeWorkspaceView({ licenseLocked = false }: { licenseLocked?: boolean }) {
   const t = useTranslations('home');
   const tApps = useTranslations('home.apps');
   const [activeCategory, setActiveCategory] = useState<CategoryId | null>(null);
@@ -38,7 +38,7 @@ export function HomeWorkspaceView() {
 
   return (
     <div className="flex flex-col gap-6 pb-10">
-      <PromptHero />
+      <PromptHero licenseLocked={licenseLocked} />
       <CategoryPills activeCategory={activeCategory} onCategoryClick={handleCategoryClick} />
       {activeCategory && (
         <InspirationPanel

@@ -165,6 +165,19 @@ export const licenseCerts = sqliteTable("license_certs", {
   instanceIdx: index("idx_license_certs_instance").on(table.instanceId),
 }));
 
+export const licensePublicKeys = sqliteTable("license_public_keys", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kid: text("kid"),
+  publicKey: text("public_key").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  source: text("source").notNull().default("control_plane"),
+  fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+}, (table) => ({
+  fingerprintIdx: uniqueIndex("idx_license_public_keys_fingerprint").on(table.fingerprint),
+  fetchedAtIdx: index("idx_license_public_keys_fetched_at").on(table.fetchedAt),
+}));
+
 export const automationJobs = sqliteTable("automation_jobs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/lib/db';
-import { aiSessions, aiMessages, user, piSessions, piMessages } from '@/app/lib/db/schema';
+import { aiSessions, aiMessages, user, piSessions, piMessages, sessionChannelLinks } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { and, desc, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
@@ -15,6 +15,7 @@ import { getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
 import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
+import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 
 type CreateSessionPayload = {
   title?: string;
@@ -121,18 +122,6 @@ async function syncSessionModelToPiConfig(
   });
 }
 
-function hasUnreadPiResponse(lastMessageAt: Date | null, lastViewedAt: Date | null): boolean {
-  if (!lastMessageAt) {
-    return false;
-  }
-
-  if (!lastViewedAt) {
-    return true;
-  }
-
-  return lastMessageAt.getTime() > lastViewedAt.getTime();
-}
-
 async function resolveDefaultModel(): Promise<AgentId> {
   const config = await readAgentRuntimeConfig();
   return providerIdToAgentId(config.provider.id);
@@ -190,9 +179,21 @@ export async function GET(request: NextRequest) {
     const whereClause = legacyModelFilter
       ? and(eq(aiSessions.model, legacyModelFilter), eq(aiSessions.userId, session.user.id))
       : eq(aiSessions.userId, session.user.id);
+    const normalizedChannelFilter = channelIdFilter ? normalizeStoredChannelId(channelIdFilter) : null;
+    const filteredPiSessionIds = normalizedChannelFilter
+      ? await db
+          .select({ sessionId: sessionChannelLinks.sessionId })
+          .from(sessionChannelLinks)
+          .where(and(
+            eq(sessionChannelLinks.userId, session.user.id),
+            eq(sessionChannelLinks.channelId, normalizedChannelFilter),
+          ))
+      : null;
+    const filteredPiSessionIdValues = filteredPiSessionIds?.map((row) => row.sessionId) ?? null;
+    const includeLegacySessions = !normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID;
 
     const [legacySessions, newPiSessions] = await Promise.all([
-      db
+      includeLegacySessions ? db
         .select({
           id: aiSessions.id,
           sessionId: aiSessions.sessionId,
@@ -207,7 +208,7 @@ export async function GET(request: NextRequest) {
         .leftJoin(user, eq(aiSessions.userId, user.id))
         .where(whereClause)
         .orderBy(desc(aiSessions.createdAt))
-        .limit(100),
+        .limit(100) : Promise.resolve([]),
       db
         .select({
           id: piSessions.id,
@@ -217,7 +218,6 @@ export async function GET(request: NextRequest) {
           model: piSessions.model,
           thinkingLevel: piSessions.thinkingLevel,
           provider: piSessions.provider,
-          channelId: piSessions.channelId,
           createdAt: piSessions.createdAt,
           lastMessageAt: piSessions.lastMessageAt,
           lastViewedAt: piSessions.lastViewedAt,
@@ -226,23 +226,30 @@ export async function GET(request: NextRequest) {
         })
         .from(piSessions)
         .leftJoin(user, eq(piSessions.userId, user.id))
-        .where(channelIdFilter ? and(eq(piSessions.userId, session.user.id), eq(piSessions.channelId, channelIdFilter)) : eq(piSessions.userId, session.user.id))
+        .where(
+          filteredPiSessionIdValues
+            ? filteredPiSessionIdValues.length > 0
+              ? and(eq(piSessions.userId, session.user.id), inArray(piSessions.sessionId, filteredPiSessionIdValues))
+              : and(eq(piSessions.userId, session.user.id), sql`1 = 0`)
+            : eq(piSessions.userId, session.user.id)
+        )
         .orderBy(desc(piSessions.createdAt))
         .limit(100)
     ]);
 
     const combined = [
       ...legacySessions.map(s => ({ ...s, engine: 'legacy' as const, channelId: 'app' as const, lastMessageAt: null as Date | null, lastViewedAt: null as Date | null })),
-      ...newPiSessions.map(s => ({ 
+      ...newPiSessions.map(s => ({
         ...s, 
         engine: 'pi' as const,
+        channelId: 'web' as const,
         lastMessageAt: s.lastMessageAt,
         lastViewedAt: s.lastViewedAt
       }))
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     const mappedSessions = combined.map((item) => {
-      const hasUnread = item.engine === 'pi' && hasUnreadPiResponse(item.lastMessageAt, item.lastViewedAt);
+      const hasUnread = item.engine === 'pi' && hasUnreadAssistantResponse(item.lastMessageAt, item.lastViewedAt);
       if (hasUnread) {
         console.log(`[API Sessions] Unread session: sessionId=${item.sessionId}, lastMessageAt=${item.lastMessageAt?.toISOString()}, lastViewedAt=${item.lastViewedAt?.toISOString()}`);
       }
@@ -340,8 +347,8 @@ export async function POST(request: NextRequest) {
           model,
           thinkingLevel,
           title,
-          channelId,
-          channelSessionKey,
+          channelId: 'app',
+          channelSessionKey: null,
           createdAt: new Date(),
           updatedAt: new Date(),
         })

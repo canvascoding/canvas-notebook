@@ -34,7 +34,6 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
   const piConfig = await readPiRuntimeConfig();
   const model = await resolveActivePiModel();
   const now = new Date();
-  const legacyChannelId = input.channelId === WEB_CHANNEL_ID ? 'app' : input.channelId;
 
   await db.insert(piSessions).values({
     sessionId,
@@ -43,8 +42,8 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
     provider: piConfig.activeProvider,
     model: model.id,
     thinkingLevel: piConfig.providers[piConfig.activeProvider]?.thinking || 'off',
-    channelId: legacyChannelId,
-    channelSessionKey: input.channelSessionKey,
+    channelId: 'app',
+    channelSessionKey: null,
     title: DEFAULT_PI_SESSION_TITLE,
     createdAt: now,
     updatedAt: now,

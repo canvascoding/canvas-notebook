@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { CheckCircle2, KeyRound, Loader2, Mail, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Info, KeyRound, Loader2, Mail, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 
 type LicenseStatus = {
   licensed: boolean;
@@ -17,7 +18,28 @@ type LicenseStatus = {
   instanceId: string;
   expiresAt: string | null;
   error?: string;
+  code?: string;
 };
+
+function licenseErrorMessage(error?: string) {
+  switch (error) {
+    case 'missing_public_key':
+    case 'public_key_unavailable':
+      return 'License verification is unavailable. Configure the license public key or check the Control Plane connection.';
+    case 'control_plane_unreachable':
+      return 'Could not reach the license server. Check the Control Plane URL or network connection.';
+    case 'untrusted_public_key':
+      return 'The license server returned an untrusted public key. Check CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS.';
+    case 'license_expired':
+      return 'License expired. Please renew or activate a new license.';
+    default:
+      return error;
+  }
+}
+
+function errorWithCode(message: string, code?: string) {
+  return code ? `${message} (${code})` : message;
+}
 
 export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string }) {
   const searchParams = useSearchParams();
@@ -53,7 +75,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'License request failed');
+        throw new Error(errorWithCode(payload.error || 'License request failed', payload.code));
       }
       toast.success(`License email sent to ${email}`);
     } catch (error) {
@@ -73,7 +95,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'License activation failed');
+        throw new Error(errorWithCode(payload.error || 'License activation failed', payload.code));
       }
       setStatus(payload);
       toast.success('License activated');
@@ -86,6 +108,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
   }
 
   const isLicensed = Boolean(status?.licensed);
+  const statusCode = status?.code || codeFromLicenseError(status?.error as Parameters<typeof codeFromLicenseError>[0]);
 
   return (
     <div className="space-y-4">
@@ -107,6 +130,35 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="border border-border bg-muted/30 px-3 py-3 text-sm">
+            <div className="flex items-start gap-3">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="space-y-2">
+                <div>
+                  <p className="font-medium">What activation does</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Activation verifies this self-hosted instance with Canvas and stores a signed license certificate locally. Your Instance ID and email are used to issue the license; your workspace files, prompts, API keys, and local data are not sent as part of activation.
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium">License terms</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Canvas Notebook is provided under the Sustainable Use License 1.0. It allows self-hosted internal business use, personal use, and non-commercial use. It does not allow offering Canvas Notebook, modified versions, or derived hosted services to third parties as a managed or competing service.
+                  </p>
+                  <a
+                    href="https://github.com/canvascoding/canvas-notebook?tab=License-1-ov-file"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-foreground underline-offset-4 hover:underline"
+                  >
+                    View full license
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-2 text-sm">
             <div className="flex items-center justify-between gap-3 border border-border px-3 py-2">
               <span className="text-muted-foreground">Instance ID</span>
@@ -145,11 +197,10 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
               </div>
 
               {status?.error && (
-                <p className="text-sm text-destructive">
-                  {status.error === 'missing_public_key'
-                    ? 'CANVAS_LICENSE_PUBLIC_KEY is not configured.'
-                    : status.error}
-                </p>
+                <div className="space-y-1 text-sm text-destructive">
+                  <p>{licenseErrorMessage(status.error)}</p>
+                  {statusCode && <p className="font-mono text-xs text-muted-foreground">{statusCode}</p>}
+                </div>
               )}
             </>
           )}
