@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, lte, notInArray, or } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { automationJobs, automationRuns, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
+import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
@@ -47,6 +48,17 @@ function ensurePreferredSkill(value: unknown): AutomationPreferredSkill {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) return 'auto';
   return normalized.slice(0, 120);
+}
+
+function normalizeAgentId(value: unknown): string {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!normalized) {
+    return DEFAULT_MANAGED_AGENT_ID;
+  }
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized)) {
+    throw new Error('Agent ID is invalid.');
+  }
+  return normalized;
 }
 
 function normalizeWorkspaceContextPaths(value: unknown): string[] {
@@ -115,6 +127,7 @@ function mapJobRow(row: typeof automationJobs.$inferSelect): AutomationJobRecord
     lastRunAt: toIsoString(row.lastRunAt),
     lastRunStatus: (row.lastRunStatus as AutomationRunStatus | null) ?? null,
     createdByUserId: row.createdByUserId,
+    agentId: row.agentId || DEFAULT_MANAGED_AGENT_ID,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     jobType: (row.jobType as AutomationJobType) || 'default',
@@ -253,6 +266,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
   const name = normalizeString(input.name, 'Name', 120);
   const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
   const preferredSkill = ensurePreferredSkill(input.preferredSkill);
+  const agentId = normalizeAgentId(input.agentId);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const { schedule, error } = validateFriendlySchedule(input.schedule);
@@ -281,6 +295,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
       lastRunAt: null,
       lastRunStatus: null,
       createdByUserId: userId,
+      agentId,
       createdAt: now,
       updatedAt: now,
     })
@@ -294,6 +309,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const name = normalizeString(input.name, 'Name', 120);
   const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
   const preferredSkill = ensurePreferredSkill(input.preferredSkill);
+  const agentId = normalizeAgentId(input.agentId);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const composioTriggerId = normalizeString(input.composioTriggerId, 'Composio trigger ID', 500);
@@ -325,6 +341,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       lastRunAt: null,
       lastRunStatus: null,
       createdByUserId: userId,
+      agentId,
       createdAt: now,
       updatedAt: now,
       jobType: 'webhook',
@@ -375,6 +392,7 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
       targetOutputPath: input.targetOutputPath === undefined
         ? existing.targetOutputPath
         : normalizeTargetOutputPath(input.targetOutputPath),
+      agentId: input.agentId === undefined ? existing.agentId : normalizeAgentId(input.agentId),
       status,
       scheduleKind: schedule.kind,
       scheduleConfigJson: JSON.stringify(schedule),

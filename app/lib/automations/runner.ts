@@ -223,7 +223,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   console.log(`[Automationen] Run ${runId} using provider=${provider}, model=${model.id}`);
 
   const tools = await getPiTools();
-  const { systemPrompt } = await loadManagedAgentSystemPrompt();
+  const { systemPrompt } = await loadManagedAgentSystemPrompt(job.agentId);
   const promptMessage: AgentMessage = {
     role: 'user',
     content: promptText,
@@ -265,7 +265,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       model.id,
       [promptMessage],
       undefined,
-      { titleOverride: piSessionTitle },
+      { titleOverride: piSessionTitle, agentId: job.agentId },
     );
 
     console.log(`[Automationen] Starting agent loop for run ${runId} (provider=${provider}, model=${model.id})`);
@@ -293,7 +293,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       model.id,
       finalMessages,
       undefined,
-      { titleOverride: piSessionTitle },
+      { titleOverride: piSessionTitle, agentId: job.agentId },
     );
     console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
     await markAutomationRunFinished(run.id, {
@@ -303,6 +303,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider,
         model: model.id,
+        agentId: job.agentId,
         status: 'success',
         targetOutputPath: job.targetOutputPath,
         effectiveTargetOutputPath,
@@ -325,13 +326,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       model.id,
       persistedMessages,
       undefined,
-      { titleOverride: piSessionTitle },
+      { titleOverride: piSessionTitle, agentId: job.agentId },
     );
 
     if (retryAt) {
       await markAutomationRunRetryScheduled(run.id, retryAt, message, events, {
         provider,
         model: model.id,
+        agentId: job.agentId,
         status: 'retry_scheduled',
         retryAt: retryAt.toISOString(),
         error: message,
@@ -351,6 +353,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider,
         model: model.id,
+        agentId: job.agentId,
         status: 'failed',
         error: message,
         targetOutputPath: job.targetOutputPath,

@@ -51,6 +51,7 @@ export type AutomationJobRecord = {
   lastRunAt: string | null;
   lastRunStatus: AutomationRunStatus | null;
   createdByUserId: string;
+  agentId: string;
   createdAt: string;
   updatedAt: string;
   jobType: AutomationJobType;
@@ -94,6 +95,7 @@ export type CreateAutomationJobInput = {
   workspaceContextPaths?: string[];
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
+  agentId?: string;
   schedule: FriendlySchedule;
   status?: AutomationJobStatus;
 };
@@ -104,6 +106,7 @@ export type CreateWebhookAutomationJobInput = {
   workspaceContextPaths?: string[];
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
+  agentId?: string;
   status?: AutomationJobStatus;
   composioTriggerId: string;
   composioTriggerSlug: string;

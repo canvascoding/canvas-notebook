@@ -870,7 +870,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
   };
-  const { systemPrompt } = await loadManagedAgentSystemPrompt();
+  const agentId = sessionRecord?.agentId ?? 'canvas-agent';
+  const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId);
   const tools = await getPiTools(userId);
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
@@ -1070,7 +1071,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
   };
-  const { systemPrompt } = await loadManagedAgentSystemPrompt();
+  const { systemPrompt } = await loadManagedAgentSystemPrompt(sessionRecord.agentId);
   const tools = await getPiTools(userId);
   const model = await resolvePiModel(sessionRecord.provider, sessionRecord.model);
   const composition = composePiHistoryForLlm({
