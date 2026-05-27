@@ -69,6 +69,8 @@ type ProviderStatus = {
 };
 
 type PiProviderSetupCardProps = {
+  agentId?: string;
+  mode?: 'main' | 'override';
   title?: string;
   description?: string;
   saveButtonLabel?: string;
@@ -240,6 +242,8 @@ function localizeProviderHelp(help: ProviderHelpInfo, locale: string): ProviderH
 }
 
 export function PiProviderSetupCard({
+  agentId,
+  mode = 'main',
   title,
   description,
   saveButtonLabel,
@@ -266,6 +270,7 @@ export function PiProviderSetupCard({
   const resolvedSaveButtonLabel = saveButtonLabel ?? t('provider.saveButton');
   const resolvedSaveSuccessMessage = saveSuccessMessage ?? t('provider.saveSuccess');
   const terminalPath = `/${locale}/terminal`;
+  const isOverrideMode = mode === 'override';
 
   const loadProviderStatus = useCallback(async (providerId: string) => {
     setSelectedProviderLoading(true);
@@ -310,7 +315,8 @@ export function PiProviderSetupCard({
     setConfigError(null);
 
     try {
-      const payload = await fetchJson<AgentConfigResponse>('/api/agents/config');
+      const query = agentId ? `?${new URLSearchParams({ agentId }).toString()}` : '';
+      const payload = await fetchJson<AgentConfigResponse>(`/api/agents/config${query}`);
       const authMethods: Record<string, string | undefined> = {};
       if (payload.piConfig?.providers) {
         for (const [k, v] of Object.entries(payload.piConfig.providers)) {
@@ -332,7 +338,7 @@ export function PiProviderSetupCard({
     } finally {
       setConfigLoading(false);
     }
-  }, [t]);
+  }, [agentId, t]);
 
   useEffect(() => {
     startTransition(() => { void loadConfig(); });
@@ -466,6 +472,7 @@ export function PiProviderSetupCard({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          agentId,
           piConfig: piConfigDraft,
         }),
       });
@@ -520,7 +527,11 @@ export function PiProviderSetupCard({
 
   const activeProviderConfig = piConfigDraft.providers[piConfigDraft.activeProvider];
 
-  const filteredProviders = authMethodSelection
+  const filteredProviders = isOverrideMode
+    ? Object.keys(discovery).length > 0
+      ? Object.keys(discovery).sort()
+      : Object.keys(piConfigDraft.providers)
+    : authMethodSelection
     ? getProvidersForAuthMethod(authMethodSelection).filter(
         (id) => {
           if (id === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
@@ -575,6 +586,7 @@ export function PiProviderSetupCard({
         <CardDescription>{resolvedDescription}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!isOverrideMode && (
         <div className="space-y-2">
           <label className="text-sm font-semibold">{t('provider.authMethod.title')}</label>
           <div className="grid grid-cols-2 gap-3">
@@ -644,6 +656,7 @@ export function PiProviderSetupCard({
             </button>
           </div>
         </div>
+        )}
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2 text-sm">
@@ -959,7 +972,7 @@ export function PiProviderSetupCard({
           </div>
         </div>
 
-        {piConfigDraft.activeProvider && effectiveAuthMethod === 'oauth' && (
+        {!isOverrideMode && piConfigDraft.activeProvider && effectiveAuthMethod === 'oauth' && (
           <div className="space-y-3 rounded border border-border bg-card p-4">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-semibold">{t('provider.oauthAuthentication')}</h4>
@@ -981,20 +994,23 @@ export function PiProviderSetupCard({
           </div>
         )}
 
-        {piConfigDraft.activeProvider && effectiveAuthMethod === 'api-key' && activeProviderConfig?.authMethod === 'api-key' && supportsBothAuthMethods(piConfigDraft.activeProvider) && (
+        {!isOverrideMode && piConfigDraft.activeProvider && effectiveAuthMethod === 'api-key' && activeProviderConfig?.authMethod === 'api-key' && supportsBothAuthMethods(piConfigDraft.activeProvider) && (
           <div className="rounded bg-muted/50 p-3 text-xs text-muted-foreground">
             <p className="mb-1 font-medium">{t('provider.apiKeySetupTitle')}</p>
             <p>{t('provider.apiKeySetupDescription')}</p>
           </div>
         )}
 
+        {!isOverrideMode && (
         <div className="rounded border border-border bg-muted/20 p-3">
           <p className="mb-1 text-xs font-semibold uppercase tracking-tight text-muted-foreground">{t('provider.systemInfo')}</p>
           <p className="text-xs text-muted-foreground">
             {t('provider.systemInfoDescription')}
           </p>
         </div>
+        )}
 
+        {!isOverrideMode && (
         <ProviderHelpSection
           providerId={piConfigDraft.activeProvider}
           isProviderReady={selectedProviderStatus?.isReady ?? false}
@@ -1006,6 +1022,7 @@ export function PiProviderSetupCard({
             await loadProviderStatus(piConfigDraft.activeProvider);
           }}
         />
+        )}
 
         {configError && <p className="text-sm text-destructive">{configError}</p>}
         {configSuccess && <p className="text-sm text-primary">{configSuccess}</p>}

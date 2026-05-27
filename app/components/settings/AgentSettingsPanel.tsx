@@ -15,12 +15,15 @@ import {
 } from '@/app/lib/pi/enabled-tools';
 import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
 import { AgentManagedFilesCard, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 
 function buildAgentQuery(agentId: string): string {
   return new URLSearchParams({ agentId }).toString();
@@ -30,7 +33,7 @@ type SessionItem = AgentSessionItem;
 
 type PiConfigData = {
   activeProvider: string;
-  providers: Record<string, { enabledTools: string[]; [key: string]: unknown }>;
+  providers: Record<string, { enabledTools: string[]; model?: string; thinking?: PiThinkingLevel; [key: string]: unknown }>;
   [key: string]: unknown;
 };
 
@@ -125,6 +128,14 @@ export function AgentSettingsPanel() {
     resetAgentScopedState();
     setSelectedAgentId(agentId);
   }, [resetAgentScopedState, selectedAgentId]);
+
+  const selectedAgent = useMemo(
+    () => agents.find((agent) => agent.agentId === selectedAgentId) || null,
+    [agents, selectedAgentId],
+  );
+  const isMainAgent = selectedAgentId === DEFAULT_AGENT_ID || selectedAgent?.type === 'main';
+  const modelOverrideEnabled = isMainAgent || Boolean(selectedAgent?.defaultProvider && selectedAgent.defaultModel);
+  const toolsOverrideEnabled = isMainAgent || Array.isArray(selectedAgent?.enabledTools);
 
   const loadAgents = useCallback(async () => {
     setAgentsLoading(true);
@@ -271,6 +282,20 @@ export function AgentSettingsPanel() {
       setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
     }
   }, [selectedAgentId, t]);
+
+  const patchSelectedAgent = useCallback(async (payload: Record<string, unknown>) => {
+    if (isMainAgent) return;
+    await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentId: selectedAgentId,
+        ...payload,
+      }),
+    });
+    await loadAgents();
+    await loadToolsConfig();
+  }, [isMainAgent, loadAgents, loadToolsConfig, selectedAgentId]);
 
   const runDoctor = useCallback(async () => {
     setDoctorRunning(true);
@@ -533,6 +558,11 @@ export function AgentSettingsPanel() {
     setToolsError(null);
 
     try {
+      if (!isMainAgent) {
+        await patchSelectedAgent({ enabledTools: newEnabledTools });
+        return;
+      }
+
       const nextConfig = { ...toolsPiConfig };
       const providerId = nextConfig.activeProvider;
       nextConfig.providers = {
@@ -573,6 +603,43 @@ export function AgentSettingsPanel() {
 
   const handleDisableAll = () => {
     void saveToolsConfig(['__none__']);
+  };
+
+  const setModelOverrideEnabled = async (enabled: boolean) => {
+    if (isMainAgent) return;
+    setToolsSaving(true);
+    setToolsError(null);
+    try {
+      if (!enabled) {
+        await patchSelectedAgent({ defaultProvider: null, defaultModel: null, defaultThinking: null });
+        return;
+      }
+
+      const providerId = toolsPiConfig?.activeProvider;
+      const providerConfig = providerId ? toolsPiConfig?.providers[providerId] : null;
+      await patchSelectedAgent({
+        defaultProvider: providerId || null,
+        defaultModel: providerConfig?.model || null,
+        defaultThinking: providerConfig?.thinking || 'off',
+      });
+    } catch (error) {
+      setToolsError(error instanceof Error ? error.message : t('agentPanel.inheritance.errors.save'));
+    } finally {
+      setToolsSaving(false);
+    }
+  };
+
+  const setToolsOverrideEnabled = async (enabled: boolean) => {
+    if (isMainAgent) return;
+    setToolsSaving(true);
+    setToolsError(null);
+    try {
+      await patchSelectedAgent({ enabledTools: enabled ? getActiveEnabledTools() : null });
+    } catch (error) {
+      setToolsError(error instanceof Error ? error.message : t('agentPanel.inheritance.errors.save'));
+    } finally {
+      setToolsSaving(false);
+    }
   };
 
   const toolGroups = useMemo(() => {
@@ -659,12 +726,13 @@ export function AgentSettingsPanel() {
     }
   };
 
+  const activeProviderId = toolsPiConfig?.activeProvider || selectedAgent?.defaultProvider || 'default';
+  const activeProviderConfig = toolsPiConfig?.providers?.[activeProviderId];
+  const inheritedModelSummary = `${activeProviderId} / ${activeProviderConfig?.model || selectedAgent?.defaultModel || 'model'}`;
+  const effectiveEnabledToolCount = availableTools.filter((tool) => isToolEnabled(tool.name)).length;
+
   return (
     <div className="space-y-4">
-      <div id="onboarding-settings-agentSettings">
-        <PiProviderSetupCard />
-      </div>
-
       <AgentSelectorCard
         agents={agents}
         selectedAgentId={selectedAgentId}
@@ -680,32 +748,94 @@ export function AgentSettingsPanel() {
         onReload={() => void loadAgents()}
       />
 
+      {!isMainAgent && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('agentPanel.inheritance.title')}</CardTitle>
+            <CardDescription>{t('agentPanel.inheritance.description')}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t('agentPanel.inheritance.modelOverride')}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {modelOverrideEnabled
+                    ? t('agentPanel.inheritance.customModel', { summary: inheritedModelSummary })
+                    : t('agentPanel.inheritance.inheritedModel', { summary: inheritedModelSummary })}
+                </p>
+              </div>
+              <Switch
+                checked={modelOverrideEnabled}
+                onCheckedChange={(checked) => void setModelOverrideEnabled(checked)}
+                disabled={toolsSaving || !toolsPiConfig}
+                aria-label={t('agentPanel.inheritance.modelOverride')}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t('agentPanel.inheritance.toolsOverride')}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {toolsOverrideEnabled
+                    ? t('agentPanel.inheritance.customTools', { count: effectiveEnabledToolCount })
+                    : t('agentPanel.inheritance.inheritedTools', { count: effectiveEnabledToolCount })}
+                </p>
+              </div>
+              <Switch
+                checked={toolsOverrideEnabled}
+                onCheckedChange={(checked) => void setToolsOverrideEnabled(checked)}
+                disabled={toolsSaving || toolsLoading}
+                aria-label={t('agentPanel.inheritance.toolsOverride')}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {(isMainAgent || modelOverrideEnabled) && (
+        <div id="onboarding-settings-agentSettings">
+          <PiProviderSetupCard
+            agentId={selectedAgentId}
+            mode={isMainAgent ? 'main' : 'override'}
+            title={isMainAgent ? undefined : t('agentPanel.inheritance.modelCardTitle')}
+            description={isMainAgent ? undefined : t('agentPanel.inheritance.modelCardDescription')}
+            saveSuccessMessage={isMainAgent ? undefined : t('agentPanel.inheritance.overrideSaved')}
+            onSaved={async () => {
+              await loadAgents();
+              await loadToolsConfig();
+            }}
+          />
+        </div>
+      )}
+
       <AgentChatDisplayCard
         toolVerbosity={toolVerbosity}
         onToolVerbosityChange={setToolVerbosity}
       />
 
-      <AgentToolsCard
-        availableTools={availableTools}
-        filteredTools={filteredTools}
-        toolGroups={toolGroups}
-        activeToolGroups={activeToolGroups}
-        openToolRows={openToolRows}
-        toolsLoading={toolsLoading}
-        toolsSaving={toolsSaving}
-        toolsError={toolsError}
-        toolSearchQuery={toolSearchQuery}
-        isToolEnabled={isToolEnabled}
-        onToolSearchQueryChange={setToolSearchQuery}
-        onToggleToolGroup={toggleToolGroup}
-        onClearToolGroups={() => setActiveToolGroups(new Set())}
-        onToolRowOpenChange={(toolName, open) => setOpenToolRows((current) => ({ ...current, [toolName]: open }))}
-        onToolToggle={handleToolToggle}
-        onEnableAll={handleEnableAll}
-        onDisableAll={handleDisableAll}
-      />
+      {(isMainAgent || toolsOverrideEnabled) && (
+        <AgentToolsCard
+          availableTools={availableTools}
+          filteredTools={filteredTools}
+          toolGroups={toolGroups}
+          activeToolGroups={activeToolGroups}
+          openToolRows={openToolRows}
+          toolsLoading={toolsLoading}
+          toolsSaving={toolsSaving}
+          toolsError={toolsError}
+          toolSearchQuery={toolSearchQuery}
+          isToolEnabled={isToolEnabled}
+          onToolSearchQueryChange={setToolSearchQuery}
+          onToggleToolGroup={toggleToolGroup}
+          onClearToolGroups={() => setActiveToolGroups(new Set())}
+          onToolRowOpenChange={(toolName, open) => setOpenToolRows((current) => ({ ...current, [toolName]: open }))}
+          onToolToggle={handleToolToggle}
+          onEnableAll={handleEnableAll}
+          onDisableAll={handleDisableAll}
+        />
+      )}
 
       <AgentManagedFilesCard
+        isMainAgent={isMainAgent}
         files={files}
         fileDrafts={fileDrafts}
         activeFile={activeFile}

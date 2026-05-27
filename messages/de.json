@@ -1141,6 +1141,22 @@
         "verbose": "Detailliert",
         "verboseDescription": "Vollständige Tool-Details mit Input und Output zum Debuggen anzeigen."
       },
+      "inheritance": {
+        "title": "Spezial-Agent Overrides",
+        "description": "Spezial-Agenten erben standardmäßig Modell, Tools, Identity und User-Kontext vom Canvas Agent.",
+        "modelOverride": "Eigenes Modell verwenden",
+        "toolsOverride": "Eigene Tools verwenden",
+        "inheritedModel": "Erbt vom Canvas Agent: {summary}",
+        "customModel": "Eigener Standard: {summary}",
+        "inheritedTools": "Erbt {count} aktive Tools vom Canvas Agent",
+        "customTools": "{count} aktive Tools für diesen Agent",
+        "modelCardTitle": "Modell-Override",
+        "modelCardDescription": "Provider, Modell und Denkstufe nur für diesen Spezial-Agenten setzen. Zugangsdaten bleiben global.",
+        "overrideSaved": "Agent-Override gespeichert.",
+        "errors": {
+          "save": "Agent-Override konnte nicht gespeichert werden."
+        }
+      },
       "doctor": {
         "title": "Doctor",
         "description": "System-Check für Provider und Konnektivität.",
@@ -1223,6 +1239,8 @@
         "confirmReset": "Möchtest du {fileName} wirklich auf den Standard-Prompt zurücksetzen?",
         "confirmResetAllTitle": "Alle Dateien zurücksetzen?",
         "confirmResetAll": "Möchtest du wirklich alle Dateien auf die Standard-Prompts zurücksetzen?",
+        "inheritedFromCanvas": "Vom Canvas Agent geerbt",
+        "emptyInherited": "Keine Inhalte im geerbten Prompt.",
         "errors": {
           "load": "Agent-Dateien konnten nicht geladen werden.",
           "save": "Agent-Datei konnte nicht gespeichert werden.",

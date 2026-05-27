@@ -15,6 +15,8 @@ export type AgentProfileItem = {
   removable: boolean;
   defaultProvider: string | null;
   defaultModel: string | null;
+  defaultThinking: string | null;
+  enabledTools: string[] | null;
 };
 
 type AgentSelectorCardProps = {

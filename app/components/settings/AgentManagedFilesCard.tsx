@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { ChevronDown, Loader2, RefreshCw, RotateCcw, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -25,11 +26,14 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 
 export const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+const SPECIAL_AGENT_INHERITED_FILES = ['IDENTITY.md', 'USER.md'] as const;
+const SPECIAL_AGENT_VISIBLE_FILES = MANAGED_FILES.filter((fileName) => !SPECIAL_AGENT_INHERITED_FILES.includes(fileName as typeof SPECIAL_AGENT_INHERITED_FILES[number]));
 
 export type ManagedFileName = (typeof MANAGED_FILES)[number];
 export type ResetTarget = 'current' | 'all';
 
 type AgentManagedFilesCardProps = {
+  isMainAgent: boolean;
   files: Record<ManagedFileName, string> | null;
   fileDrafts: Record<ManagedFileName, string>;
   activeFile: ManagedFileName;
@@ -51,6 +55,7 @@ type AgentManagedFilesCardProps = {
 };
 
 export function AgentManagedFilesCard({
+  isMainAgent,
   files,
   fileDrafts,
   activeFile,
@@ -72,6 +77,15 @@ export function AgentManagedFilesCard({
 }: AgentManagedFilesCardProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
+  const visibleFileNames = isMainAgent
+    ? MANAGED_FILES
+    : SPECIAL_AGENT_VISIBLE_FILES;
+
+  useEffect(() => {
+    if (!visibleFileNames.includes(activeFile)) {
+      onActiveFileChange('AGENTS.md');
+    }
+  }, [activeFile, onActiveFileChange, visibleFileNames]);
 
   return (
     <>
@@ -90,13 +104,31 @@ export function AgentManagedFilesCard({
             <>
               <Tabs value={activeFile} onValueChange={(value) => onActiveFileChange(value as ManagedFileName)}>
                 <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
-                  {MANAGED_FILES.map((fileName) => (
+                  {visibleFileNames.map((fileName) => (
                     <TabsTrigger key={fileName} value={fileName} className="border border-border data-[state=active]:bg-muted">
                       {fileName}
                     </TabsTrigger>
                   ))}
                 </TabsList>
               </Tabs>
+
+              {!isMainAgent && (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {SPECIAL_AGENT_INHERITED_FILES.map((fileName) => (
+                    <div key={fileName} className="rounded-md border bg-muted/30 p-3 text-xs">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="font-semibold">{fileName}</span>
+                        <span className="rounded bg-background px-2 py-0.5 text-muted-foreground">
+                          {t('agentPanel.files.inheritedFromCanvas')}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 whitespace-pre-wrap text-muted-foreground">
+                        {(files[fileName] || '').trim() || t('agentPanel.files.emptyInherited')}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div
                 data-testid="agent-managed-file-editor"
