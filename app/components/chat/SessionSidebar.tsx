@@ -218,7 +218,8 @@ export function SessionSidebar({
     if (!confirm(t('deleteSessionConfirm'))) return;
 
     try {
-      const res = await fetch(`/api/sessions?sessionId=${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      const params = new URLSearchParams({ agentId, sessionId });
+      const res = await fetch(`/api/sessions?${params.toString()}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         setHistory((prev) => prev.filter((session) => session.sessionId !== sessionId));
@@ -237,7 +238,7 @@ export function SessionSidebar({
       const res = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: session.sessionId, title: nextTitle.trim() }),
+        body: JSON.stringify({ agentId, sessionId: session.sessionId, title: nextTitle.trim() }),
       });
       const data = await res.json();
       if (data.success) {
@@ -248,7 +249,7 @@ export function SessionSidebar({
     } catch (err) {
       console.error('Failed to rename session', err);
     }
-  }, [t]);
+  }, [agentId, t]);
 
   const handleSessionClick = useCallback((session: AISession) => {
     onSessionSelect(session);

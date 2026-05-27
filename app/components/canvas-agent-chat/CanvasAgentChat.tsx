@@ -1531,7 +1531,7 @@ export default function CanvasAgentChat({
         void fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId, markAsRead: true }),
+          body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId, markAsRead: true }),
         }).catch((error) => {
           console.error('Failed to mark active session as read after response', error);
         });
@@ -1792,7 +1792,7 @@ export default function CanvasAgentChat({
         void fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: currentVisibleSessionId, markAsRead: true }),
+          body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId: currentVisibleSessionId, markAsRead: true }),
         }).catch((error) => {
           console.error('Failed to mark active session as read after history refresh', error);
         });
@@ -2137,7 +2137,7 @@ export default function CanvasAgentChat({
       void fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: nextSessionId, title: tempTitle }),
+        body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId: nextSessionId, title: tempTitle }),
       });
     }
 
@@ -2747,7 +2747,7 @@ export default function CanvasAgentChat({
         await fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: session.sessionId, markAsRead: true }),
+          body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId: session.sessionId, markAsRead: true }),
         });
         setHasUnreadInCurrentSession(false);
         setShowUnreadBanner(false);
@@ -2770,7 +2770,7 @@ export default function CanvasAgentChat({
 
     try {
       const [messagesResponse, statusPayload] = await Promise.all([
-        fetch(`/api/sessions/messages?sessionId=${encodeURIComponent(session.sessionId)}&limit=50`),
+        fetch(`/api/sessions/messages?agentId=${encodeURIComponent(CHAT_AGENT_ID)}&sessionId=${encodeURIComponent(session.sessionId)}&limit=50`),
         ensureSessionSubscribed(session.sessionId).then(() => (
           wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
             sessionId: session.sessionId,
@@ -2844,7 +2844,7 @@ export default function CanvasAgentChat({
 
     try {
       const response = await fetch(
-        `/api/sessions/messages?sessionId=${encodeURIComponent(currentSessionId)}&before=${oldestTimestamp}${oldestMessageId !== null ? `&beforeId=${oldestMessageId}` : ''}&limit=50`,
+        `/api/sessions/messages?agentId=${encodeURIComponent(CHAT_AGENT_ID)}&sessionId=${encodeURIComponent(currentSessionId)}&before=${oldestTimestamp}${oldestMessageId !== null ? `&beforeId=${oldestMessageId}` : ''}&limit=50`,
       );
       const payload = await response.json();
 
@@ -2896,7 +2896,8 @@ export default function CanvasAgentChat({
     if (!confirm(t('deleteSessionConfirm'))) return;
 
     try {
-      const res = await fetch(`/api/sessions?sessionId=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const params = new URLSearchParams({ agentId: CHAT_AGENT_ID, sessionId: id });
+      const res = await fetch(`/api/sessions?${params.toString()}`, { method: 'DELETE' });
       const data = await safeFetchJson<{ success: boolean }>(res);
       if (data?.success) {
         setHistory((prev) => prev.filter((session) => session.sessionId !== id));
@@ -2917,7 +2918,7 @@ export default function CanvasAgentChat({
       const res = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: session.sessionId, title: nextTitle.trim() }),
+        body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId: session.sessionId, title: nextTitle.trim() }),
       });
       const data = await safeFetchJson<{ success: boolean }>(res);
       if (data?.success) {

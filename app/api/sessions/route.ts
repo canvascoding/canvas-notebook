@@ -485,7 +485,7 @@ export async function PATCH(request: NextRequest) {
 
     if (requestedModel || requestedThinkingLevel) {
       const piSession = await db.query.piSessions.findFirst({
-        where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)),
+        where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)),
       });
 
       if (!piSession) {
@@ -527,7 +527,7 @@ export async function PATCH(request: NextRequest) {
       const piSession = await db
         .select({ id: piSessions.id })
         .from(piSessions)
-        .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)));
+        .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
 
       if (piSession.length > 0) {
         const now = new Date();
@@ -550,7 +550,7 @@ export async function PATCH(request: NextRequest) {
       const piSession = await db
         .select({ id: piSessions.id })
         .from(piSessions)
-        .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)));
+        .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
 
       if (piSession.length > 0) {
         await db.update(piSessions)
@@ -578,7 +578,7 @@ export async function PATCH(request: NextRequest) {
     const updatedPi = await db
       .update(piSessions)
       .set({ title: title.slice(0, 120), updatedAt: new Date() })
-      .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)))
+      .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)))
       .returning();
 
     if (updatedPi.length > 0) {
@@ -586,6 +586,10 @@ export async function PATCH(request: NextRequest) {
         success: true,
         session: updatedPi[0],
       });
+    }
+
+    if (requestedAgentId !== DEFAULT_AGENT_ID) {
+      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
     }
 
     // Fallback to legacy
@@ -621,6 +625,13 @@ export async function DELETE(request: NextRequest) {
   const shouldDeleteAll = deleteAll === 'true' || deleteAll === '1';
   const olderThanDays = searchParams.get('olderThanDays');
   const shouldDeleteOlder = !!olderThanDays && !shouldDeleteAll && !sessionId;
+  let requestedAgentId: string;
+
+  try {
+    requestedAgentId = normalizeSessionAgentId(searchParams.get('agentId'));
+  } catch {
+    return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
+  }
 
   if (!shouldDeleteAll && !sessionId && !shouldDeleteOlder) {
     return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
@@ -638,6 +649,7 @@ export async function DELETE(request: NextRequest) {
         .where(
           and(
             eq(piSessions.userId, session.user.id),
+            eq(piSessions.agentId, requestedAgentId),
             or(
               lt(piSessions.lastMessageAt, cutoff),
               and(isNull(piSessions.lastMessageAt), lt(piSessions.createdAt, cutoff))
@@ -652,16 +664,17 @@ export async function DELETE(request: NextRequest) {
         await db.delete(piSessions).where(inArray(piSessions.id, olderPiSessions.map(s => s.id)));
       }
 
-      // Delete legacy AI sessions older than cutoff (using createdAt)
-      const olderAiSessions = await db
-        .select({ id: aiSessions.id })
-        .from(aiSessions)
-        .where(
-          and(
-            eq(aiSessions.userId, session.user.id),
-            lt(aiSessions.createdAt, cutoff)
-          )
-        );
+      const olderAiSessions = requestedAgentId === DEFAULT_AGENT_ID
+        ? await db
+            .select({ id: aiSessions.id })
+            .from(aiSessions)
+            .where(
+              and(
+                eq(aiSessions.userId, session.user.id),
+                lt(aiSessions.createdAt, cutoff)
+              )
+            )
+        : [];
 
       deletedCount += olderAiSessions.length;
 
@@ -682,20 +695,24 @@ export async function DELETE(request: NextRequest) {
       const userPiSessions = await db
         .select({ id: piSessions.id })
         .from(piSessions)
-        .where(eq(piSessions.userId, session.user.id));
+        .where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
       if (userPiSessions.length > 0) {
         await db.delete(piMessages).where(inArray(piMessages.piSessionDbId, userPiSessions.map(s => s.id)));
       }
-      await db.delete(piSessions).where(eq(piSessions.userId, session.user.id));
+      await db.delete(piSessions).where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
 
-      const userAiSessions = await db
-        .select({ id: aiSessions.id })
-        .from(aiSessions)
-        .where(eq(aiSessions.userId, session.user.id));
+      const userAiSessions = requestedAgentId === DEFAULT_AGENT_ID
+        ? await db
+            .select({ id: aiSessions.id })
+            .from(aiSessions)
+            .where(eq(aiSessions.userId, session.user.id))
+        : [];
       if (userAiSessions.length > 0) {
         await db.delete(aiMessages).where(inArray(aiMessages.aiSessionDbId, userAiSessions.map(s => s.id)));
       }
-      await db.delete(aiSessions).where(eq(aiSessions.userId, session.user.id));
+      if (requestedAgentId === DEFAULT_AGENT_ID) {
+        await db.delete(aiSessions).where(eq(aiSessions.userId, session.user.id));
+      }
 
       return NextResponse.json({
         success: true,
@@ -705,11 +722,15 @@ export async function DELETE(request: NextRequest) {
 
     // Try deleting PI session (ownership enforced)
     const piSess = await db.select({ id: piSessions.id }).from(piSessions)
-      .where(and(eq(piSessions.sessionId, sessionId!), eq(piSessions.userId, session.user.id)));
+      .where(and(eq(piSessions.sessionId, sessionId!), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
     if (piSess.length > 0) {
       await db.delete(piMessages).where(eq(piMessages.piSessionDbId, piSess[0].id));
       await db.delete(piSessions).where(eq(piSessions.id, piSess[0].id));
       return NextResponse.json({ success: true, deleted: sessionId });
+    }
+
+    if (requestedAgentId !== DEFAULT_AGENT_ID) {
+      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
     }
 
     // Fallback to legacy (ownership enforced)
