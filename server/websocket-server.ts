@@ -29,6 +29,8 @@ import { piSessions } from '@/app/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
 import { handleInboundChannelMessage } from '@/app/lib/channels/router';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
+import { getLicenseStatus } from '@/app/lib/license';
+import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 
 type ControlAction = 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
@@ -37,6 +39,14 @@ type RuntimeService = typeof import('@/app/lib/pi/runtime-service');
 
 async function getRuntimeService(): Promise<RuntimeService> {
   return import('@/app/lib/pi/runtime-service');
+}
+
+async function isLicensedForRuntime(): Promise<boolean> {
+  if (!isOnboardingEnabled() || !(await isOnboardingComplete())) {
+    return true;
+  }
+  const status = await getLicenseStatus();
+  return status.licensed;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -233,6 +243,13 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     console.error('[WebSocket] Authentication failed:', authResult.error);
     sendWs(ws, { type: 'auth_error', error: authResult.error || 'Authentication failed' });
     ws.close(4001, 'Unauthorized');
+    return;
+  }
+
+  if (!(await isLicensedForRuntime())) {
+    console.warn('[WebSocket] License activation required. Closing connection.');
+    sendWs(ws, { type: 'auth_error', error: 'License activation required' });
+    ws.close(4003, 'License activation required');
     return;
   }
 
