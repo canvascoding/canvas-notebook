@@ -441,6 +441,7 @@
     "history": "Verlauf",
     "canvasChatLabel": "Canvas Chat",
     "sessionLabel": "Session",
+    "agentLabel": "Agent",
     "modelLabel": "Modell",
     "newChatTitle": "Neuer Chat",
     "newChatShort": "Neu",
