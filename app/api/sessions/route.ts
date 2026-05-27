@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/lib/db';
-import { aiSessions, aiMessages, user, piSessions, piMessages, sessionChannelLinks } from '@/app/lib/db/schema';
+import { aiSessions, aiMessages, user, piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { and, desc, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
@@ -17,6 +17,7 @@ import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 
 type CreateSessionPayload = {
   title?: string;
@@ -660,8 +661,7 @@ export async function DELETE(request: NextRequest) {
       let deletedCount = olderPiSessions.length;
 
       if (olderPiSessions.length > 0) {
-        await db.delete(piMessages).where(inArray(piMessages.piSessionDbId, olderPiSessions.map(s => s.id)));
-        await db.delete(piSessions).where(inArray(piSessions.id, olderPiSessions.map(s => s.id)));
+        await deletePiSessionsByDbIds(olderPiSessions.map(s => s.id));
       }
 
       const olderAiSessions = requestedAgentId === DEFAULT_AGENT_ID
@@ -696,10 +696,7 @@ export async function DELETE(request: NextRequest) {
         .select({ id: piSessions.id })
         .from(piSessions)
         .where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
-      if (userPiSessions.length > 0) {
-        await db.delete(piMessages).where(inArray(piMessages.piSessionDbId, userPiSessions.map(s => s.id)));
-      }
-      await db.delete(piSessions).where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
+      await deletePiSessionsByDbIds(userPiSessions.map(s => s.id));
 
       const userAiSessions = requestedAgentId === DEFAULT_AGENT_ID
         ? await db
@@ -724,8 +721,7 @@ export async function DELETE(request: NextRequest) {
     const piSess = await db.select({ id: piSessions.id }).from(piSessions)
       .where(and(eq(piSessions.sessionId, sessionId!), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
     if (piSess.length > 0) {
-      await db.delete(piMessages).where(eq(piMessages.piSessionDbId, piSess[0].id));
-      await db.delete(piSessions).where(eq(piSessions.id, piSess[0].id));
+      await deletePiSessionsByDbIds([piSess[0].id]);
       return NextResponse.json({ success: true, deleted: sessionId });
     }
 

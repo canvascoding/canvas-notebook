@@ -1,9 +1,10 @@
 import 'server-only';
 
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { agents, piMessages, piSessions } from '@/app/lib/db/schema';
+import { agents, piSessions } from '@/app/lib/db/schema';
+import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import { DEFAULT_MANAGED_AGENT_ID } from './storage';
 
 export type AgentProfile = {
@@ -175,10 +176,6 @@ export async function deleteAgentProfile(agentIdInput: string): Promise<void> {
   }
 
   const sessions = await db.select({ id: piSessions.id }).from(piSessions).where(eq(piSessions.agentId, agentId));
-  const sessionDbIds = sessions.map((session) => session.id);
-  if (sessionDbIds.length > 0) {
-    await db.delete(piMessages).where(inArray(piMessages.piSessionDbId, sessionDbIds));
-    await db.delete(piSessions).where(eq(piSessions.agentId, agentId));
-  }
+  await deletePiSessionsByDbIds(sessions.map((session) => session.id));
   await db.delete(agents).where(eq(agents.agentId, agentId));
 }
