@@ -15,6 +15,7 @@ import { getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
 import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
+import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 
 type CreateSessionPayload = {
   title?: string;
@@ -119,18 +120,6 @@ async function syncSessionModelToPiConfig(
       },
     },
   });
-}
-
-function hasUnreadPiResponse(lastMessageAt: Date | null, lastViewedAt: Date | null): boolean {
-  if (!lastMessageAt) {
-    return false;
-  }
-
-  if (!lastViewedAt) {
-    return true;
-  }
-
-  return lastMessageAt.getTime() > lastViewedAt.getTime();
 }
 
 async function resolveDefaultModel(): Promise<AgentId> {
@@ -260,7 +249,7 @@ export async function GET(request: NextRequest) {
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     const mappedSessions = combined.map((item) => {
-      const hasUnread = item.engine === 'pi' && hasUnreadPiResponse(item.lastMessageAt, item.lastViewedAt);
+      const hasUnread = item.engine === 'pi' && hasUnreadAssistantResponse(item.lastMessageAt, item.lastViewedAt);
       if (hasUnread) {
         console.log(`[API Sessions] Unread session: sessionId=${item.sessionId}, lastMessageAt=${item.lastMessageAt?.toISOString()}, lastViewedAt=${item.lastViewedAt?.toISOString()}`);
       }

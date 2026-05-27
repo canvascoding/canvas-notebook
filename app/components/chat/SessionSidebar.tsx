@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
+import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 
 export interface AISession {
   id: number;
@@ -44,18 +45,6 @@ interface SessionSidebarProps {
 
 type SessionGroup = 'today' | 'last7' | 'last14' | 'last30' | 'older';
 
-function hasUnreadAssistantResponse(lastMessageAt?: string | null, lastViewedAt?: string | null): boolean {
-  if (!lastMessageAt) {
-    return false;
-  }
-
-  if (!lastViewedAt) {
-    return true;
-  }
-
-  return new Date(lastMessageAt).getTime() > new Date(lastViewedAt).getTime();
-}
-
 export function SessionSidebar({
   currentSessionId,
   onSessionSelect,
@@ -72,6 +61,7 @@ export function SessionSidebar({
     sessionId: null,
     hasActiveEvent: false,
   });
+  const historyRef = useRef<AISession[]>([]);
 
   const totalUnreadCount = useMemo(() => history.filter((s) => s.hasUnread).length, [history]);
 
@@ -98,7 +88,9 @@ export function SessionSidebar({
       const res = await fetch('/api/sessions');
       const data = await res.json();
       if (data.success) {
-        setHistory(data.sessions || []);
+        const sessions = data.sessions || [];
+        historyRef.current = sessions;
+        setHistory(sessions);
       }
     } catch (err) {
       console.error('Failed to fetch history', err);
@@ -106,6 +98,10 @@ export function SessionSidebar({
       setIsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -129,31 +125,27 @@ export function SessionSidebar({
   useEffect(() => {
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, lastMessageAt, title } = event.detail;
-      let sessionFound = false;
       console.log(`[SessionSidebar] session_updated: sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title}", currentSessionId=${currentSessionId}`);
 
-      setHistory((prev) => prev.map((session) => {
-        if (session.sessionId !== sessionId) {
-          return session;
-        }
+      const activeVisibleSession = activeVisibleSessionRef.current;
+      const isCurrentVisibleSession = activeVisibleSession.hasActiveEvent
+        ? activeVisibleSession.sessionId === sessionId
+        : currentSessionId === sessionId;
+      const sessionFound = historyRef.current.some((session) => session.sessionId === sessionId);
 
-        sessionFound = true;
-        const activeVisibleSession = activeVisibleSessionRef.current;
-        const isCurrentVisibleSession = activeVisibleSession.hasActiveEvent
-          ? activeVisibleSession.sessionId === sessionId
-          : currentSessionId === sessionId;
-        const nextLastViewedAt = isCurrentVisibleSession ? lastMessageAt : (session.lastViewedAt ?? null);
-        const unread = !isCurrentVisibleSession && hasUnreadAssistantResponse(lastMessageAt, nextLastViewedAt);
-        console.log(`[SessionSidebar] Unread calc: sessionId=${sessionId}, isCurrentVisibleSession=${isCurrentVisibleSession}, lastMessageAt=${lastMessageAt}, prevLastViewedAt=${session.lastViewedAt}, nextLastViewedAt=${nextLastViewedAt}, hasUnread=${unread}`);
+      setHistory((prev) => {
+        const updatedHistory = prev.map((session) => {
+          if (session.sessionId !== sessionId) {
+            return session;
+          }
 
-        return {
-          ...session,
-          lastMessageAt,
-          ...(title ? { title } : {}),
-          lastViewedAt: nextLastViewedAt,
-          hasUnread: unread,
-        };
-      }));
+          const updated = applySessionUnreadUpdate(session, event.detail, { isCurrentVisibleSession, title });
+          console.log(`[SessionSidebar] Unread calc: sessionId=${sessionId}, isCurrentVisibleSession=${isCurrentVisibleSession}, lastMessageAt=${lastMessageAt}, prevLastViewedAt=${session.lastViewedAt}, nextLastViewedAt=${updated.lastViewedAt}, hasUnread=${updated.hasUnread}`);
+          return updated;
+        });
+        historyRef.current = updatedHistory;
+        return updatedHistory;
+      });
 
       if (!sessionFound) {
         void fetchHistory();

@@ -94,6 +94,7 @@ import { cn } from '@/lib/utils';
 
 import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
@@ -274,18 +275,6 @@ const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?:
   automation: RefreshCw,
   default: Settings,
 };
-
-function hasUnreadAssistantResponse(lastMessageAt?: string | null, lastViewedAt?: string | null): boolean {
-  if (!lastMessageAt) {
-    return false;
-  }
-
-  if (!lastViewedAt) {
-    return true;
-  }
-
-  return new Date(lastMessageAt).getTime() > new Date(lastViewedAt).getTime();
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -1308,6 +1297,7 @@ export default function CanvasAgentChat({
   const hasLoadedSessionListRef = useRef(false);
   const inputHistoryCursorRef = useRef<number | null>(null);
   const inputHistoryDraftRef = useRef('');
+  const historyRef = useRef<AISession[]>([]);
 
   const userMessageHistory = useMemo(() => (
     messages
@@ -1335,6 +1325,10 @@ export default function CanvasAgentChat({
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   const getTextareaBaseHeight = useCallback(() => (
     isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
@@ -1501,23 +1495,25 @@ export default function CanvasAgentChat({
       const currentVisible = surfaceVisibleRef.current;
       const isCurrentVisibleSession = sessionId === currentSessionId && currentVisible;
       console.log(`[CanvasAgentChat] session_updated received: sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title}", currentSessionId=${currentSessionId}, surfaceVisible=${currentVisible}, isCurrentVisibleSession=${isCurrentVisibleSession}`);
-      let sessionFound = false;
+      const sessionFound = historyRef.current.some((session) => session.sessionId === sessionId);
       const resolvedTitle = resolveSessionTitle(sessionId, title);
 
       // Update history state to reflect new lastMessageAt (and title if provided)
       setHistory(prev => {
         const updated = prev.map(session => {
           if (session.sessionId !== sessionId) return session;
-          sessionFound = true;
-          const newLastViewedAt = isCurrentVisibleSession ? lastMessageAt : (session.lastViewedAt ?? null);
-          const hasUnread = !isCurrentVisibleSession && hasUnreadAssistantResponse(lastMessageAt, newLastViewedAt);
-          console.log(`[CanvasAgentChat] Unread calc for ${sessionId}: isCurrentVisible=${isCurrentVisibleSession}, lastMessageAt=${lastMessageAt}, lastViewedAt=${session.lastViewedAt}, newLastViewedAt=${newLastViewedAt}, hasUnread=${hasUnread}`);
-          return { ...session, lastMessageAt, ...(resolvedTitle ? { title: resolvedTitle } : {}), lastViewedAt: newLastViewedAt, hasUnread };
+          const updatedSession = applySessionUnreadUpdate(session, event.detail, {
+            isCurrentVisibleSession,
+            title: resolvedTitle,
+          });
+          console.log(`[CanvasAgentChat] Unread calc for ${sessionId}: isCurrentVisible=${isCurrentVisibleSession}, lastMessageAt=${lastMessageAt}, lastViewedAt=${session.lastViewedAt}, newLastViewedAt=${updatedSession.lastViewedAt}, hasUnread=${updatedSession.hasUnread}`);
+          return updatedSession;
         });
 
         // Recalculate unread count
         const unreadCount = updated.filter(s => s.hasUnread).length;
         setTotalUnreadCount(unreadCount);
+        historyRef.current = updated;
 
         return updated;
       });
