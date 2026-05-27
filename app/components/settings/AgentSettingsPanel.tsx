@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Loader2, Plus, RefreshCw, Save, Stethoscope, Trash2, RotateCcw, ChevronDown, Wrench, Search, X, Clock, Eye, EyeOff, ListCollapse, type LucideIcon } from 'lucide-react';
+import { Loader2, RefreshCw, Save, Stethoscope, RotateCcw, ChevronDown, Wrench, Search, X, Eye, EyeOff, ListCollapse, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +38,7 @@ import {
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import { useToolVerbosityStore, type ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 
 const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 const SETTINGS_AGENT_ID = DEFAULT_AGENT_ID;
@@ -103,18 +104,7 @@ type DoctorResult = {
   };
 };
 
-type SessionItem = {
-  id: number;
-  sessionId: string;
-  agentId?: string;
-  title: string;
-  model: string;
-  createdAt: string;
-  creator?: {
-    name?: string | null;
-    email?: string | null;
-  };
-};
+type SessionItem = AgentSessionItem;
 
 type ToolMetadata = {
   name: string;
@@ -950,108 +940,26 @@ export function AgentSettingsPanel() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('agentPanel.sessions.title')}</CardTitle>
-          <CardDescription>{t('agentPanel.sessions.description')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <Input
-              className="flex-1 min-w-[200px]"
-              placeholder={t('agentPanel.sessions.newSessionPlaceholder')}
-              value={createTitle}
-              onChange={(event) => setCreateTitle(event.target.value)}
-              disabled={sessionPendingId !== null}
-            />
-            <Button onClick={() => void createSession()} disabled={sessionPendingId !== null}>
-              {sessionPendingId === 'create' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              {t('agentPanel.sessions.new')}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => void deleteAllSessions()}
-              disabled={sessionPendingId !== null || sessionsLoading || sessions.length === 0}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              {t('agentPanel.sessions.deleteAll')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void deleteOlderSessions()}
-              disabled={sessionPendingId !== null || sessionsLoading}
-            >
-              {sessionPendingId === 'delete-older' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Clock className="mr-2 h-4 w-4" />}
-              {t('agentPanel.sessions.deleteOlder')}
-            </Button>
-          </div>
-
-          {sessionError && <p className="text-sm text-destructive">{sessionError}</p>}
-
-          {sessionsLoading ? (
-            <div className="flex items-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t('agentPanel.sessions.loading')}
-            </div>
-          ) : sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('agentPanel.sessions.empty')}</p>
-          ) : (
-            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-              {sessions.map((sessionItem) => {
-                const isPending = sessionPendingId === sessionItem.sessionId;
-                const creatorLabel =
-                  sessionItem.creator?.name || sessionItem.creator?.email || t('agentPanel.sessions.unknownUser');
-
-                return (
-                  <div key={sessionItem.sessionId} className="rounded border border-border p-3 hover:bg-muted/10 transition-colors">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
-                      <span>{sessionItem.sessionId}</span>
-                      <span>{new Date(sessionItem.createdAt).toLocaleString(locale)}</span>
-                    </div>
-
-                    <div className="mb-2 grid gap-2 md:grid-cols-[1fr_auto_auto] md:items-center">
-                      <Input
-                        value={renameDrafts[sessionItem.sessionId] ?? ''}
-                        onChange={(event) =>
-                          setRenameDrafts((current) => ({
-                            ...current,
-                            [sessionItem.sessionId]: event.target.value,
-                          }))
-                        }
-                        disabled={sessionPendingId !== null}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void renameSession(sessionItem.sessionId)}
-                        disabled={sessionPendingId !== null}
-                      >
-                        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => void deleteSession(sessionItem.sessionId)}
-                        disabled={sessionPendingId !== null}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    <div className="text-[10px] text-muted-foreground flex justify-between">
-                      <span>{t('agentPanel.sessions.modelLabel')} {sessionItem.model}</span>
-                      <span>{t('agentPanel.sessions.userLabel')} {creatorLabel}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <AgentSessionsCard
+        sessions={sessions}
+        sessionsLoading={sessionsLoading}
+        sessionError={sessionError}
+        createTitle={createTitle}
+        sessionPendingId={sessionPendingId}
+        renameDrafts={renameDrafts}
+        onCreateTitleChange={setCreateTitle}
+        onRenameDraftChange={(sessionId, value) =>
+          setRenameDrafts((current) => ({
+            ...current,
+            [sessionId]: value,
+          }))
+        }
+        onCreateSession={() => void createSession()}
+        onRenameSession={(sessionId) => void renameSession(sessionId)}
+        onDeleteSession={(sessionId) => void deleteSession(sessionId)}
+        onDeleteAllSessions={() => void deleteAllSessions()}
+        onDeleteOlderSessions={() => void deleteOlderSessions()}
+      />
 
       <Card>
         <CardHeader>
