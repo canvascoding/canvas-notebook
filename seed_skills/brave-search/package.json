@@ -7,7 +7,7 @@
 	"license": "MIT",
 	"dependencies": {
 		"@mozilla/readability": "^0.6.0",
-		"jsdom": "^27.0.1",
+		"jsdom": "^29.1.1",
 		"turndown": "^7.2.2",
 		"turndown-plugin-gfm": "^1.0.2"
 	}
