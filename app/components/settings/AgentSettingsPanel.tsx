@@ -18,11 +18,10 @@ import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
 import { AgentManagedFilesCard, MANAGED_FILES, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
+import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 
-const SETTINGS_AGENT_ID = DEFAULT_AGENT_ID;
-
-function buildAgentQuery(): string {
-  return new URLSearchParams({ agentId: SETTINGS_AGENT_ID }).toString();
+function buildAgentQuery(agentId: string): string {
+  return new URLSearchParams({ agentId }).toString();
 }
 
 type SessionItem = AgentSessionItem;
@@ -59,6 +58,11 @@ export function AgentSettingsPanel() {
   const searchParams = useSearchParams();
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
   const setToolVerbosity = useToolVerbosityStore((s) => s.setToolVerbosity);
+
+  const [agents, setAgents] = useState<AgentProfileItem[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsError, setAgentsError] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
 
   const [doctorResult, setDoctorResult] = useState<DoctorResult | null>(null);
   const [doctorRunning, setDoctorRunning] = useState(false);
@@ -100,12 +104,35 @@ export function AgentSettingsPanel() {
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
 
+  const loadAgents = useCallback(async () => {
+    setAgentsLoading(true);
+    setAgentsError(null);
+
+    try {
+      const payload = await fetchJson<{ agents: AgentProfileItem[] }>('/api/agents');
+      const nextAgents = payload.agents || [];
+      setAgents(nextAgents);
+      setSelectedAgentId((current) => {
+        if (nextAgents.some((agent) => agent.agentId === current)) {
+          return current;
+        }
+        return nextAgents.find((agent) => agent.agentId === DEFAULT_AGENT_ID)?.agentId
+          || nextAgents[0]?.agentId
+          || DEFAULT_AGENT_ID;
+      });
+    } catch (error) {
+      setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.load'));
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, [t]);
+
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     setFilesError(null);
 
     try {
-      const payload = await fetchJson<{ files: Record<ManagedFileName, string> }>(`/api/agents/files?${buildAgentQuery()}`);
+      const payload = await fetchJson<{ files: Record<ManagedFileName, string> }>(`/api/agents/files?${buildAgentQuery(selectedAgentId)}`);
       setFiles(payload.files);
       setFileDrafts(payload.files);
     } catch (error) {
@@ -113,14 +140,14 @@ export function AgentSettingsPanel() {
     } finally {
       setFilesLoading(false);
     }
-  }, [t]);
+  }, [selectedAgentId, t]);
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
     setSessionError(null);
 
     try {
-      const params = new URLSearchParams({ agentId: SETTINGS_AGENT_ID });
+      const params = new URLSearchParams({ agentId: selectedAgentId });
       const payload = await fetch(`/api/sessions?${params.toString()}`, {
         credentials: 'include',
         cache: 'no-store',
@@ -145,30 +172,30 @@ export function AgentSettingsPanel() {
     } finally {
       setSessionsLoading(false);
     }
-  }, [t]);
+  }, [selectedAgentId, t]);
 
   const loadTools = useCallback(async () => {
     setToolsLoading(true);
     setToolsError(null);
 
     try {
-      const payload = await fetchJson<{ tools: ToolMetadata[] }>(`/api/agents/tools?${buildAgentQuery()}`);
+      const payload = await fetchJson<{ tools: ToolMetadata[] }>(`/api/agents/tools?${buildAgentQuery(selectedAgentId)}`);
       setAvailableTools(payload.tools);
     } catch (error) {
       setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.loading'));
     } finally {
       setToolsLoading(false);
     }
-  }, [t]);
+  }, [selectedAgentId, t]);
 
   const loadToolsConfig = useCallback(async () => {
     try {
-      const payload = await fetchJson<{ piConfig: PiConfigData }>(`/api/agents/config?${buildAgentQuery()}`);
+      const payload = await fetchJson<{ piConfig: PiConfigData }>(`/api/agents/config?${buildAgentQuery(selectedAgentId)}`);
       setToolsPiConfig(payload.piConfig);
     } catch (error) {
       setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
     }
-  }, [t]);
+  }, [selectedAgentId, t]);
 
   const runDoctor = useCallback(async () => {
     setDoctorRunning(true);
@@ -178,7 +205,7 @@ export function AgentSettingsPanel() {
       const payload = await fetchJson<DoctorResult>('/api/agents/doctor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: SETTINGS_AGENT_ID, livePing: true }),
+        body: JSON.stringify({ agentId: selectedAgentId, livePing: true }),
       });
       setDoctorResult(payload);
     } catch (error) {
@@ -186,9 +213,23 @@ export function AgentSettingsPanel() {
     } finally {
       setDoctorRunning(false);
     }
-  }, [t]);
+  }, [selectedAgentId, t]);
 
   useEffect(() => {
+    startTransition(() => {
+      void loadAgents();
+    });
+  }, [loadAgents]);
+
+  useEffect(() => {
+    setDoctorResult(null);
+    setDoctorError(null);
+    setFiles(null);
+    setSessions([]);
+    setRenameDrafts({});
+    setToolsPiConfig(null);
+    setOpenToolRows({});
+    setActiveToolGroups(new Set());
     startTransition(() => {
       void loadFiles();
       void loadSessions();
@@ -214,7 +255,7 @@ export function AgentSettingsPanel() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agentId: SETTINGS_AGENT_ID,
+          agentId: selectedAgentId,
           fileName: activeFile,
           content,
         }),
@@ -249,7 +290,7 @@ export function AgentSettingsPanel() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            agentId: SETTINGS_AGENT_ID,
+            agentId: selectedAgentId,
             action: 'reset',
             fileName: activeFile,
           }),
@@ -269,7 +310,7 @@ export function AgentSettingsPanel() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            agentId: SETTINGS_AGENT_ID,
+            agentId: selectedAgentId,
             action: 'reset',
           }),
         });
@@ -308,7 +349,7 @@ export function AgentSettingsPanel() {
       await fetchJson<{ session: SessionItem }>('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: SETTINGS_AGENT_ID, title: createTitle.trim() || undefined }),
+        body: JSON.stringify({ agentId: selectedAgentId, title: createTitle.trim() || undefined }),
       });
 
       setCreateTitle('');
@@ -329,7 +370,7 @@ export function AgentSettingsPanel() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agentId: SETTINGS_AGENT_ID,
+          agentId: selectedAgentId,
           sessionId,
           title: (renameDrafts[sessionId] || '').trim(),
         }),
@@ -352,7 +393,7 @@ export function AgentSettingsPanel() {
     setSessionError(null);
 
     try {
-      const params = new URLSearchParams({ agentId: SETTINGS_AGENT_ID, sessionId });
+      const params = new URLSearchParams({ agentId: selectedAgentId, sessionId });
       const response = await fetch(`/api/sessions?${params.toString()}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -380,7 +421,7 @@ export function AgentSettingsPanel() {
     setSessionError(null);
 
     try {
-      const params = new URLSearchParams({ agentId: SETTINGS_AGENT_ID, all: 'true' });
+      const params = new URLSearchParams({ agentId: selectedAgentId, all: 'true' });
       const response = await fetch(`/api/sessions?${params.toString()}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -438,7 +479,7 @@ export function AgentSettingsPanel() {
       const payload = await fetchJson<{ piConfig: PiConfigData }>('/api/agents/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: SETTINGS_AGENT_ID, piConfig: nextConfig }),
+        body: JSON.stringify({ agentId: selectedAgentId, piConfig: nextConfig }),
       });
       setToolsPiConfig(payload.piConfig);
     } catch (error) {
@@ -514,7 +555,7 @@ export function AgentSettingsPanel() {
 
     try {
       const countParams = new URLSearchParams({
-        agentId: SETTINGS_AGENT_ID,
+        agentId: selectedAgentId,
         countOnly: 'true',
         olderThanDays: '14',
       });
@@ -537,7 +578,7 @@ export function AgentSettingsPanel() {
       }
 
       const deleteParams = new URLSearchParams({
-        agentId: SETTINGS_AGENT_ID,
+        agentId: selectedAgentId,
         olderThanDays: '14',
       });
       const response = await fetch(`/api/sessions?${deleteParams.toString()}`, {
@@ -563,6 +604,15 @@ export function AgentSettingsPanel() {
       <div id="onboarding-settings-agentSettings">
         <PiProviderSetupCard />
       </div>
+
+      <AgentSelectorCard
+        agents={agents}
+        selectedAgentId={selectedAgentId}
+        loading={agentsLoading}
+        error={agentsError}
+        onSelectedAgentIdChange={setSelectedAgentId}
+        onReload={() => void loadAgents()}
+      />
 
       <AgentChatDisplayCard
         toolVerbosity={toolVerbosity}

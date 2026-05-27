@@ -1103,6 +1103,24 @@
       }
     },
     "agentPanel": {
+      "selector": {
+        "title": "Agent Selection",
+        "description": "Choose which agent the settings below should edit.",
+        "reload": "Reload",
+        "create": "Create agent",
+        "loading": "Loading agents...",
+        "empty": "No agents found.",
+        "mainAgent": "Main",
+        "specialAgent": "Special",
+        "locked": "Fixed",
+        "defaults": "Default: {provider} / {model}",
+        "inheritsDefaults": "Inherits provider and model defaults.",
+        "notSet": "not set",
+        "createHint": "Specialized agents will be created in a later step. The Canvas Agent is the fixed foundation and cannot be removed.",
+        "errors": {
+          "load": "Failed to load agents."
+        }
+      },
       "chatDisplay": {
         "title": "Chat Display",
         "description": "Choose how much background activity appears in the chat.",
