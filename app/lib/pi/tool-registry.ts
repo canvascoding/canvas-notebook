@@ -508,24 +508,6 @@ export function createStudioGenerateSoundTool(
   };
 }
 
-export function createStudioEditImageTool(): AgentTool {
-  return {
-    name: 'studio_edit_image',
-    label: 'Edit studio image (deprecated)',
-    description: 'This tool is deprecated. Use studio_generate_image with source_output_id or extra_reference_urls instead.',
-    parameters: Type.Object({
-      source_output_id: Type.String({ description: 'Deprecated' }),
-      instruction: Type.String({ description: 'Deprecated' }),
-    }),
-    execute: async () => {
-      return {
-        content: [{ type: 'text', text: 'studio_edit_image is deprecated. Use studio_generate_image with source_output_id or extra_reference_urls instead.' }],
-        details: {},
-      };
-    },
-  };
-}
-
 export function createStudioBulkGenerateTool(
   deps: { createBulkJobFn?: typeof createBulkJob; userId?: string } = {},
 ): AgentTool {
@@ -1711,7 +1693,6 @@ function createUserScopedTools(userId?: string): AgentTool[] {
     createStudioGenerateImageTool({ userId }),
     createStudioGenerateVideoTool({ userId }),
     createStudioGenerateSoundTool({ userId }),
-    createStudioEditImageTool(),
     createStudioBulkGenerateTool({ userId }),
     createStudioListProductsTool({ userId }),
     createStudioListPersonasTool({ userId }),

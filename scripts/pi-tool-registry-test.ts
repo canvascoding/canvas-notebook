@@ -141,6 +141,7 @@ async function main() {
   assert.equal(allTools.every((tool) => !['browser_start', 'browser_nav', 'brave_search', 'transcribe'].includes(tool.name)), true);
   assert.equal(allTools.some((tool) => tool.name === 'image_generation'), false);
   assert.equal(allTools.some((tool) => tool.name === 'video_generation'), false);
+  assert.equal(allTools.some((tool) => tool.name === 'studio_edit_image'), false);
 
   console.log('pi-tool-registry-test: ok');
 
