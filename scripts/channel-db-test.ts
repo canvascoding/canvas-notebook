@@ -26,6 +26,11 @@ async function main() {
     setActiveChannelSession,
   } = await import('../app/lib/channels/active-sessions');
   const { loadPiSessionByChannelKey } = await import('../app/lib/pi/session-store');
+  const {
+    createAgentProfile,
+    deleteAgentProfile,
+    getAgentProfile,
+  } = await import('../app/lib/agents/registry');
 
   const now = new Date();
   const userId = 'user-channel-db';
@@ -157,6 +162,14 @@ async function main() {
     ),
   });
   assert.equal(savedLink?.sessionId, savedSessionId);
+
+  const specialAgent = await createAgentProfile({ name: 'Research Agent' });
+  assert.equal(specialAgent.agentId, 'research-agent');
+  assert.equal(specialAgent.removable, true);
+  assert.ok(await getAgentProfile('research-agent'));
+
+  await deleteAgentProfile('research-agent');
+  assert.equal(await getAgentProfile('research-agent'), null);
 
   console.log('channel db tests passed');
 }
