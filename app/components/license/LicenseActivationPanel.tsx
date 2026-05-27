@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useLocale } from 'next-intl';
 import { CheckCircle2, ExternalLink, Info, KeyRound, Loader2, Mail, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -41,8 +42,59 @@ function errorWithCode(message: string, code?: string) {
   return code ? `${message} (${code})` : message;
 }
 
+function getActivationCopy(locale: string) {
+  const isGerman = locale.startsWith('de');
+  return isGerman
+    ? {
+        title: 'Lizenz',
+        verified: 'Diese Canvas Notebook Instanz ist verifiziert.',
+        unverified: 'Verifiziere diese selbst gehostete Instanz, bevor du die App nutzt.',
+        loading: 'Lade',
+        unregistered: 'nicht registriert',
+        activationTitle: 'Was bei der Aktivierung passiert',
+        activationDescription:
+          'Die Aktivierung verifiziert diese selbst gehostete Instanz bei Canvas und speichert ein signiertes Lizenzzertifikat lokal. Deine Instance ID und E-Mail werden zur Ausstellung der Lizenz verwendet; Workspace-Dateien, Prompts, API-Keys und lokale Daten werden dabei nicht übertragen.',
+        termsTitle: 'Lizenzbedingungen',
+        termsDescription:
+          'Canvas Notebook wird unter der Sustainable Use License 1.0 bereitgestellt. Sie erlaubt selbst gehostete interne geschäftliche Nutzung, private Nutzung und nicht-kommerzielle Nutzung. Nicht erlaubt ist, Canvas Notebook, modifizierte Versionen oder daraus abgeleitete gehostete Dienste Dritten als Managed Service oder konkurrierenden Dienst anzubieten.',
+        renewalDescription:
+          'Community-Lizenzen sind standardmäßig ein Jahr gültig und erneuern sich aktuell nicht automatisch. Wenn die Lizenz abläuft, fordere hier einen neuen kostenlosen Key an und aktiviere ihn.',
+        viewLicense: 'Vollständige Lizenz anzeigen',
+        instanceId: 'Instance ID',
+        expires: 'Läuft ab',
+        email: 'E-Mail',
+        sendKey: 'Key senden',
+        activationKey: 'Aktivierungs-Key',
+        activate: 'Aktivieren',
+      }
+    : {
+        title: 'License',
+        verified: 'This Canvas Notebook instance is verified.',
+        unverified: 'Verify this self-hosted instance before using the app.',
+        loading: 'Loading',
+        unregistered: 'unregistered',
+        activationTitle: 'What activation does',
+        activationDescription:
+          'Activation verifies this self-hosted instance with Canvas and stores a signed license certificate locally. Your Instance ID and email are used to issue the license; your workspace files, prompts, API keys, and local data are not sent as part of activation.',
+        termsTitle: 'License terms',
+        termsDescription:
+          'Canvas Notebook is provided under the Sustainable Use License 1.0. It allows self-hosted internal business use, personal use, and non-commercial use. It does not allow offering Canvas Notebook, modified versions, or derived hosted services to third parties as a managed or competing service.',
+        renewalDescription:
+          'Community licenses are valid for one year by default and do not renew automatically yet. When the license expires, request a new free key here and activate it.',
+        viewLicense: 'View full license',
+        instanceId: 'Instance ID',
+        expires: 'Expires',
+        email: 'Email',
+        sendKey: 'Send key',
+        activationKey: 'Activation key',
+        activate: 'Activate',
+      };
+}
+
 export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string }) {
   const searchParams = useSearchParams();
+  const locale = useLocale();
+  const copy = getActivationCopy(locale);
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [email, setEmail] = useState(defaultEmail);
   const [key, setKey] = useState(searchParams.get('key') || '');
@@ -118,15 +170,15 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
             <div>
               <CardTitle className="flex items-center gap-2">
                 {isLicensed ? <CheckCircle2 className="h-5 w-5" /> : <ShieldAlert className="h-5 w-5" />}
-                License
+                {copy.title}
               </CardTitle>
               <CardDescription>
                 {isLicensed
-                  ? 'This Canvas Notebook instance is verified.'
-                  : 'Verify this self-hosted instance before using the app.'}
+                  ? copy.verified
+                  : copy.unverified}
               </CardDescription>
             </div>
-            <Badge variant={isLicensed ? 'default' : 'secondary'}>{loading ? 'Loading' : status?.plan || 'unregistered'}</Badge>
+            <Badge variant={isLicensed ? 'default' : 'secondary'}>{loading ? copy.loading : status?.plan || copy.unregistered}</Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -135,15 +187,18 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               <div className="space-y-2">
                 <div>
-                  <p className="font-medium">What activation does</p>
+                  <p className="font-medium">{copy.activationTitle}</p>
                   <p className="mt-1 text-muted-foreground">
-                    Activation verifies this self-hosted instance with Canvas and stores a signed license certificate locally. Your Instance ID and email are used to issue the license; your workspace files, prompts, API keys, and local data are not sent as part of activation.
+                    {copy.activationDescription}
                   </p>
                 </div>
                 <div>
-                  <p className="font-medium">License terms</p>
+                  <p className="font-medium">{copy.termsTitle}</p>
                   <p className="mt-1 text-muted-foreground">
-                    Canvas Notebook is provided under the Sustainable Use License 1.0. It allows self-hosted internal business use, personal use, and non-commercial use. It does not allow offering Canvas Notebook, modified versions, or derived hosted services to third parties as a managed or competing service.
+                    {copy.termsDescription}
+                  </p>
+                  <p className="mt-2 text-muted-foreground">
+                    {copy.renewalDescription}
                   </p>
                   <a
                     href="https://github.com/canvascoding/canvas-notebook?tab=License-1-ov-file"
@@ -151,7 +206,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
                     rel="noopener noreferrer"
                     className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-foreground underline-offset-4 hover:underline"
                   >
-                    View full license
+                    {copy.viewLicense}
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 </div>
@@ -161,12 +216,12 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
 
           <div className="grid gap-2 text-sm">
             <div className="flex items-center justify-between gap-3 border border-border px-3 py-2">
-              <span className="text-muted-foreground">Instance ID</span>
+              <span className="text-muted-foreground">{copy.instanceId}</span>
               <span className="truncate font-mono text-xs">{status?.instanceId || '...'}</span>
             </div>
             {status?.expiresAt && (
               <div className="flex items-center justify-between gap-3 border border-border px-3 py-2">
-                <span className="text-muted-foreground">Expires</span>
+                <span className="text-muted-foreground">{copy.expires}</span>
                 <span>{new Date(status.expiresAt).toLocaleString()}</span>
               </div>
             )}
@@ -175,23 +230,23 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
           {!isLicensed && (
             <>
               <div className="space-y-2">
-                <Label htmlFor="license-email">Email</Label>
+                <Label htmlFor="license-email">{copy.email}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input id="license-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
                   <Button onClick={requestLicense} disabled={registering || !email.trim()} className="gap-2">
                     {registering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                    Send key
+                    {copy.sendKey}
                   </Button>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="license-key">Activation key</Label>
+                <Label htmlFor="license-key">{copy.activationKey}</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input id="license-key" value={key} onChange={(event) => setKey(event.target.value)} />
                   <Button onClick={activateLicense} disabled={activating || !key.trim()} className="gap-2">
                     {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                    Activate
+                    {copy.activate}
                   </Button>
                 </div>
               </div>
