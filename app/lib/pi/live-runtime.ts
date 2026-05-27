@@ -864,8 +864,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const agentId = sessionRecord?.agentId ?? DEFAULT_AGENT_ID;
   const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
   const provider = sessionRecord?.provider || effectiveConfig.activeProvider;
-  const providerThinkingLevel = effectiveConfig.piConfig.providers[provider]?.thinking || 'off';
-  const thinkingLevel = ((sessionRecord?.thinkingLevel || providerThinkingLevel) as ThinkingLevel);
+  const providerThinkingLevel = effectiveConfig.piConfig.providers[provider]?.thinking || effectiveConfig.thinkingLevel || 'off';
+  const thinkingLevel = (sessionRecord?.thinkingLevel || providerThinkingLevel) as ThinkingLevel;
   const model = sessionRecord
     ? await resolvePiModel(sessionRecord.provider, sessionRecord.model)
     : effectiveConfig.model;

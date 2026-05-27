@@ -3,7 +3,7 @@ import 'server-only';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { type AgentId } from './catalog';
-import { DEFAULT_PI_CONFIG, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
+import { DEFAULT_PI_CONFIG, normalizePiRuntimeConfig, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
 import { resolveAgentStorageDir, resolveAgentsStorageRoot } from '../runtime-data-paths';
 
 export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
@@ -84,7 +84,7 @@ function deepClone<T>(value: T): T {
 }
 
 function withRuntimeProviderDefaults(config: PiRuntimeConfig): PiRuntimeConfig {
-  const next = deepClone(config);
+  const next = normalizePiRuntimeConfig(deepClone(config));
   if (isManagedControlPlaneAvailable() && !next.providers['canvas-control-plane']) {
     next.providers['canvas-control-plane'] = {
       id: 'canvas-control-plane',
@@ -277,11 +277,6 @@ export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
 
   try {
     const config = JSON.parse(rawContent) as PiRuntimeConfig;
-    for (const provider of Object.values(config.providers)) {
-      if ((provider.thinking as string) === 'none') {
-        provider.thinking = 'off';
-      }
-    }
     return withRuntimeProviderDefaults(config);
   } catch {
     return withRuntimeProviderDefaults(DEFAULT_PI_CONFIG);
@@ -292,14 +287,15 @@ export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
  * Writes PI runtime configuration.
  */
 export async function writePiRuntimeConfig(config: PiRuntimeConfig): Promise<PiRuntimeConfig> {
-  const validationError = validatePiConfig(config);
+  const normalizedConfig = withRuntimeProviderDefaults(config);
+  const validationError = validatePiConfig(normalizedConfig);
   if (validationError) {
     throw new AgentConfigValidationError(validationError);
   }
 
   await ensureStorageDirectory();
   const payload = {
-    ...config,
+    ...normalizedConfig,
     updatedAt: new Date().toISOString(),
   };
   await writeJsonAtomic(PI_RUNTIME_CONFIG_PATH, payload);
