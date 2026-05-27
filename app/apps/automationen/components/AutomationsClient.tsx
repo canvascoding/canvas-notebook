@@ -180,6 +180,13 @@ type AgentOption = {
   removable: boolean;
 };
 
+type DeliveryChannelOption = {
+  id: string;
+  label: string;
+  connected: boolean;
+  running: boolean;
+};
+
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DEFAULT_AGENT_ID = 'canvas-agent';
 
@@ -375,6 +382,42 @@ function normalizeTriggerType(value: unknown, toolkitSlug: string): TriggerTypeI
   };
 }
 
+function normalizeDeliveryChannel(value: unknown): DeliveryChannelOption | null {
+  const record = asRecord(value);
+  const id = stringValue(record.id);
+  if (!id) return null;
+  return {
+    id,
+    label: id === 'web' ? 'Web Chat' : id.charAt(0).toUpperCase() + id.slice(1),
+    connected: Boolean(record.connected),
+    running: Boolean(record.running),
+  };
+}
+
+function mergeDeliveryChannelOptions(
+  channels: DeliveryChannelOption[],
+  currentChannelIds: string[],
+): DeliveryChannelOption[] {
+  const byId = new Map<string, DeliveryChannelOption>();
+  byId.set('web', { id: 'web', label: 'Web Chat', connected: true, running: true });
+
+  for (const channel of channels) {
+    byId.set(channel.id, channel);
+  }
+
+  for (const id of currentChannelIds.map((entry) => entry.trim()).filter(Boolean)) {
+    if (!byId.has(id)) {
+      byId.set(id, { id, label: id, connected: false, running: false });
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    if (a.id === 'web') return -1;
+    if (b.id === 'web') return 1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
 function getSchemaProperties(schema: Record<string, unknown> | null): Array<{
   key: string;
   label: string;
@@ -449,12 +492,18 @@ function buildPayload(draft: JobDraft) {
     status: draft.status,
     agentId: draft.agentId,
     deliveryMode: draft.deliveryMode,
-    deliveryChannelId: draft.deliveryChannelId.trim() || null,
+    deliveryChannelId: normalizeDeliveryChannelIdForPayload(draft.deliveryMode, draft.deliveryChannelId),
     deliverySessionMode: draft.deliverySessionMode,
     deliverySessionId: draft.deliverySessionId.trim() || null,
     deliveryChannelSessionKey: draft.deliveryChannelSessionKey.trim() || null,
     schedule,
   };
+}
+
+function normalizeDeliveryChannelIdForPayload(mode: AutomationDeliveryMode, channelId: string): string | null {
+  if (mode === 'silent') return null;
+  if (mode === 'web') return 'web';
+  return channelId.trim() || 'web';
 }
 
 function formatDateTime(value: string | null, locale: string, emptyLabel: string): string {
@@ -573,6 +622,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [sessionMessages, setSessionMessages] = useState<PersistedAutomationSessionMessage[]>([]);
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [deliveryChannels, setDeliveryChannels] = useState<DeliveryChannelOption[]>([]);
   const [composerMode, setComposerMode] = useState<ComposerMode>('scheduled');
   const [triggerApps, setTriggerApps] = useState<TriggerCapableApp[]>([]);
   const [triggerTypesByToolkit, setTriggerTypesByToolkit] = useState<Record<string, TriggerTypeInfo[]>>({});
@@ -602,6 +652,10 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const agentOptions = agents.length > 0
     ? agents
     : [{ agentId: DEFAULT_AGENT_ID, name: 'Canvas Agent', type: 'main', removable: false }];
+  const deliveryChannelOptions = useMemo(
+    () => mergeDeliveryChannelOptions(deliveryChannels, [draft.deliveryChannelId, triggerDraft.deliveryChannelId]),
+    [deliveryChannels, draft.deliveryChannelId, triggerDraft.deliveryChannelId],
+  );
   const selectedTriggerApp = useMemo(
     () => triggerApps.find((app) => app.slug === triggerDraft.toolkitSlug) || null,
     [triggerApps, triggerDraft.toolkitSlug],
@@ -777,6 +831,22 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     }
   }
 
+  async function loadDeliveryChannels() {
+    try {
+      const response = await fetch('/api/channels/status', { cache: 'no-store', credentials: 'include' });
+      const payload = await response.json();
+      if (response.ok && payload.success && Array.isArray(payload.channels)) {
+        setDeliveryChannels(
+          payload.channels
+            .map(normalizeDeliveryChannel)
+            .filter((channel: DeliveryChannelOption | null): channel is DeliveryChannelOption => Boolean(channel)),
+        );
+      }
+    } catch {
+      setDeliveryChannels([]);
+    }
+  }
+
   async function loadTriggerApps() {
     setIsLoadingTriggerApps(true);
     setTriggerAppsError(null);
@@ -849,6 +919,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     loadJobsEvent();
     void loadSkills();
     void loadAgents();
+    void loadDeliveryChannels();
   }, []);
 
   useEffect(() => {
@@ -951,7 +1022,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
             status: draft.status,
             agentId: draft.agentId,
             deliveryMode: draft.deliveryMode,
-            deliveryChannelId: draft.deliveryChannelId.trim() || null,
+            deliveryChannelId: normalizeDeliveryChannelIdForPayload(draft.deliveryMode, draft.deliveryChannelId),
             deliverySessionMode: draft.deliverySessionMode,
             deliverySessionId: draft.deliverySessionId.trim() || null,
             deliveryChannelSessionKey: draft.deliveryChannelSessionKey.trim() || null,
@@ -1005,7 +1076,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
           targetOutputPath: triggerDraft.targetOutputPath.trim() || null,
           agentId: triggerDraft.agentId,
           deliveryMode: triggerDraft.deliveryMode,
-          deliveryChannelId: triggerDraft.deliveryChannelId.trim() || null,
+          deliveryChannelId: normalizeDeliveryChannelIdForPayload(triggerDraft.deliveryMode, triggerDraft.deliveryChannelId),
           deliverySessionMode: triggerDraft.deliverySessionMode,
           deliverySessionId: triggerDraft.deliverySessionId.trim() || null,
           deliveryChannelSessionKey: triggerDraft.deliveryChannelSessionKey.trim() || null,
@@ -1219,7 +1290,11 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
               const deliveryMode = event.target.value as AutomationDeliveryMode;
               updateState({
                 deliveryMode,
-                deliveryChannelId: deliveryMode === 'web' ? 'web' : state.deliveryChannelId,
+                deliveryChannelId: deliveryMode === 'silent'
+                  ? ''
+                  : deliveryMode === 'web'
+                    ? 'web'
+                    : state.deliveryChannelId || deliveryChannelOptions[0]?.id || 'web',
               });
             }}
           >
@@ -1242,13 +1317,19 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
         </label>
         {state.deliveryMode !== 'web' && state.deliveryMode !== 'silent' ? (
           <label className="flex min-w-0 flex-col gap-1 text-sm md:col-span-1">
-            <span className="text-xs text-muted-foreground">{isGerman ? 'Channel-ID' : 'Channel ID'}</span>
-            <input
-              className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
-              value={state.deliveryChannelId}
+            <span className="text-xs text-muted-foreground">{isGerman ? 'Channel' : 'Channel'}</span>
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={state.deliveryChannelId || 'web'}
               onChange={(event) => updateState({ deliveryChannelId: event.target.value })}
-              placeholder="telegram"
-            />
+              data-testid={`automation-${target}-delivery-channel`}
+            >
+              {deliveryChannelOptions.map((channel) => (
+                <option key={channel.id} value={channel.id}>
+                  {channel.label}{channel.connected ? '' : ` · ${isGerman ? 'nicht verbunden' : 'not connected'}`}
+                </option>
+              ))}
+            </select>
           </label>
         ) : null}
         {state.deliverySessionMode === 'fixed_session' ? (
