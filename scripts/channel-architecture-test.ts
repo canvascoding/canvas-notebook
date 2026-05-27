@@ -6,6 +6,7 @@ import {
   telegramChatIdFromSessionKey,
   webChannelSessionKey,
 } from '../app/lib/channels/constants';
+import { buildDeliveryTarget } from '../app/lib/channels/delivery-targets';
 import { buildUserAgentMessageFromInbound } from '../app/lib/channels/message-normalization';
 
 assert.equal(normalizeStoredChannelId('app'), 'web');
@@ -17,6 +18,20 @@ assert.equal(telegramChannelSessionKey('123456'), 'telegram:123456');
 assert.equal(telegramChannelSessionKey('telegram:123456'), 'telegram:123456');
 assert.equal(telegramChatIdFromSessionKey('telegram:123456'), '123456');
 assert.equal(telegramChatIdFromSessionKey('123456'), '123456');
+assert.deepEqual(buildDeliveryTarget('telegram', 'telegram:123456'), {
+  channelId: 'telegram',
+  channelSessionKey: 'telegram:123456',
+  channelThreadKey: undefined,
+  chatId: '123456',
+  threadId: undefined,
+});
+assert.deepEqual(buildDeliveryTarget('slack', 'C123', '1700000000.000'), {
+  channelId: 'slack',
+  channelSessionKey: 'C123',
+  channelThreadKey: '1700000000.000',
+  chatId: 'C123',
+  threadId: '1700000000.000',
+});
 
 const textOnly = buildUserAgentMessageFromInbound({
   channelId: 'web',
