@@ -1,11 +1,11 @@
 import { db } from '../db';
-import { piSessions, piMessages, aiSessions, aiMessages } from '../db/schema';
+import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
 import { eq, and, asc } from 'drizzle-orm';
 import { type AgentMessage } from '@mariozechner/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
-import { normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
+import { normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -262,9 +262,23 @@ export async function updatePiSessionLastMessageAt(sessionId: string, userId: st
 }
 
 export async function loadPiSessionByChannelKey(channelId: string, channelSessionKey: string): Promise<AgentMessage[] | null> {
-  const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.channelId, channelId), eq(piSessions.channelSessionKey, channelSessionKey))
+  const normalizedChannelId = normalizeStoredChannelId(channelId);
+  const link = await db.query.sessionChannelLinks.findFirst({
+    where: and(
+      eq(sessionChannelLinks.channelId, normalizedChannelId),
+      eq(sessionChannelLinks.channelSessionKey, channelSessionKey),
+      eq(sessionChannelLinks.channelThreadKey, normalizeChannelThreadKey(null)),
+    ),
+    columns: { sessionId: true },
   });
+
+  const session = link
+    ? await db.query.piSessions.findFirst({
+        where: eq(piSessions.sessionId, link.sessionId),
+      })
+    : await db.query.piSessions.findFirst({
+        where: and(eq(piSessions.channelId, channelId), eq(piSessions.channelSessionKey, channelSessionKey)),
+      });
 
   if (!session) return null;
 
