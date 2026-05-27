@@ -12,6 +12,7 @@ import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSetti
 import { ConnectedAppsPanel } from '@/app/components/settings/ConnectedAppsPanel';
 import { ChannelsPanel } from '@/app/components/settings/ChannelsPanel';
 import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
+import { LicenseActivationPanel } from '@/app/components/license/LicenseActivationPanel';
 import { CodeEditor } from '@/app/components/editor/CodeEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -1048,12 +1049,15 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
-  const [settingsTab, setSettingsTab] = useState<'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage' | 'skills' | 'channels'>('general');
+  type SettingsTab = 'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage' | 'skills' | 'channels' | 'license';
+  const requestedTab = searchParams.get('tab');
+  const initialTab: SettingsTab = requestedTab === 'license' ? 'license' : 'general';
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const { activeTabOverride } = useHintContext();
 
   const effectiveTab = (activeTabOverride as typeof settingsTab) || settingsTab;
   const handleTabChange = (value: string) => {
-    setSettingsTab(value as typeof settingsTab);
+    setSettingsTab(value as SettingsTab);
   };
   const [editors, setEditors] = useState<Record<EnvScope, ScopeEditorState>>({
     integrations: INITIAL_SCOPE_STATE('integrations'),
@@ -1596,7 +1600,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         onValueChange={handleTabChange}
         className="space-y-4"
       >
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-7">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-8">
           <TabsTrigger value="general" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.general')}
           </TabsTrigger>
@@ -1617,6 +1621,9 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
           </TabsTrigger>
           <TabsTrigger value="skills" className="min-h-9 border border-border data-[state=active]:bg-muted">
             {t('tabs.skills')}
+          </TabsTrigger>
+          <TabsTrigger value="license" className="min-h-9 border border-border data-[state=active]:bg-muted">
+            License
           </TabsTrigger>
         </TabsList>
 
@@ -1672,6 +1679,10 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
 
         <TabsContent value="skills" className="space-y-4">
           <SkillsPanel />
+        </TabsContent>
+
+        <TabsContent value="license" className="space-y-4">
+          <LicenseActivationPanel defaultEmail={userEmail} />
         </TabsContent>
       </Tabs>
     </div>

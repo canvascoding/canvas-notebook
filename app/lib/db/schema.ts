@@ -153,6 +153,18 @@ export const onboardingLog = sqliteTable("onboarding_log", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const licenseCerts = sqliteTable("license_certs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cert: text("cert").notNull(),
+  plan: text("plan").notNull(),
+  instanceId: text("instance_id").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  instanceIdx: index("idx_license_certs_instance").on(table.instanceId),
+}));
+
 export const automationJobs = sqliteTable("automation_jobs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
