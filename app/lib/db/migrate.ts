@@ -700,6 +700,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS channel_active_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       user_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
       channel_id TEXT NOT NULL,
       channel_session_key TEXT NOT NULL,
       channel_thread_key TEXT NOT NULL DEFAULT '',
@@ -725,6 +726,18 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     settings_json: 'TEXT',
     enabled: 'INTEGER NOT NULL DEFAULT 1',
   });
+  addColumns(sqlite, 'channel_active_sessions', {
+    agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
+  });
+  sqlite.exec(`
+    UPDATE channel_active_sessions
+    SET agent_id = 'canvas-agent'
+    WHERE agent_id IS NULL OR agent_id = '';
+
+    DROP INDEX IF EXISTS idx_channel_active_sessions_context;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_active_sessions_context_agent
+      ON channel_active_sessions (agent_id, channel_id, channel_session_key, channel_thread_key);
+  `);
 
   const now = Date.now();
   sqlite.prepare(`
@@ -768,6 +781,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
     INSERT OR IGNORE INTO channel_active_sessions (
       user_id,
+      agent_id,
       channel_id,
       channel_session_key,
       channel_thread_key,
@@ -776,6 +790,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     )
     SELECT
       user_id,
+      'canvas-agent',
       'telegram',
       'telegram:' || chat_id,
       '',

@@ -549,13 +549,14 @@ export const sessionChannelLinks = sqliteTable("session_channel_links", {
 export const channelActiveSessions = sqliteTable("channel_active_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull().references(() => user.id),
+  agentId: text("agent_id").notNull().default('canvas-agent'),
   channelId: text("channel_id").notNull(),
   channelSessionKey: text("channel_session_key").notNull(),
   channelThreadKey: text("channel_thread_key").notNull().default(''),
   sessionId: text("session_id").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
-  uniqueContext: uniqueIndex("idx_channel_active_sessions_context").on(table.channelId, table.channelSessionKey, table.channelThreadKey),
+  uniqueContext: uniqueIndex("idx_channel_active_sessions_context_agent").on(table.agentId, table.channelId, table.channelSessionKey, table.channelThreadKey),
   userChannelIdx: index("idx_channel_active_sessions_user_channel").on(table.userId, table.channelId),
 }));
 

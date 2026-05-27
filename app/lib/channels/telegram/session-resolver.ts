@@ -42,6 +42,7 @@ export async function switchTelegramSession(chatId: string, userId: string, sess
   });
   await setActiveChannelSession({
     userId,
+    agentId: session.agentId,
     channelId: TELEGRAM_CHANNEL_ID,
     channelSessionKey: telegramChannelSessionKey(chatId),
     sessionId,
