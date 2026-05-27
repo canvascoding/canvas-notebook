@@ -1,12 +1,13 @@
 export const DISABLED_ALL_TOOLS_SENTINEL = '__none__';
 
 const LEGACY_TOOL_NAMES = new Set(['filesystem', 'terminal', 'web-search']);
+const DEFAULT_DISABLED_TOOL_NAMES = ['studio_bulk_generate'];
 
 /**
  * Tools that are disabled by default for new users.
  * They can be explicitly enabled in the Agent Settings panel.
  */
-export const DISABLED_BY_DEFAULT_TOOL_NAMES = new Set<string>();
+export const DISABLED_BY_DEFAULT_TOOL_NAMES = new Set<string>(DEFAULT_DISABLED_TOOL_NAMES);
 
 function normalizeToolNames(toolNames: Iterable<string>): string[] {
   const seen = new Set<string>();
@@ -82,7 +83,8 @@ export function isDefaultToolsConfig(enabledTools?: string[] | null): boolean {
 }
 
 export function areAllToolsEnabled(enabledTools?: string[] | null): boolean {
-  return normalizeEnabledToolsConfig(enabledTools).length === 0 || isLegacyEnabledToolsValue(enabledTools);
+  const normalized = normalizeEnabledToolsConfig(enabledTools);
+  return normalized.length > 0 && !isLegacyEnabledToolsValue(enabledTools) && !normalized.includes(DISABLED_ALL_TOOLS_SENTINEL);
 }
 
 export function serializeEnabledToolNames(
@@ -97,7 +99,11 @@ export function serializeEnabledToolNames(
     return [DISABLED_ALL_TOOLS_SENTINEL];
   }
 
-  if (orderedEnabledNames.length === canonicalToolNames.length) {
+  const defaultEnabled = getDefaultEnabledToolNames(canonicalToolNames);
+  if (
+    orderedEnabledNames.length === defaultEnabled.size &&
+    orderedEnabledNames.every((toolName) => defaultEnabled.has(toolName))
+  ) {
     return [];
   }
 
@@ -109,9 +115,12 @@ export function enableToolInConfig(
   enabledTools: string[] | null | undefined,
   allToolNames: Iterable<string>,
 ): string[] {
-  const enabledSet = resolveEnabledToolNames(allToolNames, enabledTools);
+  const canonicalToolNames = normalizeToolNames(allToolNames);
+  const enabledSet = isDefaultToolsConfig(enabledTools)
+    ? getDefaultEnabledToolNames(canonicalToolNames)
+    : resolveEnabledToolNames(canonicalToolNames, enabledTools);
   enabledSet.add(toolName);
-  return serializeEnabledToolNames(enabledSet, allToolNames);
+  return serializeEnabledToolNames(enabledSet, canonicalToolNames);
 }
 
 export function disableToolInConfig(
@@ -119,7 +128,10 @@ export function disableToolInConfig(
   enabledTools: string[] | null | undefined,
   allToolNames: Iterable<string>,
 ): string[] {
-  const enabledSet = resolveEnabledToolNames(allToolNames, enabledTools);
+  const canonicalToolNames = normalizeToolNames(allToolNames);
+  const enabledSet = isDefaultToolsConfig(enabledTools)
+    ? getDefaultEnabledToolNames(canonicalToolNames)
+    : resolveEnabledToolNames(canonicalToolNames, enabledTools);
   enabledSet.delete(toolName);
-  return serializeEnabledToolNames(enabledSet, allToolNames);
+  return serializeEnabledToolNames(enabledSet, canonicalToolNames);
 }
