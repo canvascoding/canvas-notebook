@@ -15,7 +15,12 @@ import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
 import { executeHeartbeat } from './heartbeat';
-import { resolveAutomationDeliveryTarget, type AutomationDeliveryResolution } from './delivery';
+import {
+  dispatchAutomationResult,
+  resolveAutomationDeliveryTarget,
+  type AutomationDeliveryDispatchResult,
+  type AutomationDeliveryResolution,
+} from './delivery';
 import {
   getAutomationJob,
   getAutomationRun,
@@ -130,7 +135,11 @@ function createAutomationErrorMessage(message: string, provider: Provider, model
   };
 }
 
-function buildAutomationRunMetadata(job: AutomationJobRecord, resolution?: AutomationDeliveryResolution) {
+function buildAutomationRunMetadata(
+  job: AutomationJobRecord,
+  resolution?: AutomationDeliveryResolution,
+  dispatch?: AutomationDeliveryDispatchResult,
+) {
   return {
     agentId: job.agentId,
     delivery: {
@@ -145,6 +154,7 @@ function buildAutomationRunMetadata(job: AutomationJobRecord, resolution?: Autom
       resolvedChannelSessionKey: resolution?.channelSessionKey,
       activeDelivery: resolution?.activeDelivery,
       warnings: resolution?.warnings,
+      dispatch,
     },
   };
 }
@@ -321,6 +331,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     }
 
     const assistantText = extractAssistantText(finalMessages);
+    const dispatchResult = await dispatchAutomationResult({
+      job,
+      userId: job.createdByUserId,
+      resolution: deliveryResolution,
+      text: assistantText,
+    });
     const persistedFinalMessages = finalMessages.length >= existingMessages.length
       ? finalMessages
       : [...existingMessages, ...finalMessages];
@@ -345,7 +361,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider,
         model: model.id,
-        ...buildAutomationRunMetadata(job, deliveryResolution),
+        ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
         status: 'success',
         targetOutputPath: job.targetOutputPath,
         effectiveTargetOutputPath,
