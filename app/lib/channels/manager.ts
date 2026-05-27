@@ -30,6 +30,9 @@ class ChannelManager {
     }
 
     console.log('[ChannelManager] Starting channels...');
+    const registry = getChannelRegistry();
+    const { createWebChannel } = await import('./web');
+    registry.register(createWebChannel());
 
     const { getTelegramConfigFromIntegrations } = await import('@/app/lib/integrations/env-config');
     const config = await getTelegramConfigFromIntegrations();
@@ -42,7 +45,6 @@ class ChannelManager {
       try {
         const { createTelegramChannel } = await import('./telegram');
         const telegramChannel = createTelegramChannel(config.botToken);
-        const registry = getChannelRegistry();
         registry.register(telegramChannel);
 
         this.abortController = new AbortController();
