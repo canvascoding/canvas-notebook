@@ -314,6 +314,40 @@ test.describe('PI Chat E2E', () => {
     expect(websocket401()).toBeNull();
   });
 
+  test('should navigate previous chat inputs with arrow keys', async ({ page }) => {
+    setupMockWebSocket(page, {
+      sessionId: 'sess-input-history',
+      sendEventsAfterSendMessage: false,
+      runtimeStatus: { phase: 'idle' },
+    });
+
+    await mockEmptyChatBootstrap(page);
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    const input = page.getByTestId('chat-input');
+    await input.fill('First history message');
+    await input.press('Enter');
+    await expect(page.getByTestId('chat-message-user')).toHaveCount(1);
+
+    await input.fill('Second history message');
+    await input.press('Enter');
+    await expect(page.getByTestId('chat-message-user')).toHaveCount(2);
+
+    await input.fill('Draft before history navigation');
+    await input.press('ArrowUp');
+    await expect(input).toHaveValue('Second history message');
+
+    await input.press('ArrowUp');
+    await expect(input).toHaveValue('First history message');
+
+    await input.press('ArrowDown');
+    await expect(input).toHaveValue('Second history message');
+
+    await input.press('ArrowDown');
+    await expect(input).toHaveValue('Draft before history navigation');
+  });
+
   test('should render markdown and tool output separately in the chat UI', async ({ page }) => {
     const sessionId = 'sess-markdown-tool';
 

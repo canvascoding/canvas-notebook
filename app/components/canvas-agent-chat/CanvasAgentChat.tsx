@@ -1304,6 +1304,30 @@ export default function CanvasAgentChat({
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
+  const inputHistoryCursorRef = useRef<number | null>(null);
+  const inputHistoryDraftRef = useRef('');
+
+  const userMessageHistory = useMemo(() => (
+    messages
+      .filter((message) => message.role === 'user')
+      .map((message) => contentToString(message.content).trim())
+      .filter(Boolean)
+  ), [messages]);
+
+  const resetInputHistoryNavigation = useCallback(() => {
+    inputHistoryCursorRef.current = null;
+    inputHistoryDraftRef.current = '';
+  }, []);
+
+  const applyInputHistoryValue = useCallback((value: string) => {
+    setInput(value);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(value.length, value.length);
+    });
+  }, []);
 
   // Sync messagesRef with messages state
   useEffect(() => {
@@ -1538,6 +1562,7 @@ export default function CanvasAgentChat({
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
+    resetInputHistoryNavigation();
     // Persist active session so mobile can restore it after Sheet unmount/remount.
     // Only write non-null values here — clearing is handled explicitly by startNewChat.
     // If we cleared on null, a fresh mount (sessionId=null) would erase the stored value
@@ -1545,7 +1570,7 @@ export default function CanvasAgentChat({
     if (typeof window !== 'undefined' && sessionId) {
       window.sessionStorage.setItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, sessionId);
     }
-  }, [sessionId]);
+  }, [resetInputHistoryNavigation, sessionId]);
 
   useEffect(() => {
     surfaceVisibleRef.current = isSurfaceVisible;
@@ -2398,6 +2423,7 @@ export default function CanvasAgentChat({
       timestamp: Date.now(),
     };
 
+    resetInputHistoryNavigation();
     setInput('');
     setAttachments([]);
 
@@ -2453,7 +2479,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, runtimeStatus?.phase, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, resetInputHistoryNavigation, runtimeStatus?.phase, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -2501,6 +2527,7 @@ export default function CanvasAgentChat({
     setRuntimeStatus(null);
     setSessionId(null);
     setSessionTitle(null);
+    resetInputHistoryNavigation();
     setInput('');
     setAttachments([]);
     sessionIdRef.current = null;
@@ -2533,7 +2560,7 @@ export default function CanvasAgentChat({
       setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
     }
     toolMessageIdsRef.current = {};
-  }, [agentConfig, resetStreamConnection, isMobile, shouldShowHistoryAsOverlay]);
+  }, [agentConfig, resetInputHistoryNavigation, resetStreamConnection, isMobile, shouldShowHistoryAsOverlay]);
 
   const mapRawMessage = useCallback((
     rawMessage: PersistedChatMessage,
@@ -3052,6 +3079,7 @@ export default function CanvasAgentChat({
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const cursorPos = e.target.selectionStart;
+    resetInputHistoryNavigation();
     setInput(value);
 
     const match = findActiveComposerReference(value, cursorPos);
@@ -3083,7 +3111,7 @@ export default function CanvasAgentChat({
       setSkillReferenceItems(skills, match.query);
       setIsLoadingReferenceItems(false);
     });
-  }, [closeReferencePicker, fetchFiles, fetchSkills, setSkillReferenceItems]);
+  }, [closeReferencePicker, fetchFiles, fetchSkills, resetInputHistoryNavigation, setSkillReferenceItems]);
 
   const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ReferencePickerValue>) => {
     if (!activeReferenceMatch) {
@@ -3095,6 +3123,7 @@ export default function CanvasAgentChat({
       : `/${(item.payload as SkillPickerSkill).name} `;
     const { nextValue, nextCursorPosition } = replaceComposerReference(input, activeReferenceMatch, replacement);
 
+    resetInputHistoryNavigation();
     setInput(nextValue);
     closeReferencePicker();
 
@@ -3102,11 +3131,38 @@ export default function CanvasAgentChat({
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
     }, 0);
-  }, [activeReferenceMatch, closeReferencePicker, input]);
+  }, [activeReferenceMatch, closeReferencePicker, input, resetInputHistoryNavigation]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
+
+  const navigateInputHistory = useCallback((direction: 'older' | 'newer'): boolean => {
+    if (userMessageHistory.length === 0) {
+      return false;
+    }
+
+    const currentCursor = inputHistoryCursorRef.current;
+    let nextCursor: number | null;
+
+    if (direction === 'older') {
+      if (currentCursor === null) {
+        inputHistoryDraftRef.current = input;
+        nextCursor = userMessageHistory.length - 1;
+      } else {
+        nextCursor = Math.max(0, currentCursor - 1);
+      }
+    } else {
+      if (currentCursor === null) {
+        return true;
+      }
+      nextCursor = currentCursor >= userMessageHistory.length - 1 ? null : currentCursor + 1;
+    }
+
+    inputHistoryCursorRef.current = nextCursor;
+    applyInputHistoryValue(nextCursor === null ? inputHistoryDraftRef.current : userMessageHistory[nextCursor]);
+    return true;
+  }, [applyInputHistoryValue, input, userMessageHistory]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.shiftKey && e.key === 'Tab') {
@@ -3141,11 +3197,18 @@ export default function CanvasAgentChat({
       }
     }
 
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      if (navigateInputHistory(e.key === 'ArrowUp' ? 'older' : 'newer')) {
+        e.preventDefault();
+      }
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
     }
-  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, referencePickerItems, selectedReferenceIndex, togglePlanningMode]);
+  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, navigateInputHistory, referencePickerItems, selectedReferenceIndex, togglePlanningMode]);
 
   useEffect(() => {
     const fetchConfig = async () => {
