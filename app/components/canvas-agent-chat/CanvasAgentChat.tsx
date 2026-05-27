@@ -1281,6 +1281,7 @@ export default function CanvasAgentChat({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialPromptConsumedRef = useRef(false);
@@ -1297,6 +1298,8 @@ export default function CanvasAgentChat({
   const userStartedNewChatRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   const isAtBottomRef = useRef(true);
+  const autoScrollRef = useRef<{ top: number; time: number } | null>(null);
+  const autoScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchScrollStartYRef = useRef<number | null>(null);
   const referenceRequestIdRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
@@ -1592,16 +1595,48 @@ export default function CanvasAgentChat({
     };
   }, [isSurfaceVisible, sessionId]);
 
+  const markAutoScroll = useCallback((container: HTMLElement) => {
+    autoScrollRef.current = {
+      top: Math.max(0, container.scrollHeight - container.clientHeight),
+      time: Date.now(),
+    };
+
+    if (autoScrollTimerRef.current) {
+      clearTimeout(autoScrollTimerRef.current);
+    }
+
+    autoScrollTimerRef.current = setTimeout(() => {
+      autoScrollRef.current = null;
+      autoScrollTimerRef.current = null;
+    }, 1500);
+  }, []);
+
+  const isProgrammaticScroll = useCallback((container: HTMLElement) => {
+    const marker = autoScrollRef.current;
+    if (!marker) {
+      return false;
+    }
+
+    if (Date.now() - marker.time > 1500) {
+      autoScrollRef.current = null;
+      return false;
+    }
+
+    return Math.abs(container.scrollTop - marker.top) < 2;
+  }, []);
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    markAutoScroll(container);
     isAtBottomRef.current = true;
+    setIsAtBottom(true);
     if (behavior === 'auto') {
       container.scrollTop = container.scrollHeight - container.clientHeight;
     } else {
       container.scrollTo({ top: container.scrollHeight, behavior });
     }
-  }, []);
+  }, [markAutoScroll]);
 
   const releaseBottomLock = useCallback(() => {
     if (!isAtBottomRef.current) {
@@ -1628,8 +1663,16 @@ export default function CanvasAgentChat({
   }, []);
 
   const handleScroll = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (scrollContainer && isProgrammaticScroll(scrollContainer)) {
+      if (isAtBottomRef.current) {
+        scrollToBottom('auto');
+      }
+      return;
+    }
+
     syncBottomLockState();
-  }, [syncBottomLockState]);
+  }, [isProgrammaticScroll, scrollToBottom, syncBottomLockState]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     if (event.deltaY < 0) {
@@ -1676,6 +1719,20 @@ export default function CanvasAgentChat({
       scrollContainer.removeEventListener('touchcancel', handleTouchEnd);
     };
   }, [handleScroll, handleTouchEnd, handleTouchMove, handleTouchStart, handleWheel, syncBottomLockState]);
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    const scrollContent = scrollContentRef.current;
+    if (!scrollContainer || !scrollContent) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (!isAtBottomRef.current) return;
+      scrollToBottom('auto');
+    });
+
+    resizeObserver.observe(scrollContent);
+    return () => resizeObserver.disconnect();
+  }, [scrollToBottom]);
 
   useLayoutEffect(() => {
     if (messages.length === 0) {
@@ -2239,13 +2296,8 @@ export default function CanvasAgentChat({
                   : msg
               )
             );
-            const container = scrollContainerRef.current;
-            if (container && isAtBottomRef.current) {
-              if (isScrolledNearBottom(container)) {
-                container.scrollTop = container.scrollHeight - container.clientHeight;
-              } else {
-                releaseBottomLock();
-              }
+            if (isAtBottomRef.current) {
+              scrollToBottom('auto');
             }
             streamingRafRef.current = requestAnimationFrame(flush);
           };
@@ -2333,7 +2385,7 @@ export default function CanvasAgentChat({
 
     // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
     // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, releaseBottomLock, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, scrollToBottom, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
 
   // Listen for WebSocket agent events (from current tab, other tabs, or background runs).
   useEffect(() => {
@@ -3454,6 +3506,10 @@ export default function CanvasAgentChat({
   }, [refreshRuntimeStatus, sessionId, isAgentActive]);
 
   useEffect(() => () => {
+    if (autoScrollTimerRef.current) {
+      clearTimeout(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    }
     resetStreamConnection();
   }, [resetStreamConnection]);
 
@@ -4200,22 +4256,23 @@ export default function CanvasAgentChat({
         <div
           ref={scrollContainerRef}
           data-testid="chat-scroll-region"
-          className="absolute inset-0 space-y-4 overflow-y-auto overflow-x-hidden p-4"
+          className="absolute inset-0 overflow-y-auto overflow-x-hidden p-4"
           style={{
             paddingBottom: `${scrollContentPadding}px`,
-            overflowAnchor: isAtBottom ? 'auto' : 'none',
+            overflowAnchor: isAtBottom ? 'none' : 'auto',
           }}
         >
-          {showInitialChatLoader && (
+          <div ref={scrollContentRef} className="min-h-full space-y-4">
+            {showInitialChatLoader && (
             <div className="flex min-h-full items-center justify-center py-8">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>{t('loadingSessions')}</span>
               </div>
             </div>
-          )}
+            )}
 
-          {showStarterScreen && (
+            {showStarterScreen && (
             <div className="flex min-h-full flex-col justify-start py-4 md:justify-center md:py-0">
               <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-5 text-center">
                 <div className="space-y-2">
@@ -4251,9 +4308,9 @@ export default function CanvasAgentChat({
                 </div>
               </div>
             </div>
-          )}
+            )}
 
-          {messages.length > 0 && hasMoreBefore && (
+            {messages.length > 0 && hasMoreBefore && (
             <button
               type="button"
               onClick={() => void loadOlderMessages()}
@@ -4269,9 +4326,9 @@ export default function CanvasAgentChat({
                 <span>{t('loadEarlierMessages')}</span>
               )}
             </button>
-          )}
+            )}
 
-          {messages.map((message, messageIndex) => {
+            {messages.map((message, messageIndex) => {
             if (hiddenStepIds.has(message.id)) {
               return null;
             }
@@ -4495,8 +4552,8 @@ export default function CanvasAgentChat({
                 {renderedMessage}
               </React.Fragment>
             );
-          })}
-          {toolVerbosity === 'minimal' && runtimeStatus?.phase === 'running_tool' ? (
+            })}
+            {toolVerbosity === 'minimal' && runtimeStatus?.phase === 'running_tool' ? (
             <div data-testid="chat-minimal-tool-activity" className="flex justify-start px-1 py-1">
               <div className="inline-flex min-h-7 items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-3 text-muted-foreground/80">
                 {[0, 160, 320].map((delay) => (
@@ -4510,8 +4567,9 @@ export default function CanvasAgentChat({
                 <span className="sr-only">{t('toolWorking')}</span>
               </div>
             </div>
-          ) : null}
-          <div ref={messagesEndRef} />
+            ) : null}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {!isAtBottom && messages.length > 0 && (
