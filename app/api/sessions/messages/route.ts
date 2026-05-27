@@ -3,6 +3,8 @@ import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages, piSessions, piMessages } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { and, asc, desc, eq, lt, gt, or } from 'drizzle-orm';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 
 const DEFAULT_LIMIT = 50;
 
@@ -15,6 +17,14 @@ function parseCursorParam(value: string | null): number | null {
   return Number.isNaN(parsed) ? Number.NaN : parsed;
 }
 
+function normalizeSessionAgentId(value: string | null): string {
+  try {
+    return normalizeManagedAgentId(value);
+  } catch {
+    return '';
+  }
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -23,9 +33,14 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get('sessionId');
+  const agentId = normalizeSessionAgentId(searchParams.get('agentId'));
 
   if (!sessionId) {
     return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
+  }
+
+  if (!agentId) {
+    return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
   }
 
   const limitParam = searchParams.get('limit');
@@ -53,7 +68,7 @@ export async function GET(request: NextRequest) {
     const dbPiSessions = await db
       .select()
       .from(piSessions)
-      .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id)))
+      .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentId)))
       .limit(1);
 
     if (dbPiSessions.length > 0) {
@@ -131,6 +146,10 @@ export async function GET(request: NextRequest) {
         oldestMessageId,
         newestMessageId,
       });
+    }
+
+    if (agentId !== DEFAULT_AGENT_ID) {
+      return NextResponse.json({ success: true, messages: [], hasMoreBefore: false, hasMoreAfter: false, oldestTimestamp: null, newestTimestamp: null });
     }
 
     // Fallback to legacy (ownership enforced)
