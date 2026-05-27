@@ -219,6 +219,13 @@ type AgentConfig = {
   discovery: Record<string, { models: DiscoveryModel[] }>;
 };
 
+type AgentProfile = {
+  agentId: string;
+  name: string;
+  type: string;
+  removable: boolean;
+};
+
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
 
 type FilePickerFile = {
@@ -1232,6 +1239,8 @@ export default function CanvasAgentChat({
   const [activeProvider, setActiveProvider] = useState('pi');
   const [activeThinkingLevel, setActiveThinkingLevel] = useState<PiThinkingLevel>(DEFAULT_THINKING_LEVEL);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState(CHAT_AGENT_ID);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
@@ -1296,6 +1305,7 @@ export default function CanvasAgentChat({
   const streamingRafRef = useRef<number | null>(null);
   const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const sessionAgentIdRef = useRef<string>(CHAT_AGENT_ID);
   const surfaceVisibleRef = useRef(isSurfaceVisible);
   const lastCompactionMarkerRef = useRef<string | null>(null);
   const userStartedNewChatRef = useRef(false);
@@ -1451,7 +1461,7 @@ export default function CanvasAgentChat({
     }
 
     const request = (async () => {
-      const params = new URLSearchParams({ agentId: CHAT_AGENT_ID });
+      const params = new URLSearchParams({ agentId: selectedAgentId });
       const res = await fetch(`/api/sessions?${params.toString()}`);
       const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
       if (!data?.success) {
@@ -1471,7 +1481,7 @@ export default function CanvasAgentChat({
         sessionListRequestRef.current = null;
       }
     }
-  }, [applyResolvedTitles]);
+  }, [applyResolvedTitles, selectedAgentId]);
 
   // Session subscription for WebSocket
   useEffect(() => {
@@ -1542,7 +1552,7 @@ export default function CanvasAgentChat({
         void fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId, markAsRead: true }),
+          body: JSON.stringify({ agentId: sessionAgentIdRef.current || selectedAgentId, sessionId, markAsRead: true }),
         }).catch((error) => {
           console.error('Failed to mark active session as read after response', error);
         });
@@ -1566,7 +1576,7 @@ export default function CanvasAgentChat({
     return () => {
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
     };
-  }, [loadSessionList, resolveSessionTitle]);
+  }, [loadSessionList, resolveSessionTitle, selectedAgentId]);
 
   // Session is created on-demand when user sends first message
 
@@ -1803,7 +1813,7 @@ export default function CanvasAgentChat({
         void fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId: currentVisibleSessionId, markAsRead: true }),
+          body: JSON.stringify({ agentId: sessionAgentIdRef.current || selectedAgentId, sessionId: currentVisibleSessionId, markAsRead: true }),
         }).catch((error) => {
           console.error('Failed to mark active session as read after history refresh', error);
         });
@@ -1827,14 +1837,14 @@ export default function CanvasAgentChat({
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [loadSessionList, resolveSessionTitle]);
+  }, [loadSessionList, resolveSessionTitle, selectedAgentId]);
 
   const markAllAsRead = useCallback(async () => {
     try {
       const res = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: CHAT_AGENT_ID, markAllAsRead: true }),
+        body: JSON.stringify({ agentId: selectedAgentId, markAllAsRead: true }),
       });
       const data = await safeFetchJson<{ success: boolean; lastViewedAt?: string }>(res);
       if (data?.success) {
@@ -1845,7 +1855,7 @@ export default function CanvasAgentChat({
     } catch (err) {
       console.error('Failed to mark all as read', err);
     }
-  }, []);
+  }, [selectedAgentId]);
 
   const getSessionTimeGroup = useCallback((dateString: string): 'today' | 'last7' | 'last14' | 'last30' | 'older' => {
     const date = new Date(dateString);
@@ -2110,12 +2120,13 @@ export default function CanvasAgentChat({
     }
 
     const sessionSelection = resolveNewSessionSelection();
+    const agentId = selectedAgentId;
 
     const createSessionResponse = await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        agentId: CHAT_AGENT_ID,
+        agentId,
         model: sessionSelection.model,
         thinkingLevel: sessionSelection.thinkingLevel,
       }),
@@ -2135,6 +2146,7 @@ export default function CanvasAgentChat({
     setActiveProvider(createdProvider);
     setActiveModel(createdModel);
     setActiveThinkingLevel(createdThinkingLevel);
+    sessionAgentIdRef.current = agentId;
 
     const tempTitle = getOptimisticSessionTitle(preferredTitle ?? input, createSessionPayload.session.title || t('newChatTitle'));
     setSessionTitle(tempTitle);
@@ -2148,7 +2160,7 @@ export default function CanvasAgentChat({
       void fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId: nextSessionId, title: tempTitle }),
+        body: JSON.stringify({ agentId, sessionId: nextSessionId, title: tempTitle }),
       });
     }
 
@@ -2157,7 +2169,7 @@ export default function CanvasAgentChat({
       id: Date.now(), // temporary id for local state
       sessionId: nextSessionId,
       title: tempTitle,
-      agentId: createSessionPayload.session.agentId || CHAT_AGENT_ID,
+      agentId: createSessionPayload.session.agentId || agentId,
       model: createdModel,
       provider: createdProvider,
       thinkingLevel: createdThinkingLevel,
@@ -2188,7 +2200,7 @@ export default function CanvasAgentChat({
     // No need to subscribe here manually to avoid double subscription
 
     return nextSessionId;
-  }, [input, resolveNewSessionSelection, t]);
+  }, [input, resolveNewSessionSelection, selectedAgentId, t]);
 
   // Helper function to format tool arguments
   const formatToolArgs = useCallback((args: unknown): string => {
@@ -2598,7 +2610,8 @@ export default function CanvasAgentChat({
     }
   }, [appendCompactionBreak, appendSystemMessage, postControl, t]);
 
-  const startNewChat = useCallback(() => {
+  const startNewChat = useCallback((agentIdOverride?: string) => {
+    const nextAgentId = agentIdOverride || selectedAgentId;
     resetStreamConnection();
     setRuntimeStatus(null);
     setSessionId(null);
@@ -2607,6 +2620,7 @@ export default function CanvasAgentChat({
     setInput('');
     setAttachments([]);
     sessionIdRef.current = null;
+    sessionAgentIdRef.current = nextAgentId;
     lastCompactionMarkerRef.current = null;
     userStartedNewChatRef.current = true;
     // Clear persisted session so reopening chat doesn't restore this session
@@ -2636,7 +2650,20 @@ export default function CanvasAgentChat({
       setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
     }
     toolMessageIdsRef.current = {};
-  }, [agentConfig, resetInputHistoryNavigation, resetStreamConnection, isMobile, shouldShowHistoryAsOverlay]);
+  }, [agentConfig, resetInputHistoryNavigation, resetStreamConnection, selectedAgentId, isMobile, shouldShowHistoryAsOverlay]);
+
+  const selectChatAgent = useCallback((agentId: string) => {
+    if (agentId === selectedAgentId && !sessionIdRef.current) {
+      return;
+    }
+    setSelectedAgentId(agentId);
+    sessionListRequestRef.current = null;
+    hasLoadedSessionListRef.current = false;
+    setHistory([]);
+    setLatestSession(null);
+    setTotalUnreadCount(0);
+    startNewChat(agentId);
+  }, [selectedAgentId, startNewChat]);
 
   const mapRawMessage = useCallback((
     rawMessage: PersistedChatMessage,
@@ -2720,10 +2747,13 @@ export default function CanvasAgentChat({
   }, [mapRawMessage]);
 
   const loadSession = useCallback(async (session: AISession) => {
+    const sessionAgentId = session.agentId || CHAT_AGENT_ID;
     resetStreamConnection();
+    setSelectedAgentId(sessionAgentId);
     setSessionId(session.sessionId);
     setSessionTitle(resolveSessionTitle(session.sessionId, session.title));
     sessionIdRef.current = session.sessionId;
+    sessionAgentIdRef.current = sessionAgentId;
     lastCompactionMarkerRef.current = null;
     userStartedNewChatRef.current = false;
     setShowMobileDetails(false);
@@ -2758,7 +2788,7 @@ export default function CanvasAgentChat({
         await fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId: session.sessionId, markAsRead: true }),
+          body: JSON.stringify({ agentId: sessionAgentId, sessionId: session.sessionId, markAsRead: true }),
         });
         setHasUnreadInCurrentSession(false);
         setShowUnreadBanner(false);
@@ -2781,7 +2811,7 @@ export default function CanvasAgentChat({
 
     try {
       const [messagesResponse, statusPayload] = await Promise.all([
-        fetch(`/api/sessions/messages?agentId=${encodeURIComponent(CHAT_AGENT_ID)}&sessionId=${encodeURIComponent(session.sessionId)}&limit=50`),
+        fetch(`/api/sessions/messages?agentId=${encodeURIComponent(sessionAgentId)}&sessionId=${encodeURIComponent(session.sessionId)}&limit=50`),
         ensureSessionSubscribed(session.sessionId).then(() => (
           wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
             sessionId: session.sessionId,
@@ -2849,13 +2879,14 @@ export default function CanvasAgentChat({
     if (!currentSessionId || isLoadingOlder || !hasMoreBefore || oldestTimestamp === null) return;
 
     setIsLoadingOlder(true);
+    const agentId = sessionAgentIdRef.current || selectedAgentId;
 
     const scrollContainer = scrollContainerRef.current;
     const previousScrollHeight = scrollContainer?.scrollHeight ?? 0;
 
     try {
       const response = await fetch(
-        `/api/sessions/messages?agentId=${encodeURIComponent(CHAT_AGENT_ID)}&sessionId=${encodeURIComponent(currentSessionId)}&before=${oldestTimestamp}${oldestMessageId !== null ? `&beforeId=${oldestMessageId}` : ''}&limit=50`,
+        `/api/sessions/messages?agentId=${encodeURIComponent(agentId)}&sessionId=${encodeURIComponent(currentSessionId)}&before=${oldestTimestamp}${oldestMessageId !== null ? `&beforeId=${oldestMessageId}` : ''}&limit=50`,
       );
       const payload = await response.json();
 
@@ -2889,7 +2920,7 @@ export default function CanvasAgentChat({
     } finally {
       setIsLoadingOlder(false);
     }
-  }, [hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestTimestamp]);
+  }, [hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestTimestamp, selectedAgentId]);
 
   const clearSessionParamFromUrl = useCallback(() => {
     if (typeof window === 'undefined' || !window.location.search.includes('session=')) {
@@ -2907,7 +2938,8 @@ export default function CanvasAgentChat({
     if (!confirm(t('deleteSessionConfirm'))) return;
 
     try {
-      const params = new URLSearchParams({ agentId: CHAT_AGENT_ID, sessionId: id });
+      const targetSession = history.find((session) => session.sessionId === id);
+      const params = new URLSearchParams({ agentId: targetSession?.agentId || selectedAgentId, sessionId: id });
       const res = await fetch(`/api/sessions?${params.toString()}`, { method: 'DELETE' });
       const data = await safeFetchJson<{ success: boolean }>(res);
       if (data?.success) {
@@ -2919,7 +2951,7 @@ export default function CanvasAgentChat({
     } catch (err) {
       console.error('Failed to delete session', err);
     }
-  }, [startNewChat, t]);
+  }, [history, selectedAgentId, startNewChat, t]);
 
   const renameSession = useCallback(async (session: AISession) => {
     const nextTitle = prompt(t('renameSessionPrompt'), getSessionDisplayTitle(session.title, t('newChatTitle')));
@@ -2929,7 +2961,7 @@ export default function CanvasAgentChat({
       const res = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: CHAT_AGENT_ID, sessionId: session.sessionId, title: nextTitle.trim() }),
+        body: JSON.stringify({ agentId: session.agentId || selectedAgentId, sessionId: session.sessionId, title: nextTitle.trim() }),
       });
       const data = await safeFetchJson<{ success: boolean }>(res);
       if (data?.success) {
@@ -2942,7 +2974,7 @@ export default function CanvasAgentChat({
     } catch (err) {
       console.error('Failed to rename session', err);
     }
-  }, [t]);
+  }, [selectedAgentId, t]);
 
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
@@ -3304,6 +3336,22 @@ export default function CanvasAgentChat({
   }, []);
 
   useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const res = await fetch('/api/agents', { cache: 'no-store' });
+        const data = await safeFetchJson<{ success: boolean; data?: { agents?: AgentProfile[] } }>(res);
+        if (data?.success) {
+          setAvailableAgents(data.data?.agents || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch agents', err);
+      }
+    };
+
+    void fetchAgents();
+  }, []);
+
+  useEffect(() => {
     if (sessionId) {
       return;
     }
@@ -3613,8 +3661,9 @@ export default function CanvasAgentChat({
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
   const showInitialChatLoader = messages.length === 0 && isResolvingInitialChatState;
   const showStarterScreen = messages.length === 0 && !isResolvingInitialChatState;
-  const activeSessionAgentId = history.find((session) => session.sessionId === sessionId)?.agentId || CHAT_AGENT_ID;
-  const activeAgentDisplayName = getAgentDisplayName(activeSessionAgentId);
+  const activeSessionAgentId = history.find((session) => session.sessionId === sessionId)?.agentId || selectedAgentId;
+  const activeAgentProfile = availableAgents.find((agent) => agent.agentId === activeSessionAgentId);
+  const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
 
   const toggleRunDisclosure = useCallback((runKey: string) => {
     setExpandedRunKeys((current) => {
@@ -3810,14 +3859,44 @@ export default function CanvasAgentChat({
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                     <span className="min-w-0 truncate max-w-[120px]">{sessionDisplayLabel}</span>
                   </div>
-                  <div
-                    data-testid="chat-agent-id"
-                    title={activeAgentDisplayName}
-                    className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground"
-                  >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
-                    <span className="min-w-0 max-w-[120px] truncate">{activeAgentDisplayName}</span>
-                  </div>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        data-testid="chat-agent-id"
+                        title={t('agentSelectTitle')}
+                        className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
+                      >
+                        <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
+                        <span className="min-w-0 max-w-[120px] truncate">{activeAgentDisplayName}</span>
+                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-64 p-1">
+                      <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        {t('agentSelectTitle')}
+                      </div>
+                      {(availableAgents.length > 0 ? availableAgents : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', type: 'main', removable: false }]).map((agent) => {
+                        const selected = agent.agentId === activeSessionAgentId;
+                        return (
+                          <button
+                            key={agent.agentId}
+                            type="button"
+                            onClick={() => selectChatAgent(agent.agentId)}
+                            className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors ${
+                              selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
+                            }`}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{agent.name}</span>
+                              <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>
+                            </span>
+                            {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
+                          </button>
+                        );
+                      })}
+                    </PopoverContent>
+                  </Popover>
                 </div>
               )}
             </div>
@@ -3826,7 +3905,7 @@ export default function CanvasAgentChat({
             <button
               type="button"
               aria-label={t('newChatTitle')}
-              onClick={startNewChat}
+              onClick={() => startNewChat()}
               className="group flex items-center gap-1 border border-primary/30 bg-primary/15 px-2 py-1 text-primary transition-all hover:bg-primary/25"
               title={t('newChatTitle')}
             >
@@ -3963,14 +4042,44 @@ export default function CanvasAgentChat({
                   <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                   <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                 </div>
-                <div
-                  data-testid="chat-agent-id"
-                  title={activeAgentDisplayName}
-                  className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
-                >
-                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
-                  <span className="min-w-0 truncate">{activeAgentDisplayName}</span>
-                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      data-testid="chat-agent-id"
+                      title={t('agentSelectTitle')}
+                      className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground transition-colors hover:bg-accent"
+                    >
+                      <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
+                      <span className="min-w-0 truncate">{activeAgentDisplayName}</span>
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-64 p-1">
+                    <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {t('agentSelectTitle')}
+                    </div>
+                    {(availableAgents.length > 0 ? availableAgents : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', type: 'main', removable: false }]).map((agent) => {
+                      const selected = agent.agentId === activeSessionAgentId;
+                      return (
+                        <button
+                          key={agent.agentId}
+                          type="button"
+                          onClick={() => selectChatAgent(agent.agentId)}
+                          className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors ${
+                            selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
+                          }`}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{agent.name}</span>
+                            <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>
+                          </span>
+                          {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
+                        </button>
+                      );
+                    })}
+                  </PopoverContent>
+                </Popover>
                 {runtimeStatus?.includedSummary && (
                   <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {t('summary')}

@@ -442,6 +442,7 @@
     "canvasChatLabel": "Canvas Chat",
     "sessionLabel": "Session",
     "agentLabel": "Agent",
+    "agentSelectTitle": "Agent auswählen",
     "modelLabel": "Modell",
     "newChatTitle": "Neuer Chat",
     "newChatShort": "Neu",
