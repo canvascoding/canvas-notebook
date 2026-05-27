@@ -9,12 +9,13 @@ import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { resolveActivePiModel } from '@/app/lib/pi/model-resolver';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
-import { savePiSession } from '@/app/lib/pi/session-store';
+import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
 import { executeHeartbeat } from './heartbeat';
+import { resolveAutomationDeliveryTarget, type AutomationDeliveryResolution } from './delivery';
 import {
   getAutomationJob,
   getAutomationRun,
@@ -129,7 +130,7 @@ function createAutomationErrorMessage(message: string, provider: Provider, model
   };
 }
 
-function buildAutomationRunMetadata(job: AutomationJobRecord) {
+function buildAutomationRunMetadata(job: AutomationJobRecord, resolution?: AutomationDeliveryResolution) {
   return {
     agentId: job.agentId,
     delivery: {
@@ -138,6 +139,12 @@ function buildAutomationRunMetadata(job: AutomationJobRecord) {
       sessionMode: job.deliverySessionMode,
       sessionId: job.deliverySessionId,
       channelSessionKey: job.deliveryChannelSessionKey,
+      resolvedSessionId: resolution?.sessionId,
+      resolvedMode: resolution?.mode,
+      resolvedChannelId: resolution?.channelId,
+      resolvedChannelSessionKey: resolution?.channelSessionKey,
+      activeDelivery: resolution?.activeDelivery,
+      warnings: resolution?.warnings,
     },
   };
 }
@@ -224,11 +231,21 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
   });
 
-  const piSessionId = buildAutomationSessionId(run.id);
+  const defaultPiSessionId = buildAutomationSessionId(run.id);
+  const deliveryResolution = await resolveAutomationDeliveryTarget({
+    job,
+    userId: job.createdByUserId,
+    defaultSessionId: defaultPiSessionId,
+  });
+  const piSessionId = deliveryResolution.sessionId;
   const piSessionTitle = buildAutomationSessionTitle(job.name);
   
   const events: string[] = [];
   let finalMessages: AgentMessage[] = [];
+  const existingSession = deliveryResolution.mode === 'new_session'
+    ? null
+    : await loadPiSessionWithSummary(piSessionId, job.createdByUserId);
+  const existingMessages = existingSession?.messages ?? [];
 
   const piConfig = await readPiRuntimeConfig();
   const provider = piConfig.activeProvider;
@@ -252,7 +269,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   };
   const context: AgentContext = {
     systemPrompt,
-    messages: [],
+    messages: existingMessages,
     tools,
   };
 
@@ -277,9 +294,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       job.createdByUserId,
       provider,
       model.id,
-      [promptMessage],
+      [...existingMessages, promptMessage],
       undefined,
-      { titleOverride: piSessionTitle, agentId: job.agentId },
+      {
+        titleOverride: piSessionTitle,
+        agentId: job.agentId,
+        persistedLength: existingMessages.length,
+      },
     );
 
     console.log(`[Automationen] Starting agent loop for run ${runId} (provider=${provider}, model=${model.id})`);
@@ -300,14 +321,21 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     }
 
     const assistantText = extractAssistantText(finalMessages);
+    const persistedFinalMessages = finalMessages.length >= existingMessages.length
+      ? finalMessages
+      : [...existingMessages, ...finalMessages];
     await savePiSession(
       piSessionId,
       job.createdByUserId,
       provider,
       model.id,
-      finalMessages,
+      persistedFinalMessages,
       undefined,
-      { titleOverride: piSessionTitle, agentId: job.agentId },
+      {
+        titleOverride: piSessionTitle,
+        agentId: job.agentId,
+        persistedLength: existingMessages.length,
+      },
     );
     console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
     await markAutomationRunFinished(run.id, {
@@ -317,7 +345,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider,
         model: model.id,
-        ...buildAutomationRunMetadata(job),
+        ...buildAutomationRunMetadata(job, deliveryResolution),
         status: 'success',
         targetOutputPath: job.targetOutputPath,
         effectiveTargetOutputPath,
@@ -333,21 +361,28 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       : [promptMessage, createAutomationErrorMessage(message, model.provider, model.id, model.api)];
     const failureResultText = `Automation failed: ${message}`;
 
+    const persistedFailureMessages = persistedMessages.length >= existingMessages.length
+      ? persistedMessages
+      : [...existingMessages, ...persistedMessages];
     await savePiSession(
       piSessionId,
       job.createdByUserId,
       provider,
       model.id,
-      persistedMessages,
+      persistedFailureMessages,
       undefined,
-      { titleOverride: piSessionTitle, agentId: job.agentId },
+      {
+        titleOverride: piSessionTitle,
+        agentId: job.agentId,
+        persistedLength: existingMessages.length,
+      },
     );
 
     if (retryAt) {
       await markAutomationRunRetryScheduled(run.id, retryAt, message, events, {
         provider,
         model: model.id,
-        ...buildAutomationRunMetadata(job),
+        ...buildAutomationRunMetadata(job, deliveryResolution),
         status: 'retry_scheduled',
         retryAt: retryAt.toISOString(),
         error: message,
@@ -367,7 +402,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider,
         model: model.id,
-        ...buildAutomationRunMetadata(job),
+        ...buildAutomationRunMetadata(job, deliveryResolution),
         status: 'failed',
         error: message,
         targetOutputPath: job.targetOutputPath,
