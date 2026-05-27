@@ -254,7 +254,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   let finalMessages: AgentMessage[] = [];
   const existingSession = deliveryResolution.mode === 'new_session'
     ? null
-    : await loadPiSessionWithSummary(piSessionId, job.createdByUserId);
+    : await loadPiSessionWithSummary(piSessionId, job.createdByUserId, job.agentId);
   const existingMessages = existingSession?.messages ?? [];
 
   const piConfig = await readPiRuntimeConfig();

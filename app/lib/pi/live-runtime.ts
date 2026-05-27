@@ -26,6 +26,7 @@ import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block';
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import { getStudioOutputsRoot, STUDIO_OUTPUTS_ROOT_DIR } from '@/app/lib/integrations/studio-workspace';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { and, eq } from 'drizzle-orm';
 
 const IDLE_TTL_MS = 15 * 60 * 1000;
@@ -137,6 +138,7 @@ type RuntimeQueueEntry = {
 type RuntimeInit = {
   sessionId: string;
   userId: string;
+  agentId: string;
   provider: string;
   model: Model<Api>;
   systemPrompt: string;
@@ -231,6 +233,7 @@ function applyPiRuntimePromptContext(
 class LivePiRuntime {
   readonly sessionId: string;
   readonly userId: string;
+  readonly agentId: string;
   readonly provider: string;
   readonly model: Model<Api>;
   readonly systemPrompt: string;
@@ -263,6 +266,7 @@ class LivePiRuntime {
   constructor(init: RuntimeInit, agent: Agent) {
     this.sessionId = init.sessionId;
     this.userId = init.userId;
+    this.agentId = init.agentId;
     this.provider = init.provider;
     this.model = init.model;
     this.systemPrompt = init.systemPrompt;
@@ -421,6 +425,7 @@ class LivePiRuntime {
       this.model.id,
       this.agent.state.messages,
       this.summary,
+      { agentId: this.agentId },
     );
 
     const omittedCount = result.composition.omittedMessages.length;
@@ -823,7 +828,7 @@ class LivePiRuntime {
         this.model.id,
         allMessages,
         this.summary,
-        { persistedLength: startIndex },
+        { agentId: this.agentId, persistedLength: startIndex },
       );
 
       const newMessages = allMessages.slice(startIndex);
@@ -863,14 +868,14 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const model = sessionRecord
     ? await resolvePiModel(sessionRecord.provider, sessionRecord.model)
     : await resolveActivePiModel();
-  const loadedSession = await loadPiSessionWithSummary(sessionId, userId);
+  const agentId = sessionRecord?.agentId ?? DEFAULT_AGENT_ID;
+  const loadedSession = await loadPiSessionWithSummary(sessionId, userId, agentId);
   const initialMessages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
     summaryText: null,
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
   };
-  const agentId = sessionRecord?.agentId ?? 'canvas-agent';
   const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId);
   const tools = await getPiTools(userId);
 
@@ -899,6 +904,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     {
       sessionId,
       userId,
+      agentId,
       provider,
       model,
       systemPrompt,
@@ -1064,7 +1070,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     return null;
   }
 
-  const loadedSession = await loadPiSessionWithSummary(sessionId, userId);
+  const loadedSession = await loadPiSessionWithSummary(sessionId, userId, sessionRecord.agentId);
   const messages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
     summaryText: null,

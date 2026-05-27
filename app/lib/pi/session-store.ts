@@ -5,13 +5,25 @@ import { type AgentMessage } from '@mariozechner/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
-import { normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
+import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
  */
 
 const SESSION_TITLE_MAX_LENGTH = 48;
+
+function resolveSessionAgentId(agentId?: string | null): string {
+  return agentId?.trim() || DEFAULT_AGENT_ID;
+}
+
+function buildPiSessionLookup(sessionId: string, userId: string, agentId?: string | null) {
+  return and(
+    eq(piSessions.sessionId, sessionId),
+    eq(piSessions.userId, userId),
+    eq(piSessions.agentId, resolveSessionAgentId(agentId)),
+  );
+}
 
 function extractFirstUserText(messages: AgentMessage[]): string {
   const firstUserMessage = messages.find((message) => message.role === 'user');
@@ -75,9 +87,10 @@ export async function savePiSession(
     agentId?: string | null;
   },
 ): Promise<void> {
+  const agentId = resolveSessionAgentId(options?.agentId);
   // Find or create session
   const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
+    where: buildPiSessionLookup(sessionId, userId, agentId),
   });
   const derivedTitle = deriveSessionTitle(messages);
   const normalizedTitleOverride = options?.titleOverride?.trim() || null;
@@ -103,7 +116,7 @@ export async function savePiSession(
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
       userId,
-      agentId: options?.agentId ?? 'canvas-agent',
+      agentId,
       provider,
       model,
       title: resolvedTitle,
@@ -162,9 +175,9 @@ export async function savePiSession(
   }
 }
 
-export async function loadPiSession(sessionId: string, userId: string): Promise<AgentMessage[] | null> {
+export async function loadPiSession(sessionId: string, userId: string, agentId?: string | null): Promise<AgentMessage[] | null> {
   const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
+    where: buildPiSessionLookup(sessionId, userId, agentId),
   });
 
   if (session) {
@@ -174,6 +187,10 @@ export async function loadPiSession(sessionId: string, userId: string): Promise<
       .orderBy(asc(piMessages.timestamp));
 
     return messages.map(m => JSON.parse(m.content) as AgentMessage);
+  }
+
+  if (resolveSessionAgentId(agentId) !== DEFAULT_AGENT_ID) {
+    return null;
   }
 
   // Best-effort migration from legacy aiSessions
@@ -214,9 +231,10 @@ export async function loadPiSession(sessionId: string, userId: string): Promise<
 export async function loadPiSessionWithSummary(
   sessionId: string,
   userId: string,
+  agentId?: string | null,
 ): Promise<{ messages: AgentMessage[]; summary: PiSessionSummaryState } | null> {
   const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
+    where: buildPiSessionLookup(sessionId, userId, agentId),
   });
 
   if (!session) {
@@ -238,9 +256,9 @@ export async function loadPiSessionWithSummary(
   };
 }
 
-export async function markPiSessionAsRead(sessionId: string, userId: string): Promise<void> {
+export async function markPiSessionAsRead(sessionId: string, userId: string, agentId?: string | null): Promise<void> {
   const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
+    where: buildPiSessionLookup(sessionId, userId, agentId),
   });
 
   if (session) {
@@ -250,9 +268,9 @@ export async function markPiSessionAsRead(sessionId: string, userId: string): Pr
   }
 }
 
-export async function updatePiSessionLastMessageAt(sessionId: string, userId: string, timestamp: Date): Promise<void> {
+export async function updatePiSessionLastMessageAt(sessionId: string, userId: string, timestamp: Date, agentId?: string | null): Promise<void> {
   const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId))
+    where: buildPiSessionLookup(sessionId, userId, agentId),
   });
 
   if (session) {
