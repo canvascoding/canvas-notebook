@@ -9,6 +9,13 @@ import { registerTelegramBotCommands } from './commands';
 export class TelegramChannel implements ChannelPlugin {
   id: ChannelId = 'telegram';
   name = 'Telegram';
+  capabilities = {
+    inboundText: true,
+    inboundImages: true,
+    inboundFiles: true,
+    outboundText: true,
+    typingIndicator: true,
+  };
   private bot: Bot;
   private polling: TelegramPollingSession | null = null;
   private running = false;

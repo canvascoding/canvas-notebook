@@ -5,10 +5,12 @@ import { routing } from './i18n/routing';
 
 // Initialize the next-intl middleware
 const handleI18nRouting = createIntlMiddleware(routing);
+const LICENSE_GATE_COOKIE = 'canvas_license_gate';
 
 // Public routes that don't require authentication
-const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/automations/execute', '/api/automations/scheduler'];
+const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/license', '/api/automations/execute', '/api/automations/scheduler'];
 const PUBLIC_EXACT_ROUTES = ['/', '/api/health', '/manifest.webmanifest'];
+const LICENSE_ALLOWED_API_PREFIXES = ['/api/auth', '/api/health', '/api/license', '/api/onboarding'];
 
 function isWebSocketRoute(pathname: string) {
   return pathname === '/ws/chat' || /^\/[a-z]{2}(?:-[A-Z]{2})?\/ws\/chat$/u.test(pathname);
@@ -56,6 +58,87 @@ function setCommonHeaders(response: NextResponse) {
     "frame-ancestors 'self'",
   ].join('; ');
   response.headers.set('Content-Security-Policy', cspHeader);
+}
+
+function getSecret(): string {
+  return process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET || 'canvas-notebook-local-dev-secret-change-me';
+}
+
+function base64Url(bytes: ArrayBuffer): string {
+  const binary = String.fromCharCode(...new Uint8Array(bytes));
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function sign(value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(getSecret()),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return base64Url(signature);
+}
+
+async function hasValidLicenseGateCookie(request: NextRequest): Promise<boolean> {
+  const cookie = request.cookies.get(LICENSE_GATE_COOKIE)?.value;
+  if (!cookie) return false;
+  const [payload, signature] = cookie.split('.');
+  if (!payload || !signature) return false;
+  if (await sign(payload) !== signature) return false;
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    const parsed = JSON.parse(atob(padded)) as {
+      licensed?: boolean;
+      expiresAt?: number;
+    };
+    return Boolean(parsed.licensed && parsed.expiresAt && parsed.expiresAt > Date.now());
+  } catch {
+    return false;
+  }
+}
+
+async function loadLicenseStatus(request: NextRequest): Promise<{
+  licensed?: boolean;
+  plan?: string;
+  instanceId?: string;
+  expiresAt?: string | null;
+} | null> {
+  try {
+    const statusUrl = new URL('/api/license/status', request.url);
+    const response = await fetch(statusUrl, {
+      headers: {
+        cookie: request.headers.get('cookie') || '',
+      },
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function buildLicenseGateCookie(status: {
+  licensed?: boolean;
+  plan?: string;
+  instanceId?: string;
+  expiresAt?: string | null;
+}): Promise<string> {
+  const maxAgeMs = 60 * 60 * 12 * 1000;
+  const expiresAt = Math.min(
+    Date.now() + maxAgeMs,
+    status.expiresAt ? new Date(status.expiresAt).getTime() : Date.now() + maxAgeMs,
+  );
+  const payload = btoa(JSON.stringify({
+    licensed: Boolean(status.licensed),
+    plan: status.plan,
+    instanceId: status.instanceId,
+    expiresAt,
+  })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return `${payload}.${await sign(payload)}`;
 }
 
 function isPublicRoute(pathname: string) {
@@ -124,12 +207,40 @@ export default async function middleware(request: NextRequest) {
     return errorResponse;
   }
 
+  if (
+    pathname.startsWith('/api/') &&
+    !LICENSE_ALLOWED_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) &&
+    !(await hasValidLicenseGateCookie(request))
+  ) {
+    const status = await loadLicenseStatus(request);
+    if (status?.licensed) {
+      const licensedResponse = NextResponse.next();
+      setCommonHeaders(licensedResponse);
+      licensedResponse.cookies.set(LICENSE_GATE_COOKIE, await buildLicenseGateCookie(status), {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 60 * 60 * 12,
+      });
+      return licensedResponse;
+    }
+
+    const errorResponse = NextResponse.json(
+      { success: false, error: 'License activation required', code: 'LICENSE_REQUIRED' },
+      { status: 402 },
+    );
+    setCommonHeaders(errorResponse);
+    return errorResponse;
+  }
+
   return response;
 }
 
 export const config = {
   matcher: [
     // Skip all internal paths and static files
+    '/api/:path*',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
   ],
 };
