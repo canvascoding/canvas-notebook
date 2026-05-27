@@ -570,6 +570,17 @@ function getSessionDisplayLabel(sessionTitle: string | null, fallbackTitle: stri
   return getSessionDisplayTitle(sessionTitle, fallbackTitle);
 }
 
+function getAgentDisplayName(agentId: string | null | undefined): string {
+  if (!agentId || agentId === DEFAULT_AGENT_ID) {
+    return 'Canvas Agent';
+  }
+  return agentId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 function getOptimisticSessionTitle(candidate: string | null | undefined, fallbackTitle: string): string {
   const trimmed = candidate?.trim();
   if (!trimmed) {
@@ -3602,6 +3613,8 @@ export default function CanvasAgentChat({
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
   const showInitialChatLoader = messages.length === 0 && isResolvingInitialChatState;
   const showStarterScreen = messages.length === 0 && !isResolvingInitialChatState;
+  const activeSessionAgentId = history.find((session) => session.sessionId === sessionId)?.agentId || CHAT_AGENT_ID;
+  const activeAgentDisplayName = getAgentDisplayName(activeSessionAgentId);
 
   const toggleRunDisclosure = useCallback((runKey: string) => {
     setExpandedRunKeys((current) => {
@@ -3797,6 +3810,14 @@ export default function CanvasAgentChat({
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                     <span className="min-w-0 truncate max-w-[120px]">{sessionDisplayLabel}</span>
                   </div>
+                  <div
+                    data-testid="chat-agent-id"
+                    title={activeAgentDisplayName}
+                    className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground"
+                  >
+                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
+                    <span className="min-w-0 max-w-[120px] truncate">{activeAgentDisplayName}</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -3942,6 +3963,14 @@ export default function CanvasAgentChat({
                   <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                   <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                 </div>
+                <div
+                  data-testid="chat-agent-id"
+                  title={activeAgentDisplayName}
+                  className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
+                >
+                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
+                  <span className="min-w-0 truncate">{activeAgentDisplayName}</span>
+                </div>
                 {runtimeStatus?.includedSummary && (
                   <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {t('summary')}
@@ -4067,6 +4096,8 @@ export default function CanvasAgentChat({
                                 </div>
                                 <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                                   <span>{new Date(session.createdAt).toLocaleString()}</span>
+                                  <span>&bull;</span>
+                                  <span>{getAgentDisplayName(session.agentId)}</span>
                                   <span>&bull;</span>
                                   <span>{session.model}</span>
                                 </div>
@@ -4229,6 +4260,8 @@ export default function CanvasAgentChat({
                               </div>
                               <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                                 <span>{new Date(session.createdAt).toLocaleString()}</span>
+                                <span>&bull;</span>
+                                <span>{getAgentDisplayName(session.agentId)}</span>
                                 <span>&bull;</span>
                                 <span>{session.model}</span>
                               </div>
