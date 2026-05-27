@@ -13,6 +13,7 @@ const LICENSE_KEY_ALG = 'RS256';
 
 const BUNDLED_PUBLIC_KEYS: string[] = [];
 const BUNDLED_TRUSTED_FINGERPRINTS: string[] = [];
+const LOG_PREFIX = '[license/public-key]';
 
 export type LicensePublicKeySource = 'env' | 'bundled' | 'control_plane' | 'sqlite' | 'none';
 export type LicensePublicKeyError = 'unreachable' | 'invalid_response' | 'untrusted_key' | 'db_error';
@@ -126,6 +127,10 @@ function isTrustedFetchedKey(key: LicensePublicKey): boolean {
   return trusted.size === 0 || trusted.has(key.fingerprint.toLowerCase());
 }
 
+function cacheNegativeResolution(resolution: LicensePublicKeyResolution) {
+  negativeMemoryCache = { resolution, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS };
+}
+
 async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
   const cachedFailure = negativeMemoryCache;
   if (cachedFailure && Date.now() < cachedFailure.expiresAt) {
@@ -143,7 +148,11 @@ async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
         source: 'none',
         error: response.status === 404 ? 'invalid_response' : 'unreachable',
       };
-      negativeMemoryCache = { resolution, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS };
+      console.warn(`${LOG_PREFIX} control plane public key request failed`, {
+        status: response.status,
+        error: resolution.error,
+      });
+      cacheNegativeResolution(resolution);
       return resolution;
     }
 
@@ -156,28 +165,41 @@ async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
 
     if (!data || typeof data.publicKey !== 'string' || data.alg !== LICENSE_KEY_ALG) {
       const resolution: LicensePublicKeyResolution = { keys: [], source: 'none', error: 'invalid_response' };
-      negativeMemoryCache = { resolution, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS };
+      console.warn(`${LOG_PREFIX} invalid control plane public key response`);
+      cacheNegativeResolution(resolution);
       return resolution;
     }
 
     const key = toLicensePublicKey(data.publicKey, typeof data.kid === 'string' ? data.kid : undefined);
     if (!key || (typeof data.fingerprint === 'string' && data.fingerprint.toLowerCase() !== key.fingerprint)) {
       const resolution: LicensePublicKeyResolution = { keys: [], source: 'none', error: 'invalid_response' };
-      negativeMemoryCache = { resolution, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS };
+      console.warn(`${LOG_PREFIX} invalid control plane public key material`);
+      cacheNegativeResolution(resolution);
       return resolution;
     }
 
     if (!isTrustedFetchedKey(key)) {
       const resolution: LicensePublicKeyResolution = { keys: [], source: 'none', error: 'untrusted_key' };
-      negativeMemoryCache = { resolution, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS };
+      console.warn(`${LOG_PREFIX} rejected untrusted control plane public key`, {
+        kid: key.kid,
+        fingerprint: key.fingerprint,
+      });
+      cacheNegativeResolution(resolution);
       return resolution;
     }
 
-    await persistToSQLite(key).catch(() => {});
+    await persistToSQLite(key).catch((error) => {
+      console.warn(`${LOG_PREFIX} failed to persist public key cache`, {
+        kid: key.kid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    console.info(`${LOG_PREFIX} resolved from control plane`, { kid: key.kid });
     return { keys: [key], source: 'control_plane' };
   } catch {
     const resolution: LicensePublicKeyResolution = { keys: [], source: 'none', error: 'unreachable' };
-    negativeMemoryCache = { resolution, expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS };
+    console.warn(`${LOG_PREFIX} control plane public key request unreachable`);
+    cacheNegativeResolution(resolution);
     return resolution;
   }
 }
@@ -194,9 +216,16 @@ async function resolveFromSQLite(): Promise<LicensePublicKeyResolution> {
       .orderBy(desc(licensePublicKeys.fetchedAt))
       .limit(1);
 
-    if (!row) return { keys: [], source: 'none' };
+    if (!row) {
+      console.warn(`${LOG_PREFIX} no cached public key available`);
+      return { keys: [], source: 'none' };
+    }
     const key = toLicensePublicKey(row.publicKey, row.kid || undefined);
     if (!key || key.fingerprint !== row.fingerprint || !isTrustedFetchedKey(key)) {
+      console.warn(`${LOG_PREFIX} rejected cached public key`, {
+        kid: row.kid,
+        error: key ? 'untrusted_key' : 'invalid_response',
+      });
       return { keys: [], source: 'none', error: key ? 'untrusted_key' : 'invalid_response' };
     }
 
@@ -205,8 +234,10 @@ async function resolveFromSQLite(): Promise<LicensePublicKeyResolution> {
       .set({ lastUsedAt: new Date() })
       .where(eq(licensePublicKeys.fingerprint, key.fingerprint));
 
+    console.info(`${LOG_PREFIX} resolved from sqlite cache`, { kid: key.kid });
     return { keys: [key], source: 'sqlite' };
   } catch {
+    console.warn(`${LOG_PREFIX} sqlite public key lookup failed`);
     return { keys: [], source: 'none', error: 'db_error' };
   }
 }
@@ -214,7 +245,7 @@ async function resolveFromSQLite(): Promise<LicensePublicKeyResolution> {
 async function persistToSQLite(key: LicensePublicKey): Promise<void> {
   const now = new Date();
   await db
-      .insert(licensePublicKeys)
+    .insert(licensePublicKeys)
     .values({
       kid: key.kid ?? null,
       publicKey: key.publicKey,
