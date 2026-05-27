@@ -16,6 +16,7 @@ import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, webChannelS
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
+import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 
 type CreateSessionPayload = {
   title?: string;
@@ -28,6 +29,7 @@ type CreateSessionPayload = {
 
 type RenameSessionPayload = {
   sessionId?: string;
+  agentId?: string;
   title?: string;
   markAsRead?: boolean;
   markAllAsRead?: boolean;
@@ -67,6 +69,10 @@ function normalizeOptionalString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeSessionAgentId(value: unknown): string {
+  return normalizeManagedAgentId(normalizeOptionalString(value));
 }
 
 function normalizeThinkingLevel(value: unknown): PiThinkingLevel | null {
@@ -147,6 +153,13 @@ export async function GET(request: NextRequest) {
   const channelIdFilter = searchParams.get('channelId');
   const countOnly = searchParams.get('countOnly') === 'true';
   const olderThanDays = searchParams.get('olderThanDays');
+  let agentIdFilter: string;
+
+  try {
+    agentIdFilter = normalizeSessionAgentId(searchParams.get('agentId'));
+  } catch {
+    return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
+  }
 
   try {
     const cutoff = olderThanDays ? new Date(Date.now() - parseInt(olderThanDays, 10) * 24 * 60 * 60 * 1000) : null;
@@ -159,16 +172,19 @@ export async function GET(request: NextRequest) {
       const piOlderCount = await db
         .select({ count: sql<number>`count(*)` })
         .from(piSessions)
-        .where(and(eq(piSessions.userId, session.user.id), piCutoffCondition!));
+        .where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter), piCutoffCondition!));
 
-      const legacyCutoffCondition = cutoff
+      const includeLegacyCount = agentIdFilter === DEFAULT_AGENT_ID;
+      const legacyCutoffCondition = includeLegacyCount && cutoff
         ? and(eq(aiSessions.userId, session.user.id), lt(aiSessions.createdAt, cutoff))
         : undefined;
 
-      const legacyOlderCount = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(aiSessions)
-        .where(legacyCutoffCondition!);
+      const legacyOlderCount = legacyCutoffCondition
+        ? await db
+            .select({ count: sql<number>`count(*)` })
+            .from(aiSessions)
+            .where(legacyCutoffCondition)
+        : [{ count: 0 }];
 
       return NextResponse.json({
         success: true,
@@ -190,7 +206,8 @@ export async function GET(request: NextRequest) {
           ))
       : null;
     const filteredPiSessionIdValues = filteredPiSessionIds?.map((row) => row.sessionId) ?? null;
-    const includeLegacySessions = !normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID;
+    const includeLegacySessions = agentIdFilter === DEFAULT_AGENT_ID && (!normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID);
+    const piBaseWhere = and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter));
 
     const [legacySessions, newPiSessions] = await Promise.all([
       includeLegacySessions ? db
@@ -215,6 +232,7 @@ export async function GET(request: NextRequest) {
           sessionId: piSessions.sessionId,
           userId: piSessions.userId,
           title: piSessions.title,
+          agentId: piSessions.agentId,
           model: piSessions.model,
           thinkingLevel: piSessions.thinkingLevel,
           provider: piSessions.provider,
@@ -229,16 +247,16 @@ export async function GET(request: NextRequest) {
         .where(
           filteredPiSessionIdValues
             ? filteredPiSessionIdValues.length > 0
-              ? and(eq(piSessions.userId, session.user.id), inArray(piSessions.sessionId, filteredPiSessionIdValues))
-              : and(eq(piSessions.userId, session.user.id), sql`1 = 0`)
-            : eq(piSessions.userId, session.user.id)
+              ? and(piBaseWhere, inArray(piSessions.sessionId, filteredPiSessionIdValues))
+              : and(piBaseWhere, sql`1 = 0`)
+            : piBaseWhere
         )
         .orderBy(desc(piSessions.createdAt))
         .limit(100)
     ]);
 
     const combined = [
-      ...legacySessions.map(s => ({ ...s, engine: 'legacy' as const, channelId: 'app' as const, lastMessageAt: null as Date | null, lastViewedAt: null as Date | null })),
+      ...legacySessions.map(s => ({ ...s, agentId: DEFAULT_AGENT_ID, engine: 'legacy' as const, channelId: 'app' as const, lastMessageAt: null as Date | null, lastViewedAt: null as Date | null })),
       ...newPiSessions.map(s => ({
         ...s, 
         engine: 'pi' as const,
@@ -258,6 +276,7 @@ export async function GET(request: NextRequest) {
         sessionId: item.sessionId,
         userId: item.userId,
         title: item.title,
+        agentId: item.agentId,
         model: item.model,
         provider: 'provider' in item ? item.provider : null,
         thinkingLevel: 'thinkingLevel' in item ? item.thinkingLevel : null,
@@ -328,7 +347,16 @@ export async function POST(request: NextRequest) {
       const thinkingLevel = requestedThinkingLevel || providerConfig?.thinking || 'off';
 
       await ensureDefaultAgent();
-      const requestedAgentId = normalizeOptionalString(payload.agentId) || DEFAULT_AGENT_ID;
+      let requestedAgentId: string;
+      try {
+        requestedAgentId = normalizeSessionAgentId(payload.agentId);
+      } catch {
+        return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
+      }
+      const requestedAgent = await getAgentProfile(requestedAgentId);
+      if (!requestedAgent) {
+        return NextResponse.json({ success: false, error: 'Agent not found' }, { status: 404 });
+      }
       const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
       const normalizedChannelId = normalizeStoredChannelId(channelId);
       const channelSessionKey = typeof payload.channelSessionKey === 'string'
@@ -397,6 +425,7 @@ export async function POST(request: NextRequest) {
       success: true,
       session: {
         ...created,
+        agentId: DEFAULT_AGENT_ID,
         engine: 'legacy',
         creator: {
           name: session.user.name || null,
@@ -424,6 +453,13 @@ export async function PATCH(request: NextRequest) {
     const markAllAsRead = typeof payload.markAllAsRead === 'boolean' ? payload.markAllAsRead : false;
     const requestedModel = normalizeOptionalString(payload.model);
     const requestedThinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
+    let requestedAgentId: string;
+
+    try {
+      requestedAgentId = normalizeSessionAgentId(payload.agentId);
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
+    }
 
     if (payload.thinkingLevel !== undefined && !requestedThinkingLevel) {
       return NextResponse.json({ success: false, error: 'Invalid thinking level' }, { status: 400 });
@@ -435,7 +471,7 @@ export async function PATCH(request: NextRequest) {
       await db
         .update(piSessions)
         .set({ lastViewedAt: now, updatedAt: now })
-        .where(eq(piSessions.userId, session.user.id));
+        .where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
 
       return NextResponse.json({
         success: true,
