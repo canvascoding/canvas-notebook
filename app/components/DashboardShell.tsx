@@ -540,11 +540,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 <span className="hidden sm:inline">{tCommon('suite')}</span>
               </Link>
             </Button>
-            {!showMobileChrome && (
-              <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">
-                {tNav('canvasNotebook')}
-              </h1>
-            )}
+
           </div>
 
           {/* Center toggle group: both mobile and desktop */}
