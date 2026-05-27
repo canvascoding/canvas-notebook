@@ -193,6 +193,7 @@ export const automationJobs = sqliteTable("automation_jobs", {
   lastRunAt: integer("last_run_at", { mode: "timestamp" }),
   lastRunStatus: text("last_run_status"),
   createdByUserId: text("created_by_user_id").notNull().references(() => user.id),
+  agentId: text("agent_id").notNull().default('canvas-agent'),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   jobType: text("job_type").notNull().default('default'),

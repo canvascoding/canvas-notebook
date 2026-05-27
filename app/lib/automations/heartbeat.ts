@@ -16,11 +16,11 @@ export interface HeartbeatResult {
   errors: string[];
 }
 
-export async function executeHeartbeat(_job: AutomationJobRecord): Promise<HeartbeatResult> {
+export async function executeHeartbeat(job: AutomationJobRecord): Promise<HeartbeatResult> {
   const startTime = Date.now();
   console.log('[Heartbeat] Starting heartbeat execution');
 
-  const heartbeatContent = await readManagedAgentFile('HEARTBEAT.md');
+  const heartbeatContent = await readManagedAgentFile('HEARTBEAT.md', job.agentId);
   if (!heartbeatContent || heartbeatContent.trim().length === 0) {
     console.warn('[Heartbeat] HEARTBEAT.md is empty, skipping execution');
     return { usersNotified: 0, sessionIds: [], errors: ['HEARTBEAT.md is empty'] };

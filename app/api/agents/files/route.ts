@@ -13,12 +13,14 @@ import {
 } from '@/app/lib/agents/storage';
 
 type PutPayload = {
+  agentId?: string;
   fileName?: string;
   content?: string;
 };
 
 type PostPayload = {
   action: 'reset';
+  agentId?: string;
   fileName?: string;
 };
 
@@ -50,7 +52,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const files = await readManagedAgentFiles();
+    const agentId = request.nextUrl.searchParams.get('agentId');
+    const files = await readManagedAgentFiles(agentId);
     return NextResponse.json({
       success: true,
       data: { files },
@@ -79,6 +82,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const payload = (await request.json()) as PutPayload;
+    const agentId = payload.agentId;
     const fileName = payload.fileName?.trim();
 
     if (!fileName || !isManagedAgentFileName(fileName)) {
@@ -95,7 +99,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'content must be a string.' }, { status: 400 });
     }
 
-    const content = await writeManagedAgentFile(fileName, payload.content);
+    const content = await writeManagedAgentFile(fileName, payload.content, agentId);
     return NextResponse.json({
       success: true,
       data: {
@@ -128,6 +132,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = (await request.json()) as PostPayload;
+    const agentId = payload.agentId;
 
     if (payload.action !== 'reset') {
       return NextResponse.json(
@@ -151,8 +156,8 @@ export async function POST(request: NextRequest) {
       }
 
       // Write empty content - this triggers seed fallback in readManagedAgentFile
-      await writeManagedAgentFile(fileName, '');
-      const content = await readManagedAgentFile(fileName);
+      await writeManagedAgentFile(fileName, '', agentId);
+      const content = await readManagedAgentFile(fileName, agentId);
 
       return NextResponse.json({
         success: true,
@@ -167,8 +172,8 @@ export async function POST(request: NextRequest) {
       const results: Array<{ fileName: AgentManagedFileName; content: string }> = [];
 
       for (const fileName of AGENT_MANAGED_FILE_NAMES) {
-        await writeManagedAgentFile(fileName, '');
-        const content = await readManagedAgentFile(fileName);
+        await writeManagedAgentFile(fileName, '', agentId);
+        const content = await readManagedAgentFile(fileName, agentId);
         results.push({ fileName, content });
       }
 

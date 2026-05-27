@@ -31,9 +31,9 @@ You have access to external apps through Composio Meta Tools. Workflow:
 
 Always search before executing — don't guess action names.`;
 
-export async function loadManagedAgentSystemPrompt(): Promise<ManagedSystemPromptResult> {
+export async function loadManagedAgentSystemPrompt(agentId?: string | null): Promise<ManagedSystemPromptResult> {
   try {
-    const files = await readManagedAgentFiles();
+    const files = await readManagedAgentFiles(agentId);
     
     // Load PI config to get enabled skills and check composio tools
     const piConfig = await readPiRuntimeConfig();

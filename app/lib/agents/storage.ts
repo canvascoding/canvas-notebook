@@ -4,9 +4,11 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
-import { resolveAgentStorageDir } from '../runtime-data-paths';
+import { resolveAgentStorageDir, resolveAgentsStorageRoot } from '../runtime-data-paths';
 
 export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
+export const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
+export const DEFAULT_MANAGED_AGENT_ID = 'canvas-agent';
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
 export const PI_RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, PI_RUNTIME_CONFIG_FILE);
 export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
@@ -96,6 +98,17 @@ async function ensureStorageDirectory(): Promise<void> {
   await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
 }
 
+function normalizeManagedAgentId(agentId?: string | null): string {
+  const normalized = typeof agentId === 'string' ? agentId.trim().toLowerCase() : '';
+  if (!normalized) {
+    return DEFAULT_MANAGED_AGENT_ID;
+  }
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized)) {
+    throw new AgentConfigValidationError('Invalid agentId.');
+  }
+  return normalized;
+}
+
 function isMissingFileError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
 }
@@ -125,26 +138,48 @@ async function writeTextAtomic(filePath: string, content: string): Promise<void>
   await fs.rename(tempPath, filePath);
 }
 
-function resolveManagedFilePath(fileName: AgentManagedFileName): string {
+function resolveAgentScopedStorageDir(agentId?: string | null): string {
+  return path.join(AGENTS_STORAGE_ROOT, normalizeManagedAgentId(agentId));
+}
+
+function resolveManagedFilePath(fileName: AgentManagedFileName, agentId?: string | null): string {
+  return path.join(resolveAgentScopedStorageDir(agentId), fileName);
+}
+
+function resolveLegacyManagedFilePath(fileName: AgentManagedFileName): string {
   return path.join(AGENT_STORAGE_DIR, fileName);
+}
+
+function shouldReadLegacyCanvasAgentFiles(agentId?: string | null): boolean {
+  return normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID;
 }
 
 export function isManagedAgentFileName(fileName: unknown): fileName is AgentManagedFileName {
   return typeof fileName === 'string' && (AGENT_MANAGED_FILE_NAMES as readonly string[]).includes(fileName);
 }
 
-export async function ensureAgentManagedFilesExist(): Promise<void> {
-  await ensureStorageDirectory();
+export async function ensureAgentManagedFilesExist(agentId?: string | null): Promise<void> {
+  await fs.mkdir(resolveAgentScopedStorageDir(agentId), { recursive: true });
+  if (shouldReadLegacyCanvasAgentFiles(agentId)) {
+    await ensureStorageDirectory();
+  }
 
   for (const fileName of AGENT_MANAGED_FILE_NAMES) {
-    const filePath = resolveManagedFilePath(fileName);
+    const filePath = resolveManagedFilePath(fileName, agentId);
     const existing = await readFileIfExists(filePath);
-    
+
     // Skip if file exists and has content
     if (!isContentEmpty(existing)) {
       continue;
     }
-    
+
+    if (shouldReadLegacyCanvasAgentFiles(agentId)) {
+      const legacyContent = await readFileIfExists(resolveLegacyManagedFilePath(fileName));
+      if (!isContentEmpty(legacyContent)) {
+        continue;
+      }
+    }
+
     // Read seed content and write if available
     const seedContent = await readSeedFile(fileName);
     if (seedContent !== null) {
@@ -153,11 +188,22 @@ export async function ensureAgentManagedFilesExist(): Promise<void> {
   }
 }
 
-export async function readManagedAgentFile(fileName: AgentManagedFileName): Promise<string> {
-  await ensureAgentManagedFilesExist();
-  const filePath = resolveManagedFilePath(fileName);
+export async function readManagedAgentFile(fileName: AgentManagedFileName, agentId?: string | null): Promise<string> {
+  await ensureAgentManagedFilesExist(agentId);
+  const filePath = resolveManagedFilePath(fileName, agentId);
   const content = await readFileIfExists(filePath);
-  
+
+  if (!isContentEmpty(content)) {
+    return content ?? '';
+  }
+
+  if (shouldReadLegacyCanvasAgentFiles(agentId)) {
+    const legacyContent = await readFileIfExists(resolveLegacyManagedFilePath(fileName));
+    if (!isContentEmpty(legacyContent)) {
+      return legacyContent ?? '';
+    }
+  }
+
   // If file is empty, try to return seed content
   if (isContentEmpty(content)) {
     const seedContent = await readSeedFile(fileName);
@@ -165,16 +211,16 @@ export async function readManagedAgentFile(fileName: AgentManagedFileName): Prom
       return seedContent;
     }
   }
-  
+
   return content ?? '';
 }
 
-export async function readManagedAgentFiles(): Promise<AgentManagedFiles> {
-  await ensureAgentManagedFilesExist();
+export async function readManagedAgentFiles(agentId?: string | null): Promise<AgentManagedFiles> {
+  await ensureAgentManagedFilesExist(agentId);
 
   const entries = await Promise.all(
     AGENT_MANAGED_FILE_NAMES.map(async (fileName) => {
-      const content = await readManagedAgentFile(fileName);
+      const content = await readManagedAgentFile(fileName, agentId);
       return [fileName, content] as const;
     })
   );
@@ -182,11 +228,11 @@ export async function readManagedAgentFiles(): Promise<AgentManagedFiles> {
   return Object.fromEntries(entries) as AgentManagedFiles;
 }
 
-export async function writeManagedAgentFile(fileName: AgentManagedFileName, content: string): Promise<string> {
-  await ensureAgentManagedFilesExist();
-  const filePath = resolveManagedFilePath(fileName);
+export async function writeManagedAgentFile(fileName: AgentManagedFileName, content: string, agentId?: string | null): Promise<string> {
+  await ensureAgentManagedFilesExist(agentId);
+  const filePath = resolveManagedFilePath(fileName, agentId);
   await writeTextAtomic(filePath, content);
-  return readManagedAgentFile(fileName);
+  return readManagedAgentFile(fileName, agentId);
 }
 
 /**

@@ -72,6 +72,7 @@ export async function savePiSession(
     channelId?: string;
     channelSessionKey?: string | null;
     channelThreadKey?: string | null;
+    agentId?: string | null;
   },
 ): Promise<void> {
   // Find or create session
@@ -102,6 +103,7 @@ export async function savePiSession(
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
       userId,
+      agentId: options?.agentId ?? 'canvas-agent',
       provider,
       model,
       title: resolvedTitle,
