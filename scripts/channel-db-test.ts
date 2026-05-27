@@ -168,8 +168,53 @@ async function main() {
   assert.equal(specialAgent.removable, true);
   assert.ok(await getAgentProfile('research-agent'));
 
+  const [specialSession] = await db.insert(piSessions).values({
+    sessionId: 'sess-research-agent',
+    userId,
+    agentId: specialAgent.agentId,
+    provider: 'test-provider',
+    model: 'test-model',
+    title: 'Research Session',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: now,
+    updatedAt: now,
+  }).returning({ id: piSessions.id });
+  await db.insert(piMessages).values({
+    piSessionDbId: specialSession.id,
+    role: 'user',
+    content: JSON.stringify({ role: 'user', content: 'research', timestamp: now.getTime() }),
+    timestamp: now.getTime(),
+  });
+  await ensureSessionChannelLink({
+    sessionId: 'sess-research-agent',
+    userId,
+    channelId: 'telegram',
+    channelSessionKey: 'telegram:research',
+    inboundAt: now,
+  });
+  await setActiveChannelSession({
+    userId,
+    agentId: specialAgent.agentId,
+    channelId: 'telegram',
+    channelSessionKey: 'telegram:research',
+    sessionId: 'sess-research-agent',
+  });
+
   await deleteAgentProfile('research-agent');
   assert.equal(await getAgentProfile('research-agent'), null);
+  assert.equal(
+    await db.query.piSessions.findFirst({ where: eq(piSessions.sessionId, 'sess-research-agent') }),
+    undefined,
+  );
+  assert.equal(
+    await db.query.sessionChannelLinks.findFirst({ where: eq(sessionChannelLinks.sessionId, 'sess-research-agent') }),
+    undefined,
+  );
+  assert.equal(
+    await db.query.channelActiveSessions.findFirst({ where: eq(channelActiveSessions.sessionId, 'sess-research-agent') }),
+    undefined,
+  );
 
   console.log('channel db tests passed');
 }
