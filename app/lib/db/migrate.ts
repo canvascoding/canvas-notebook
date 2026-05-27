@@ -88,6 +88,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       session_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
       thinking_level TEXT,
@@ -99,6 +100,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       summary_through_timestamp INTEGER,
       last_message_at INTEGER,
       last_viewed_at INTEGER,
+      channel_id TEXT NOT NULL DEFAULT 'app',
+      channel_session_key TEXT,
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
@@ -133,6 +136,18 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       total_cost REAL NOT NULL,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS agents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      agent_id TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'main',
+      removable INTEGER NOT NULL DEFAULT 0,
+      default_provider TEXT,
+      default_model TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS automation_jobs (
@@ -528,6 +543,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_created ON pi_sessions (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_session ON pi_sessions (user_id, session_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_channel_created ON pi_sessions (user_id, channel_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_agent ON pi_sessions (agent_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_agent_id ON agents (agent_id);
     CREATE INDEX IF NOT EXISTS idx_pi_messages_session_timestamp ON pi_messages (pi_session_db_id, timestamp, id);
   `);
 
@@ -569,6 +586,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
 
   addColumns(sqlite, 'pi_sessions', {
+    agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
     channel_id: "TEXT NOT NULL DEFAULT 'app'",
     channel_session_key: 'TEXT',
   });
@@ -595,6 +613,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       channel_id TEXT NOT NULL DEFAULT 'telegram',
       channel_user_id TEXT NOT NULL,
       channel_user_name TEXT,
+      metadata_json TEXT,
+      settings_json TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
@@ -619,10 +640,108 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS session_channel_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      channel_session_key TEXT NOT NULL,
+      channel_thread_key TEXT NOT NULL DEFAULT '',
+      display_name TEXT,
+      is_primary INTEGER NOT NULL DEFAULT 0,
+      delivery_policy TEXT NOT NULL DEFAULT 'last_active',
+      last_inbound_at INTEGER,
+      last_outbound_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS channel_active_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      user_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      channel_session_key TEXT NOT NULL,
+      channel_thread_key TEXT NOT NULL DEFAULT '',
+      session_id TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_user_binding ON channel_user_bindings (channel_id, channel_user_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_link_tokens_token ON channel_link_tokens (token);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_active_session_chat ON telegram_active_session (chat_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_session_channel_links_unique ON session_channel_links (session_id, channel_id, channel_session_key, channel_thread_key);
+    CREATE INDEX IF NOT EXISTS idx_session_channel_links_session ON session_channel_links (session_id);
+    CREATE INDEX IF NOT EXISTS idx_session_channel_links_user_channel ON session_channel_links (user_id, channel_id);
+    CREATE INDEX IF NOT EXISTS idx_session_channel_links_context ON session_channel_links (channel_id, channel_session_key, channel_thread_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_active_sessions_context ON channel_active_sessions (channel_id, channel_session_key, channel_thread_key);
+    CREATE INDEX IF NOT EXISTS idx_channel_active_sessions_user_channel ON channel_active_sessions (user_id, channel_id);
+  `);
+
+  addColumns(sqlite, 'channel_user_bindings', {
+    metadata_json: 'TEXT',
+    settings_json: 'TEXT',
+    enabled: 'INTEGER NOT NULL DEFAULT 1',
+  });
+
+  const now = Date.now();
+  sqlite.prepare(`
+    INSERT OR IGNORE INTO agents (agent_id, name, type, removable, created_at, updated_at)
+    VALUES ('canvas-agent', 'Canvas Agent', 'main', 0, ?, ?)
+  `).run(now, now);
+
+  sqlite.exec(`
+    INSERT OR IGNORE INTO session_channel_links (
+      session_id,
+      user_id,
+      channel_id,
+      channel_session_key,
+      channel_thread_key,
+      display_name,
+      is_primary,
+      delivery_policy,
+      last_inbound_at,
+      last_outbound_at,
+      created_at,
+      updated_at
+    )
+    SELECT
+      session_id,
+      user_id,
+      CASE WHEN channel_id = 'app' THEN 'web' ELSE channel_id END,
+      CASE
+        WHEN channel_session_key IS NOT NULL AND channel_session_key != '' THEN channel_session_key
+        WHEN channel_id = 'telegram' THEN 'telegram:unknown'
+        ELSE 'web:user:' || user_id
+      END,
+      '',
+      title,
+      CASE WHEN channel_id = 'app' THEN 1 ELSE 0 END,
+      'last_active',
+      last_message_at,
+      last_message_at,
+      created_at,
+      updated_at
+    FROM pi_sessions;
+
+    INSERT OR IGNORE INTO channel_active_sessions (
+      user_id,
+      channel_id,
+      channel_session_key,
+      channel_thread_key,
+      session_id,
+      updated_at
+    )
+    SELECT
+      user_id,
+      'telegram',
+      'telegram:' || chat_id,
+      '',
+      session_id,
+      updated_at
+    FROM telegram_active_session;
   `);
 
   // ── One-time data fixes ───────────────────────────────────────────────────────
