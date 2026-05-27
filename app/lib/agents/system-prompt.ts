@@ -6,6 +6,7 @@ import {
   readRuntimeManagedAgentFiles,
   readPiRuntimeConfig,
 } from './storage';
+import { resolveAgentRuntimeConfig } from './effective-runtime-config';
 import {
   composeManagedAgentSystemPrompt,
   type ManagedSystemPromptResult,
@@ -53,8 +54,8 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
     // Check if composio tools are enabled for the active provider
     let systemPrompt = result.systemPrompt;
     try {
-      const activeProvider = piConfig.providers[piConfig.activeProvider];
-      const enabledTools = activeProvider?.enabledTools;
+      const effectiveConfig = await resolveAgentRuntimeConfig(normalizedAgentId);
+      const enabledTools = effectiveConfig.enabledTools;
       const composioToolNames = ['COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS', 'composio_execute', 'COMPOSIO_MANAGE_CONNECTIONS'];
       
       let composioEnabled = false;

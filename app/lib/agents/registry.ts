@@ -5,6 +5,7 @@ import { asc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { agents, piSessions } from '@/app/lib/db/schema';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
+import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_MANAGED_AGENT_ID } from './storage';
 
 export type AgentProfile = {
@@ -15,9 +16,13 @@ export type AgentProfile = {
   removable: boolean;
   defaultProvider: string | null;
   defaultModel: string | null;
+  defaultThinking: PiThinkingLevel | null;
+  enabledTools: string[] | null;
   createdAt: string;
   updatedAt: string;
 };
+
+const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 export function normalizeManagedAgentId(agentId?: string | null): string {
   const normalized = typeof agentId === 'string' ? agentId.trim().toLowerCase() : '';
@@ -39,9 +44,44 @@ function mapAgent(row: typeof agents.$inferSelect): AgentProfile {
     removable: Boolean(row.removable),
     defaultProvider: row.defaultProvider ?? null,
     defaultModel: row.defaultModel ?? null,
+    defaultThinking: normalizeThinking(row.defaultThinking),
+    enabledTools: parseEnabledTools(row.enabledToolsJson),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function normalizeThinking(value?: string | null): PiThinkingLevel | null {
+  const normalized = value?.trim();
+  return normalized && THINKING_LEVELS.has(normalized as PiThinkingLevel) ? normalized as PiThinkingLevel : null;
+}
+
+function normalizeEnabledTools(value?: string[] | null): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of value) {
+    const normalized = typeof entry === 'string' ? entry.trim() : '';
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function parseEnabledTools(value?: string | null): string[] | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return normalizeEnabledTools(Array.isArray(parsed) ? parsed : null);
+  } catch {
+    return null;
+  }
+}
+
+function stringifyEnabledTools(value?: string[] | null): string | null {
+  const normalized = normalizeEnabledTools(value);
+  return normalized ? JSON.stringify(normalized) : null;
 }
 
 export async function ensureCanvasAgent(): Promise<AgentProfile> {
@@ -102,6 +142,8 @@ export async function createAgentProfile(input: {
   agentId?: string | null;
   defaultProvider?: string | null;
   defaultModel?: string | null;
+  defaultThinking?: PiThinkingLevel | null;
+  enabledTools?: string[] | null;
 }): Promise<AgentProfile> {
   const name = input.name.trim();
   if (!name) {
@@ -121,6 +163,8 @@ export async function createAgentProfile(input: {
     removable: true,
     defaultProvider: input.defaultProvider?.trim() || null,
     defaultModel: input.defaultModel?.trim() || null,
+    defaultThinking: normalizeThinking(input.defaultThinking) || null,
+    enabledToolsJson: stringifyEnabledTools(input.enabledTools),
     createdAt: now,
     updatedAt: now,
   });
@@ -137,6 +181,8 @@ export async function updateAgentProfile(input: {
   name?: string | null;
   defaultProvider?: string | null;
   defaultModel?: string | null;
+  defaultThinking?: PiThinkingLevel | null;
+  enabledTools?: string[] | null;
 }): Promise<AgentProfile> {
   const agentId = normalizeManagedAgentId(input.agentId);
   const existing = await getAgentProfile(agentId);
@@ -154,6 +200,8 @@ export async function updateAgentProfile(input: {
       name: nextName,
       defaultProvider: input.defaultProvider === undefined ? existing.defaultProvider : input.defaultProvider?.trim() || null,
       defaultModel: input.defaultModel === undefined ? existing.defaultModel : input.defaultModel?.trim() || null,
+      defaultThinking: input.defaultThinking === undefined ? existing.defaultThinking : normalizeThinking(input.defaultThinking) || null,
+      enabledToolsJson: input.enabledTools === undefined ? stringifyEnabledTools(existing.enabledTools) : stringifyEnabledTools(input.enabledTools),
       updatedAt: new Date(),
     })
     .where(eq(agents.agentId, agentId));

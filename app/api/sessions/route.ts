@@ -7,6 +7,7 @@ import { and, desc, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
 import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
 import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
 import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
+import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
@@ -338,22 +339,12 @@ export async function POST(request: NextRequest) {
     const title = normalizeTitle(payload.title, DEFAULT_SESSION_TITLE);
 
     if (engine === 'pi') {
-      const piConfig = await readPiRuntimeConfig();
-      const provider = piConfig.activeProvider;
-      const providerConfig = piConfig.providers[provider];
       const requestedModel = normalizeOptionalString(payload.model);
       const requestedThinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
 
       if (payload.thinkingLevel !== undefined && !requestedThinkingLevel) {
         return NextResponse.json({ success: false, error: 'Invalid thinking level' }, { status: 400 });
       }
-
-      if (requestedModel && !(await isValidProviderModel(provider, requestedModel))) {
-        return NextResponse.json({ success: false, error: 'Invalid model for active provider' }, { status: 400 });
-      }
-
-      const model = requestedModel || providerConfig?.model || 'unknown';
-      const thinkingLevel = requestedThinkingLevel || providerConfig?.thinking || 'off';
 
       await ensureDefaultAgent();
       let requestedAgentId: string;
@@ -366,6 +357,16 @@ export async function POST(request: NextRequest) {
       if (!requestedAgent) {
         return NextResponse.json({ success: false, error: 'Agent not found' }, { status: 404 });
       }
+      const effectiveConfig = await resolveAgentRuntimeConfig(requestedAgentId);
+      const provider = effectiveConfig.activeProvider;
+      const providerConfig = effectiveConfig.providerConfig;
+
+      if (requestedModel && !(await isValidProviderModel(provider, requestedModel))) {
+        return NextResponse.json({ success: false, error: 'Invalid model for active provider' }, { status: 400 });
+      }
+
+      const model = requestedModel || providerConfig?.model || 'unknown';
+      const thinkingLevel = requestedThinkingLevel || providerConfig?.thinking || 'off';
       const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
       const normalizedChannelId = normalizeStoredChannelId(channelId);
       const channelSessionKey = typeof payload.channelSessionKey === 'string'
@@ -521,7 +522,9 @@ export async function PATCH(request: NextRequest) {
         .where(eq(piSessions.id, piSession.id))
         .returning();
 
-      await syncSessionModelToPiConfig(piSession.provider, requestedModel, requestedThinkingLevel);
+      if (piSession.agentId === DEFAULT_AGENT_ID) {
+        await syncSessionModelToPiConfig(piSession.provider, requestedModel, requestedThinkingLevel);
+      }
       await invalidateRuntime(sessionId, session.user.id);
 
       return NextResponse.json({

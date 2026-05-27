@@ -1,8 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
-import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
-import { resolveActivePiModel } from '@/app/lib/pi/model-resolver';
+import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, WEB_CHANNEL_ID, webChannelSessionKey } from './constants';
 import { ensureDefaultAgent } from './agents';
@@ -40,17 +39,16 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
 
   const agentId = resolveAgentId(input.agentId);
   const sessionId = input.requestedSessionId || `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  const piConfig = await readPiRuntimeConfig();
-  const model = await resolveActivePiModel();
+  const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
   const now = new Date();
 
   await db.insert(piSessions).values({
     sessionId,
     userId: input.userId,
     agentId,
-    provider: piConfig.activeProvider,
-    model: model.id,
-    thinkingLevel: piConfig.providers[piConfig.activeProvider]?.thinking || 'off',
+    provider: effectiveConfig.activeProvider,
+    model: effectiveConfig.model.id,
+    thinkingLevel: effectiveConfig.thinkingLevel,
     channelId: 'app',
     channelSessionKey: null,
     title: DEFAULT_PI_SESSION_TITLE,

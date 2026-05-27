@@ -166,6 +166,10 @@ export function isManagedAgentFileName(fileName: unknown): fileName is AgentMana
   return typeof fileName === 'string' && (AGENT_MANAGED_FILE_NAMES as readonly string[]).includes(fileName);
 }
 
+export function isWritableManagedAgentFileName(fileName: AgentManagedFileName, agentId?: string | null): boolean {
+  return getOwnedManagedFileNames(agentId).includes(fileName);
+}
+
 export async function ensureAgentManagedFilesExist(agentId?: string | null): Promise<void> {
   await fs.mkdir(resolveAgentScopedStorageDir(agentId), { recursive: true });
   if (shouldReadLegacyCanvasAgentFiles(agentId)) {
