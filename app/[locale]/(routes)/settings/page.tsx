@@ -5,7 +5,7 @@ import { getTranslations } from 'next-intl/server';
 import { isOnboardingEnabled } from '@/app/lib/onboarding/status';
 
 export default async function SettingsPage() {
-  const session = await requirePageSession();
+  const session = await requirePageSession({ allowUnlicensed: true });
   const t = await getTranslations('settings');
 
   const isAdmin = session?.user?.role === 'admin';

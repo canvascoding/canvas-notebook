@@ -251,6 +251,16 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS license_certs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      cert TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      instance_id TEXT NOT NULL,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS oauth_tokens (
       id TEXT PRIMARY KEY NOT NULL,
       provider TEXT NOT NULL,
@@ -508,6 +518,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_page_onboarding_state_user_completed ON page_onboarding_state (user_id, completed);
     CREATE INDEX IF NOT EXISTS idx_oauth_tokens_provider ON oauth_tokens (provider);
     CREATE INDEX IF NOT EXISTS idx_oauth_tokens_valid ON oauth_tokens (provider, is_valid);
+    CREATE INDEX IF NOT EXISTS idx_license_certs_instance ON license_certs (instance_id);
     CREATE INDEX IF NOT EXISTS idx_studio_products_user ON studio_products (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_products_created ON studio_products (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_product_images_product ON studio_product_images (product_id);
