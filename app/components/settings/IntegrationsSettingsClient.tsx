@@ -1089,7 +1089,10 @@ function EmailAccountsCard() {
   }, []);
 
   useEffect(() => {
-    void loadAccounts();
+    const timeout = window.setTimeout(() => {
+      void loadAccounts();
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [loadAccounts]);
 
   const startOAuth = async (provider: 'google' | 'microsoft') => {

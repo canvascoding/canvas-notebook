@@ -61,7 +61,7 @@ export async function deliverToLastActiveExternalChannel(
   });
 }
 
-export async function sendTypingToLastActiveExternalChannel(sessionId: string, userId: string): Promise<void> {
+export async function sendTypingToLastActiveExternalChannel(sessionId: string, _userId: string): Promise<void> {
   const link = await findLastActiveExternalLink(sessionId, WEB_CHANNEL_ID);
   if (!link) return;
 

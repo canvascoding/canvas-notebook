@@ -100,6 +100,47 @@ async function hasValidLicenseGateCookie(request: NextRequest): Promise<boolean>
   }
 }
 
+async function loadLicenseStatus(request: NextRequest): Promise<{
+  licensed?: boolean;
+  plan?: string;
+  instanceId?: string;
+  expiresAt?: string | null;
+} | null> {
+  try {
+    const statusUrl = new URL('/api/license/status', request.url);
+    const response = await fetch(statusUrl, {
+      headers: {
+        cookie: request.headers.get('cookie') || '',
+      },
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function buildLicenseGateCookie(status: {
+  licensed?: boolean;
+  plan?: string;
+  instanceId?: string;
+  expiresAt?: string | null;
+}): Promise<string> {
+  const maxAgeMs = 60 * 60 * 12 * 1000;
+  const expiresAt = Math.min(
+    Date.now() + maxAgeMs,
+    status.expiresAt ? new Date(status.expiresAt).getTime() : Date.now() + maxAgeMs,
+  );
+  const payload = btoa(JSON.stringify({
+    licensed: Boolean(status.licensed),
+    plan: status.plan,
+    instanceId: status.instanceId,
+    expiresAt,
+  })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return `${payload}.${await sign(payload)}`;
+}
+
 function isPublicRoute(pathname: string) {
   // Strip locale prefix if present for checking public routes
   const locales = routing.locales;
@@ -171,6 +212,20 @@ export default async function middleware(request: NextRequest) {
     !LICENSE_ALLOWED_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) &&
     !(await hasValidLicenseGateCookie(request))
   ) {
+    const status = await loadLicenseStatus(request);
+    if (status?.licensed) {
+      const licensedResponse = NextResponse.next();
+      setCommonHeaders(licensedResponse);
+      licensedResponse.cookies.set(LICENSE_GATE_COOKIE, await buildLicenseGateCookie(status), {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 60 * 60 * 12,
+      });
+      return licensedResponse;
+    }
+
     const errorResponse = NextResponse.json(
       { success: false, error: 'License activation required', code: 'LICENSE_REQUIRED' },
       { status: 402 },
