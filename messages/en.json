@@ -1109,6 +1109,10 @@
         "description": "Choose which agent the settings below should edit.",
         "reload": "Reload",
         "create": "Create agent",
+        "creating": "Creating...",
+        "createPlaceholder": "Name of the new special agent",
+        "delete": "Delete agent",
+        "confirmDelete": "Delete this special agent including its sessions?",
         "loading": "Loading agents...",
         "empty": "No agents found.",
         "mainAgent": "Main",
@@ -1117,9 +1121,11 @@
         "defaults": "Default: {provider} / {model}",
         "inheritsDefaults": "Inherits provider and model defaults.",
         "notSet": "not set",
-        "createHint": "Specialized agents will be created in a later step. The Canvas Agent is the fixed foundation and cannot be removed.",
+        "createHint": "Special agents inherit identity and user context from the Canvas Agent. The Canvas Agent is the fixed foundation and cannot be removed.",
         "errors": {
-          "load": "Failed to load agents."
+          "load": "Failed to load agents.",
+          "create": "Failed to create agent.",
+          "delete": "Failed to delete agent."
         }
       },
       "chatDisplay": {

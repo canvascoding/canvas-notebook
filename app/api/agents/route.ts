@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { listAgentProfiles } from '@/app/lib/agents/registry';
+import {
+  createAgentProfile,
+  deleteAgentProfile,
+  listAgentProfiles,
+  updateAgentProfile,
+} from '@/app/lib/agents/registry';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export async function GET(request: NextRequest) {
@@ -30,3 +35,104 @@ export async function GET(request: NextRequest) {
   }
 }
 
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+export async function POST(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const limited = rateLimit(request, {
+    limit: 20,
+    windowMs: 60_000,
+    keyPrefix: 'agents-create-post',
+  });
+  if (!limited.ok) {
+    return limited.response;
+  }
+
+  try {
+    const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const agent = await createAgentProfile({
+      name: stringValue(payload.name) || '',
+      agentId: stringValue(payload.agentId) || null,
+      defaultProvider: stringValue(payload.defaultProvider) || null,
+      defaultModel: stringValue(payload.defaultModel) || null,
+    });
+    return NextResponse.json({ success: true, data: { agent } });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Failed to create agent.' },
+      { status: 400 },
+    );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const limited = rateLimit(request, {
+    limit: 30,
+    windowMs: 60_000,
+    keyPrefix: 'agents-update-patch',
+  });
+  if (!limited.ok) {
+    return limited.response;
+  }
+
+  try {
+    const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const agentId = stringValue(payload.agentId);
+    if (!agentId) {
+      throw new Error('agentId is required.');
+    }
+    const agent = await updateAgentProfile({
+      agentId,
+      name: stringValue(payload.name),
+      defaultProvider: Object.hasOwn(payload, 'defaultProvider') ? stringValue(payload.defaultProvider) ?? null : undefined,
+      defaultModel: Object.hasOwn(payload, 'defaultModel') ? stringValue(payload.defaultModel) ?? null : undefined,
+    });
+    return NextResponse.json({ success: true, data: { agent } });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Failed to update agent.' },
+      { status: 400 },
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const limited = rateLimit(request, {
+    limit: 20,
+    windowMs: 60_000,
+    keyPrefix: 'agents-delete',
+  });
+  if (!limited.ok) {
+    return limited.response;
+  }
+
+  try {
+    const agentId = request.nextUrl.searchParams.get('agentId');
+    if (!agentId) {
+      throw new Error('agentId is required.');
+    }
+    await deleteAgentProfile(agentId);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Failed to delete agent.' },
+      { status: 400 },
+    );
+  }
+}

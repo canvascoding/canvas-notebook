@@ -1,9 +1,9 @@
 import 'server-only';
 
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { agents } from '@/app/lib/db/schema';
+import { agents, piMessages, piSessions } from '@/app/lib/db/schema';
 import { DEFAULT_MANAGED_AGENT_ID } from './storage';
 
 export type AgentProfile = {
@@ -86,3 +86,99 @@ export async function getAgentProfile(agentId?: string | null): Promise<AgentPro
   return row ? mapAgent(row) : null;
 }
 
+function slugifyAgentId(name: string): string {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  return normalizeManagedAgentId(normalized || 'agent');
+}
+
+export async function createAgentProfile(input: {
+  name: string;
+  agentId?: string | null;
+  defaultProvider?: string | null;
+  defaultModel?: string | null;
+}): Promise<AgentProfile> {
+  const name = input.name.trim();
+  if (!name) {
+    throw new Error('Agent name is required.');
+  }
+
+  const agentId = normalizeManagedAgentId(input.agentId || slugifyAgentId(name));
+  if (agentId === DEFAULT_MANAGED_AGENT_ID) {
+    throw new Error('Canvas Agent already exists and cannot be recreated.');
+  }
+
+  const now = new Date();
+  await db.insert(agents).values({
+    agentId,
+    name,
+    type: 'special',
+    removable: true,
+    defaultProvider: input.defaultProvider?.trim() || null,
+    defaultModel: input.defaultModel?.trim() || null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const created = await getAgentProfile(agentId);
+  if (!created) {
+    throw new Error('Agent could not be created.');
+  }
+  return created;
+}
+
+export async function updateAgentProfile(input: {
+  agentId: string;
+  name?: string | null;
+  defaultProvider?: string | null;
+  defaultModel?: string | null;
+}): Promise<AgentProfile> {
+  const agentId = normalizeManagedAgentId(input.agentId);
+  const existing = await getAgentProfile(agentId);
+  if (!existing) {
+    throw new Error('Agent not found.');
+  }
+
+  const nextName = input.name === undefined || input.name === null ? existing.name : input.name.trim();
+  if (!nextName) {
+    throw new Error('Agent name is required.');
+  }
+
+  await db.update(agents)
+    .set({
+      name: nextName,
+      defaultProvider: input.defaultProvider === undefined ? existing.defaultProvider : input.defaultProvider?.trim() || null,
+      defaultModel: input.defaultModel === undefined ? existing.defaultModel : input.defaultModel?.trim() || null,
+      updatedAt: new Date(),
+    })
+    .where(eq(agents.agentId, agentId));
+
+  const updated = await getAgentProfile(agentId);
+  if (!updated) {
+    throw new Error('Agent could not be updated.');
+  }
+  return updated;
+}
+
+export async function deleteAgentProfile(agentIdInput: string): Promise<void> {
+  const agentId = normalizeManagedAgentId(agentIdInput);
+  const existing = await getAgentProfile(agentId);
+  if (!existing) {
+    throw new Error('Agent not found.');
+  }
+  if (!existing.removable) {
+    throw new Error('Canvas Agent cannot be removed.');
+  }
+
+  const sessions = await db.select({ id: piSessions.id }).from(piSessions).where(eq(piSessions.agentId, agentId));
+  const sessionDbIds = sessions.map((session) => session.id);
+  if (sessionDbIds.length > 0) {
+    await db.delete(piMessages).where(inArray(piMessages.piSessionDbId, sessionDbIds));
+    await db.delete(piSessions).where(eq(piSessions.agentId, agentId));
+  }
+  await db.delete(agents).where(eq(agents.agentId, agentId));
+}

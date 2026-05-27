@@ -1108,6 +1108,10 @@
         "description": "Wähle, welcher Agent mit den Einstellungen darunter bearbeitet wird.",
         "reload": "Neu laden",
         "create": "Agent anlegen",
+        "creating": "Lege an...",
+        "createPlaceholder": "Name des neuen Spezial-Agenten",
+        "delete": "Agent löschen",
+        "confirmDelete": "Diesen Spezial-Agenten inklusive seiner Sessions löschen?",
         "loading": "Lade Agenten...",
         "empty": "Keine Agenten gefunden.",
         "mainAgent": "Main",
@@ -1116,9 +1120,11 @@
         "defaults": "Standard: {provider} / {model}",
         "inheritsDefaults": "Erbt Provider- und Modell-Defaults.",
         "notSet": "nicht gesetzt",
-        "createHint": "Spezialisierte Agenten werden in einem nächsten Schritt angelegt. Der Canvas Agent ist die feste Grundlage und kann nicht entfernt werden.",
+        "createHint": "Spezial-Agenten erben Identity und User-Kontext vom Canvas Agent. Der Canvas Agent ist die feste Grundlage und kann nicht entfernt werden.",
         "errors": {
-          "load": "Agenten konnten nicht geladen werden."
+          "load": "Agenten konnten nicht geladen werden.",
+          "create": "Agent konnte nicht angelegt werden.",
+          "delete": "Agent konnte nicht gelöscht werden."
         }
       },
       "chatDisplay": {

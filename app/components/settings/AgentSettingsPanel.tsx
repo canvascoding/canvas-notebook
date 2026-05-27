@@ -63,6 +63,9 @@ export function AgentSettingsPanel() {
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
+  const [createAgentName, setCreateAgentName] = useState('');
+  const [agentCreating, setAgentCreating] = useState(false);
+  const [agentDeletingId, setAgentDeletingId] = useState<string | null>(null);
 
   const [doctorResult, setDoctorResult] = useState<DoctorResult | null>(null);
   const [doctorRunning, setDoctorRunning] = useState(false);
@@ -141,6 +144,58 @@ export function AgentSettingsPanel() {
       setFilesLoading(false);
     }
   }, [selectedAgentId, t]);
+
+  const createAgent = async () => {
+    const name = createAgentName.trim();
+    if (!name) return;
+
+    setAgentCreating(true);
+    setAgentsError(null);
+
+    try {
+      const payload = await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      setCreateAgentName('');
+      await loadAgents();
+      setSelectedAgentId(payload.agent.agentId);
+    } catch (error) {
+      setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.create'));
+    } finally {
+      setAgentCreating(false);
+    }
+  };
+
+  const deleteAgent = async (agentId: string) => {
+    if (!window.confirm(t('agentPanel.selector.confirmDelete'))) {
+      return;
+    }
+
+    setAgentDeletingId(agentId);
+    setAgentsError(null);
+
+    try {
+      const params = new URLSearchParams({ agentId });
+      const response = await fetch(`/api/agents?${params.toString()}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!response.ok || !body.success) {
+        throw new Error(body.error || t('agentPanel.selector.errors.delete'));
+      }
+      if (selectedAgentId === agentId) {
+        setSelectedAgentId(DEFAULT_AGENT_ID);
+      }
+      await loadAgents();
+    } catch (error) {
+      setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.delete'));
+    } finally {
+      setAgentDeletingId(null);
+    }
+  };
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -610,7 +665,13 @@ export function AgentSettingsPanel() {
         selectedAgentId={selectedAgentId}
         loading={agentsLoading}
         error={agentsError}
+        createName={createAgentName}
+        creating={agentCreating}
+        deletingAgentId={agentDeletingId}
         onSelectedAgentIdChange={setSelectedAgentId}
+        onCreateNameChange={setCreateAgentName}
+        onCreate={() => void createAgent()}
+        onDelete={(agentId) => void deleteAgent(agentId)}
         onReload={() => void loadAgents()}
       />
 
