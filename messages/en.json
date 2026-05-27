@@ -973,6 +973,8 @@
       "description": "Configure Model Context Protocol servers for the agent.",
       "loading": "Loading MCP configuration...",
       "secretNote": "Do not paste API keys or OAuth tokens here. Reference environment variables managed in this tab instead.",
+      "examplesLink": "Example MCP servers",
+      "examplesCaution": "Use with caution: review external MCP servers before using them.",
       "statusTitle": "Configured servers",
       "serversTitle": "Servers",
       "serversDescription": "Connect external tools and data sources.",

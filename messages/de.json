@@ -972,6 +972,8 @@
       "description": "Konfiguriere Model-Context-Protocol-Server für den Agenten.",
       "loading": "Lade MCP-Konfiguration...",
       "secretNote": "Füge hier keine API-Keys oder OAuth-Tokens ein. Referenziere stattdessen Umgebungsvariablen, die in diesem Tab verwaltet werden.",
+      "examplesLink": "Beispielhafte MCP-Server",
+      "examplesCaution": "Mit Vorsicht verwenden: Externe MCP-Server vor dem Einsatz prüfen.",
       "statusTitle": "Konfigurierte Server",
       "serversTitle": "Server",
       "serversDescription": "Verbinde externe Tools und Datenquellen.",

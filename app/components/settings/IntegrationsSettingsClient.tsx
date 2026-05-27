@@ -792,7 +792,21 @@ function McpConfigCard(props: {
               <span>{t('envCard.permissionsLabel')}: 0600</span>
             </div>
 
-            <p className="text-sm text-muted-foreground">{t('mcpConfig.secretNote')}</p>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>{t('mcpConfig.secretNote')}</p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <a
+                  href="https://mcpservers.org/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  {t('mcpConfig.examplesLink')}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+                <span>{t('mcpConfig.examplesCaution')}</span>
+              </div>
+            </div>
 
             {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
             {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
