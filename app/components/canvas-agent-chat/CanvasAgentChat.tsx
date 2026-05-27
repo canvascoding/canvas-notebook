@@ -249,7 +249,8 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
 
 const DEFAULT_MODEL_ID = 'pi';
 const DEFAULT_THINKING_LEVEL: PiThinkingLevel = 'off';
-const BOTTOM_LOCK_THRESHOLD_PX = 80;
+const BOTTOM_LOCK_THRESHOLD_PX = 12;
+const SCROLL_BUTTON_THRESHOLD_PX = 160;
 const MOBILE_TEXTAREA_BASE_HEIGHT_PX = 56;
 const DESKTOP_TEXTAREA_BASE_HEIGHT_PX = 72;
 const MOBILE_TEXTAREA_MAX_HEIGHT_PX = 192;
@@ -595,10 +596,6 @@ function formatContextTokens(value: number): string {
   }
 
   return `${value}`;
-}
-
-function isScrolledNearBottom(container: HTMLElement): boolean {
-  return container.scrollHeight - container.scrollTop - container.clientHeight <= BOTTOM_LOCK_THRESHOLD_PX;
 }
 
 function truncatePreview(value: string, maxLength = 88): string {
@@ -1226,6 +1223,7 @@ export default function CanvasAgentChat({
   const isHistoryResizing = useRef(false);
   const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
   const [activeProvider, setActiveProvider] = useState('pi');
   const [activeThinkingLevel, setActiveThinkingLevel] = useState<PiThinkingLevel>(DEFAULT_THINKING_LEVEL);
@@ -1290,6 +1288,7 @@ export default function CanvasAgentChat({
   const toolMessageIdsRef = useRef<Record<string, string>>({});
   const currentAssistantIdRef = useRef<string | null>(null);
   const streamingContentRef = useRef<string>('');
+  const lastFlushedStreamingContentRef = useRef<string>('');
   const streamingRafRef = useRef<number | null>(null);
   const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -1631,6 +1630,7 @@ export default function CanvasAgentChat({
     markAutoScroll(container);
     isAtBottomRef.current = true;
     setIsAtBottom(true);
+    setShowScrollButton(false);
     if (behavior === 'auto') {
       container.scrollTop = container.scrollHeight - container.clientHeight;
     } else {
@@ -1653,21 +1653,25 @@ export default function CanvasAgentChat({
       return true;
     }
 
-    const nextIsAtBottom = isScrolledNearBottom(scrollContainer);
+    const distanceFromBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+    const nextIsAtBottom = distanceFromBottom <= BOTTOM_LOCK_THRESHOLD_PX;
+    const nextShowScrollButton = distanceFromBottom > SCROLL_BUTTON_THRESHOLD_PX;
     isAtBottomRef.current = nextIsAtBottom;
     setIsAtBottom((current) => {
       if (current === nextIsAtBottom) return current;
       return nextIsAtBottom;
+    });
+    setShowScrollButton((current) => {
+      if (current === nextShowScrollButton) return current;
+      return nextShowScrollButton;
     });
     return nextIsAtBottom;
   }, []);
 
   const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
-    if (scrollContainer && isProgrammaticScroll(scrollContainer)) {
-      if (isAtBottomRef.current) {
-        scrollToBottom('auto');
-      }
+    if (scrollContainer && isAtBottomRef.current && isProgrammaticScroll(scrollContainer)) {
+      scrollToBottom('auto');
       return;
     }
 
@@ -1740,6 +1744,7 @@ export default function CanvasAgentChat({
       isAtBottomRef.current = true;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsAtBottom(true);
+      setShowScrollButton(false);
       return;
     }
 
@@ -2278,6 +2283,7 @@ export default function CanvasAgentChat({
 
     if (event.type === 'message_start' && event.message?.role === 'assistant') {
       streamingContentRef.current = '';
+      lastFlushedStreamingContentRef.current = '';
       createAssistantBubble(event.message);
       return;
     }
@@ -2288,16 +2294,19 @@ export default function CanvasAgentChat({
         streamingContentRef.current += event.assistantMessageEvent.delta || '';
         if (streamingRafRef.current === null) {
           const flush = () => {
-            const content = streamingContentRef.current;
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantId
-                  ? { ...msg, content: normalizeMessageStart(content), status: 'sending' as const }
-                  : msg
-              )
-            );
-            if (isAtBottomRef.current) {
-              scrollToBottom('auto');
+            const content = normalizeMessageStart(streamingContentRef.current);
+            if (content !== lastFlushedStreamingContentRef.current) {
+              lastFlushedStreamingContentRef.current = content;
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantId
+                    ? { ...msg, content, status: 'sending' as const }
+                    : msg
+                )
+              );
+              if (isAtBottomRef.current) {
+                scrollToBottom('auto');
+              }
             }
             streamingRafRef.current = requestAnimationFrame(flush);
           };
@@ -2314,6 +2323,7 @@ export default function CanvasAgentChat({
         streamingRafRef.current = null;
       }
       streamingContentRef.current = '';
+      lastFlushedStreamingContentRef.current = '';
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
       syncPiMessage(assistantId, event.message);
       currentAssistantIdRef.current = null;
@@ -4572,7 +4582,7 @@ export default function CanvasAgentChat({
           </div>
         </div>
 
-        {!isAtBottom && messages.length > 0 && (
+        {showScrollButton && messages.length > 0 && (
           <button
             type="button"
             onClick={() => scrollToBottom()}
