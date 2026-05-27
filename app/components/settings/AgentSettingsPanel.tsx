@@ -37,8 +37,10 @@ import {
 } from '@/app/lib/pi/enabled-tools';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import { useToolVerbosityStore, type ToolVerbosity } from '@/app/store/tool-verbosity-store';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
 const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+const SETTINGS_AGENT_ID = DEFAULT_AGENT_ID;
 
 type ManagedFileName = (typeof MANAGED_FILES)[number];
 
@@ -100,6 +102,7 @@ type DoctorResult = {
 type SessionItem = {
   id: number;
   sessionId: string;
+  agentId?: string;
   title: string;
   model: string;
   createdAt: string;
@@ -215,7 +218,8 @@ export function AgentSettingsPanel() {
     setSessionError(null);
 
     try {
-      const payload = await fetch('/api/sessions', {
+      const params = new URLSearchParams({ agentId: SETTINGS_AGENT_ID });
+      const payload = await fetch(`/api/sessions?${params.toString()}`, {
         credentials: 'include',
         cache: 'no-store',
       });
@@ -399,7 +403,7 @@ export function AgentSettingsPanel() {
       await fetchJson<{ session: SessionItem }>('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: createTitle.trim() || undefined }),
+        body: JSON.stringify({ agentId: SETTINGS_AGENT_ID, title: createTitle.trim() || undefined }),
       });
 
       setCreateTitle('');
@@ -420,6 +424,7 @@ export function AgentSettingsPanel() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          agentId: SETTINGS_AGENT_ID,
           sessionId,
           title: (renameDrafts[sessionId] || '').trim(),
         }),
@@ -442,7 +447,8 @@ export function AgentSettingsPanel() {
     setSessionError(null);
 
     try {
-      const response = await fetch(`/api/sessions?sessionId=${encodeURIComponent(sessionId)}`, {
+      const params = new URLSearchParams({ agentId: SETTINGS_AGENT_ID, sessionId });
+      const response = await fetch(`/api/sessions?${params.toString()}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -469,7 +475,8 @@ export function AgentSettingsPanel() {
     setSessionError(null);
 
     try {
-      const response = await fetch('/api/sessions?all=true', {
+      const params = new URLSearchParams({ agentId: SETTINGS_AGENT_ID, all: 'true' });
+      const response = await fetch(`/api/sessions?${params.toString()}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -601,7 +608,12 @@ export function AgentSettingsPanel() {
     setSessionError(null);
 
     try {
-      const countResponse = await fetch('/api/sessions?countOnly=true&olderThanDays=14', {
+      const countParams = new URLSearchParams({
+        agentId: SETTINGS_AGENT_ID,
+        countOnly: 'true',
+        olderThanDays: '14',
+      });
+      const countResponse = await fetch(`/api/sessions?${countParams.toString()}`, {
         credentials: 'include',
       });
       const countBody = (await countResponse.json()) as { success?: boolean; count?: number; error?: string };
@@ -619,7 +631,11 @@ export function AgentSettingsPanel() {
         return;
       }
 
-      const response = await fetch('/api/sessions?olderThanDays=14', {
+      const deleteParams = new URLSearchParams({
+        agentId: SETTINGS_AGENT_ID,
+        olderThanDays: '14',
+      });
+      const response = await fetch(`/api/sessions?${deleteParams.toString()}`, {
         method: 'DELETE',
         credentials: 'include',
       });
