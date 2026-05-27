@@ -1,17 +1,23 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { channelActiveSessions } from '@/app/lib/db/schema';
-import { normalizeChannelThreadKey } from './constants';
+import { DEFAULT_AGENT_ID, normalizeChannelThreadKey } from './constants';
 
 export type ChannelContextKey = {
   channelId: string;
   channelSessionKey: string;
   channelThreadKey?: string | null;
+  agentId?: string | null;
 };
+
+function resolveAgentId(agentId?: string | null): string {
+  return agentId?.trim() || DEFAULT_AGENT_ID;
+}
 
 export async function getActiveChannelSession(input: ChannelContextKey): Promise<string | null> {
   const row = await db.query.channelActiveSessions.findFirst({
     where: and(
+      eq(channelActiveSessions.agentId, resolveAgentId(input.agentId)),
       eq(channelActiveSessions.channelId, input.channelId),
       eq(channelActiveSessions.channelSessionKey, input.channelSessionKey),
       eq(channelActiveSessions.channelThreadKey, normalizeChannelThreadKey(input.channelThreadKey)),
@@ -26,8 +32,10 @@ export async function setActiveChannelSession(input: ChannelContextKey & {
   sessionId: string;
 }): Promise<void> {
   const channelThreadKey = normalizeChannelThreadKey(input.channelThreadKey);
+  const agentId = resolveAgentId(input.agentId);
   const existing = await db.query.channelActiveSessions.findFirst({
     where: and(
+      eq(channelActiveSessions.agentId, agentId),
       eq(channelActiveSessions.channelId, input.channelId),
       eq(channelActiveSessions.channelSessionKey, input.channelSessionKey),
       eq(channelActiveSessions.channelThreadKey, channelThreadKey),
@@ -49,6 +57,7 @@ export async function setActiveChannelSession(input: ChannelContextKey & {
 
   await db.insert(channelActiveSessions).values({
     userId: input.userId,
+    agentId,
     channelId: input.channelId,
     channelSessionKey: input.channelSessionKey,
     channelThreadKey,

@@ -92,6 +92,7 @@ export async function resolveAutomationDeliveryTarget(input: {
   } else if (job.deliverySessionMode === 'channel_active') {
     if (delivery.channelSessionKey) {
       const activeSessionId = await getActiveChannelSession({
+        agentId: job.agentId,
         channelId: delivery.channelId,
         channelSessionKey: delivery.channelSessionKey,
       });

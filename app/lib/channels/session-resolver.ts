@@ -19,9 +19,17 @@ export type ResolveChannelSessionInput = {
   agentId?: string;
 };
 
-export async function userOwnsPiSession(sessionId: string, userId: string): Promise<boolean> {
+function resolveAgentId(agentId?: string | null): string {
+  return agentId?.trim() || DEFAULT_AGENT_ID;
+}
+
+export async function userOwnsPiSession(sessionId: string, userId: string, agentId?: string | null): Promise<boolean> {
   const session = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId)),
+    where: and(
+      eq(piSessions.sessionId, sessionId),
+      eq(piSessions.userId, userId),
+      eq(piSessions.agentId, resolveAgentId(agentId)),
+    ),
     columns: { id: true },
   });
   return Boolean(session);
@@ -30,6 +38,7 @@ export async function userOwnsPiSession(sessionId: string, userId: string): Prom
 export async function createChannelSession(input: ResolveChannelSessionInput): Promise<string> {
   await ensureDefaultAgent();
 
+  const agentId = resolveAgentId(input.agentId);
   const sessionId = input.requestedSessionId || `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const piConfig = await readPiRuntimeConfig();
   const model = await resolveActivePiModel();
@@ -38,7 +47,7 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
   await db.insert(piSessions).values({
     sessionId,
     userId: input.userId,
-    agentId: input.agentId ?? DEFAULT_AGENT_ID,
+    agentId,
     provider: piConfig.activeProvider,
     model: model.id,
     thinkingLevel: piConfig.providers[piConfig.activeProvider]?.thinking || 'off',
@@ -61,15 +70,16 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
     isPrimary: input.channelId === WEB_CHANNEL_ID,
     inboundAt: now,
   });
-  await setActiveChannelSession({ ...input, sessionId });
+  await setActiveChannelSession({ ...input, agentId, sessionId });
   return sessionId;
 }
 
 export async function resolveChannelSession(input: ResolveChannelSessionInput): Promise<string> {
   const channelThreadKey = normalizeChannelThreadKey(input.channelThreadKey);
+  const agentId = resolveAgentId(input.agentId);
 
   if (input.requestedSessionId) {
-    const exists = await userOwnsPiSession(input.requestedSessionId, input.userId);
+    const exists = await userOwnsPiSession(input.requestedSessionId, input.userId, agentId);
     if (!exists && input.channelId !== WEB_CHANNEL_ID) {
       throw new Error('Session not found');
     }
@@ -84,12 +94,12 @@ export async function resolveChannelSession(input: ResolveChannelSessionInput): 
       isPrimary: input.channelId === WEB_CHANNEL_ID,
       inboundAt: new Date(),
     });
-    await setActiveChannelSession({ ...input, channelThreadKey, sessionId: input.requestedSessionId });
+    await setActiveChannelSession({ ...input, agentId, channelThreadKey, sessionId: input.requestedSessionId });
     return input.requestedSessionId;
   }
 
-  const activeSessionId = await getActiveChannelSession(input);
-  if (activeSessionId && await userOwnsPiSession(activeSessionId, input.userId)) {
+  const activeSessionId = await getActiveChannelSession({ ...input, agentId });
+  if (activeSessionId && await userOwnsPiSession(activeSessionId, input.userId, agentId)) {
     await ensureSessionChannelLink({
       sessionId: activeSessionId,
       userId: input.userId,
@@ -102,7 +112,7 @@ export async function resolveChannelSession(input: ResolveChannelSessionInput): 
     return activeSessionId;
   }
 
-  const latestLink = await db.query.sessionChannelLinks.findFirst({
+  const latestLinks = await db.query.sessionChannelLinks.findMany({
     where: and(
       eq(sessionChannelLinks.userId, input.userId),
       eq(sessionChannelLinks.channelId, input.channelId),
@@ -111,14 +121,17 @@ export async function resolveChannelSession(input: ResolveChannelSessionInput): 
     ),
     orderBy: [desc(sessionChannelLinks.lastInboundAt), desc(sessionChannelLinks.updatedAt)],
     columns: { sessionId: true },
+    limit: 20,
   });
 
-  if (latestLink?.sessionId && await userOwnsPiSession(latestLink.sessionId, input.userId)) {
-    await setActiveChannelSession({ ...input, channelThreadKey, sessionId: latestLink.sessionId });
-    return latestLink.sessionId;
+  for (const latestLink of latestLinks) {
+    if (await userOwnsPiSession(latestLink.sessionId, input.userId, agentId)) {
+      await setActiveChannelSession({ ...input, agentId, channelThreadKey, sessionId: latestLink.sessionId });
+      return latestLink.sessionId;
+    }
   }
 
-  return createChannelSession(input);
+  return createChannelSession({ ...input, agentId });
 }
 
 export function getDefaultWebChannelContext(userId: string) {
