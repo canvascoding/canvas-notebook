@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession } from '@/app/lib/automations/api';
+import type { AutomationDeliveryMode, AutomationDeliverySessionMode } from '@/app/lib/automations/types';
 import { createWebhookAutomationJob } from '@/app/lib/automations/store';
 import { createGatewayTrigger, getGatewayTriggerTypes, listGatewayTriggers } from '@/app/lib/composio/composio-gateway';
 import { getComposioUserId } from '@/app/lib/composio/composio-identity';
@@ -99,6 +100,12 @@ export async function POST(request: NextRequest) {
       workspaceContextPaths: Array.isArray(payload.workspaceContextPaths) ? payload.workspaceContextPaths.filter((entry): entry is string => typeof entry === 'string') : [],
       targetOutputPath: typeof payload.targetOutputPath === 'string' ? payload.targetOutputPath : null,
       preferredSkill: stringValue(payload.preferredSkill) || 'auto',
+      agentId: stringValue(payload.agentId) || undefined,
+      deliveryMode: stringValue(payload.deliveryMode) as AutomationDeliveryMode || undefined,
+      deliveryChannelId: stringValue(payload.deliveryChannelId) || null,
+      deliverySessionMode: stringValue(payload.deliverySessionMode) as AutomationDeliverySessionMode || undefined,
+      deliverySessionId: stringValue(payload.deliverySessionId) || null,
+      deliveryChannelSessionKey: stringValue(payload.deliveryChannelSessionKey) || null,
       status: payload.status === 'paused' ? 'paused' : 'active',
       composioTriggerId: triggerId,
       composioTriggerSlug: stringValue(trigger.triggerSlug) || triggerSlug,
