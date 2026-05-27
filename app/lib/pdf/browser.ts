@@ -110,7 +110,8 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
   const b = await getBrowser();
   const page = await b.newPage();
   try {
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 20000 });
+    await page.setContent(html, { waitUntil: 'load', timeout: 20000 });
+    await page.waitForNetworkIdle({ timeout: 20000 });
     await page.evaluate(async () => {
       await document.fonts?.ready;
     });
