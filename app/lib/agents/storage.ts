@@ -12,6 +12,8 @@ export const DEFAULT_MANAGED_AGENT_ID = 'canvas-agent';
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
 export const PI_RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, PI_RUNTIME_CONFIG_FILE);
 export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+export const SPECIAL_AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+export const CANVAS_INHERITED_FILE_NAMES = ['IDENTITY.md', 'USER.md'] as const;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentManagedFiles = Record<AgentManagedFileName, string>;
@@ -154,6 +156,12 @@ function shouldReadLegacyCanvasAgentFiles(agentId?: string | null): boolean {
   return normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID;
 }
 
+function getOwnedManagedFileNames(agentId?: string | null): readonly AgentManagedFileName[] {
+  return normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID
+    ? AGENT_MANAGED_FILE_NAMES
+    : SPECIAL_AGENT_MANAGED_FILE_NAMES;
+}
+
 export function isManagedAgentFileName(fileName: unknown): fileName is AgentManagedFileName {
   return typeof fileName === 'string' && (AGENT_MANAGED_FILE_NAMES as readonly string[]).includes(fileName);
 }
@@ -164,7 +172,7 @@ export async function ensureAgentManagedFilesExist(agentId?: string | null): Pro
     await ensureStorageDirectory();
   }
 
-  for (const fileName of AGENT_MANAGED_FILE_NAMES) {
+  for (const fileName of getOwnedManagedFileNames(agentId)) {
     const filePath = resolveManagedFilePath(fileName, agentId);
     const existing = await readFileIfExists(filePath);
 
@@ -223,6 +231,24 @@ export async function readManagedAgentFiles(agentId?: string | null): Promise<Ag
       const content = await readManagedAgentFile(fileName, agentId);
       return [fileName, content] as const;
     })
+  );
+
+  return Object.fromEntries(entries) as AgentManagedFiles;
+}
+
+export async function readRuntimeManagedAgentFiles(agentId?: string | null): Promise<AgentManagedFiles> {
+  const normalizedAgentId = normalizeManagedAgentId(agentId);
+  if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
+    return readManagedAgentFiles(DEFAULT_MANAGED_AGENT_ID);
+  }
+
+  const entries = await Promise.all(
+    AGENT_MANAGED_FILE_NAMES.map(async (fileName) => {
+      const inherited = (CANVAS_INHERITED_FILE_NAMES as readonly string[]).includes(fileName);
+      const sourceAgentId = inherited ? DEFAULT_MANAGED_AGENT_ID : normalizedAgentId;
+      const content = await readManagedAgentFile(fileName, sourceAgentId);
+      return [fileName, content] as const;
+    }),
   );
 
   return Object.fromEntries(entries) as AgentManagedFiles;

@@ -1,7 +1,9 @@
 import 'server-only';
 
 import {
-  readManagedAgentFiles,
+  CANVAS_INHERITED_FILE_NAMES,
+  DEFAULT_MANAGED_AGENT_ID,
+  readRuntimeManagedAgentFiles,
   readPiRuntimeConfig,
 } from './storage';
 import {
@@ -33,7 +35,8 @@ Always search before executing — don't guess action names.`;
 
 export async function loadManagedAgentSystemPrompt(agentId?: string | null): Promise<ManagedSystemPromptResult> {
   try {
-    const files = await readManagedAgentFiles(agentId);
+    const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
+    const files = await readRuntimeManagedAgentFiles(normalizedAgentId);
     
     // Load PI config to get enabled skills and check composio tools
     const piConfig = await readPiRuntimeConfig();
@@ -42,7 +45,10 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
     const skills = await loadSkillsFromDisk(piConfig.enabledSkills);
     const skillsContext = getSkillsContext(skills);
     
-    const result = composeManagedAgentSystemPrompt(files, skillsContext);
+    const result = composeManagedAgentSystemPrompt(files, skillsContext, {
+      agentId: normalizedAgentId,
+      inheritedFiles: normalizedAgentId === DEFAULT_MANAGED_AGENT_ID ? [] : CANVAS_INHERITED_FILE_NAMES,
+    });
     
     // Check if composio tools are enabled for the active provider
     let systemPrompt = result.systemPrompt;
