@@ -154,10 +154,12 @@ export async function GET(request: NextRequest) {
   const channelIdFilter = searchParams.get('channelId');
   const countOnly = searchParams.get('countOnly') === 'true';
   const olderThanDays = searchParams.get('olderThanDays');
-  let agentIdFilter: string;
+  const rawAgentIdFilter = searchParams.get('agentId');
+  const includeAllAgentSessions = rawAgentIdFilter === 'all';
+  let agentIdFilter: string | null;
 
   try {
-    agentIdFilter = normalizeSessionAgentId(searchParams.get('agentId'));
+    agentIdFilter = includeAllAgentSessions ? null : normalizeSessionAgentId(rawAgentIdFilter);
   } catch {
     return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
   }
@@ -173,9 +175,13 @@ export async function GET(request: NextRequest) {
       const piOlderCount = await db
         .select({ count: sql<number>`count(*)` })
         .from(piSessions)
-        .where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter), piCutoffCondition!));
+        .where(
+          includeAllAgentSessions
+            ? and(eq(piSessions.userId, session.user.id), piCutoffCondition!)
+            : and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter!), piCutoffCondition!)
+        );
 
-      const includeLegacyCount = agentIdFilter === DEFAULT_AGENT_ID;
+      const includeLegacyCount = includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID;
       const legacyCutoffCondition = includeLegacyCount && cutoff
         ? and(eq(aiSessions.userId, session.user.id), lt(aiSessions.createdAt, cutoff))
         : undefined;
@@ -207,8 +213,10 @@ export async function GET(request: NextRequest) {
           ))
       : null;
     const filteredPiSessionIdValues = filteredPiSessionIds?.map((row) => row.sessionId) ?? null;
-    const includeLegacySessions = agentIdFilter === DEFAULT_AGENT_ID && (!normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID);
-    const piBaseWhere = and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter));
+    const includeLegacySessions = (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID) && (!normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID);
+    const piBaseWhere = includeAllAgentSessions
+      ? eq(piSessions.userId, session.user.id)
+      : and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter!));
 
     const [legacySessions, newPiSessions] = await Promise.all([
       includeLegacySessions ? db

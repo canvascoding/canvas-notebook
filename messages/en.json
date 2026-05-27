@@ -541,6 +541,7 @@
     "searchSessions": "Search sessions...",
     "filterUnreadOnly": "Unread only",
     "filterAllSessions": "All sessions",
+    "filterAllAgents": "All agents",
     "groupToday": "Today",
     "groupLast7Days": "Last 7 days",
     "groupLast14Days": "Last 14 days",

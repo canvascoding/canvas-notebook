@@ -1229,6 +1229,7 @@ export default function CanvasAgentChat({
   const [history, setHistory] = useState<AISession[]>([]);
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
   const [historyUnreadOnly, setHistoryUnreadOnly] = useState<boolean>(false);
+  const [historyAgentFilter, setHistoryAgentFilter] = useState<string>('all');
   const [historySidebarWidth, setHistorySidebarWidth] = useState(280);
   const historyResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const isHistoryResizing = useRef(false);
@@ -1461,7 +1462,7 @@ export default function CanvasAgentChat({
     }
 
     const request = (async () => {
-      const params = new URLSearchParams({ agentId: selectedAgentId });
+      const params = new URLSearchParams({ agentId: 'all' });
       const res = await fetch(`/api/sessions?${params.toString()}`);
       const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
       if (!data?.success) {
@@ -1481,7 +1482,7 @@ export default function CanvasAgentChat({
         sessionListRequestRef.current = null;
       }
     }
-  }, [applyResolvedTitles, selectedAgentId]);
+  }, [applyResolvedTitles]);
 
   // Session subscription for WebSocket
   useEffect(() => {
@@ -2657,13 +2658,15 @@ export default function CanvasAgentChat({
       return;
     }
     setSelectedAgentId(agentId);
+    setHistoryAgentFilter(agentId);
     sessionListRequestRef.current = null;
     hasLoadedSessionListRef.current = false;
     setHistory([]);
     setLatestSession(null);
     setTotalUnreadCount(0);
     startNewChat(agentId);
-  }, [selectedAgentId, startNewChat]);
+    void fetchHistory();
+  }, [fetchHistory, selectedAgentId, startNewChat]);
 
   const mapRawMessage = useCallback((
     rawMessage: PersistedChatMessage,
@@ -3664,6 +3667,26 @@ export default function CanvasAgentChat({
   const activeSessionAgentId = history.find((session) => session.sessionId === sessionId)?.agentId || selectedAgentId;
   const activeAgentProfile = availableAgents.find((agent) => agent.agentId === activeSessionAgentId);
   const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
+  const historyAgentOptions = useMemo(() => {
+    const byId = new Map<string, { agentId: string; name: string; count: number }>();
+    for (const agent of availableAgents) {
+      byId.set(agent.agentId, { agentId: agent.agentId, name: agent.name, count: 0 });
+    }
+    for (const session of history) {
+      const agentId = session.agentId || CHAT_AGENT_ID;
+      const existing = byId.get(agentId);
+      byId.set(agentId, {
+        agentId,
+        name: existing?.name || getAgentDisplayName(agentId),
+        count: (existing?.count || 0) + 1,
+      });
+    }
+    return Array.from(byId.values()).sort((a, b) => {
+      if (a.agentId === CHAT_AGENT_ID) return -1;
+      if (b.agentId === CHAT_AGENT_ID) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [availableAgents, history]);
 
   const toggleRunDisclosure = useCallback((runKey: string) => {
     setExpandedRunKeys((current) => {
@@ -3683,12 +3706,17 @@ export default function CanvasAgentChat({
     if (historyUnreadOnly) {
       filtered = filtered.filter(s => s.hasUnread);
     }
+
+    if (historyAgentFilter !== 'all') {
+      filtered = filtered.filter(s => (s.agentId || CHAT_AGENT_ID) === historyAgentFilter);
+    }
     
     if (historySearchQuery.trim()) {
       const query = historySearchQuery.toLowerCase();
       filtered = filtered.filter(s => 
         s.title?.toLowerCase().includes(query) || 
-        s.sessionId.toLowerCase().includes(query)
+        s.sessionId.toLowerCase().includes(query) ||
+        (availableAgents.find((agent) => agent.agentId === (s.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(s.agentId)).toLowerCase().includes(query)
       );
     }
     
@@ -3712,7 +3740,7 @@ export default function CanvasAgentChat({
     });
     
     return grouped;
-  }, [history, historySearchQuery, historyUnreadOnly, getSessionTimeGroup]);
+  }, [availableAgents, history, historyAgentFilter, historySearchQuery, historyUnreadOnly, getSessionTimeGroup]);
 
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
@@ -4139,6 +4167,35 @@ export default function CanvasAgentChat({
                     className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
                   />
                 </div>
+                <div className="flex gap-1 overflow-x-auto pb-1">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryAgentFilter('all')}
+                    className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                      historyAgentFilter === 'all'
+                        ? 'border-primary/30 bg-primary/15 text-primary'
+                        : 'border-border bg-muted/30 text-muted-foreground'
+                    }`}
+                  >
+                    {t('filterAllAgents')}
+                  </button>
+                  {historyAgentOptions.map((agent) => (
+                    <button
+                      key={agent.agentId}
+                      type="button"
+                      onClick={() => setHistoryAgentFilter(agent.agentId)}
+                      className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                        historyAgentFilter === agent.agentId
+                          ? 'border-primary/30 bg-primary/15 text-primary'
+                          : 'border-border bg-muted/30 text-muted-foreground'
+                      }`}
+                      title={agent.agentId}
+                    >
+                      {agent.name}
+                      {agent.count > 0 ? ` ${agent.count}` : ''}
+                    </button>
+                  ))}
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -4206,7 +4263,7 @@ export default function CanvasAgentChat({
                                 <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                                   <span>{new Date(session.createdAt).toLocaleString()}</span>
                                   <span>&bull;</span>
-                                  <span>{getAgentDisplayName(session.agentId)}</span>
+                                  <span>{availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(session.agentId)}</span>
                                   <span>&bull;</span>
                                   <span>{session.model}</span>
                                 </div>
@@ -4236,7 +4293,7 @@ export default function CanvasAgentChat({
                 })}
                 {Object.values(filteredHistory).every(group => group.length === 0) && (
                   <div className="p-8 text-center text-sm italic text-muted-foreground">
-                    {historySearchQuery || historyUnreadOnly
+                    {historySearchQuery || historyUnreadOnly || historyAgentFilter !== 'all'
                       ? t('noSessionsFoundWithFilter')
                       : t('noRecentSessions')}
                   </div>
@@ -4294,6 +4351,35 @@ export default function CanvasAgentChat({
                   size={14}
                   className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
                 />
+              </div>
+              <div className="flex gap-1 overflow-x-auto pb-1">
+                <button
+                  type="button"
+                  onClick={() => setHistoryAgentFilter('all')}
+                  className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                    historyAgentFilter === 'all'
+                      ? 'border-primary/30 bg-primary/15 text-primary'
+                      : 'border-border bg-muted/30 text-muted-foreground'
+                  }`}
+                >
+                  {t('filterAllAgents')}
+                </button>
+                {historyAgentOptions.map((agent) => (
+                  <button
+                    key={agent.agentId}
+                    type="button"
+                    onClick={() => setHistoryAgentFilter(agent.agentId)}
+                    className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                      historyAgentFilter === agent.agentId
+                        ? 'border-primary/30 bg-primary/15 text-primary'
+                        : 'border-border bg-muted/30 text-muted-foreground'
+                    }`}
+                    title={agent.agentId}
+                  >
+                    {agent.name}
+                    {agent.count > 0 ? ` ${agent.count}` : ''}
+                  </button>
+                ))}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -4370,7 +4456,7 @@ export default function CanvasAgentChat({
                               <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                                 <span>{new Date(session.createdAt).toLocaleString()}</span>
                                 <span>&bull;</span>
-                                <span>{getAgentDisplayName(session.agentId)}</span>
+                                <span>{availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(session.agentId)}</span>
                                 <span>&bull;</span>
                                 <span>{session.model}</span>
                               </div>
@@ -4400,7 +4486,7 @@ export default function CanvasAgentChat({
               })}
               {Object.values(filteredHistory).every(group => group.length === 0) && (
                 <div className="p-8 text-center text-sm italic text-muted-foreground">
-                  {historySearchQuery || historyUnreadOnly
+                  {historySearchQuery || historyUnreadOnly || historyAgentFilter !== 'all'
                     ? t('noSessionsFoundWithFilter')
                     : t('noRecentSessions')}
                 </div>
