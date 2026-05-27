@@ -229,7 +229,6 @@ export async function GET(request: NextRequest) {
           model: piSessions.model,
           thinkingLevel: piSessions.thinkingLevel,
           provider: piSessions.provider,
-          channelId: piSessions.channelId,
           createdAt: piSessions.createdAt,
           lastMessageAt: piSessions.lastMessageAt,
           lastViewedAt: piSessions.lastViewedAt,
@@ -251,9 +250,10 @@ export async function GET(request: NextRequest) {
 
     const combined = [
       ...legacySessions.map(s => ({ ...s, engine: 'legacy' as const, channelId: 'app' as const, lastMessageAt: null as Date | null, lastViewedAt: null as Date | null })),
-      ...newPiSessions.map(s => ({ 
+      ...newPiSessions.map(s => ({
         ...s, 
         engine: 'pi' as const,
+        channelId: 'web' as const,
         lastMessageAt: s.lastMessageAt,
         lastViewedAt: s.lastViewedAt
       }))

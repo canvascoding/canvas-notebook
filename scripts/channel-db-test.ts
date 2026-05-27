@@ -30,7 +30,6 @@ async function main() {
   const now = new Date();
   const userId = 'user-channel-db';
   const linkedSessionId = 'sess-linked';
-  const fallbackSessionId = 'sess-legacy';
 
   await db.insert(user).values({
     id: userId,
@@ -125,31 +124,8 @@ async function main() {
   });
   assert.equal(activeRows.length, 1);
 
-  const [fallbackSession] = await db.insert(piSessions).values({
-    sessionId: fallbackSessionId,
-    userId,
-    provider: 'test-provider',
-    model: 'test-model',
-    title: 'Legacy Fallback Session',
-    channelId: 'telegram',
-    channelSessionKey: 'telegram:legacy',
-    createdAt: now,
-    updatedAt: now,
-  }).returning({ id: piSessions.id });
-
-  await db.insert(piMessages).values({
-    piSessionDbId: fallbackSession.id,
-    role: 'user',
-    content: JSON.stringify({ role: 'user', content: 'from legacy fallback', timestamp: now.getTime() }),
-    timestamp: now.getTime(),
-  });
-
-  const loadedByLegacyFallback = await loadPiSessionByChannelKey('telegram', 'telegram:legacy');
-  assert.equal(loadedByLegacyFallback?.[0]?.role, 'user');
-  assert.equal(
-    loadedByLegacyFallback?.[0] && 'content' in loadedByLegacyFallback[0] ? loadedByLegacyFallback[0].content : null,
-    'from legacy fallback',
-  );
+  const missingLegacyFallback = await loadPiSessionByChannelKey('telegram', 'telegram:legacy');
+  assert.equal(missingLegacyFallback, null);
 
   const { savePiSession } = await import('../app/lib/pi/session-store');
   const savedSessionId = 'sess-save-link-only';
