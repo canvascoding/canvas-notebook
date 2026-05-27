@@ -10,6 +10,8 @@ import {
   serializeEnabledToolNames,
   isDefaultToolsConfig,
   getDefaultEnabledToolNames,
+  enableToolInConfig,
+  disableToolInConfig,
 } from '@/app/lib/pi/enabled-tools';
 import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -557,23 +559,16 @@ export function AgentSettingsPanel() {
   const handleToolToggle = (toolName: string, enabled: boolean) => {
     const currentEnabled = getActiveEnabledTools();
     const allNames = availableTools.map((t) => t.name);
-    let newEnabledTools: string[];
-
-    if (enabled) {
-      const enabledSet = resolveEnabledToolNames(allNames, currentEnabled);
-      enabledSet.add(toolName);
-      newEnabledTools = serializeEnabledToolNames(enabledSet, allNames);
-    } else {
-      const enabledSet = resolveEnabledToolNames(allNames, currentEnabled);
-      enabledSet.delete(toolName);
-      newEnabledTools = serializeEnabledToolNames(enabledSet, allNames);
-    }
+    const newEnabledTools = enabled
+      ? enableToolInConfig(toolName, currentEnabled, allNames)
+      : disableToolInConfig(toolName, currentEnabled, allNames);
 
     void saveToolsConfig(newEnabledTools);
   };
 
   const handleEnableAll = () => {
-    void saveToolsConfig([]);
+    const allNames = availableTools.map((t) => t.name);
+    void saveToolsConfig(serializeEnabledToolNames(allNames, allNames));
   };
 
   const handleDisableAll = () => {

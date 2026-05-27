@@ -27,8 +27,8 @@ async function main() {
     return originalLoad(request, parent, isMain);
   };
 
-  const { getDefaultEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
-  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateVideoTool, piTools } = await import('../app/lib/pi/tool-registry');
+  const { enableToolInConfig, getDefaultEnabledToolNames, serializeEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
+  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateVideoTool, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
 
   const studioCalls: StudioGenerateRequest[] = [];
   const studioTool = createStudioGenerateVideoTool({
@@ -138,6 +138,14 @@ async function main() {
   const allTools = buildPiToolRegistry();
   const defaultEnabledTools = getDefaultEnabledToolNames(allTools.map((tool) => tool.name));
   assert.equal(defaultEnabledTools.has('mcp'), true);
+  assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), true);
+  assert.equal(defaultEnabledTools.has('studio_bulk_generate'), false);
+  assert.equal((await getPiTools()).some((tool) => tool.name === 'studio_bulk_generate'), false);
+  assert.deepEqual(
+    enableToolInConfig('studio_bulk_generate', [], allTools.map((tool) => tool.name)),
+    allTools.map((tool) => tool.name),
+  );
+  assert.deepEqual(serializeEnabledToolNames(defaultEnabledTools, allTools.map((tool) => tool.name)), []);
   assert.equal(allTools.every((tool) => !['browser_start', 'browser_nav', 'brave_search', 'transcribe'].includes(tool.name)), true);
   assert.equal(allTools.some((tool) => tool.name === 'image_generation'), false);
   assert.equal(allTools.some((tool) => tool.name === 'video_generation'), false);
