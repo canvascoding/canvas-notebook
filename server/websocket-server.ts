@@ -27,6 +27,8 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
+import { handleInboundChannelMessage } from '@/app/lib/channels/router';
+import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 
 type ControlAction = 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
@@ -369,13 +371,21 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       subscribeConnectionToSession(connection, message.sessionId);
 
       try {
-        const status = await runtimeService.sendMessage(message.sessionId, userId, message.message, context);
+        const status = await handleInboundChannelMessage({
+          channelId: WEB_CHANNEL_ID,
+          channelSessionKey: webChannelSessionKey(userId),
+          requestedSessionId: message.sessionId,
+          userId,
+          text: typeof message.message.content === 'string' ? message.message.content : '',
+          contentParts: Array.isArray(message.message.content) ? message.message.content : undefined,
+          metadata: { displayName: 'Web Chat' },
+        }, context);
         console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime with context:`, context);
         sendWs(ws, {
           type: 'send_message_result',
           requestId: message.requestId,
           success: true,
-          status,
+          status: status.status,
         });
       } catch (error) {
         console.error('[WebSocket] Error sending message:', error);
