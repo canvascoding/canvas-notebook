@@ -17,11 +17,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
 export interface AISession {
   id: number;
   sessionId: string;
   title: string;
+  agentId?: string;
   model: string;
   createdAt: string;
   engine?: 'legacy' | 'pi';
@@ -38,6 +40,7 @@ interface SessionSidebarProps {
   currentSessionId?: string | null;
   onSessionSelect: (session: AISession) => void;
   sidebarWidth: number;
+  agentId?: string;
   isMobile?: boolean;
   onClose?: () => void;
   onToggleSidebar?: () => void;
@@ -49,6 +52,7 @@ export function SessionSidebar({
   currentSessionId,
   onSessionSelect,
   sidebarWidth,
+  agentId = DEFAULT_AGENT_ID,
   isMobile = false,
   onClose,
 }: SessionSidebarProps) {
@@ -70,7 +74,7 @@ export function SessionSidebar({
       const res = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markAllAsRead: true }),
+        body: JSON.stringify({ agentId, markAllAsRead: true }),
       });
       const data = await res.json();
       if (data.success) {
@@ -80,12 +84,13 @@ export function SessionSidebar({
     } catch (err) {
       console.error('Failed to mark all as read', err);
     }
-  }, []);
+  }, [agentId]);
 
   const fetchHistory = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/sessions');
+      const params = new URLSearchParams({ agentId });
+      const res = await fetch(`/api/sessions?${params.toString()}`);
       const data = await res.json();
       if (data.success) {
         const sessions = data.sessions || [];
@@ -97,7 +102,7 @@ export function SessionSidebar({
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [agentId]);
 
   useEffect(() => {
     historyRef.current = history;

@@ -97,6 +97,7 @@ import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
 interface Attachment {
   name: string;
@@ -142,6 +143,7 @@ interface AISession {
   id: number;
   sessionId: string;
   title: string | null;
+  agentId?: string;
   model: string;
   provider?: string | null;
   thinkingLevel?: PiThinkingLevel | null;
@@ -216,6 +218,8 @@ type AgentConfig = {
   };
   discovery: Record<string, { models: DiscoveryModel[] }>;
 };
+
+const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
 
 type FilePickerFile = {
   name: string;
@@ -1436,7 +1440,8 @@ export default function CanvasAgentChat({
     }
 
     const request = (async () => {
-      const res = await fetch('/api/sessions');
+      const params = new URLSearchParams({ agentId: CHAT_AGENT_ID });
+      const res = await fetch(`/api/sessions?${params.toString()}`);
       const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
       if (!data?.success) {
         return [];
@@ -1818,7 +1823,7 @@ export default function CanvasAgentChat({
       const res = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markAllAsRead: true }),
+        body: JSON.stringify({ agentId: CHAT_AGENT_ID, markAllAsRead: true }),
       });
       const data = await safeFetchJson<{ success: boolean; lastViewedAt?: string }>(res);
       if (data?.success) {
@@ -2099,6 +2104,7 @@ export default function CanvasAgentChat({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        agentId: CHAT_AGENT_ID,
         model: sessionSelection.model,
         thinkingLevel: sessionSelection.thinkingLevel,
       }),
@@ -2140,6 +2146,7 @@ export default function CanvasAgentChat({
       id: Date.now(), // temporary id for local state
       sessionId: nextSessionId,
       title: tempTitle,
+      agentId: createSessionPayload.session.agentId || CHAT_AGENT_ID,
       model: createdModel,
       provider: createdProvider,
       thinkingLevel: createdThinkingLevel,
