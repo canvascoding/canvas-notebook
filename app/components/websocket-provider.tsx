@@ -201,7 +201,7 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
       window.removeEventListener('ws-auth-success', handleAuthSuccess);
       client.releaseConnection();
     };
-  }, [connectIfAuthenticated]);
+  }, [connectIfAuthenticated, enabled]);
 
   useEffect(() => {
     const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; isVisible: boolean }>) => {

@@ -516,7 +516,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     document.body.style.userSelect = 'none';
   }, []);
 
-  const showMobileChrome = viewportMode !== 'desktop';
   const isMobileViewport = viewportMode === 'mobile';
   const isDesktopViewport = viewportMode === 'desktop';
   const isDesktopChatSideVisible = isDesktopViewport && chatVisible && desktopChatMode === 'side';
