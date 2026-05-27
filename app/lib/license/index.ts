@@ -1,7 +1,8 @@
 import 'server-only';
 
 import { getControlPlaneLicenseBaseUrl, getLicenseInstanceId } from './instance';
-import { verifyLicenseJwt } from './jwt';
+import { decodeLicenseJwt, verifyLicenseJwt } from './jwt';
+import { resolveLicensePublicKeys } from './public-key';
 import { loadStoredLicenseCert, saveLicenseCert } from './storage';
 import type { LicenseCert, LicenseStatus } from './types';
 
@@ -17,12 +18,29 @@ function statusFromPayload(payload: LicenseCert, instanceId: string, source: Lic
   };
 }
 
+function expiredLicenseError(token: string | null, instanceId: string): LicenseStatus['error'] | undefined {
+  if (!token) return undefined;
+  const decoded = decodeLicenseJwt(token);
+  if (decoded?.sub === instanceId && decoded.exp && decoded.exp * 1000 <= Date.now()) {
+    return 'license_expired';
+  }
+  return undefined;
+}
+
+async function publicKeyUnavailableError(): Promise<LicenseStatus['error'] | undefined> {
+  const resolution = await resolveLicensePublicKeys();
+  if (resolution.keys.length > 0) return undefined;
+  if (resolution.error === 'untrusted_key') return 'untrusted_public_key';
+  if (resolution.error === 'unreachable') return 'control_plane_unreachable';
+  return 'public_key_unavailable';
+}
+
 export async function getLicenseStatus(): Promise<LicenseStatus> {
   const instanceId = getLicenseInstanceId();
 
   const envCert = process.env.CANVAS_LICENSE_CERT?.trim();
   if (envCert) {
-    const payload = verifyLicenseJwt(envCert, instanceId);
+    const payload = await verifyLicenseJwt(envCert, instanceId);
     if (payload) {
       await saveLicenseCert(envCert, payload);
       return statusFromPayload(payload, instanceId, 'env');
@@ -31,9 +49,11 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
 
   const stored = await loadStoredLicenseCert(instanceId);
   if (stored) {
-    const payload = verifyLicenseJwt(stored, instanceId);
+    const payload = await verifyLicenseJwt(stored, instanceId);
     if (payload) return statusFromPayload(payload, instanceId, 'stored');
   }
+
+  const error = expiredLicenseError(envCert || stored, instanceId) || await publicKeyUnavailableError();
 
   return {
     plan: 'unregistered',
@@ -43,7 +63,7 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
     features: {},
     quotas: {},
     source: 'none',
-    error: process.env.CANVAS_LICENSE_PUBLIC_KEY ? undefined : 'missing_public_key',
+    error,
   };
 }
 
@@ -53,7 +73,7 @@ export async function requireLicenseStatus(): Promise<LicenseStatus> {
 
 export async function activateLicenseCert(cert: string): Promise<LicenseStatus> {
   const instanceId = getLicenseInstanceId();
-  const payload = verifyLicenseJwt(cert, instanceId);
+  const payload = await verifyLicenseJwt(cert, instanceId);
   if (!payload) {
     throw new Error('License certificate is invalid for this instance.');
   }
@@ -62,9 +82,5 @@ export async function activateLicenseCert(cert: string): Promise<LicenseStatus> 
 }
 
 export function getLicenseControlPlaneUrl(): string {
-  const baseUrl = getControlPlaneLicenseBaseUrl();
-  if (!baseUrl) {
-    throw new Error('CANVAS_CONTROL_PLANE_URL or CANVAS_LICENSE_CONTROL_PLANE_URL is not configured.');
-  }
-  return baseUrl;
+  return getControlPlaneLicenseBaseUrl();
 }

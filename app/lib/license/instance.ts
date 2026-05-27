@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
+const DEFAULT_LICENSE_CONTROL_PLANE_URL = 'https://notebook.canvas.holdings';
+
 function getDataDir(): string {
   return process.env.DATA || path.resolve(process.cwd(), 'data');
 }
@@ -24,13 +26,13 @@ export function getLicenseInstanceId(): string {
   return generated;
 }
 
-export function getControlPlaneLicenseBaseUrl(): string | null {
+export function getControlPlaneLicenseBaseUrl(): string {
   const configured =
     process.env.CANVAS_LICENSE_CONTROL_PLANE_URL ||
     process.env.CANVAS_CONTROL_PLANE_URL ||
     process.env.NEXT_PUBLIC_CANVAS_CONTROL_PLANE_URL;
   const trimmed = configured?.trim().replace(/\/+$/, '');
-  return trimmed || null;
+  return trimmed || DEFAULT_LICENSE_CONTROL_PLANE_URL;
 }
 
 export function getRequestOrigin(request: Request): string {
