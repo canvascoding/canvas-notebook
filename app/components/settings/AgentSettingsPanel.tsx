@@ -42,6 +42,10 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 const SETTINGS_AGENT_ID = DEFAULT_AGENT_ID;
 
+function buildAgentQuery(): string {
+  return new URLSearchParams({ agentId: SETTINGS_AGENT_ID }).toString();
+}
+
 type ManagedFileName = (typeof MANAGED_FILES)[number];
 
 type AgentConfigReadiness = {
@@ -203,7 +207,7 @@ export function AgentSettingsPanel() {
     setFilesError(null);
 
     try {
-      const payload = await fetchJson<{ files: Record<ManagedFileName, string> }>('/api/agents/files');
+      const payload = await fetchJson<{ files: Record<ManagedFileName, string> }>(`/api/agents/files?${buildAgentQuery()}`);
       setFiles(payload.files);
       setFileDrafts(payload.files);
     } catch (error) {
@@ -250,7 +254,7 @@ export function AgentSettingsPanel() {
     setToolsError(null);
 
     try {
-      const payload = await fetchJson<{ tools: ToolMetadata[] }>('/api/agents/tools');
+      const payload = await fetchJson<{ tools: ToolMetadata[] }>(`/api/agents/tools?${buildAgentQuery()}`);
       setAvailableTools(payload.tools);
     } catch (error) {
       setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.loading'));
@@ -261,7 +265,7 @@ export function AgentSettingsPanel() {
 
   const loadToolsConfig = useCallback(async () => {
     try {
-      const payload = await fetchJson<{ piConfig: PiConfigData }>('/api/agents/config');
+      const payload = await fetchJson<{ piConfig: PiConfigData }>(`/api/agents/config?${buildAgentQuery()}`);
       setToolsPiConfig(payload.piConfig);
     } catch (error) {
       setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
@@ -276,7 +280,7 @@ export function AgentSettingsPanel() {
       const payload = await fetchJson<DoctorResult>('/api/agents/doctor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ livePing: true }),
+        body: JSON.stringify({ agentId: SETTINGS_AGENT_ID, livePing: true }),
       });
       setDoctorResult(payload);
     } catch (error) {
@@ -312,6 +316,7 @@ export function AgentSettingsPanel() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          agentId: SETTINGS_AGENT_ID,
           fileName: activeFile,
           content,
         }),
@@ -346,6 +351,7 @@ export function AgentSettingsPanel() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            agentId: SETTINGS_AGENT_ID,
             action: 'reset',
             fileName: activeFile,
           }),
@@ -365,6 +371,7 @@ export function AgentSettingsPanel() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            agentId: SETTINGS_AGENT_ID,
             action: 'reset',
           }),
         });
@@ -533,7 +540,7 @@ export function AgentSettingsPanel() {
       const payload = await fetchJson<{ piConfig: PiConfigData }>('/api/agents/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ piConfig: nextConfig }),
+        body: JSON.stringify({ agentId: SETTINGS_AGENT_ID, piConfig: nextConfig }),
       });
       setToolsPiConfig(payload.piConfig);
     } catch (error) {

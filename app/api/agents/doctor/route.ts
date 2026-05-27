@@ -10,6 +10,7 @@ import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import { getQmdDoctorStatus } from '@/app/lib/qmd/status';
 
 type DoctorPayload = {
+  agentId?: string;
   livePing?: boolean;
 };
 
@@ -44,11 +45,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await request.json().catch(() => ({} as DoctorPayload));
+    const payload = (await request.json().catch(() => ({}))) as DoctorPayload;
+    const agentId = typeof payload.agentId === 'string' ? payload.agentId : undefined;
     // buildAgentConfigReadiness no longer requires a config parameter
     const [readiness, promptResult, qmd] = await Promise.all([
       buildAgentConfigReadiness(),
-      loadManagedAgentSystemPrompt(),
+      loadManagedAgentSystemPrompt(agentId),
       getQmdDoctorStatus(),
     ]);
     const { diagnostics } = promptResult;
