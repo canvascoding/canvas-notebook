@@ -181,11 +181,18 @@ Die Automationen-App bleibt fuer Job-Management zustaendig, bekommt aber eine Ag
 
 ## Umsetzungsschritte
 
-1. Agent-Datei-Storage abstrahieren: `/data/agents/<agentId>/`.
-2. Legacy-Pfad `/data/canvas-agent/` als Fallback/Migration fuer den Canvas Agent behalten.
-3. `loadManagedAgentSystemPrompt(agentId)` einfuehren.
-4. Automations um `agent_id` erweitern.
-5. Automation Runner laedt Prompt und Runtime-Kontext ueber `job.agentId`.
-6. UI-Komponenten fuer Agent Settings so splitten, dass sie `agentId` als Parameter akzeptieren.
-7. Erst danach Custom-Agent-Erstellung, Loeschen und vollstaendige Spezial-Agent-Konfiguration freischalten.
+1. Erledigt: Agent-Datei-Storage ist auf `/data/agents/<agentId>/` abstrahiert.
+2. Erledigt: Legacy-Pfad `/data/canvas-agent/` bleibt als Fallback/Migration fuer den Canvas Agent erhalten.
+3. Erledigt: `loadManagedAgentSystemPrompt(agentId)` laedt den Prompt agent-spezifisch.
+4. Erledigt: Automations haben `agent_id` und Delivery-Zielmodell.
+5. Erledigt: Automation Runner laedt Prompt und Runtime-Kontext ueber `job.agentId`.
+6. Erledigt: Agent-Settings-Komponenten sind gesplittet und arbeiten ueber den ausgewaehlten `agentId`.
+7. Erledigt als Basis: Spezial-Agenten koennen in den Agent Settings angelegt, ausgewaehlt und entfernt werden; der Canvas Agent bleibt nicht entfernbar.
 
+## Aktueller Umsetzungsstand
+
+- Web-Chat und Telegram nutzen weiterhin den Canvas Agent als Standard-Agent.
+- Sessions, PI-Persistenz, Automations und aktive Channel-Sessions sind agent-aware.
+- Aktive Channel-Sessions sind pro Agent getrennt, damit spaeter mehrere Agenten im gleichen Channel-Kontext aktiv sein koennen.
+- Spezial-Agenten erben Identity und User-Kontext vom Canvas Agent, besitzen aber eigene AGENTS.md, MEMORY.md, SOUL.md, TOOLS.md und HEARTBEAT.md.
+- Vollstaendige Spezial-Agent-Konfiguration fuer Provider-/Model-Overrides, Toolsets, Skills und Composio-Scopes ist vorbereitet, aber bewusst noch nicht als eigener Detail-Editor ausgebaut.
