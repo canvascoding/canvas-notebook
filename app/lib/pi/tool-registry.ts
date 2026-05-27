@@ -127,6 +127,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
+import { managedEmailRequest } from '@/app/lib/email/managed-client';
 
 
 const execAsync = promisify(exec);
@@ -1130,6 +1131,124 @@ export function createRipgrepTool(): AgentTool {
 
 export const piTools: AgentTool[] = [
   createMcpProxyTool(),
+  {
+    name: 'email_list_accounts',
+    label: 'List email accounts',
+    description: 'Lists connected email accounts and their read/send allowlist policy. Use this before searching, reading, drafting, or sending email.',
+    parameters: Type.Object({}),
+    execute: async () => {
+      try {
+        const data = await managedEmailRequest('/v1/managed/email/accounts');
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
+      } catch (error) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+      }
+    },
+  },
+  {
+    name: 'email_search',
+    label: 'Search email',
+    description: 'Searches connected email. Server-side readFrom policy is enforced, so results may omit disallowed senders.',
+    parameters: Type.Object({
+      accountId: Type.Optional(Type.String({ description: 'Connected email account ID. Defaults to the first active account.' })),
+      query: Type.Optional(Type.String({ description: 'Provider search query.' })),
+      limit: Type.Optional(Type.Number({ description: 'Maximum results, up to 25.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const data = await managedEmailRequest('/v1/managed/email/search', { method: 'POST', body: JSON.stringify(params || {}) });
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
+      } catch (error) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+      }
+    },
+  },
+  {
+    name: 'email_read',
+    label: 'Read email',
+    description: 'Reads a single email message by account and message ID. Server-side readFrom policy is enforced.',
+    parameters: Type.Object({
+      accountId: Type.String({ description: 'Connected email account ID.' }),
+      messageId: Type.String({ description: 'Provider message ID from email_search.' }),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const p = params as { accountId: string; messageId: string };
+        const data = await managedEmailRequest(`/v1/managed/email/accounts/${encodeURIComponent(p.accountId)}/messages/${encodeURIComponent(p.messageId)}`);
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
+      } catch (error) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+      }
+    },
+  },
+  {
+    name: 'email_create_draft',
+    label: 'Create email draft',
+    description: 'Creates an email draft. Server-side sendTo policy is enforced. Create drafts unless the user explicitly asked you to send now.',
+    parameters: Type.Object({
+      accountId: Type.String(),
+      to: Type.Array(Type.String()),
+      cc: Type.Optional(Type.Array(Type.String())),
+      bcc: Type.Optional(Type.Array(Type.String())),
+      subject: Type.String(),
+      body: Type.String(),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const data = await managedEmailRequest('/v1/managed/email/drafts', { method: 'POST', body: JSON.stringify(params) });
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
+      } catch (error) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+      }
+    },
+  },
+  {
+    name: 'email_update_draft',
+    label: 'Update email draft',
+    description: 'Updates an existing email draft. Server-side sendTo policy is enforced.',
+    parameters: Type.Object({
+      draftId: Type.String(),
+      accountId: Type.String(),
+      to: Type.Array(Type.String()),
+      cc: Type.Optional(Type.Array(Type.String())),
+      bcc: Type.Optional(Type.Array(Type.String())),
+      subject: Type.String(),
+      body: Type.String(),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const { draftId, ...body } = params as Record<string, unknown> & { draftId: string };
+        const data = await managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(draftId)}`, { method: 'PATCH', body: JSON.stringify(body) });
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
+      } catch (error) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+      }
+    },
+  },
+  {
+    name: 'email_send_draft',
+    label: 'Send email draft',
+    description: 'Sends an existing email draft. Use only when the user explicitly asks to send now. Server-side sendTo policy is enforced.',
+    parameters: Type.Object({
+      accountId: Type.String(),
+      draftId: Type.String(),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const p = params as { accountId: string; draftId: string };
+        const data = await managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(p.draftId)}/send`, { method: 'POST', body: JSON.stringify({ accountId: p.accountId }) });
+        return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
+      } catch (error) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+      }
+    },
+  },
   createWebFetchTool(),
   createRipgrepTool(),
   {
@@ -1349,7 +1468,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email';
 
 export type PiToolMetadata = {
   name: string;
@@ -1602,6 +1721,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
 
 function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
+  if (toolName.startsWith('email_')) return 'Email';
   if (toolName.startsWith('studio_')) return 'Studio';
   if (toolName.includes('automation_job')) return 'Automation';
   if (toolName.startsWith('COMPOSIO_') || toolName === 'composio_execute') return 'Composio';
@@ -1662,6 +1782,9 @@ if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
   }
   if (group === 'MCP') {
     notes.push('May start configured MCP servers and call external tools. Requires /data/canvas-agent/mcp.json.');
+  }
+  if (group === 'Email') {
+    notes.push('May read, draft, update, or send email through configured Canvas Email accounts. Server-side read/send allowlists are enforced.');
   }
 
   return notes.length > 0 ? notes : ['Read-only or low-side-effect utility under normal use.'];
