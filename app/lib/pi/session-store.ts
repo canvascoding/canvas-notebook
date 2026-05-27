@@ -4,6 +4,8 @@ import { eq, and, asc } from 'drizzle-orm';
 import { type AgentMessage } from '@mariozechner/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
+import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
+import { normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -69,6 +71,7 @@ export async function savePiSession(
     persistedLength?: number;
     channelId?: string;
     channelSessionKey?: string | null;
+    channelThreadKey?: string | null;
   },
 ): Promise<void> {
   // Find or create session
@@ -96,13 +99,14 @@ export async function savePiSession(
   const lastMessageAt = lastAssistantMessage ? new Date(getAgentMessageTimestamp(lastAssistantMessage)) : null;
 
   if (!session) {
+    const legacyChannelId = options?.channelId ?? 'app';
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
       userId,
       provider,
       model,
       title: resolvedTitle,
-      channelId: options?.channelId ?? 'app',
+      channelId: legacyChannelId,
       channelSessionKey: options?.channelSessionKey ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -124,6 +128,20 @@ export async function savePiSession(
       })
       .where(eq(piSessions.id, sessionDbId));
   }
+
+  const normalizedChannelId = normalizeStoredChannelId(options?.channelId ?? session?.channelId ?? 'app');
+  await ensureSessionChannelLink({
+    sessionId,
+    userId,
+    channelId: normalizedChannelId,
+    channelSessionKey: options?.channelSessionKey
+      ?? session?.channelSessionKey
+      ?? (normalizedChannelId === WEB_CHANNEL_ID ? webChannelSessionKey(userId) : `${normalizedChannelId}:unknown`),
+    channelThreadKey: options?.channelThreadKey ?? null,
+    displayName: resolvedTitle,
+    isPrimary: normalizedChannelId === WEB_CHANNEL_ID,
+    outboundAt: lastMessageAt,
+  });
 
   const startIndex = options?.persistedLength ?? 0;
   if (startIndex === 0) {
