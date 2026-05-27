@@ -3325,7 +3325,8 @@ export default function CanvasAgentChat({
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await fetch('/api/agents/config');
+        const params = new URLSearchParams({ agentId: selectedAgentId });
+        const res = await fetch(`/api/agents/config?${params.toString()}`);
         const data = await safeFetchJson<{ success: boolean; data?: AgentConfig }>(res);
         if (data?.success) {
           setAgentConfig(data.data ?? null);
@@ -3336,7 +3337,7 @@ export default function CanvasAgentChat({
     };
 
     void fetchConfig();
-  }, []);
+  }, [selectedAgentId]);
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -5013,6 +5014,7 @@ export default function CanvasAgentChat({
           <div className="flex flex-col items-start gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <ChatModelSelector
+                agentId={selectedAgentId}
                 sessionId={sessionId}
                 activeModel={activeModel}
                 activeProvider={activeProvider}

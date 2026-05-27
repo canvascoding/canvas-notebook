@@ -30,6 +30,7 @@ type AgentConfig = {
 };
 
 type ChatModelSelectorProps = {
+  agentId: string;
   sessionId: string | null;
   activeModel: string;
   activeProvider: string;
@@ -80,6 +81,7 @@ function getModelShortLabel(modelName: string): string {
 }
 
 export function ChatModelSelector({
+  agentId,
   sessionId,
   activeModel,
   activeProvider,
@@ -125,6 +127,7 @@ export function ChatModelSelector({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        agentId,
         provider: activeProvider,
         model: next.model,
         thinkingLevel: next.thinkingLevel,
@@ -175,6 +178,7 @@ export function ChatModelSelector({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          agentId,
           sessionId,
           model: nextModel,
           thinkingLevel: nextThinkingLevel,

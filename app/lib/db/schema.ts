@@ -105,6 +105,8 @@ export const agents = sqliteTable("agents", {
   removable: integer("removable", { mode: "boolean" }).notNull().default(false),
   defaultProvider: text("default_provider"),
   defaultModel: text("default_model"),
+  defaultThinking: text("default_thinking"),
+  enabledToolsJson: text("enabled_tools_json"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({

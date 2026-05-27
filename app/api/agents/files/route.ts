@@ -9,8 +9,12 @@ import {
   readManagedAgentFile,
   writeManagedAgentFile,
   AGENT_MANAGED_FILE_NAMES,
+  DEFAULT_MANAGED_AGENT_ID,
+  SPECIAL_AGENT_MANAGED_FILE_NAMES,
+  isWritableManagedAgentFileName,
   type AgentManagedFileName,
 } from '@/app/lib/agents/storage';
+import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 
 type PutPayload = {
   agentId?: string;
@@ -34,6 +38,10 @@ async function requireSession(request: NextRequest) {
   }
 
   return { session, response: null };
+}
+
+function isInheritedFileForAgent(fileName: AgentManagedFileName, agentId?: string | null): boolean {
+  return !isWritableManagedAgentFileName(fileName, agentId);
 }
 
 export async function GET(request: NextRequest) {
@@ -98,6 +106,9 @@ export async function PUT(request: NextRequest) {
     if (typeof payload.content !== 'string') {
       return NextResponse.json({ success: false, error: 'content must be a string.' }, { status: 400 });
     }
+    if (isInheritedFileForAgent(fileName, agentId)) {
+      return NextResponse.json({ success: false, error: `${fileName} is inherited from the Canvas Agent and cannot be edited for specialized agents.` }, { status: 400 });
+    }
 
     const content = await writeManagedAgentFile(fileName, payload.content, agentId);
     return NextResponse.json({
@@ -154,6 +165,9 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      if (isInheritedFileForAgent(fileName, agentId)) {
+        return NextResponse.json({ success: false, error: `${fileName} is inherited from the Canvas Agent and cannot be reset for specialized agents.` }, { status: 400 });
+      }
 
       // Write empty content - this triggers seed fallback in readManagedAgentFile
       await writeManagedAgentFile(fileName, '', agentId);
@@ -170,8 +184,11 @@ export async function POST(request: NextRequest) {
     } else {
       // Reset all files
       const results: Array<{ fileName: AgentManagedFileName; content: string }> = [];
+      const fileNames = normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID
+        ? AGENT_MANAGED_FILE_NAMES
+        : SPECIAL_AGENT_MANAGED_FILE_NAMES;
 
-      for (const fileName of AGENT_MANAGED_FILE_NAMES) {
+      for (const fileName of fileNames) {
         await writeManagedAgentFile(fileName, '', agentId);
         const content = await readManagedAgentFile(fileName, agentId);
         results.push({ fileName, content });

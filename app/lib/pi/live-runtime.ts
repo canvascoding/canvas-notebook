@@ -6,8 +6,8 @@ import type { Api, Model } from '@mariozechner/pi-ai';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
+import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
-import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import {
   composePiHistoryForLlm,
@@ -17,7 +17,7 @@ import {
 } from '@/app/lib/pi/history-budget';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { createCompactBreakMessage } from '@/app/lib/pi/custom-messages';
-import { resolveActivePiModel, resolvePiModel } from '@/app/lib/pi/model-resolver';
+import { resolvePiModel } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
@@ -468,7 +468,7 @@ class LivePiRuntime {
   }
 
   async reloadTools() {
-    this.tools = await getPiTools(this.userId);
+    this.tools = await getPiTools(this.userId, this.agentId);
     this.lastComposition = null;
     this.agent.state.tools = this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
   }
@@ -861,14 +861,14 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId)),
   });
 
-  const piConfig = await readPiRuntimeConfig();
-  const provider = sessionRecord?.provider || piConfig.activeProvider;
-  const providerThinkingLevel = piConfig.providers[provider]?.thinking || 'off';
+  const agentId = sessionRecord?.agentId ?? DEFAULT_AGENT_ID;
+  const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
+  const provider = sessionRecord?.provider || effectiveConfig.activeProvider;
+  const providerThinkingLevel = effectiveConfig.piConfig.providers[provider]?.thinking || 'off';
   const thinkingLevel = ((sessionRecord?.thinkingLevel || providerThinkingLevel) as ThinkingLevel);
   const model = sessionRecord
     ? await resolvePiModel(sessionRecord.provider, sessionRecord.model)
-    : await resolveActivePiModel();
-  const agentId = sessionRecord?.agentId ?? DEFAULT_AGENT_ID;
+    : effectiveConfig.model;
   const loadedSession = await loadPiSessionWithSummary(sessionId, userId, agentId);
   const initialMessages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
@@ -877,7 +877,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryThroughTimestamp: null,
   };
   const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId);
-  const tools = await getPiTools(userId);
+  const tools = await getPiTools(userId, agentId);
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -1078,7 +1078,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     summaryThroughTimestamp: null,
   };
   const { systemPrompt } = await loadManagedAgentSystemPrompt(sessionRecord.agentId);
-  const tools = await getPiTools(userId);
+  const tools = await getPiTools(userId, sessionRecord.agentId);
   const model = await resolvePiModel(sessionRecord.provider, sessionRecord.model);
   const composition = composePiHistoryForLlm({
     messages,

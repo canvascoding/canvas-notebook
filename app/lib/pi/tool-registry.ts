@@ -92,7 +92,7 @@ function assertBashCommandAllowed(command: string): void {
 function resolveAgentPath(p: string): string {
   return path.isAbsolute(p) ? p : path.join(AGENT_WORKSPACE_ROOT, p);
 }
-import { readPiRuntimeConfig } from '../agents/storage';
+import { resolveAgentRuntimeSettings } from '../agents/effective-runtime-config';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
 import {
@@ -1811,13 +1811,12 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
   });
 }
 
-export async function getPiTools(userId?: string): Promise<AgentTool[]> {
+export async function getPiTools(userId?: string, agentId?: string | null): Promise<AgentTool[]> {
   let allTools = await buildPiToolRegistryAsync(userId);
 
   try {
-    const piConfig = await readPiRuntimeConfig();
-    const activeProvider = piConfig.providers[piConfig.activeProvider];
-    const enabledTools = activeProvider?.enabledTools;
+    const effectiveConfig = await resolveAgentRuntimeSettings(agentId);
+    const enabledTools = effectiveConfig.enabledTools;
 
     const allToolNames = allTools.map((t) => t.name);
 

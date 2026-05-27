@@ -3,10 +3,9 @@ import path from 'node:path';
 import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@mariozechner/pi-agent-core';
 import type { Api, Provider } from '@mariozechner/pi-ai';
 
+import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
-import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
-import { resolveActivePiModel } from '@/app/lib/pi/model-resolver';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
@@ -257,13 +256,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     : await loadPiSessionWithSummary(piSessionId, job.createdByUserId, job.agentId);
   const existingMessages = existingSession?.messages ?? [];
 
-  const piConfig = await readPiRuntimeConfig();
-  const provider = piConfig.activeProvider;
-  const providerConfig = piConfig.providers[provider];
-  const model = await resolveActivePiModel();
+  const effectiveConfig = await resolveAgentRuntimeConfig(job.agentId);
+  const provider = effectiveConfig.activeProvider;
+  const providerConfig = effectiveConfig.providerConfig;
+  const model = effectiveConfig.model;
   console.log(`[Automationen] Run ${runId} using provider=${provider}, model=${model.id}`);
 
-  const tools = await getPiTools();
+  const tools = await getPiTools(undefined, job.agentId);
   const { systemPrompt } = await loadManagedAgentSystemPrompt(job.agentId);
   const promptMessage: AgentMessage = {
     role: 'user',
