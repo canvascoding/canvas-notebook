@@ -271,13 +271,11 @@ export async function loadPiSessionByChannelKey(channelId: string, channelSessio
     columns: { sessionId: true },
   });
 
-  const session = link
-    ? await db.query.piSessions.findFirst({
-        where: eq(piSessions.sessionId, link.sessionId),
-      })
-    : await db.query.piSessions.findFirst({
-        where: and(eq(piSessions.channelId, channelId), eq(piSessions.channelSessionKey, channelSessionKey)),
-      });
+  if (!link) return null;
+
+  const session = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, link.sessionId),
+  });
 
   if (!session) return null;
 
