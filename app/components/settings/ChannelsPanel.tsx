@@ -3,49 +3,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
+import { ChannelOverviewSection } from './channels/ChannelOverviewSection';
 import {
-  Check,
-  Copy,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  Heart,
-  Link2,
-  Loader2,
-  MessageSquare,
-  RefreshCw,
-  Terminal,
-  Unlink,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { ChannelOverviewCard } from './channels/ChannelOverviewCard';
-
-type TelegramStatus = {
-  configured: boolean;
-  enabled: boolean;
-  linked: boolean;
-  linkedUserName: string | null;
-};
-
-type HeartbeatMode = 'pulse' | 'fixedTimes';
-type HeartbeatFixedKind = 'daily' | 'weekly';
-
-type HeartbeatSchedule =
-  | { kind: 'daily'; times: string[]; timeZone: string }
-  | { kind: 'weekly'; days: string[]; times: string[]; timeZone: string }
-  | { kind: 'interval'; every: number; unit: 'minutes' | 'hours' | 'days'; timeZone: string };
-
-type HeartbeatConfig = {
-  configured: boolean;
-  enabled: boolean;
-  schedule: HeartbeatSchedule | null;
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  lastRunStatus: string | null;
-  jobId: string | null;
-};
+  HeartbeatChannelCard,
+  type HeartbeatConfig,
+  type HeartbeatFixedKind,
+  type HeartbeatMode,
+  type HeartbeatSchedule,
+} from './channels/HeartbeatChannelCard';
+import { TelegramChannelCard, type TelegramStatus } from './channels/TelegramChannelCard';
 
 export function ChannelsPanel() {
   const t = useTranslations('settings');
@@ -333,8 +299,6 @@ export function ChannelsPanel() {
     }
   };
 
-  const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-
   const buildScheduleFromForm = (): HeartbeatSchedule => {
     if (heartbeatMode === 'pulse') {
       return { kind: 'interval', every: heartbeatIntervalEvery, unit: heartbeatIntervalUnit, timeZone: heartbeatTimezone };
@@ -392,557 +356,67 @@ export function ChannelsPanel() {
     }
   };
 
-  const statusEmoji = telegramStatus?.configured
-    ? telegramStatus?.enabled
-      ? telegramStatus?.linked
-        ? '✅'
-        : '🟡'
-      : '⚪'
-    : '🔴';
-
-  const statusText = !telegramStatus?.configured
-    ? t('channels.telegram.statusNotConfigured')
-    : !telegramStatus?.enabled
-      ? t('channels.telegram.statusDisabled')
-      : telegramStatus?.linked
-        ? telegramStatus.linkedUserName
-          ? t('channels.telegram.statusLinked', {
-              username: telegramStatus.linkedUserName,
-            })
-          : t('channels.telegram.linkedGeneric')
-        : t('channels.telegram.statusNotLinked');
-
   return (
     <div className="space-y-4">
-    <div className="grid gap-4 lg:grid-cols-2">
-      <ChannelOverviewCard
-        icon={MessageSquare}
-        title="Web Chat"
-        description="Der Chat in Canvas ist der feste Web-Channel und bleibt immer aktiv."
-        statusLabel="Aktiv"
-        statusTone="active"
-        details={[
-          'Alle Agent-Sessions sind im Web sichtbar.',
-          'Antworten erscheinen hier live, auch wenn die letzte Nachricht aus Telegram kam.',
-          'Web nutzt dieselbe gemeinsame Historie wie verbundene externe Channels.',
-        ]}
-      />
-      <ChannelOverviewCard
-        icon={Link2}
-        title="Gemeinsame Channel-Historie"
-        description="Channels sind verschiedene Wege, mit derselben Agent-Session zu sprechen."
-        statusLabel="Web + Telegram vorbereitet"
-        statusTone={telegramStatus?.linked ? 'active' : 'neutral'}
-        details={[
-          'Telegram kann dieselbe Session-Historie wie der Web-Chat nutzen.',
-          'Externe Antworten gehen standardmäßig an den zuletzt aktiven externen Channel.',
-          'Weitere Channels wie Slack können später als Adapter ergänzt werden.',
-        ]}
-      />
-    </div>
+    <ChannelOverviewSection telegramLinked={telegramStatus?.linked === true} />
 
-    <Card>
-      <CardHeader className="px-4 sm:px-6">
-        <CardTitle>{t('channels.telegram.title')}</CardTitle>
-        <CardDescription>{t('channels.telegram.description')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t('channels.telegram.loading')}
-          </div>
-        ) : (
-          <>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            {success && <p className="text-sm text-primary">{success}</p>}
+    <TelegramChannelCard
+      status={telegramStatus}
+      isLoading={isLoading}
+      error={error}
+      success={success}
+      channelEnabled={channelEnabled}
+      botToken={botToken}
+      showToken={showToken}
+      linkToken={linkToken}
+      copied={copied}
+      isSaving={isSaving}
+      isRestarting={isRestarting}
+      isGeneratingToken={isGeneratingToken}
+      isUnlinking={isUnlinking}
+      isRegistering={isRegistering}
+      onToggleEnabled={() => void handleToggleEnabled()}
+      onBotTokenChange={setBotToken}
+      onShowTokenChange={setShowToken}
+      onSaveBotToken={() => void Promise.resolve().then(async () => {
+        await saveEnv('TELEGRAM_BOT_TOKEN', botToken);
+        await restartBot();
+      })}
+      onGenerateLinkToken={() => void handleGenerateLinkToken()}
+      onCopyLinkCommand={() => void handleManualCopy()}
+      onUnlink={() => void handleUnlink()}
+      onRegisterCommands={() => void handleRegisterCommands()}
+      onRefresh={() => {
+        void loadStatus();
+        void loadEnvValues();
+      }}
+      onRestart={() => void restartBot()}
+    />
 
-            {/* Status */}
-            <div className="text-sm">
-              <span className="font-medium">{t('channels.telegram.statusLabel')}</span>{' '}
-              <span>{statusEmoji} {statusText}</span>
-            </div>
-
-            {/* Enable/disable toggle */}
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-sm font-medium">
-                  {t('channels.telegram.enableLabel')}
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  {t('channels.telegram.enableDescription')}
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={channelEnabled}
-                onClick={() => void handleToggleEnabled()}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${channelEnabled ? 'bg-primary' : 'bg-muted'}`}
-                disabled={isSaving || isRestarting}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${channelEnabled ? 'translate-x-6' : 'translate-x-1'}`}
-                />
-              </button>
-            </div>
-
-            {/* Setup guide */}
-            <div className="rounded-md border border-border bg-muted/30 p-4 text-sm space-y-2">
-              <p className="font-medium">{t('channels.telegram.setupGuideTitle')}</p>
-              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                <li>
-                  {t('channels.telegram.step1')}{' '}
-                  <a
-                    href="https://t.me/BotFather"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary underline inline-flex items-center gap-0.5"
-                  >
-                    @BotFather <ExternalLink className="h-3 w-3" />
-                  </a>{' '}
-                  {t('channels.telegram.step1b')}
-                </li>
-                <li>{t('channels.telegram.step2')}</li>
-                <li>{t('channels.telegram.step3')}</li>
-                <li>{t('channels.telegram.step4')}</li>
-              </ol>
-            </div>
-
-            {/* Everything below only shows when enabled */}
-            {channelEnabled && (
-              <>
-                {/* Bot Token */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {t('channels.telegram.botTokenLabel')}
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Input
-                        type={showToken ? 'text' : 'password'}
-                        value={botToken}
-                        onChange={(e) => setBotToken(e.target.value)}
-                        placeholder="123456:ABC-DEF..."
-                        disabled={isSaving}
-                        className={showToken ? undefined : 'pr-11'}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="absolute right-1 top-1/2 -translate-y-1/2"
-                        onClick={() => setShowToken(!showToken)}
-                        disabled={isSaving}
-                      >
-                        {showToken ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    <Button
-                      type="button"
-                      disabled={isSaving || isRestarting}
-                      onClick={async () => {
-                        await saveEnv('TELEGRAM_BOT_TOKEN', botToken);
-                        await restartBot();
-                      }}
-                    >
-                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      {t('channels.telegram.save')}
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Linking */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {t('channels.telegram.linkLabel')}
-                  </label>
-                  {telegramStatus?.linked ? (
-                    <div className="flex items-center gap-2 rounded-md border p-3">
-                      <Link2 className="h-4 w-4 text-primary" />
-                      <span className="text-sm">
-                        {telegramStatus.linkedUserName
-                          ? t('channels.telegram.linkedAs', {
-                              username: telegramStatus.linkedUserName,
-                            })
-                          : t('channels.telegram.linkedGeneric')}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleUnlink()}
-                        disabled={isUnlinking}
-                        className="ml-auto"
-                      >
-                        {isUnlinking && (
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        )}
-                        <Unlink className="mr-1 h-3 w-3" />
-                        {t('channels.telegram.unlink')}
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      <Button
-                        type="button"
-                        variant="default"
-                        onClick={() => void handleGenerateLinkToken()}
-                        disabled={
-                          isGeneratingToken || !telegramStatus?.configured
-                        }
-                      >
-                        {isGeneratingToken && (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        )}
-                        <Link2 className="mr-2 h-4 w-4" />
-                        {t('channels.telegram.linkButton')}
-                      </Button>
-
-                      {linkToken && (
-                        <div className="rounded-md border border-primary/30 bg-primary/5 p-4 text-sm space-y-2">
-                          <p className="font-medium text-primary">
-                            {copied
-                              ? t('channels.telegram.copiedToClipboard')
-                              : t('channels.telegram.tokenGenerated')}
-                          </p>
-
-                          {/* Kopierbarer Command-Bereich */}
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => void handleManualCopy()}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                void handleManualCopy();
-                              }
-                            }}
-                            className="cursor-pointer group"
-                          >
-                            <div className="flex items-center gap-3 rounded-md bg-background border p-3 transition-colors hover:border-primary/50 hover:bg-accent">
-                              <code className="text-sm font-mono flex-1 break-all select-all">
-                                /start {linkToken}
-                              </code>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleManualCopy();
-                                }}
-                                className="shrink-0"
-                              >
-                                {copied ? (
-                                  <Check className="h-4 w-4 text-green-500" />
-                                ) : (
-                                  <Copy className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-
-                          {!copied && (
-                            <p className="text-xs text-muted-foreground">
-                              {t('channels.telegram.clickToCopy')}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Register commands */}
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium">
-                    {t('channels.telegram.registerCommandsLabel')}
-                  </label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleRegisterCommands()}
-                    disabled={
-                      isRegistering || !telegramStatus?.configured
-                    }
-                  >
-                    {isRegistering && (
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                    )}
-                    <Terminal className="mr-1 h-3 w-3" />
-                    {t('channels.telegram.registerCommandsButton')}
-                  </Button>
-                </div>
-              </>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  void loadStatus();
-                  void loadEnvValues();
-                }}
-                disabled={isLoading}
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                {t('channels.telegram.refresh')}
-              </Button>
-              {channelEnabled && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => void restartBot()}
-                  disabled={isRestarting}
-                >
-                  {isRestarting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {t('channels.telegram.restart')}
-                </Button>
-              )}
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardHeader className="px-4 sm:px-6">
-        <CardTitle className="flex items-center gap-2">
-          <Heart className="h-5 w-5" />
-          {t('channels.heartbeat.title')}
-        </CardTitle>
-        <CardDescription>{t('channels.heartbeat.description')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
-        {heartbeatError && <p className="text-sm text-destructive">{heartbeatError}</p>}
-        {heartbeatSuccess && <p className="text-sm text-primary">{heartbeatSuccess}</p>}
-
-        <div className="flex items-center justify-between">
-          <div>
-            <label className="text-sm font-medium">
-              {t('channels.heartbeat.enableLabel')}
-            </label>
-            <p className="text-xs text-muted-foreground">
-              {t('channels.heartbeat.enableDescription')}
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={heartbeatConfig?.enabled ?? false}
-            onClick={() => void handleHeartbeatToggle()}
-            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${heartbeatConfig?.enabled ? 'bg-primary' : 'bg-muted'}`}
-            disabled={heartbeatSaving}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${heartbeatConfig?.enabled ? 'translate-x-6' : 'translate-x-1'}`}
-            />
-          </button>
-        </div>
-
-        {(heartbeatConfig?.enabled || heartbeatConfig?.configured) && (
-          <div className="space-y-4">
-            {/* Mode selector: Pulse vs Fixed Times */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t('channels.heartbeat.modeLabel')}</label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${heartbeatMode === 'pulse' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}
-                  onClick={() => setHeartbeatMode('pulse')}
-                  disabled={heartbeatSaving}
-                >
-                  {t('channels.heartbeat.pulseMode')}
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${heartbeatMode === 'fixedTimes' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}
-                  onClick={() => setHeartbeatMode('fixedTimes')}
-                  disabled={heartbeatSaving}
-                >
-                  {t('channels.heartbeat.fixedTimesMode')}
-                </button>
-              </div>
-            </div>
-
-            {/* Pulse mode: interval input */}
-            {heartbeatMode === 'pulse' && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t('channels.heartbeat.pulseIntervalLabel')}</label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={heartbeatIntervalEvery}
-                    onChange={(e) => setHeartbeatIntervalEvery(parseInt(e.target.value) || 1)}
-                    disabled={heartbeatSaving}
-                    className="w-20"
-                  />
-                  <select
-                    className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    value={heartbeatIntervalUnit}
-                    onChange={(e) => setHeartbeatIntervalUnit(e.target.value as 'minutes' | 'hours' | 'days')}
-                    disabled={heartbeatSaving}
-                  >
-                    <option value="minutes">{t('channels.heartbeat.minutes')}</option>
-                    <option value="hours">{t('channels.heartbeat.hours')}</option>
-                    <option value="days">{t('channels.heartbeat.days')}</option>
-                  </select>
-                </div>
-                <p className="text-xs text-muted-foreground">{t('channels.heartbeat.pulseDescription')}</p>
-              </div>
-            )}
-
-            {/* Fixed times mode */}
-            {heartbeatMode === 'fixedTimes' && (
-              <div className="space-y-3">
-                {/* Daily / Weekly sub-selector */}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${heartbeatFixedKind === 'daily' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}
-                    onClick={() => setHeartbeatFixedKind('daily')}
-                    disabled={heartbeatSaving}
-                  >
-                    {t('channels.heartbeat.daily')}
-                  </button>
-                  <button
-                    type="button"
-                    className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${heartbeatFixedKind === 'weekly' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}
-                    onClick={() => setHeartbeatFixedKind('weekly')}
-                    disabled={heartbeatSaving}
-                  >
-                    {t('channels.heartbeat.weekly')}
-                  </button>
-                </div>
-
-                {/* Weekdays (only for weekly) */}
-                {heartbeatFixedKind === 'weekly' && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">{t('channels.heartbeat.weekdays')}</label>
-                    <div className="flex flex-wrap gap-2">
-                      {WEEKDAYS.map((day) => (
-                        <button
-                          key={day}
-                          type="button"
-                          className={`px-2 py-1 text-xs rounded border transition-colors ${heartbeatWeekdays.includes(day) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border'}`}
-                          onClick={() => {
-                            setHeartbeatWeekdays((prev) =>
-                              prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
-                            );
-                          }}
-                          disabled={heartbeatSaving}
-                        >
-                          {t(`channels.heartbeat.weekdayLabels.${day}`)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Times list with add/remove */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">{t('channels.heartbeat.timesLabel')}</label>
-                  <div className="space-y-2">
-                    {heartbeatTimes.map((time, index) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <Input
-                          type="time"
-                          value={time}
-                          onChange={(e) => {
-                            setHeartbeatTimes((prev) => {
-                              const next = [...prev];
-                              next[index] = e.target.value;
-                              return next;
-                            });
-                          }}
-                          disabled={heartbeatSaving}
-                          className="max-w-[200px]"
-                        />
-                        {heartbeatTimes.length > 1 && (
-                          <button
-                            type="button"
-                            className="text-muted-foreground hover:text-destructive transition-colors text-sm px-1"
-                            onClick={() => {
-                              setHeartbeatTimes((prev) => prev.filter((_, i) => i !== index));
-                            }}
-                            disabled={heartbeatSaving}
-                          >
-                            {t('channels.heartbeat.removeTime')}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setHeartbeatTimes((prev) => [...prev, '09:00'])}
-                      disabled={heartbeatSaving}
-                    >
-                      {t('channels.heartbeat.addTime')}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Timezone (shared) */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t('channels.heartbeat.timezone')}</label>
-              <Input
-                value={heartbeatTimezone}
-                onChange={(e) => setHeartbeatTimezone(e.target.value)}
-                disabled={heartbeatSaving}
-                className="max-w-[300px]"
-              />
-            </div>
-
-            {/* Save button */}
-            <Button
-              type="button"
-              disabled={heartbeatSaving}
-              onClick={() => void saveHeartbeatConfig(heartbeatConfig?.enabled ?? true)}
-            >
-              {heartbeatSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t('channels.telegram.save')}
-            </Button>
-
-            {/* Status info */}
-            {heartbeatConfig?.nextRunAt && (
-              <div className="text-sm text-muted-foreground">
-                {t('channels.heartbeat.nextRun')}: {formatNextRun(heartbeatConfig.nextRunAt)}
-              </div>
-            )}
-            {heartbeatConfig?.lastRunAt && (
-              <div className="text-sm text-muted-foreground">
-                {t('channels.heartbeat.lastRun')}: {formatNextRun(heartbeatConfig.lastRunAt)}
-                {heartbeatConfig.lastRunStatus && ` (${heartbeatConfig.lastRunStatus})`}
-              </div>
-            )}
-          </div>
-        )}
-
-        {!heartbeatConfig?.configured && !heartbeatConfig?.enabled && (
-          <p className="text-sm text-muted-foreground">{t('channels.heartbeat.noSchedule')}</p>
-        )}
-
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => router.push('/settings?tab=agent-settings')}
-        >
-          {t('channels.heartbeat.editHeartbeatFile')}
-        </Button>
-      </CardContent>
-    </Card>
+    <HeartbeatChannelCard
+      config={heartbeatConfig}
+      saving={heartbeatSaving}
+      error={heartbeatError}
+      success={heartbeatSuccess}
+      mode={heartbeatMode}
+      fixedKind={heartbeatFixedKind}
+      times={heartbeatTimes}
+      timezone={heartbeatTimezone}
+      weekdays={heartbeatWeekdays}
+      intervalEvery={heartbeatIntervalEvery}
+      intervalUnit={heartbeatIntervalUnit}
+      setMode={setHeartbeatMode}
+      setFixedKind={setHeartbeatFixedKind}
+      setTimes={setHeartbeatTimes}
+      setTimezone={setHeartbeatTimezone}
+      setWeekdays={setHeartbeatWeekdays}
+      setIntervalEvery={setHeartbeatIntervalEvery}
+      setIntervalUnit={setHeartbeatIntervalUnit}
+      onToggle={() => void handleHeartbeatToggle()}
+      onSave={() => void saveHeartbeatConfig(heartbeatConfig?.enabled ?? true)}
+      onEditHeartbeatFile={() => router.push('/settings?tab=agent-settings')}
+      formatDate={formatNextRun}
+    />
     </div>
   );
 }

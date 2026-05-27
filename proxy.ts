@@ -60,6 +60,12 @@ function setCommonHeaders(response: NextResponse) {
   response.headers.set('Content-Security-Policy', cspHeader);
 }
 
+function nextWithCommonHeaders() {
+  const response = NextResponse.next();
+  setCommonHeaders(response);
+  return response;
+}
+
 function getSecret(): string {
   return process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET || 'canvas-notebook-local-dev-secret-change-me';
 }
@@ -165,6 +171,54 @@ export default async function middleware(request: NextRequest) {
 
   if (isWebSocketRoute(pathname)) {
     return NextResponse.next();
+  }
+
+  if (pathname.startsWith('/api/')) {
+    if (isPublicRoute(pathname)) {
+      return nextWithCommonHeaders();
+    }
+
+    const sessionCookie = getSessionCookie(request);
+    const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
+    if (!sessionCookie && logMissingSession) {
+      console.log(`[Middleware] No session cookie for ${pathname}. Denying API request.`);
+    }
+
+    if (!sessionCookie) {
+      const errorResponse = NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+      setCommonHeaders(errorResponse);
+      return errorResponse;
+    }
+
+    if (
+      !LICENSE_ALLOWED_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) &&
+      !(await hasValidLicenseGateCookie(request))
+    ) {
+      const status = await loadLicenseStatus(request);
+      if (status?.licensed) {
+        const licensedResponse = nextWithCommonHeaders();
+        licensedResponse.cookies.set(LICENSE_GATE_COOKIE, await buildLicenseGateCookie(status), {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          path: '/',
+          maxAge: 60 * 60 * 12,
+        });
+        return licensedResponse;
+      }
+
+      const errorResponse = NextResponse.json(
+        { success: false, error: 'License activation required', code: 'LICENSE_REQUIRED' },
+        { status: 402 },
+      );
+      setCommonHeaders(errorResponse);
+      return errorResponse;
+    }
+
+    return nextWithCommonHeaders();
   }
 
   // 1. Handle i18n routing first

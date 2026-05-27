@@ -774,6 +774,7 @@ export async function markAutomationRunFinished(
   values: {
     status: 'success' | 'failed';
     errorMessage?: string | null;
+    piSessionId?: string | null;
     resultText?: string | null;
     eventsLog: string[];
     metadataJson: Record<string, unknown>;
@@ -793,6 +794,7 @@ export async function markAutomationRunFinished(
       .set({
         status: values.status,
         errorMessage: values.errorMessage ?? null,
+        piSessionId: values.piSessionId ?? current.piSessionId,
         resultText: values.resultText ?? current.resultText,
         finishedAt: now,
         eventsLog: JSON.stringify(values.eventsLog),

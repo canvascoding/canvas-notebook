@@ -1,33 +1,13 @@
 import 'server-only';
 
 import crypto from 'crypto';
+import { resolveLicensePublicKeys } from './public-key';
 import type { LicenseCert } from './types';
 
 function base64UrlDecode(value: string): Buffer {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
   return Buffer.from(padded, 'base64');
-}
-
-function resolvePublicKeys(): string[] {
-  const configured = process.env.CANVAS_LICENSE_PUBLIC_KEY?.trim();
-  if (!configured) return [];
-
-  try {
-    const decoded = Buffer.from(configured, 'base64').toString('utf8');
-    if (decoded.includes('BEGIN PUBLIC KEY')) return [decoded];
-  } catch {
-  }
-
-  if (configured.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(configured);
-      if (Array.isArray(parsed)) return parsed.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
-    } catch {
-    }
-  }
-
-  return [configured.replace(/\\n/g, '\n')];
 }
 
 export function decodeLicenseJwt(token: string): LicenseCert | null {
@@ -40,7 +20,7 @@ export function decodeLicenseJwt(token: string): LicenseCert | null {
   }
 }
 
-export function verifyLicenseJwt(token: string, expectedInstanceId: string): LicenseCert | null {
+export async function verifyLicenseJwt(token: string, expectedInstanceId: string): Promise<LicenseCert | null> {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [encodedHeader, encodedPayload, encodedSignature] = parts;
@@ -60,12 +40,13 @@ export function verifyLicenseJwt(token: string, expectedInstanceId: string): Lic
 
   const signed = `${encodedHeader}.${encodedPayload}`;
   const signature = base64UrlDecode(encodedSignature);
-  for (const publicKey of resolvePublicKeys()) {
+  const resolution = await resolveLicensePublicKeys();
+  for (const publicKey of resolution.keys) {
     try {
       const verifier = crypto.createVerify('RSA-SHA256');
       verifier.update(signed);
       verifier.end();
-      if (verifier.verify(publicKey, signature)) return payload;
+      if (verifier.verify(publicKey.publicKey, signature)) return payload;
     } catch {
     }
   }

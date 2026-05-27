@@ -19,5 +19,6 @@ export interface LicenseStatus {
   features: Record<string, boolean>;
   quotas: Record<string, number>;
   source: 'env' | 'stored' | 'none';
-  error?: string;
+  error?: 'missing_public_key' | 'public_key_unavailable' | 'control_plane_unreachable' | 'untrusted_public_key' | 'license_expired';
+  code?: string;
 }

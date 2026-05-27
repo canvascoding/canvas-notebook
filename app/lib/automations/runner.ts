@@ -155,23 +155,30 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
   if (job.jobType === 'heartbeat') {
     console.log(`[Automationen] Executing heartbeat for run ${runId}`);
-    const heartbeatResult = await executeHeartbeat(job);
-    const heartbeatDuration = Date.now() - runStartTime;
-
-    await markAutomationRunStarted(run.id, {
+    const heartbeatRunSessionId = `heartbeat-${run.id}`;
+    const startedRun = await markAutomationRunStarted(run.id, {
       outputDir: null,
       targetOutputPath: job.targetOutputPath,
       effectiveTargetOutputPath: effectiveTargetOutputPath || null,
       logPath: '',
       resultPath: null,
-      piSessionId: heartbeatResult.sessionIds[0] || `heartbeat-${run.id}`,
+      piSessionId: heartbeatRunSessionId,
       eventsLog: [],
     });
+
+    if (!startedRun) {
+      console.warn(`[Automationen] Heartbeat run ${runId} could not be marked as started (already running?), aborting`);
+      return;
+    }
+
+    const heartbeatResult = await executeHeartbeat(job);
+    const heartbeatDuration = Date.now() - runStartTime;
 
     const heartbeatStatus = heartbeatResult.errors.length > 0 && heartbeatResult.usersNotified === 0 ? 'failed' : 'success';
     await markAutomationRunFinished(run.id, {
       status: heartbeatStatus,
       errorMessage: heartbeatResult.errors.length > 0 ? heartbeatResult.errors.join('; ') : null,
+      piSessionId: heartbeatResult.sessionIds[0] || heartbeatRunSessionId,
       eventsLog: [],
       metadataJson: {
         provider: 'heartbeat',
