@@ -12,7 +12,6 @@ import {
   Heart,
   Link2,
   Loader2,
-  MessageSquare,
   RefreshCw,
   Terminal,
   Unlink,
@@ -20,7 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ChannelOverviewCard } from './channels/ChannelOverviewCard';
+import { ChannelOverviewSection } from './channels/ChannelOverviewSection';
 
 type TelegramStatus = {
   configured: boolean;
@@ -414,32 +413,7 @@ export function ChannelsPanel() {
 
   return (
     <div className="space-y-4">
-    <div className="grid gap-4 lg:grid-cols-2">
-      <ChannelOverviewCard
-        icon={MessageSquare}
-        title="Web Chat"
-        description="Der Chat in Canvas ist der feste Web-Channel und bleibt immer aktiv."
-        statusLabel="Aktiv"
-        statusTone="active"
-        details={[
-          'Alle Agent-Sessions sind im Web sichtbar.',
-          'Antworten erscheinen hier live, auch wenn die letzte Nachricht aus Telegram kam.',
-          'Web nutzt dieselbe gemeinsame Historie wie verbundene externe Channels.',
-        ]}
-      />
-      <ChannelOverviewCard
-        icon={Link2}
-        title="Gemeinsame Channel-Historie"
-        description="Channels sind verschiedene Wege, mit derselben Agent-Session zu sprechen."
-        statusLabel="Web + Telegram vorbereitet"
-        statusTone={telegramStatus?.linked ? 'active' : 'neutral'}
-        details={[
-          'Telegram kann dieselbe Session-Historie wie der Web-Chat nutzen.',
-          'Externe Antworten gehen standardmäßig an den zuletzt aktiven externen Channel.',
-          'Weitere Channels wie Slack können später als Adapter ergänzt werden.',
-        ]}
-      />
-    </div>
+    <ChannelOverviewSection telegramLinked={telegramStatus?.linked === true} />
 
     <Card>
       <CardHeader className="px-4 sm:px-6">
