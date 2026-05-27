@@ -19,6 +19,22 @@ type LicenseStatus = {
   error?: string;
 };
 
+function licenseErrorMessage(error?: string) {
+  switch (error) {
+    case 'missing_public_key':
+    case 'public_key_unavailable':
+      return 'License verification is unavailable. Configure the license public key or check the Control Plane connection.';
+    case 'control_plane_unreachable':
+      return 'Could not reach the license server. Check the Control Plane URL or network connection.';
+    case 'untrusted_public_key':
+      return 'The license server returned an untrusted public key. Check CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS.';
+    case 'license_expired':
+      return 'License expired. Please renew or activate a new license.';
+    default:
+      return error;
+  }
+}
+
 export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string }) {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<LicenseStatus | null>(null);
@@ -146,9 +162,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
 
               {status?.error && (
                 <p className="text-sm text-destructive">
-                  {status.error === 'missing_public_key'
-                    ? 'CANVAS_LICENSE_PUBLIC_KEY is not configured.'
-                    : status.error}
+                  {licenseErrorMessage(status.error)}
                 </p>
               )}
             </>

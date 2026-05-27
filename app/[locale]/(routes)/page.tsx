@@ -4,6 +4,8 @@ import { getTranslations } from 'next-intl/server';
 import packageJson from '../../../package.json';
 
 import { requirePageSession } from '@/app/lib/auth-guards';
+import { getLicenseStatus } from '@/app/lib/license';
+import { LicenseBanner } from '@/app/components/license/LicenseBanner';
 import { HomeWorkspaceView } from '@/app/components/home/HomeWorkspaceView';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
@@ -20,11 +22,13 @@ const releaseTagUrl = `${repositoryUrl}/releases/tag/${releaseTag}`;
 export default async function Home() {
   const tHome = await getTranslations('home');
   const onboardingEnabled = isOnboardingEnabled();
-  await requirePageSession();
+  await requirePageSession({ allowUnlicensed: true });
+  const licenseStatus = await getLicenseStatus();
 
   return (
     <HomeHintProvider enabled={onboardingEnabled}>
     <div className="h-[100dvh] overflow-hidden bg-background text-foreground">
+      {!licenseStatus.licensed && <LicenseBanner status={licenseStatus} />}
       <div className="flex h-full flex-col">
         <header className="sticky top-0 z-20 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="mx-auto flex min-h-14 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2 md:px-6">
@@ -51,7 +55,7 @@ export default async function Home() {
                 <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">{tHome('hero.title')}</h1>
               </div>
 
-              <HomeWorkspaceView />
+              <HomeWorkspaceView licenseLocked={!licenseStatus.licensed} />
             </div>
         </main>
 

@@ -17,6 +17,7 @@ import remarkGfm from 'remark-gfm';
 
 interface WebSocketProviderProps {
   children: React.ReactNode;
+  enabled?: boolean;
 }
 
 type NotificationDetail = {
@@ -86,7 +87,7 @@ function ToastMarkdown({ content }: { content: string }) {
   );
 }
 
-export function WebSocketProvider({ children }: WebSocketProviderProps) {
+export function WebSocketProvider({ children, enabled = true }: WebSocketProviderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const t = useTranslations('chat');
@@ -129,7 +130,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
   const connectIfAuthenticated = useCallback(() => {
     const client = clientRef.current;
-    if (!client) return;
+    if (!client || !enabled) return;
 
     if (!hasSessionCookie()) {
       console.log('[WebSocketProvider] No session cookie, skipping WebSocket connection');
@@ -142,13 +143,18 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
         console.error('[WebSocketProvider] Failed to connect:', error);
       }
     });
-  }, []);
+  }, [enabled]);
 
   // Initialize WebSocket connection
   useEffect(() => {
     clientRef.current = getWebSocketClient();
     const client = clientRef.current;
     setConnected(client.isConnected());
+
+    if (!enabled) {
+      client.releaseConnection();
+      setConnected(false);
+    }
 
     const handleConnected = () => {
       console.log('[WebSocketProvider] Connected');
@@ -173,7 +179,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     client.addEventListener('disconnected', handleDisconnected as EventListener);
     client.addEventListener('error', handleError as EventListener);
 
-    if (hasSessionCookie()) {
+    if (enabled && hasSessionCookie()) {
       client.connect().catch((error) => {
         if ((error as { code?: string })?.code !== 'AUTH_ERROR') {
           console.error('[WebSocketProvider] Failed to connect:', error);
