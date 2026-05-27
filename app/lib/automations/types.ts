@@ -3,6 +3,8 @@ export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' |
 export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook';
 export type AutomationPreferredSkill = string;
 export type AutomationJobType = 'default' | 'heartbeat' | 'webhook';
+export type AutomationDeliveryMode = 'web' | 'origin' | 'session' | 'channel_home' | 'silent';
+export type AutomationDeliverySessionMode = 'new_session' | 'channel_active' | 'fixed_session';
 export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval' | 'webhook';
 export type AutomationWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export type AutomationIntervalUnit = 'minutes' | 'hours' | 'days';
@@ -52,6 +54,11 @@ export type AutomationJobRecord = {
   lastRunStatus: AutomationRunStatus | null;
   createdByUserId: string;
   agentId: string;
+  deliveryMode: AutomationDeliveryMode;
+  deliveryChannelId: string | null;
+  deliverySessionMode: AutomationDeliverySessionMode;
+  deliverySessionId: string | null;
+  deliveryChannelSessionKey: string | null;
   createdAt: string;
   updatedAt: string;
   jobType: AutomationJobType;
@@ -96,6 +103,11 @@ export type CreateAutomationJobInput = {
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
   agentId?: string;
+  deliveryMode?: AutomationDeliveryMode;
+  deliveryChannelId?: string | null;
+  deliverySessionMode?: AutomationDeliverySessionMode;
+  deliverySessionId?: string | null;
+  deliveryChannelSessionKey?: string | null;
   schedule: FriendlySchedule;
   status?: AutomationJobStatus;
 };
@@ -107,6 +119,11 @@ export type CreateWebhookAutomationJobInput = {
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
   agentId?: string;
+  deliveryMode?: AutomationDeliveryMode;
+  deliveryChannelId?: string | null;
+  deliverySessionMode?: AutomationDeliverySessionMode;
+  deliverySessionId?: string | null;
+  deliveryChannelSessionKey?: string | null;
   status?: AutomationJobStatus;
   composioTriggerId: string;
   composioTriggerSlug: string;
