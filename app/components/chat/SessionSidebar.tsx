@@ -227,7 +227,7 @@ export function SessionSidebar({
     } catch (err) {
       console.error('Failed to delete session', err);
     }
-  }, [t]);
+  }, [agentId, t]);
 
   const renameSession = useCallback(async (e: React.MouseEvent, session: AISession) => {
     e.stopPropagation();

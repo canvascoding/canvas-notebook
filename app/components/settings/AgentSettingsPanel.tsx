@@ -15,7 +15,7 @@ import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
-import { AgentManagedFilesCard, MANAGED_FILES, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
+import { AgentManagedFilesCard, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
@@ -107,6 +107,23 @@ export function AgentSettingsPanel() {
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
 
+  const resetAgentScopedState = useCallback(() => {
+    setDoctorResult(null);
+    setDoctorError(null);
+    setFiles(null);
+    setSessions([]);
+    setRenameDrafts({});
+    setToolsPiConfig(null);
+    setOpenToolRows({});
+    setActiveToolGroups(new Set());
+  }, []);
+
+  const selectAgent = useCallback((agentId: string) => {
+    if (agentId === selectedAgentId) return;
+    resetAgentScopedState();
+    setSelectedAgentId(agentId);
+  }, [resetAgentScopedState, selectedAgentId]);
+
   const loadAgents = useCallback(async () => {
     setAgentsLoading(true);
     setAgentsError(null);
@@ -160,7 +177,7 @@ export function AgentSettingsPanel() {
       });
       setCreateAgentName('');
       await loadAgents();
-      setSelectedAgentId(payload.agent.agentId);
+      selectAgent(payload.agent.agentId);
     } catch (error) {
       setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.create'));
     } finally {
@@ -187,6 +204,7 @@ export function AgentSettingsPanel() {
         throw new Error(body.error || t('agentPanel.selector.errors.delete'));
       }
       if (selectedAgentId === agentId) {
+        resetAgentScopedState();
         setSelectedAgentId(DEFAULT_AGENT_ID);
       }
       await loadAgents();
@@ -277,14 +295,6 @@ export function AgentSettingsPanel() {
   }, [loadAgents]);
 
   useEffect(() => {
-    setDoctorResult(null);
-    setDoctorError(null);
-    setFiles(null);
-    setSessions([]);
-    setRenameDrafts({});
-    setToolsPiConfig(null);
-    setOpenToolRows({});
-    setActiveToolGroups(new Set());
     startTransition(() => {
       void loadFiles();
       void loadSessions();
@@ -668,7 +678,7 @@ export function AgentSettingsPanel() {
         createName={createAgentName}
         creating={agentCreating}
         deletingAgentId={agentDeletingId}
-        onSelectedAgentIdChange={setSelectedAgentId}
+        onSelectedAgentIdChange={selectAgent}
         onCreateNameChange={setCreateAgentName}
         onCreate={() => void createAgent()}
         onDelete={(agentId) => void deleteAgent(agentId)}
