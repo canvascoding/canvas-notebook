@@ -124,6 +124,18 @@ type McpToolsDialogState = {
   error: string | null;
 };
 
+type EmailAccount = {
+  id: string;
+  provider: string;
+  emailAddress: string;
+  displayName: string | null;
+  status: string;
+  policy: {
+    readFrom: string[];
+    sendTo: string[];
+  };
+};
+
 type McpTransportMode = 'stdio' | 'http';
 
 type McpPairDraft = {
@@ -1045,6 +1057,185 @@ function McpConfigCard(props: {
   );
 }
 
+function EmailAccountsCard() {
+  const [accounts, setAccounts] = useState<EmailAccount[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, { readFrom: string; sendTo: string }>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeAction, setActiveAction] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadAccounts = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/email/accounts', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load email accounts');
+      const nextAccounts = (payload.data?.accounts || []) as EmailAccount[];
+      setAccounts(nextAccounts);
+      setDrafts(Object.fromEntries(nextAccounts.map((account) => [
+        account.id,
+        {
+          readFrom: account.policy.readFrom.join('\n'),
+          sendTo: account.policy.sendTo.join('\n'),
+        },
+      ])));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Failed to load email accounts');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAccounts();
+  }, [loadAccounts]);
+
+  const startOAuth = async (provider: 'google' | 'microsoft') => {
+    setActiveAction(`oauth:${provider}`);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/email/oauth/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to start email OAuth');
+      window.open(payload.data.authorizationUrl, '_blank', 'noopener,noreferrer');
+      setMessage('Authorization opened in a new tab. Refresh accounts after completing OAuth.');
+    } catch (oauthError) {
+      setError(oauthError instanceof Error ? oauthError.message : 'Failed to start email OAuth');
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const savePolicy = async (accountId: string) => {
+    setActiveAction(`policy:${accountId}`);
+    setError(null);
+    setMessage(null);
+    try {
+      const draft = drafts[accountId] || { readFrom: '', sendTo: '' };
+      const response = await fetch(`/api/email/accounts/${encodeURIComponent(accountId)}/policy`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          readFrom: draft.readFrom.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean),
+          sendTo: draft.sendTo.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to save email policy');
+      setMessage('Email policy saved.');
+      await loadAccounts();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Failed to save email policy');
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const disconnect = async (accountId: string) => {
+    setActiveAction(`disconnect:${accountId}`);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/email/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to disconnect email account');
+      setMessage('Email account disconnected.');
+      await loadAccounts();
+    } catch (disconnectError) {
+      setError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect email account');
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>Email Accounts</CardTitle>
+            <CardDescription>Connect managed email accounts and control which senders can be read or recipients can be used for sending.</CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => void loadAccounts()} disabled={isLoading}>
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Refresh
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void startOAuth('google')} disabled={activeAction !== null}>
+              Google
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void startOAuth('microsoft')} disabled={activeAction !== null}>
+              Microsoft
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+        {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
+        {accounts.length === 0 ? (
+          <div className="border border-border p-4 text-sm text-muted-foreground">No email accounts connected.</div>
+        ) : (
+          accounts.map((account) => {
+            const draft = drafts[account.id] || { readFrom: '', sendTo: '' };
+            return (
+              <div key={account.id} className="space-y-3 border border-border p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-semibold">{account.emailAddress}</h3>
+                      <Badge variant="outline">{account.provider}</Badge>
+                      <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>{account.status}</Badge>
+                    </div>
+                    {account.displayName && <p className="text-sm text-muted-foreground">{account.displayName}</p>}
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void disconnect(account.id)} disabled={activeAction !== null}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Disconnect
+                  </Button>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Read from emails</Label>
+                    <textarea
+                      className="mt-2 min-h-28 w-full border border-input bg-background px-3 py-2 text-sm"
+                      value={draft.readFrom}
+                      onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, readFrom: event.target.value } }))}
+                      placeholder="All senders allowed"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Send to emails</Label>
+                    <textarea
+                      className="mt-2 min-h-28 w-full border border-input bg-background px-3 py-2 text-sm"
+                      value={draft.sendTo}
+                      onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, sendTo: event.target.value } }))}
+                      placeholder="All recipients allowed"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="button" onClick={() => void savePolicy(account.id)} disabled={activeAction !== null}>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save policy
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function IntegrationsSettingsClient({ isAdmin = false, userName = '', userEmail = '' }: { isAdmin?: boolean; userName?: string; userEmail?: string }) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
@@ -1633,6 +1824,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
 
         <TabsContent value="integrations" className="space-y-4" id="onboarding-settings-integrations">
           <ConnectedAppsPanel />
+          <EmailAccountsCard />
           <McpConfigCard
             editor={mcpEditor}
             onLoad={loadMcpConfig}
