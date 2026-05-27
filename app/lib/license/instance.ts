@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-const DEFAULT_LICENSE_CONTROL_PLANE_URL = 'https://notebook.canvas.holdings';
+const DEFAULT_LICENSE_CONTROL_PLANE_URL = 'https://api.canvas.holdings';
 
 function getDataDir(): string {
   return process.env.DATA || path.resolve(process.cwd(), 'data');
