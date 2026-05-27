@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 
 export async function GET() {
   const checks: Record<string, 'ok' | 'error'> = {
@@ -7,13 +7,17 @@ export async function GET() {
   };
 
   let status = 200;
+  let connection: Awaited<ReturnType<typeof openDb>> | null = null;
 
   try {
-    db.$client.prepare('SELECT 1').get();
+    connection = await openDb();
+    connection.get('SELECT 1');
     checks.db = 'ok';
   } catch {
     checks.db = 'error';
     status = 503;
+  } finally {
+    connection?.close();
   }
 
   return NextResponse.json(
