@@ -9,6 +9,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock3,
+  Bot,
   Link2,
   ExternalLink,
   FileText,
@@ -21,6 +22,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Send,
   Search,
   Sparkles,
   Trash2,
@@ -34,6 +36,8 @@ import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automationen/componen
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import type {
   AutomationJobRecord,
+  AutomationDeliveryMode,
+  AutomationDeliverySessionMode,
   AutomationRunRecord,
   AutomationRunStatus,
   AutomationTriggerType,
@@ -77,6 +81,12 @@ type JobDraft = {
   weeklyDays: AutomationWeekday[];
   intervalEvery: string;
   intervalUnit: 'minutes' | 'hours' | 'days';
+  agentId: string;
+  deliveryMode: AutomationDeliveryMode;
+  deliveryChannelId: string;
+  deliverySessionMode: AutomationDeliverySessionMode;
+  deliverySessionId: string;
+  deliveryChannelSessionKey: string;
 };
 
 type PersistedAutomationSessionMessage = {
@@ -137,6 +147,12 @@ type TriggerComposerDraft = {
   workspaceContextText: string;
   targetOutputPath: string;
   configValues: Record<string, string | boolean>;
+  agentId: string;
+  deliveryMode: AutomationDeliveryMode;
+  deliveryChannelId: string;
+  deliverySessionMode: AutomationDeliverySessionMode;
+  deliverySessionId: string;
+  deliveryChannelSessionKey: string;
 };
 
 type ComposioStatus = {
@@ -157,7 +173,15 @@ type AutomationsClientProps = {
   initialJobId?: string | null;
 };
 
+type AgentOption = {
+  agentId: string;
+  name: string;
+  type: string;
+  removable: boolean;
+};
+
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DEFAULT_AGENT_ID = 'canvas-agent';
 
 function defaultDraft(): JobDraft {
   const now = new Date();
@@ -181,6 +205,12 @@ function defaultDraft(): JobDraft {
     weeklyDays: ['mon'],
     intervalEvery: '1',
     intervalUnit: 'days',
+    agentId: DEFAULT_AGENT_ID,
+    deliveryMode: 'web',
+    deliveryChannelId: 'web',
+    deliverySessionMode: 'new_session',
+    deliverySessionId: '',
+    deliveryChannelSessionKey: '',
   };
 }
 
@@ -194,6 +224,12 @@ function defaultTriggerDraft(): TriggerComposerDraft {
     workspaceContextText: '',
     targetOutputPath: '',
     configValues: {},
+    agentId: DEFAULT_AGENT_ID,
+    deliveryMode: 'web',
+    deliveryChannelId: 'web',
+    deliverySessionMode: 'new_session',
+    deliverySessionId: '',
+    deliveryChannelSessionKey: '',
   };
 }
 
@@ -411,6 +447,12 @@ function buildPayload(draft: JobDraft) {
     workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
     targetOutputPath: draft.targetOutputPath.trim() || null,
     status: draft.status,
+    agentId: draft.agentId,
+    deliveryMode: draft.deliveryMode,
+    deliveryChannelId: draft.deliveryChannelId.trim() || null,
+    deliverySessionMode: draft.deliverySessionMode,
+    deliverySessionId: draft.deliverySessionId.trim() || null,
+    deliveryChannelSessionKey: draft.deliveryChannelSessionKey.trim() || null,
     schedule,
   };
 }
@@ -491,6 +533,12 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.workspaceContextText = job.workspaceContextPaths.join('\n');
   draft.targetOutputPath = job.targetOutputPath || '';
   draft.status = job.status;
+  draft.agentId = job.agentId || DEFAULT_AGENT_ID;
+  draft.deliveryMode = job.deliveryMode || 'web';
+  draft.deliveryChannelId = job.deliveryChannelId || (job.deliveryMode === 'web' ? 'web' : '');
+  draft.deliverySessionMode = job.deliverySessionMode || 'new_session';
+  draft.deliverySessionId = job.deliverySessionId || '';
+  draft.deliveryChannelSessionKey = job.deliveryChannelSessionKey || '';
   draft.scheduleKind = job.schedule.kind === 'webhook' ? 'interval' : job.schedule.kind;
   draft.timeZone = job.timeZone;
 
@@ -524,6 +572,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [logContent, setLogContent] = useState('');
   const [sessionMessages, setSessionMessages] = useState<PersistedAutomationSessionMessage[]>([]);
   const [skills, setSkills] = useState<SkillOption[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
   const [composerMode, setComposerMode] = useState<ComposerMode>('scheduled');
   const [triggerApps, setTriggerApps] = useState<TriggerCapableApp[]>([]);
   const [triggerTypesByToolkit, setTriggerTypesByToolkit] = useState<Record<string, TriggerTypeInfo[]>>({});
@@ -550,6 +599,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
   const templates = useMemo(() => getAutomationTemplates(locale), [locale]);
   const enabledSkills = useMemo(() => skills.filter((skill) => skill.enabled !== false), [skills]);
+  const agentOptions = agents.length > 0
+    ? agents
+    : [{ agentId: DEFAULT_AGENT_ID, name: 'Canvas Agent', type: 'main', removable: false }];
   const selectedTriggerApp = useMemo(
     () => triggerApps.find((app) => app.slug === triggerDraft.toolkitSlug) || null,
     [triggerApps, triggerDraft.toolkitSlug],
@@ -713,6 +765,18 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     }
   }
 
+  async function loadAgents() {
+    try {
+      const response = await fetch('/api/agents', { cache: 'no-store', credentials: 'include' });
+      const payload = await response.json();
+      if (response.ok && payload.success && Array.isArray(payload.data?.agents)) {
+        setAgents(payload.data.agents as AgentOption[]);
+      }
+    } catch {
+      setAgents([]);
+    }
+  }
+
   async function loadTriggerApps() {
     setIsLoadingTriggerApps(true);
     setTriggerAppsError(null);
@@ -784,6 +848,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadJobsEvent();
     void loadSkills();
+    void loadAgents();
   }, []);
 
   useEffect(() => {
@@ -884,6 +949,12 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
             workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
             targetOutputPath: draft.targetOutputPath.trim() || null,
             status: draft.status,
+            agentId: draft.agentId,
+            deliveryMode: draft.deliveryMode,
+            deliveryChannelId: draft.deliveryChannelId.trim() || null,
+            deliverySessionMode: draft.deliverySessionMode,
+            deliverySessionId: draft.deliverySessionId.trim() || null,
+            deliveryChannelSessionKey: draft.deliveryChannelSessionKey.trim() || null,
           }
         : buildPayload(draft);
       const response = await fetch(draft.id ? `/api/automations/jobs/${draft.id}` : '/api/automations/jobs', {
@@ -932,6 +1003,12 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
           triggerConfig,
           workspaceContextPaths: parseWorkspaceContext(triggerDraft.workspaceContextText),
           targetOutputPath: triggerDraft.targetOutputPath.trim() || null,
+          agentId: triggerDraft.agentId,
+          deliveryMode: triggerDraft.deliveryMode,
+          deliveryChannelId: triggerDraft.deliveryChannelId.trim() || null,
+          deliverySessionMode: triggerDraft.deliverySessionMode,
+          deliverySessionId: triggerDraft.deliverySessionId.trim() || null,
+          deliveryChannelSessionKey: triggerDraft.deliveryChannelSessionKey.trim() || null,
           status: 'active',
         }),
       });
@@ -1083,6 +1160,117 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     );
   }
 
+  function deliveryModeLabel(mode: AutomationDeliveryMode): string {
+    const isGerman = locale.startsWith('de');
+    if (mode === 'web') return isGerman ? 'Web Chat' : 'Web chat';
+    if (mode === 'origin') return isGerman ? 'Ursprungs-Channel' : 'Origin channel';
+    if (mode === 'session') return isGerman ? 'Bestehende Session' : 'Existing session';
+    if (mode === 'channel_home') return isGerman ? 'Channel Home' : 'Channel home';
+    return isGerman ? 'Nur speichern' : 'Save only';
+  }
+
+  function deliverySessionModeLabel(mode: AutomationDeliverySessionMode): string {
+    const isGerman = locale.startsWith('de');
+    if (mode === 'new_session') return isGerman ? 'Neue Session' : 'New session';
+    if (mode === 'channel_active') return isGerman ? 'Aktive Session im Ziel-Channel' : 'Active session in target channel';
+    return isGerman ? 'Feste Session-ID' : 'Fixed session ID';
+  }
+
+  function renderAgentDeliveryControls(target: 'scheduled' | 'trigger') {
+    const isTrigger = target === 'trigger';
+    const state = isTrigger ? triggerDraft : draft;
+    const isGerman = locale.startsWith('de');
+    const updateState = (patch: Partial<JobDraft & TriggerComposerDraft>) => {
+      if (isTrigger) {
+        setTriggerDraft((current) => ({ ...current, ...patch }));
+      } else {
+        setDraft((current) => ({ ...current, ...patch }));
+      }
+    };
+
+    return (
+      <div className="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-3">
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Bot className="h-3.5 w-3.5" />
+            {isGerman ? 'Agent' : 'Agent'}
+          </span>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={state.agentId}
+            onChange={(event) => updateState({ agentId: event.target.value })}
+          >
+            {agentOptions.map((agent) => (
+              <option key={agent.agentId} value={agent.agentId}>
+                {agent.name}{agent.removable ? '' : ' · System'}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Send className="h-3.5 w-3.5" />
+            {isGerman ? 'Ergebnisziel' : 'Result target'}
+          </span>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={state.deliveryMode}
+            onChange={(event) => {
+              const deliveryMode = event.target.value as AutomationDeliveryMode;
+              updateState({
+                deliveryMode,
+                deliveryChannelId: deliveryMode === 'web' ? 'web' : state.deliveryChannelId,
+              });
+            }}
+          >
+            {(['web', 'origin', 'session', 'channel_home', 'silent'] as AutomationDeliveryMode[]).map((mode) => (
+              <option key={mode} value={mode}>{deliveryModeLabel(mode)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="text-xs text-muted-foreground">{isGerman ? 'Session-Ziel' : 'Session target'}</span>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={state.deliverySessionMode}
+            onChange={(event) => updateState({ deliverySessionMode: event.target.value as AutomationDeliverySessionMode })}
+          >
+            {(['new_session', 'channel_active', 'fixed_session'] as AutomationDeliverySessionMode[]).map((mode) => (
+              <option key={mode} value={mode}>{deliverySessionModeLabel(mode)}</option>
+            ))}
+          </select>
+        </label>
+        {state.deliveryMode !== 'web' && state.deliveryMode !== 'silent' ? (
+          <label className="flex min-w-0 flex-col gap-1 text-sm md:col-span-1">
+            <span className="text-xs text-muted-foreground">{isGerman ? 'Channel-ID' : 'Channel ID'}</span>
+            <input
+              className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
+              value={state.deliveryChannelId}
+              onChange={(event) => updateState({ deliveryChannelId: event.target.value })}
+              placeholder="telegram"
+            />
+          </label>
+        ) : null}
+        {state.deliverySessionMode === 'fixed_session' ? (
+          <label className="flex min-w-0 flex-col gap-1 text-sm md:col-span-2">
+            <span className="text-xs text-muted-foreground">{isGerman ? 'Session-ID' : 'Session ID'}</span>
+            <input
+              className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
+              value={state.deliverySessionId}
+              onChange={(event) => updateState({ deliverySessionId: event.target.value })}
+              placeholder="pi-..."
+            />
+          </label>
+        ) : null}
+        <p className="text-xs text-muted-foreground md:col-span-3">
+          {isGerman
+            ? 'Die Auswahl wird am Job gespeichert. Die Zustellung wird im nächsten Schritt im Runner aufgelöst.'
+            : 'This selection is stored on the job. Runner delivery resolution comes in the next step.'}
+        </p>
+      </div>
+    );
+  }
+
   function handleTriggerAppChange(toolkitSlug: string) {
     const app = triggerApps.find((candidate) => candidate.slug === toolkitSlug) || null;
     setTriggerDraft((current) => ({
@@ -1189,6 +1377,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                     </label>
                     {renderSkillSelect('automation-preferred-skill')}
                   </div>
+                  {renderAgentDeliveryControls('scheduled')}
                   <div className="space-y-3 rounded-md border bg-muted/20 p-3">
                     <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
@@ -1245,6 +1434,10 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                     <span className="min-w-0 max-w-[12rem] truncate text-right text-xs">{describeFriendlyScheduleLocalized(selectedJob.schedule, t, weekdayLabels)}</span>
                     <span className="text-muted-foreground">{t('results.title')}</span>
                     <span className="min-w-0 max-w-[12rem] truncate text-right font-mono text-xs">{selectedJob.effectiveTargetOutputPath || t('output.none')}</span>
+                    <span className="text-muted-foreground">{locale.startsWith('de') ? 'Agent' : 'Agent'}</span>
+                    <span className="min-w-0 max-w-[12rem] truncate text-right text-xs">{agentOptions.find((agent) => agent.agentId === selectedJob.agentId)?.name || selectedJob.agentId}</span>
+                    <span className="text-muted-foreground">{locale.startsWith('de') ? 'Ziel' : 'Target'}</span>
+                    <span className="min-w-0 max-w-[12rem] truncate text-right text-xs">{deliveryModeLabel(selectedJob.deliveryMode)} · {deliverySessionModeLabel(selectedJob.deliverySessionMode)}</span>
                   </div>
                   <div className="space-y-2" data-testid="automation-run-list">
                     {isRefreshingRuns && runs.length === 0 ? (
@@ -1412,6 +1605,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                   <input data-testid="automation-name" className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
                   <textarea data-testid="automation-prompt" className="min-h-[18rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder={t('editor.placeholders.prompt')} />
                   <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} compact />
+                  {renderAgentDeliveryControls('scheduled')}
                   <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                     {renderSkillSelect('automation-composer-preferred-skill')}
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -1574,6 +1768,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                         onChange={(key, value) => setTriggerDraft((current) => ({ ...current, configValues: { ...current.configValues, [key]: value } }))}
                         emptyLabel={t('triggers.noConfig')}
                       />
+                      {renderAgentDeliveryControls('trigger')}
                       <div className="grid gap-3 sm:grid-cols-2">
                         <label className="flex flex-col gap-1 text-sm">
                           <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
