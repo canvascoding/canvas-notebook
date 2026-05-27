@@ -1,15 +1,9 @@
-import { db } from '@/app/lib/db';
-import { agents } from '@/app/lib/db/schema';
+import { ensureCanvasAgent } from '@/app/lib/agents/registry';
 import { DEFAULT_AGENT_ID } from './constants';
 
 export async function ensureDefaultAgent(): Promise<void> {
-  const now = new Date();
-  await db.insert(agents).values({
-    agentId: DEFAULT_AGENT_ID,
-    name: 'Canvas Agent',
-    type: 'main',
-    removable: false,
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoNothing();
+  if (DEFAULT_AGENT_ID !== 'canvas-agent') {
+    throw new Error('Default channel agent must be canvas-agent.');
+  }
+  await ensureCanvasAgent();
 }

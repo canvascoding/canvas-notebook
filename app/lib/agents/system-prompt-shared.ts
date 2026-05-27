@@ -1,8 +1,11 @@
-import { resolveAgentStorageDir } from '../runtime-data-paths';
+import path from 'node:path';
+
+import { resolveAgentStorageDir, resolveAgentsStorageRoot } from '../runtime-data-paths';
 
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
 const AGENT_STORAGE_DIR = resolveAgentStorageDir();
+const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
 
 export type ManagedPromptFileName = (typeof MANAGED_PROMPT_FILE_NAMES)[number];
 export type ManagedPromptFiles = Record<ManagedPromptFileName, string>;
@@ -68,9 +71,29 @@ export type ManagedSystemPromptResult = {
   diagnostics: ManagedPromptDiagnostics;
 };
 
+export type ManagedPromptSource = {
+  agentId?: string | null;
+  inheritedFiles?: readonly ManagedPromptFileName[];
+};
+
+function normalizePromptAgentId(agentId?: string | null): string {
+  const normalized = typeof agentId === 'string' ? agentId.trim().toLowerCase() : '';
+  return normalized || 'canvas-agent';
+}
+
+function getPromptSourcePath(fileName: ManagedPromptFileName, source?: ManagedPromptSource): string {
+  const inherited = source?.inheritedFiles?.includes(fileName) ?? false;
+  const agentId = normalizePromptAgentId(inherited ? 'canvas-agent' : source?.agentId);
+  if (agentId === 'canvas-agent') {
+    return `${AGENT_STORAGE_DIR}/${fileName}`;
+  }
+  return path.join(AGENTS_STORAGE_ROOT, agentId, fileName);
+}
+
 export function composeManagedAgentSystemPrompt(
   files: ManagedPromptFiles,
-  skillsContext?: string
+  skillsContext?: string,
+  source?: ManagedPromptSource,
 ): ManagedSystemPromptResult {
   const sections = MANAGED_PROMPT_FILE_NAMES.map((fileName) => {
     const rawContent = files[fileName] ?? '';
@@ -101,7 +124,7 @@ export function composeManagedAgentSystemPrompt(
   }
 
   const sectionBlocks = includedSections.map(
-    (section) => `## ${section.fileName}\nSource: ${AGENT_STORAGE_DIR}/${section.fileName}\n\n${section.content}`
+    (section) => `## ${section.fileName}\nSource: ${getPromptSourcePath(section.fileName, source)}\n\n${section.content}`
   );
 
   // Add skills context if provided
