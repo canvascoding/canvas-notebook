@@ -31,6 +31,7 @@
     "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",
     "test:automation:schedule": "tsx scripts/automation-schedule-test.ts",
     "test:channels": "tsx scripts/channel-architecture-test.ts",
+    "test:channels:db": "tsx scripts/channel-db-test.ts",
     "test:e2e": "playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",
     "test:websocket:connection": "node scripts/test-websocket-connection.js",
