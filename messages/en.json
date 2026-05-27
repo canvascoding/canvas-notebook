@@ -1142,6 +1142,22 @@
         "verbose": "Verbose",
         "verboseDescription": "Show full tool call details with input and output for debugging."
       },
+      "inheritance": {
+        "title": "Special Agent Overrides",
+        "description": "Special agents inherit model, tools, identity, and user context from the Canvas Agent by default.",
+        "modelOverride": "Use custom model",
+        "toolsOverride": "Use custom tools",
+        "inheritedModel": "Inherited from Canvas Agent: {summary}",
+        "customModel": "Custom default: {summary}",
+        "inheritedTools": "Inherits {count} active tools from Canvas Agent",
+        "customTools": "{count} active tools for this agent",
+        "modelCardTitle": "Model override",
+        "modelCardDescription": "Set provider, model, and thinking level only for this special agent. Credentials stay global.",
+        "overrideSaved": "Agent override saved.",
+        "errors": {
+          "save": "Failed to save agent override."
+        }
+      },
       "doctor": {
         "title": "Doctor",
         "description": "System check for providers and connectivity.",
@@ -1224,6 +1240,8 @@
         "confirmReset": "Are you sure you want to reset {fileName} to the default prompt?",
         "confirmResetAllTitle": "Reset all files?",
         "confirmResetAll": "Are you sure you want to reset all files to the default prompts?",
+        "inheritedFromCanvas": "Inherited from Canvas Agent",
+        "emptyInherited": "No content in inherited prompt.",
         "errors": {
           "load": "Failed to load agent files.",
           "save": "Failed to save agent file.",
