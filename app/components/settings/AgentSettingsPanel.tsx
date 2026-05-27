@@ -3,30 +3,13 @@
 import { useCallback, useEffect, useMemo, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Loader2, RefreshCw, Save, RotateCcw, ChevronDown, Wrench, Search, X, Eye, EyeOff, ListCollapse, type LucideIcon } from 'lucide-react';
+import { Loader2, ChevronDown, Wrench, Search, X, Eye, EyeOff, ListCollapse, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { PiProviderSetupCard } from './PiProviderSetupCard';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -35,20 +18,17 @@ import {
   isDefaultToolsConfig,
   getDefaultEnabledToolNames,
 } from '@/app/lib/pi/enabled-tools';
-import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import { useToolVerbosityStore, type ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
+import { AgentManagedFilesCard, MANAGED_FILES, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 
-const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 const SETTINGS_AGENT_ID = DEFAULT_AGENT_ID;
 
 function buildAgentQuery(): string {
   return new URLSearchParams({ agentId: SETTINGS_AGENT_ID }).toString();
 }
-
-type ManagedFileName = (typeof MANAGED_FILES)[number];
 
 type SessionItem = AgentSessionItem;
 
@@ -92,7 +72,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 
 export function AgentSettingsPanel() {
   const t = useTranslations('settings');
-  const tCommon = useTranslations('common');
   const searchParams = useSearchParams();
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
   const setToolVerbosity = useToolVerbosityStore((s) => s.setToolVerbosity);
@@ -119,7 +98,7 @@ export function AgentSettingsPanel() {
   const [filesResetting, setFilesResetting] = useState(false);
 
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
-  const [resetTarget, setResetTarget] = useState<'current' | 'all' | null>(null);
+  const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -332,7 +311,7 @@ export function AgentSettingsPanel() {
     }
   };
 
-  const openResetDialog = (target: 'current' | 'all') => {
+  const openResetDialog = (target: ResetTarget) => {
     setResetTarget(target);
     setResetDialogOpen(true);
   };
@@ -791,99 +770,34 @@ export function AgentSettingsPanel() {
         </CardContent>
       </Card>
 
-      <Card id="onboarding-settings-managedFiles">
-        <CardHeader>
-          <CardTitle>{t('agentPanel.files.title')}</CardTitle>
-          <CardDescription>{t('agentPanel.files.description')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {filesLoading || !files ? (
-            <div className="flex items-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t('agentPanel.files.loading')}
-            </div>
-          ) : (
-            <>
-              <Tabs value={activeFile} onValueChange={(value) => setActiveFile(value as ManagedFileName)}>
-                <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
-                  {MANAGED_FILES.map((fileName) => (
-                    <TabsTrigger key={fileName} value={fileName} className="border border-border data-[state=active]:bg-muted">
-                      {fileName}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
-
-              <div
-                data-testid="agent-managed-file-editor"
-                className="h-[400px] overflow-hidden rounded-md border border-input"
-              >
-                <MarkdownEditor
-                  value={fileDrafts[activeFile] ?? ''}
-                  onChange={(nextValue) =>
-                    setFileDrafts((current) => ({
-                      ...current,
-                      [activeFile]: nextValue,
-                    }))
-                  }
-                />
-              </div>
-
-              {filesError && <p className="text-sm text-destructive">{filesError}</p>}
-              {filesSuccess && <p className="text-sm text-primary">{filesSuccess}</p>}
-
-              <div className="flex flex-wrap gap-2">
-                <Button data-testid="agent-managed-file-save" onClick={() => void saveActiveFile()} disabled={filesSaving || filesResetting}>
-                  {filesSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  {t('agentPanel.files.save')}
-                </Button>
-                <Button variant="outline" onClick={() => void loadFiles()} disabled={filesLoading || filesSaving || filesResetting}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {t('agentPanel.files.reload')}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" disabled={filesLoading || filesSaving || filesResetting}>
-                      {filesResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
-                      {t('agentPanel.files.reset')}
-                      <ChevronDown className="ml-2 h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => openResetDialog('current')}>
-                      {t('agentPanel.files.resetCurrentFile')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => openResetDialog('all')}>
-                      {t('agentPanel.files.resetAllFiles')}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {resetTarget === 'all' ? t('agentPanel.files.confirmResetAllTitle') : t('agentPanel.files.confirmResetTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {resetTarget === 'all' ? t('agentPanel.files.confirmResetAll') : t('agentPanel.files.confirmReset', { fileName: activeFile })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setResetDialogOpen(false); setResetTarget(null); }}>
-              {tCommon('cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={() => void resetFile()}>
-              {t('agentPanel.files.reset')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AgentManagedFilesCard
+        files={files}
+        fileDrafts={fileDrafts}
+        activeFile={activeFile}
+        filesLoading={filesLoading}
+        filesSaving={filesSaving}
+        filesResetting={filesResetting}
+        filesError={filesError}
+        filesSuccess={filesSuccess}
+        resetDialogOpen={resetDialogOpen}
+        resetTarget={resetTarget}
+        onActiveFileChange={setActiveFile}
+        onDraftChange={(fileName, value) =>
+          setFileDrafts((current) => ({
+            ...current,
+            [fileName]: value,
+          }))
+        }
+        onSaveActiveFile={() => void saveActiveFile()}
+        onReloadFiles={() => void loadFiles()}
+        onOpenResetDialog={openResetDialog}
+        onResetDialogOpenChange={setResetDialogOpen}
+        onClearResetTarget={() => {
+          setResetDialogOpen(false);
+          setResetTarget(null);
+        }}
+        onResetFile={() => void resetFile()}
+      />
 
       <AgentSessionsCard
         sessions={sessions}
