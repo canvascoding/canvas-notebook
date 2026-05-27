@@ -1102,6 +1102,24 @@
       }
     },
     "agentPanel": {
+      "selector": {
+        "title": "Agent-Auswahl",
+        "description": "Wähle, welcher Agent mit den Einstellungen darunter bearbeitet wird.",
+        "reload": "Neu laden",
+        "create": "Agent anlegen",
+        "loading": "Lade Agenten...",
+        "empty": "Keine Agenten gefunden.",
+        "mainAgent": "Main",
+        "specialAgent": "Spezial",
+        "locked": "Fix",
+        "defaults": "Standard: {provider} / {model}",
+        "inheritsDefaults": "Erbt Provider- und Modell-Defaults.",
+        "notSet": "nicht gesetzt",
+        "createHint": "Spezialisierte Agenten werden in einem nächsten Schritt angelegt. Der Canvas Agent ist die feste Grundlage und kann nicht entfernt werden.",
+        "errors": {
+          "load": "Agenten konnten nicht geladen werden."
+        }
+      },
       "chatDisplay": {
         "title": "Chat-Anzeige",
         "description": "Lege fest, wie viel Hintergrundaktivität im Chat sichtbar ist.",
