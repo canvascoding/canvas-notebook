@@ -5,8 +5,10 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { getActiveChannelSession } from '@/app/lib/channels/active-sessions';
-import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
+import { ensureSessionChannelLink, markChannelLinkOutbound } from '@/app/lib/channels/channel-links';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
+import { buildDeliveryTarget } from '@/app/lib/channels/delivery-targets';
+import { getChannelRegistry } from '@/app/lib/channels/registry';
 
 import type { AutomationJobRecord } from './types';
 
@@ -17,6 +19,13 @@ export type AutomationDeliveryResolution = {
   channelSessionKey: string;
   warnings: string[];
   activeDelivery: boolean;
+};
+
+export type AutomationDeliveryDispatchResult = {
+  attempted: boolean;
+  delivered: boolean;
+  skippedReason: string | null;
+  error: string | null;
 };
 
 function defaultWebChannelSessionKey(userId: string): string {
@@ -113,5 +122,81 @@ export async function resolveAutomationDeliveryTarget(input: {
     channelSessionKey: delivery.channelSessionKey || defaultWebChannelSessionKey(userId),
     warnings,
     activeDelivery: delivery.activeDelivery,
+  };
+}
+
+export async function dispatchAutomationResult(input: {
+  job: AutomationJobRecord;
+  userId: string;
+  resolution: AutomationDeliveryResolution;
+  text: string;
+}): Promise<AutomationDeliveryDispatchResult> {
+  const text = input.text.trim();
+
+  if (!input.resolution.activeDelivery || input.job.deliveryMode === 'silent') {
+    return {
+      attempted: false,
+      delivered: false,
+      skippedReason: 'silent',
+      error: null,
+    };
+  }
+
+  if (!text) {
+    return {
+      attempted: false,
+      delivered: false,
+      skippedReason: 'empty_result',
+      error: null,
+    };
+  }
+
+  if (input.resolution.channelId === WEB_CHANNEL_ID) {
+    await markChannelLinkOutbound({
+      sessionId: input.resolution.sessionId,
+      userId: input.userId,
+      channelId: WEB_CHANNEL_ID,
+      channelSessionKey: input.resolution.channelSessionKey,
+    });
+    return {
+      attempted: true,
+      delivered: true,
+      skippedReason: null,
+      error: null,
+    };
+  }
+
+  const channel = getChannelRegistry().get(input.resolution.channelId);
+  if (!channel) {
+    return {
+      attempted: false,
+      delivered: false,
+      skippedReason: 'channel_not_registered',
+      error: null,
+    };
+  }
+
+  const result = await channel.deliver(
+    { role: 'assistant', content: text },
+    buildDeliveryTarget(
+      input.resolution.channelId,
+      input.resolution.channelSessionKey,
+    ),
+  );
+
+  if (result.ok) {
+    await markChannelLinkOutbound({
+      sessionId: input.resolution.sessionId,
+      userId: input.userId,
+      channelId: input.resolution.channelId,
+      channelSessionKey: input.resolution.channelSessionKey,
+    });
+  }
+
+  return {
+    attempted: true,
+    delivered: result.ok,
+    skippedReason: null,
+    error: result.error ?? null,
   };
 }

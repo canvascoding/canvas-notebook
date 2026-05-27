@@ -12,7 +12,8 @@ async function main() {
   const { db } = await import('../app/lib/db');
   const { user, piSessions, sessionChannelLinks } = await import('../app/lib/db/schema');
   const { setActiveChannelSession } = await import('../app/lib/channels/active-sessions');
-  const { resolveAutomationDeliveryTarget } = await import('../app/lib/automations/delivery');
+  const { getChannelRegistry } = await import('../app/lib/channels/registry');
+  const { dispatchAutomationResult, resolveAutomationDeliveryTarget } = await import('../app/lib/automations/delivery');
 
   const now = new Date();
   const userId = 'user-automation-delivery';
@@ -146,6 +147,45 @@ async function main() {
   assert.equal(missingActive.sessionId, 'auto-missing-active');
   assert.equal(missingActive.mode, 'new_session');
   assert.ok(missingActive.warnings.length > 0);
+
+  const webDispatch = await dispatchAutomationResult({
+    job: baseJob,
+    userId,
+    resolution: webNew,
+    text: 'Web result',
+  });
+  assert.equal(webDispatch.delivered, true);
+  assert.equal(webDispatch.error, null);
+
+  const delivered: Array<{ content: string; chatId: string }> = [];
+  getChannelRegistry().register({
+    id: 'telegram',
+    name: 'Telegram Test',
+    async start() {},
+    async stop() {},
+    async deliver(message, target) {
+      delivered.push({ content: message.content, chatId: target.chatId });
+      return { ok: true };
+    },
+    getStatus() {
+      return { running: true, connected: true };
+    },
+  });
+
+  const telegramDispatch = await dispatchAutomationResult({
+    job: {
+      ...baseJob,
+      deliveryMode: 'origin',
+      deliveryChannelId: 'telegram',
+      deliveryChannelSessionKey: 'telegram:42',
+    },
+    userId,
+    resolution: active,
+    text: 'Telegram result',
+  });
+  assert.equal(telegramDispatch.delivered, true);
+  assert.deepEqual(delivered, [{ content: 'Telegram result', chatId: '42' }]);
+  getChannelRegistry().unregister('telegram');
 
   console.log('automation delivery tests passed');
 }
