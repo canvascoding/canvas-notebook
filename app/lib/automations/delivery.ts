@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import { getActiveChannelSession } from '@/app/lib/channels/active-sessions';
+import { getActiveChannelSession, getLatestActiveChannelSession } from '@/app/lib/channels/active-sessions';
 import { ensureSessionChannelLink, markChannelLinkOutbound } from '@/app/lib/channels/channel-links';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { buildDeliveryTarget } from '@/app/lib/channels/delivery-targets';
@@ -78,6 +78,17 @@ export async function resolveAutomationDeliveryTarget(input: {
   const warnings: string[] = [];
   const delivery = resolveDeliveryChannel(job, userId);
 
+  if (delivery.channelId !== WEB_CHANNEL_ID && !delivery.channelSessionKey) {
+    const latest = await getLatestActiveChannelSession({
+      userId,
+      channelId: delivery.channelId,
+      agentId: job.agentId,
+    });
+    if (latest) {
+      delivery.channelSessionKey = latest.channelSessionKey;
+    }
+  }
+
   let sessionId = defaultSessionId;
   let mode: AutomationDeliveryResolution['mode'] = 'new_session';
 
@@ -107,23 +118,59 @@ export async function resolveAutomationDeliveryTarget(input: {
     }
   }
 
-  await ensureSessionChannelLink({
-    sessionId,
-    userId,
-    channelId: delivery.channelId,
-    channelSessionKey: delivery.channelSessionKey || defaultWebChannelSessionKey(userId),
-    isPrimary: delivery.channelId === WEB_CHANNEL_ID,
-    deliveryPolicy: job.deliveryMode === 'silent' ? 'muted' : 'last_active',
-  });
+  const resolvedChannelSessionKey = delivery.channelSessionKey
+    || (delivery.channelId === WEB_CHANNEL_ID ? defaultWebChannelSessionKey(userId) : '');
+
+  if (resolvedChannelSessionKey) {
+    await ensureSessionChannelLink({
+      sessionId,
+      userId,
+      channelId: delivery.channelId,
+      channelSessionKey: resolvedChannelSessionKey,
+      isPrimary: delivery.channelId === WEB_CHANNEL_ID,
+      deliveryPolicy: job.deliveryMode === 'silent' ? 'muted' : 'last_active',
+    });
+  }
 
   return {
     sessionId,
     mode,
     channelId: delivery.channelId,
-    channelSessionKey: delivery.channelSessionKey || defaultWebChannelSessionKey(userId),
+    channelSessionKey: resolvedChannelSessionKey,
     warnings,
     activeDelivery: delivery.activeDelivery,
   };
+}
+
+export function getAutomationDeliveryFailureMessage(
+  resolution: AutomationDeliveryResolution,
+  dispatch: AutomationDeliveryDispatchResult,
+): string | null {
+  if (!resolution.activeDelivery || dispatch.delivered) {
+    return null;
+  }
+
+  if (dispatch.skippedReason === 'silent' || dispatch.skippedReason === 'empty_result') {
+    return null;
+  }
+
+  if (dispatch.skippedReason === 'missing_channel_session_key') {
+    return `Automation delivery to channel "${resolution.channelId}" failed: no channel session key is available.`;
+  }
+
+  if (dispatch.skippedReason === 'channel_not_registered') {
+    return `Automation delivery to channel "${resolution.channelId}" failed: channel is not registered.`;
+  }
+
+  if (dispatch.attempted) {
+    return `Automation delivery to channel "${resolution.channelId}" failed${dispatch.error ? `: ${dispatch.error}` : '.'}`;
+  }
+
+  if (dispatch.skippedReason) {
+    return `Automation delivery to channel "${resolution.channelId}" was skipped: ${dispatch.skippedReason}.`;
+  }
+
+  return null;
 }
 
 export async function dispatchAutomationResult(input: {
@@ -164,6 +211,15 @@ export async function dispatchAutomationResult(input: {
       delivered: true,
       skippedReason: null,
       error: null,
+    };
+  }
+
+  if (!input.resolution.channelSessionKey.trim()) {
+    return {
+      attempted: false,
+      delivered: false,
+      skippedReason: 'missing_channel_session_key',
+      error: 'Delivery channel session key is required for external channels.',
     };
   }
 

@@ -16,6 +16,7 @@ import { buildAutomationPrompt } from './prompt';
 import { executeHeartbeat } from './heartbeat';
 import {
   dispatchAutomationResult,
+  getAutomationDeliveryFailureMessage,
   resolveAutomationDeliveryTarget,
   type AutomationDeliveryDispatchResult,
   type AutomationDeliveryResolution,
@@ -251,6 +252,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   
   const events: string[] = [];
   let finalMessages: AgentMessage[] = [];
+  let dispatchResult: AutomationDeliveryDispatchResult | undefined;
   const existingSession = deliveryResolution.mode === 'new_session'
     ? null
     : await loadPiSessionWithSummary(piSessionId, job.createdByUserId, job.agentId);
@@ -330,12 +332,16 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     }
 
     const assistantText = extractAssistantText(finalMessages);
-    const dispatchResult = await dispatchAutomationResult({
+    dispatchResult = await dispatchAutomationResult({
       job,
       userId: job.createdByUserId,
       resolution: deliveryResolution,
       text: assistantText,
     });
+    const deliveryFailureMessage = getAutomationDeliveryFailureMessage(deliveryResolution, dispatchResult);
+    if (deliveryFailureMessage) {
+      throw new Error(deliveryFailureMessage);
+    }
     const persistedFinalMessages = finalMessages.length >= existingMessages.length
       ? finalMessages
       : [...existingMessages, ...finalMessages];
@@ -397,7 +403,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       await markAutomationRunRetryScheduled(run.id, retryAt, message, events, {
         provider,
         model: model.id,
-        ...buildAutomationRunMetadata(job, deliveryResolution),
+        ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
         status: 'retry_scheduled',
         retryAt: retryAt.toISOString(),
         error: message,
@@ -417,7 +423,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       metadataJson: {
         provider,
         model: model.id,
-        ...buildAutomationRunMetadata(job, deliveryResolution),
+        ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
         status: 'failed',
         error: message,
         targetOutputPath: job.targetOutputPath,
