@@ -356,7 +356,7 @@ function toMcpServerDraft(name: string, serverConfig: Record<string, unknown> = 
     envPassthrough: Array.isArray(serverConfig.envPassthrough) ? serverConfig.envPassthrough.filter((value): value is string => typeof value === 'string') : [],
     cwd: typeof serverConfig.cwd === 'string' ? serverConfig.cwd : '',
     url: typeof serverConfig.url === 'string' ? serverConfig.url : '',
-    auth: serverConfig.auth === 'none' ? 'none' : 'oauth',
+    auth: serverConfig.auth === 'oauth' || (serverConfig.oauth && typeof serverConfig.oauth === 'object' && !Array.isArray(serverConfig.oauth)) ? 'oauth' : 'none',
     bearerTokenEnv: typeof serverConfig.bearerTokenEnv === 'string' ? serverConfig.bearerTokenEnv : '',
     headers,
     headersFromEnv,
@@ -1032,6 +1032,15 @@ function McpConfigCard(props: {
                       <Input id="mcp-url" className="mt-2" value={serverDraft.url} onChange={(event) => updateServerDraft({ url: event.target.value })} placeholder="https://mcp.example.com/mcp" />
                     </div>
                     <div>
+                      <Label>{t('mcpConfig.oauthMode')}</Label>
+                      <Tabs value={serverDraft.auth} onValueChange={(value) => updateServerDraft({ auth: value as McpServerDraft['auth'] })} className="mt-2">
+                        <TabsList className="grid w-full grid-cols-2">
+                          <TabsTrigger value="none">{t('mcpConfig.oauthNone')}</TabsTrigger>
+                          <TabsTrigger value="oauth">{t('mcpConfig.oauthEnabled')}</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                    </div>
+                    <div>
                       <Label htmlFor="mcp-bearer">{t('mcpConfig.bearerEnv')}</Label>
                       <Input id="mcp-bearer" className="mt-2" value={serverDraft.bearerTokenEnv} onChange={(event) => updateServerDraft({ bearerTokenEnv: event.target.value })} placeholder="MCP_BEARER_TOKEN" />
                     </div>
@@ -1198,17 +1207,22 @@ function EmailAccountsCard() {
     const emailOAuthError = searchParams.get('emailOAuthError');
     if (emailOAuthStatus === 'connected') {
       handledEmailOAuthReturn.current = true;
-      setMessage('Email account connected.');
-      setError(null);
-      void loadAccounts();
-      clearEmailOAuthParams();
-      return;
+      const timeout = window.setTimeout(() => {
+        setMessage('Email account connected.');
+        setError(null);
+        void loadAccounts();
+        clearEmailOAuthParams();
+      }, 0);
+      return () => window.clearTimeout(timeout);
     }
     if (emailOAuthStatus === 'failed' || emailOAuthError) {
       handledEmailOAuthReturn.current = true;
-      setError(emailOAuthError || 'Email OAuth failed.');
-      setMessage(null);
-      clearEmailOAuthParams();
+      const timeout = window.setTimeout(() => {
+        setError(emailOAuthError || 'Email OAuth failed.');
+        setMessage(null);
+        clearEmailOAuthParams();
+      }, 0);
+      return () => window.clearTimeout(timeout);
     }
   }, [clearEmailOAuthParams, loadAccounts, searchParams]);
 

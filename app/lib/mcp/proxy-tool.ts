@@ -432,6 +432,9 @@ function buildCallArguments(params: McpProxyParams): Record<string, unknown> {
 
 async function handleAuthStatus(serverName: string): Promise<AgentToolResult<unknown>> {
   const status = await getMcpOAuthStatus(serverName);
+  if (!status.requiresAuth) {
+    return textResult(`MCP server "${serverName}" does not require OAuth authorization.`, status);
+  }
   return textResult(
     status.authorized
       ? `MCP server "${serverName}" is authorized${status.expiresAt ? ` until ${status.expiresAt}` : ''}.`

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { z } from 'zod';
 
 function getText(result: unknown): string {
   const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
@@ -15,6 +20,76 @@ async function countStarts(filePath: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+async function startHttpMcpServer(): Promise<{
+  url: string;
+  requests: Array<{ authorization?: string }>;
+  close: () => Promise<void>;
+}> {
+  const requests: Array<{ authorization?: string }> = [];
+  const server = http.createServer(async (req, res) => {
+    if (req.method !== 'POST' || req.url?.split('?')[0] !== '/mcp') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed.' },
+        id: null,
+      }));
+      return;
+    }
+
+    requests.push({
+      authorization: typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined,
+    });
+
+    const mcp = new McpServer({ name: 'canvas-http-fake-mcp-server', version: '1.0.0' });
+    mcp.registerTool(
+      'http-echo',
+      {
+        title: 'HTTP Echo',
+        description: 'Echoes a message over streamable HTTP.',
+        inputSchema: {
+          message: z.string(),
+        },
+      },
+      async ({ message }) => ({
+        content: [{ type: 'text', text: `http:${message}` }],
+      }),
+    );
+
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on('close', () => {
+      void transport.close();
+      void mcp.close();
+    });
+    try {
+      await mcp.connect(transport);
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      await transport.close().catch(() => undefined);
+      await mcp.close().catch(() => undefined);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: error instanceof Error ? error.message : 'Internal server error' },
+          id: null,
+        }));
+      }
+    }
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.equal(typeof address, 'object');
+  const port = address && typeof address === 'object' ? address.port : 0;
+
+  return {
+    url: `http://127.0.0.1:${port}/mcp`,
+    requests,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
 }
 
 async function main() {
@@ -101,6 +176,32 @@ async function main() {
   assert.equal(await countStarts(startFile), 3);
 
   await closeAllMcpServers();
+  const httpMcp = await startHttpMcpServer();
+  try {
+    await writeMcpConfigRaw(JSON.stringify({
+      settings: {
+        toolPrefix: 'server',
+        idleTimeout: 10,
+      },
+      mcpServers: {
+        plainHttp: {
+          url: httpMcp.url,
+          timeoutMs: 10000,
+        },
+      },
+    }, null, 2));
+
+    const httpTools = await listMcpTools('plainHttp');
+    assert.equal(httpTools.some((tool) => tool.name === 'http-echo'), true);
+    assert.equal(httpMcp.requests.some((request) => Boolean(request.authorization)), false);
+
+    const httpStatus = await getMcpRuntimeStatus('plainHttp');
+    assert.equal(httpStatus.servers[0].connected, true);
+  } finally {
+    await closeAllMcpServers();
+    await httpMcp.close();
+  }
+
   console.log('mcp-manager-test: ok');
 }
 
