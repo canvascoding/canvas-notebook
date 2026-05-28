@@ -30,6 +30,25 @@ const DEFAULT_DELIVERY_SESSION_MODE: AutomationDeliverySessionMode = 'new_sessio
 const DELIVERY_MODES = new Set<AutomationDeliveryMode>(['web', 'origin', 'session', 'channel_home', 'silent']);
 const DELIVERY_SESSION_MODES = new Set<AutomationDeliverySessionMode>(['new_session', 'channel_active', 'fixed_session']);
 
+function stripLeadingPathDecorators(value: string): string {
+  let next = value;
+  while (next.startsWith('/')) {
+    next = next.slice(1);
+  }
+  while (next.startsWith('./')) {
+    next = next.slice(2);
+  }
+  return next;
+}
+
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
 type AutomationSessionMetadata = {
   sessionId: string;
   title: string | null;
@@ -127,7 +146,7 @@ function normalizeTargetOutputPath(value: unknown): string | null {
     throw new Error('Target output path must be a string.');
   }
 
-  const normalized = value.trim().replace(/^\/+/, '').replace(/^\.\/+/, '').replace(/\/+$/, '');
+  const normalized = stripTrailingSlashes(stripLeadingPathDecorators(value.trim()));
   if (!normalized) {
     return null;
   }

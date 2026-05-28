@@ -104,7 +104,7 @@ export function parsePageSize(searchParams: URLSearchParams): number {
 }
 
 function buildSessionQueryPattern(value: string): string {
-  return `%${value.replace(/[%_]/g, '\\$&')}%`;
+  return `%${value.replace(/[\\%_]/g, '\\$&')}%`;
 }
 
 function toUnixSeconds(date: Date): number {

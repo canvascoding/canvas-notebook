@@ -103,7 +103,7 @@ export async function POST(request: Request) {
       config.enabledSkills = enableSkillInConfig(skillName, config.enabledSkills, allSkillNames);
       await writePiRuntimeConfig(config);
     } catch (cfgError) {
-      console.warn(`[Skills Upload API] Could not auto-enable skill "${skillName}":`, cfgError);
+      console.warn('[Skills Upload API] Could not auto-enable skill:', skillName, cfgError);
     }
 
     console.log(`[Skills Upload API] Created skill: ${skillDir}`);

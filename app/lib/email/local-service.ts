@@ -536,7 +536,9 @@ export async function searchLocalEmail(input: { accountId?: string; query?: stri
       '$select': 'id,conversationId,from,subject,receivedDateTime,bodyPreview',
       '$orderby': 'receivedDateTime desc',
     });
-    if (input.query?.trim()) params.set('$search', `"${input.query.replace(/"/g, '\\"')}"`);
+    if (input.query?.trim()) {
+      params.set('$search', `"${input.query.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    }
     const result = await microsoftFetch(`messages?${params.toString()}`, token, input.query?.trim() ? { headers: { ConsistencyLevel: 'eventual' } } : undefined);
     const values = Array.isArray(result.value) ? result.value as Record<string, unknown>[] : [];
     messages = values.map((message) => {

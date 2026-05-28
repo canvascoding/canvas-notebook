@@ -70,6 +70,18 @@ const MIME_BY_FORMAT = {
   webp: 'image/webp',
 } as const;
 
+function trimHyphens(value: string): string {
+  return value.replace(/^-+/, '').replace(/-+$/, '');
+}
+
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
 function assertFiniteNumber(value: unknown, field: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`${field} must be a finite number`);
@@ -80,9 +92,7 @@ function assertFiniteNumber(value: unknown, field: string): number {
 function sanitizeFileName(input: string | undefined, fallback: string) {
   const raw = (input || fallback).trim();
   const parsed = path.posix.parse(raw);
-  const safeBase = (parsed.name || fallback)
-    .replace(/[^a-z0-9._-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
+  const safeBase = trimHyphens((parsed.name || fallback).replace(/[^a-z0-9._-]+/gi, '-'))
     .slice(0, 80) || fallback;
   const ext = parsed.ext.replace(/[^a-z0-9.]/gi, '').toLowerCase();
   return `${safeBase}${ext || '.png'}`;
@@ -205,7 +215,7 @@ function buildExtendPrompt(aspectRatio: string) {
 
 function buildEditFileName(mode: AspectRatioMode, sourcePath: string, format: string) {
   const base = path.posix.parse(sourcePath.split(/[?#]/, 1)[0] || 'image').name || 'image';
-  const safeBase = base.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'image';
+  const safeBase = trimHyphens(base.replace(/[^a-z0-9._-]+/gi, '-')).slice(0, 50) || 'image';
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const id = crypto.randomUUID().slice(0, 8);
   const ext = format === 'jpeg' ? 'jpg' : format;
@@ -322,7 +332,7 @@ function getEditRelativePath(previewPath: string) {
 function joinWorkspacePath(dirPath: string, fileName: string) {
   const cleanDir = dirPath.trim() || '.';
   if (cleanDir === '.' || cleanDir === './') return fileName;
-  return `${cleanDir.replace(/\/+$/, '')}/${fileName}`;
+  return `${stripTrailingSlashes(cleanDir)}/${fileName}`;
 }
 
 export async function saveAspectRatioEdit(input: AspectRatioSaveRequest): Promise<{ path: string }> {

@@ -5,10 +5,9 @@ const APP_OUTPUT_FOLDER_BY_PATH: Record<string, AppOutputFolderKind> = {};
 function normalizeRelativePath(inputPath: string): string {
   const normalized = inputPath
     .replace(/\\/g, '/')
-    .replace(/^\.\/+/, '')
-    .replace(/^\/+/, '')
-    .replace(/\/+/g, '/')
-    .replace(/\/+$/, '');
+    .split('/')
+    .filter((segment) => segment && segment !== '.')
+    .join('/');
 
   return normalized === '.' ? '' : normalized;
 }

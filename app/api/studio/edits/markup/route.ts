@@ -27,7 +27,8 @@ function buildMarkupFileName(sourcePath: string) {
   const base = path.posix.parse(sourcePath.split(/[?#]/, 1)[0] || 'image').name || 'image';
   const safeBase = base
     .replace(/[^a-z0-9._-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '')
     .slice(0, 48) || 'image';
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const id = crypto.randomUUID().slice(0, 8);

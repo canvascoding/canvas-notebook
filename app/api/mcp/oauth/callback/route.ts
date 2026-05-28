@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { completeMcpOAuthCallback } from '@/app/lib/mcp/oauth';
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function htmlResponse(title: string, message: string, status = 200) {
+  const safeTitle = escapeHtml(title);
+  const safeMessage = escapeHtml(message);
   return new NextResponse(
-    `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1><p>${message}</p></body></html>`,
+    `<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title></head><body><h1>${safeTitle}</h1><p>${safeMessage}</p></body></html>`,
     {
       status,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },

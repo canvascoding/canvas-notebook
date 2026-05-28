@@ -85,7 +85,7 @@ const BLOCKED_BASH_COMMAND_PATTERNS = [
   /\bdeclare\s+-x\b/i,
   /\bset\b\s*(?:[;&|]|$)/i,
   /\bexport\b\s*(?:[;&|]|$)/i,
-  /\/proc(?:\/[^;&|`$()\s]+)*\/environ/i,
+  /\/proc\/[^;&|`$()\s]*\/environ/i,
   /\/data\/secrets(?:\/|$)/i,
   /\/run\/secrets(?:\/|$)/i,
   /\/sys\/firmware(?:\/|$)/i,

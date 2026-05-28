@@ -9,14 +9,12 @@ const PDF_TIMEOUT_MS = 30_000;
 
 function getInternalRenderOrigin(requestUrl: string) {
   const url = new URL(requestUrl);
-  const localHosts = new Set(['0.0.0.0', '::', '[::]', 'localhost', '127.0.0.1']);
+  const rawPort = url.port || process.env.PORT || '3000';
+  const port = /^\d{1,5}$/.test(rawPort) && Number(rawPort) > 0 && Number(rawPort) <= 65535
+    ? rawPort
+    : '3000';
 
-  if (localHosts.has(url.hostname)) {
-    const port = url.port || process.env.PORT || '3000';
-    return `http://127.0.0.1:${port}`;
-  }
-
-  return url.origin;
+  return `http://127.0.0.1:${port}`;
 }
 
 export async function POST(request: NextRequest) {

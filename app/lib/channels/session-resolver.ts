@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
@@ -38,7 +39,7 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
   await ensureDefaultAgent();
 
   const agentId = resolveAgentId(input.agentId);
-  const sessionId = input.requestedSessionId || `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const sessionId = input.requestedSessionId || `sess-${Date.now()}-${randomUUID()}`;
   const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
   const now = new Date();
 

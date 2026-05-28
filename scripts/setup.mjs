@@ -9,7 +9,7 @@
  * Usage: npm run setup
  */
 
-import { execSync, spawn } from 'child_process';
+import { execFileSync, execSync, spawn } from 'child_process';
 import { existsSync, mkdirSync, copyFileSync, readFileSync } from 'fs';
 import { basename, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -56,8 +56,9 @@ function exec(command, options = {}) {
 
 function removeLingeringComposeContainers() {
   try {
-    const output = execSync(
-      `docker ps -aq --filter label=com.docker.compose.project=${composeProjectName}`,
+    const output = execFileSync(
+      'docker',
+      ['ps', '-aq', '--filter', `label=com.docker.compose.project=${composeProjectName}`],
       { encoding: 'utf-8', cwd: rootDir },
     ).trim();
 
