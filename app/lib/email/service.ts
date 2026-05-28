@@ -14,7 +14,7 @@ import {
   type EmailDraftInput,
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
-import { managedEmailRequest } from '@/app/lib/email/managed-client';
+import { isManagedEmailAvailable, managedEmailRequest } from '@/app/lib/email/managed-client';
 
 type EmailSearchInput = {
   accountId?: string;
@@ -22,13 +22,25 @@ type EmailSearchInput = {
   limit?: number;
 };
 
+type EmailAccountsResponse = {
+  accounts?: unknown[];
+  [key: string]: unknown;
+};
+
 function isLocalAccountId(accountId?: string): boolean {
   return Boolean(accountId?.startsWith('local_'));
 }
 
-async function useLocalAccountListing(): Promise<boolean> {
-  const localAccounts = await listLocalEmailAccounts();
-  return localAccounts.length > 0 || await hasLocalEmailOAuthCredentials();
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown email service error';
+}
+
+function emailAccountsResponse(payload: EmailAccountsResponse, mode: 'managed' | 'local') {
+  return {
+    ...payload,
+    accounts: Array.isArray(payload.accounts) ? payload.accounts : [],
+    mode,
+  };
 }
 
 export async function startEmailOAuth(params: {
@@ -36,22 +48,34 @@ export async function startEmailOAuth(params: {
   requestOrigin?: string | null;
   returnUrl?: string;
 }) {
-  if (await hasLocalEmailOAuthCredentials(params.provider)) {
-    return startLocalEmailOAuth(params);
+  if (isManagedEmailAvailable()) {
+    try {
+      return await managedEmailRequest('/v1/managed/email/oauth/start', {
+        method: 'POST',
+        body: JSON.stringify({ provider: params.provider || 'google', returnUrl: params.returnUrl }),
+      });
+    } catch (error) {
+      if (!await hasLocalEmailOAuthCredentials(params.provider)) {
+        throw error;
+      }
+    }
   }
 
-  return managedEmailRequest('/v1/managed/email/oauth/start', {
-    method: 'POST',
-    body: JSON.stringify({ provider: params.provider || 'google', returnUrl: params.returnUrl }),
-  });
+  return startLocalEmailOAuth(params);
 }
 
 export async function listEmailAccounts() {
-  if (await useLocalAccountListing()) {
-    return { accounts: await listLocalEmailAccounts(), mode: 'local' };
+  const localAccounts = await listLocalEmailAccounts();
+  if (isManagedEmailAvailable()) {
+    try {
+      const managed = await managedEmailRequest<EmailAccountsResponse>('/v1/managed/email/accounts');
+      return emailAccountsResponse(managed, 'managed');
+    } catch (error) {
+      return { accounts: localAccounts, mode: 'local', managedError: getErrorMessage(error) };
+    }
   }
 
-  return managedEmailRequest('/v1/managed/email/accounts');
+  return { accounts: localAccounts, mode: 'local' };
 }
 
 export async function updateEmailPolicy(accountId: string, policy: Partial<EmailPolicy>) {
@@ -75,7 +99,7 @@ export async function disconnectEmailAccount(accountId: string) {
 
 export async function searchEmail(input: EmailSearchInput) {
   const localAccounts = await listLocalEmailAccounts();
-  if (isLocalAccountId(input.accountId) || (!input.accountId && (localAccounts.length > 0 || await hasLocalEmailOAuthCredentials()))) {
+  if (isLocalAccountId(input.accountId) || (!input.accountId && !isManagedEmailAvailable() && (localAccounts.length > 0 || await hasLocalEmailOAuthCredentials()))) {
     return searchLocalEmail(input);
   }
 
