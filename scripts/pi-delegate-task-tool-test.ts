@@ -16,10 +16,12 @@ function getDetails<T>(result: unknown): T {
 type DelegateTaskRequest = {
   userId: string;
   sourceAgentId: string;
-  targetAgentId: string;
+  targetAgentId?: string;
   goal: string;
   context?: string;
   sessionId?: string;
+  workerRole?: string;
+  toolsets: string[];
   waitForResult: boolean;
   timeoutSeconds: number;
 };
@@ -74,9 +76,12 @@ async function main() {
         calls.push(request);
         return {
           status: request.waitForResult ? 'ok' : 'accepted',
+          worker_type: request.targetAgentId ? 'managed' : 'ephemeral',
           source_agent_id: request.sourceAgentId,
           target_agent_id: request.targetAgentId,
           session_id: request.sessionId || 'sess-child',
+          role: request.workerRole,
+          toolsets: request.toolsets,
           wait_for_result: request.waitForResult,
           timeout_seconds: request.timeoutSeconds,
           reply: request.waitForResult ? 'research reply' : undefined,
@@ -85,27 +90,38 @@ async function main() {
     });
 
     const accepted = await tool.execute('delegate', {
-      target_agent_id: 'Research-Agent',
       goal: 'Find the deployment notes',
       context: 'Look only at the docs folder',
+      role: 'researcher',
+      toolsets: ['web', 'file'],
       wait_for_result: false,
     });
-    assert.match(getText(accepted), /accepted by research-agent/);
+    assert.match(getText(accepted), /accepted by ephemeral researcher/);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].targetAgentId, 'research-agent');
+    assert.equal(calls[0].targetAgentId, undefined);
+    assert.equal(calls[0].workerRole, 'researcher');
+    assert.deepEqual(calls[0].toolsets, ['web', 'file']);
     assert.equal(calls[0].waitForResult, false);
     assert.equal(calls[0].context, 'Look only at the docs folder');
     assert.equal(calls[0].timeoutSeconds, 120);
 
     const completed = await tool.execute('delegate-wait', {
-      target_agent_id: 'research-agent',
       goal: 'Summarize the deployment notes',
       timeout_seconds: 5,
     });
     assert.match(getText(completed), /research reply/);
     assert.equal(calls[1].waitForResult, true);
     assert.equal(calls[1].timeoutSeconds, 5);
+    assert.deepEqual(calls[1].toolsets, ['file', 'terminal', 'web', 'session_search']);
     assert.equal(getDetails<{ status: string }>(completed).status, 'ok');
+
+    const managed = await tool.execute('delegate-managed', {
+      target_agent_id: 'Research-Agent',
+      goal: 'Use a managed profile',
+      wait_for_result: false,
+    });
+    assert.match(getText(managed), /accepted by research-agent/);
+    assert.equal(calls[2].targetAgentId, 'research-agent');
 
     const selfResult = await tool.execute('delegate-self', {
       target_agent_id: 'canvas-agent',
@@ -121,13 +137,13 @@ async function main() {
       },
     });
     assert.match(
-      getText(await nonMainTool.execute('non-main', { target_agent_id: 'canvas-agent', goal: 'Try recursion' })),
+      getText(await nonMainTool.execute('non-main', { goal: 'Try recursion' })),
       /Only the main Canvas Agent can use delegate_task/,
     );
 
     const missingUserTool = createDelegateTaskTool({ sourceAgentId: 'canvas-agent' });
     assert.match(
-      getText(await missingUserTool.execute('missing-user', { target_agent_id: 'research-agent', goal: 'No user' })),
+      getText(await missingUserTool.execute('missing-user', { goal: 'No user' })),
       /User ID is required/,
     );
 
