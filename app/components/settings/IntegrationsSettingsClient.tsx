@@ -1477,6 +1477,9 @@ function EmailAccountsCard() {
                       onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, readFrom: event.target.value } }))}
                       placeholder="All senders allowed"
                     />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Add one sender per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all senders are allowed.
+                    </p>
                   </div>
                   <div>
                     <Label className="text-xs uppercase tracking-wider text-muted-foreground">Send to emails</Label>
@@ -1486,6 +1489,9 @@ function EmailAccountsCard() {
                       onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, sendTo: event.target.value } }))}
                       placeholder="All recipients allowed"
                     />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Add one recipient per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all recipients are allowed.
+                    </p>
                   </div>
                 </div>
                 <div className="flex justify-end">
