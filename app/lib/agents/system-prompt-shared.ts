@@ -1,10 +1,9 @@
 import path from 'node:path';
 
-import { resolveAgentStorageDir, resolveAgentsStorageRoot } from '../runtime-data-paths';
+import { resolveAgentsStorageRoot } from '../runtime-data-paths';
 
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
-const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
 
 export type ManagedPromptFileName = (typeof MANAGED_PROMPT_FILE_NAMES)[number];
@@ -56,7 +55,7 @@ You are currently operating in **Planning Mode**. This mode restricts you to rea
 Acknowledge the request, outline what you would do, then ask the user to **switch back to Standard Mode** (Shift+Tab) so you can execute the changes.`;
 
 const MANAGED_FILES_INTRO =
-  `The following agent-managed files define your runtime behavior, memory, tone, and tool guidance. These files are stored in ${AGENT_STORAGE_DIR} and can be edited when the user asks.`;
+  `The following agent-managed files define your runtime behavior, memory, tone, and tool guidance. These files are stored under ${AGENTS_STORAGE_ROOT}/<agent-id> and can be edited when the user asks.`;
 
 export type ManagedPromptDiagnostics = {
   loadedFiles: ManagedPromptFileName[];
@@ -84,9 +83,6 @@ function normalizePromptAgentId(agentId?: string | null): string {
 function getPromptSourcePath(fileName: ManagedPromptFileName, source?: ManagedPromptSource): string {
   const inherited = source?.inheritedFiles?.includes(fileName) ?? false;
   const agentId = normalizePromptAgentId(inherited ? 'canvas-agent' : source?.agentId);
-  if (agentId === 'canvas-agent') {
-    return `${AGENT_STORAGE_DIR}/${fileName}`;
-  }
   return path.join(AGENTS_STORAGE_ROOT, agentId, fileName);
 }
 

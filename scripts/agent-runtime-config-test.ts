@@ -6,6 +6,7 @@ import path from 'node:path';
 
 async function main() {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-runtime-'));
+  process.env.CANVAS_DATA_ROOT = dataDir;
   process.env.DATA = dataDir;
 
   const moduleInternals = Module as typeof Module & {
@@ -41,7 +42,7 @@ async function main() {
   };
 
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
-  const { DEFAULT_MANAGED_AGENT_ID, isWritableManagedAgentFileName, writePiRuntimeConfig } = await import('../app/lib/agents/storage');
+  const { DEFAULT_MANAGED_AGENT_ID, isWritableManagedAgentFileName, readManagedAgentFile, writePiRuntimeConfig } = await import('../app/lib/agents/storage');
   const { createAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
   const { resolveAgentRuntimeConfig } = await import('../app/lib/agents/effective-runtime-config');
 
@@ -62,6 +63,14 @@ async function main() {
       },
     },
   });
+
+  await fs.mkdir(path.join(dataDir, 'canvas-agent'), { recursive: true });
+  await fs.writeFile(path.join(dataDir, 'canvas-agent', 'MEMORY.md'), 'Legacy runtime memory.\n', 'utf8');
+  assert.equal((await readManagedAgentFile('MEMORY.md', DEFAULT_MANAGED_AGENT_ID)).trim(), 'Legacy runtime memory.');
+  assert.equal(
+    (await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'MEMORY.md'), 'utf8')).trim(),
+    'Legacy runtime memory.',
+  );
 
   const inheritedAgent = await createAgentProfile({ name: 'Inherited Agent' });
   assert.equal(isWritableManagedAgentFileName('IDENTITY.md', inheritedAgent.agentId), false);

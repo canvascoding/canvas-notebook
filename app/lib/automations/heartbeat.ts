@@ -56,7 +56,8 @@ export async function executeHeartbeat(job: AutomationJobRecord): Promise<Heartb
   const errors: string[] = [];
   let usersNotified = 0;
 
-  const heartbeatPrompt = `Lies die Datei /data/canvas-agent/HEARTBEAT.md und führe die darin beschriebenen Instructions aus. Die Ergebnisse sollen direkt hier in diesem Chat kommuniziert werden.\n\nInhalt der HEARTBEAT.md:\n---\n${heartbeatContent}\n---`;
+  const heartbeatPath = `/data/agents/${job.agentId || 'canvas-agent'}/HEARTBEAT.md`;
+  const heartbeatPrompt = `Lies die Datei ${heartbeatPath} und führe die darin beschriebenen Instructions aus. Die Ergebnisse sollen direkt hier in diesem Chat kommuniziert werden.\n\nInhalt der HEARTBEAT.md:\n---\n${heartbeatContent}\n---`;
 
   for (const binding of bindings) {
     try {

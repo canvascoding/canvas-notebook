@@ -152,7 +152,7 @@ function resolveLegacyManagedFilePath(fileName: AgentManagedFileName): string {
   return path.join(AGENT_STORAGE_DIR, fileName);
 }
 
-function shouldReadLegacyCanvasAgentFiles(agentId?: string | null): boolean {
+function shouldMigrateLegacyCanvasAgentFiles(agentId?: string | null): boolean {
   return normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID;
 }
 
@@ -170,24 +170,42 @@ export function isWritableManagedAgentFileName(fileName: AgentManagedFileName, a
   return getOwnedManagedFileNames(agentId).includes(fileName);
 }
 
+async function migrateLegacyCanvasAgentFileIfNeeded(
+  fileName: AgentManagedFileName,
+  targetPath: string,
+  existingContent: string | null,
+): Promise<string | null> {
+  if (!isContentEmpty(existingContent)) {
+    return existingContent;
+  }
+
+  const legacyContent = await readFileIfExists(resolveLegacyManagedFilePath(fileName));
+  if (isContentEmpty(legacyContent)) {
+    return existingContent;
+  }
+
+  await writeTextAtomic(targetPath, legacyContent ?? '');
+  return legacyContent;
+}
+
 export async function ensureAgentManagedFilesExist(agentId?: string | null): Promise<void> {
   await fs.mkdir(resolveAgentScopedStorageDir(agentId), { recursive: true });
-  if (shouldReadLegacyCanvasAgentFiles(agentId)) {
+  if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
     await ensureStorageDirectory();
   }
 
   for (const fileName of getOwnedManagedFileNames(agentId)) {
     const filePath = resolveManagedFilePath(fileName, agentId);
-    const existing = await readFileIfExists(filePath);
+    let existing = await readFileIfExists(filePath);
 
     // Skip if file exists and has content
     if (!isContentEmpty(existing)) {
       continue;
     }
 
-    if (shouldReadLegacyCanvasAgentFiles(agentId)) {
-      const legacyContent = await readFileIfExists(resolveLegacyManagedFilePath(fileName));
-      if (!isContentEmpty(legacyContent)) {
+    if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
+      existing = await migrateLegacyCanvasAgentFileIfNeeded(fileName, filePath, existing);
+      if (!isContentEmpty(existing)) {
         continue;
       }
     }
@@ -209,10 +227,10 @@ export async function readManagedAgentFile(fileName: AgentManagedFileName, agent
     return content ?? '';
   }
 
-  if (shouldReadLegacyCanvasAgentFiles(agentId)) {
-    const legacyContent = await readFileIfExists(resolveLegacyManagedFilePath(fileName));
-    if (!isContentEmpty(legacyContent)) {
-      return legacyContent ?? '';
+  if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
+    const migratedContent = await migrateLegacyCanvasAgentFileIfNeeded(fileName, filePath, content);
+    if (!isContentEmpty(migratedContent)) {
+      return migratedContent ?? '';
     }
   }
 
