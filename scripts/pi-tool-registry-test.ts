@@ -138,6 +138,8 @@ async function main() {
   const allTools = buildPiToolRegistry();
   const defaultEnabledTools = getDefaultEnabledToolNames(allTools.map((tool) => tool.name));
   assert.equal(defaultEnabledTools.has('mcp'), true);
+  assert.equal(defaultEnabledTools.has('delegate_task'), true);
+  assert.equal(allTools.some((tool) => tool.name === 'delegate_task'), true);
   assert.equal(defaultEnabledTools.has('session_search'), true);
   assert.equal(allTools.some((tool) => tool.name === 'session_search'), true);
   assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), true);
@@ -159,6 +161,11 @@ async function main() {
   assert.equal(sessionSearchMetadata.group, 'Session');
   assert.deepEqual(sessionSearchMetadata.toolsets, ['session_search']);
   assert.equal(sessionSearchMetadata.planningModeAllowed, true);
+  const delegateTaskMetadata = metadata.find((tool) => tool.name === 'delegate_task');
+  assert.ok(delegateTaskMetadata);
+  assert.equal(delegateTaskMetadata.group, 'Delegation');
+  assert.deepEqual(delegateTaskMetadata.toolsets, ['delegation']);
+  assert.equal(delegateTaskMetadata.planningModeAllowed, false);
 
   console.log('pi-tool-registry-test: ok');
 
