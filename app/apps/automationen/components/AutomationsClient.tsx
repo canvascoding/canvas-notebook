@@ -187,8 +187,6 @@ type DeliveryChannelOption = {
   running: boolean;
 };
 
-type DeliveryChannelSelection = 'silent' | string;
-
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DEFAULT_AGENT_ID = 'canvas-agent';
 
@@ -505,7 +503,7 @@ function buildPayload(draft: JobDraft) {
 }
 
 function normalizeDeliveryChannelIdForPayload(mode: AutomationDeliveryMode, channelId: string): string | null {
-  if (mode === 'silent') return null;
+  if (mode === 'silent') return 'web';
   if (mode === 'web') return 'web';
   return channelId.trim() || 'web';
 }
@@ -517,8 +515,8 @@ function normalizeDeliveryChannelSessionKeyForPayload(channelId: string | null, 
   return normalized;
 }
 
-function getDeliveryChannelSelection(state: Pick<JobDraft, 'deliveryMode' | 'deliveryChannelId'> | Pick<TriggerComposerDraft, 'deliveryMode' | 'deliveryChannelId'>): DeliveryChannelSelection {
-  if (state.deliveryMode === 'silent') return 'silent';
+function getDeliveryChannelSelection(state: Pick<JobDraft, 'deliveryMode' | 'deliveryChannelId'> | Pick<TriggerComposerDraft, 'deliveryMode' | 'deliveryChannelId'>): string {
+  if (state.deliveryMode === 'silent') return 'web';
   if (state.deliveryMode === 'web') return 'web';
   return state.deliveryChannelId || 'web';
 }
@@ -600,8 +598,8 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.targetOutputPath = job.targetOutputPath || '';
   draft.status = job.status;
   draft.agentId = job.agentId || DEFAULT_AGENT_ID;
-  draft.deliveryMode = job.deliveryMode || 'web';
-  draft.deliveryChannelId = job.deliveryChannelId || (job.deliveryMode === 'web' ? 'web' : '');
+  draft.deliveryMode = job.deliveryMode === 'silent' ? 'web' : job.deliveryMode || 'web';
+  draft.deliveryChannelId = job.deliveryMode === 'silent' ? 'web' : job.deliveryChannelId || (job.deliveryMode === 'web' ? 'web' : '');
   draft.deliverySessionMode = job.deliverySessionMode || 'new_session';
   draft.deliverySessionId = job.deliverySessionId || '';
   draft.deliveryChannelSessionKey = job.deliveryChannelSessionKey || '';
@@ -1266,8 +1264,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   }
 
   function deliveryTargetSummary(job: AutomationJobRecord): string {
-    if (job.deliveryMode === 'silent') return locale.startsWith('de') ? 'Nur speichern' : 'Save only';
-    const channelId = job.deliveryMode === 'web' ? 'web' : job.deliveryChannelId || 'web';
+    const channelId = job.deliveryMode === 'web' || job.deliveryMode === 'silent' ? 'web' : job.deliveryChannelId || 'web';
     return `${deliveryChannelDisplayLabel(channelId)} · ${deliverySessionModeLabel(job.deliverySessionMode)}`;
   }
 
@@ -1276,7 +1273,6 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     const state = isTrigger ? triggerDraft : draft;
     const isGerman = locale.startsWith('de');
     const selectedDeliveryChannel = getDeliveryChannelSelection(state);
-    const isSaveOnly = selectedDeliveryChannel === 'silent';
     const updateState = (patch: Partial<JobDraft & TriggerComposerDraft>) => {
       if (isTrigger) {
         setTriggerDraft((current) => ({ ...current, ...patch }));
@@ -1284,17 +1280,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
         setDraft((current) => ({ ...current, ...patch }));
       }
     };
-    const updateDeliveryChannel = (value: DeliveryChannelSelection) => {
-      if (value === 'silent') {
-        updateState({
-          deliveryMode: 'silent',
-          deliveryChannelId: '',
-          deliverySessionMode: 'new_session',
-          deliveryChannelSessionKey: '',
-        });
-        return;
-      }
-
+    const updateDeliveryChannel = (value: string) => {
       updateState({
         deliveryMode: value === 'web' ? 'web' : 'channel_home',
         deliveryChannelId: value,
@@ -1339,24 +1325,21 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                 {deliveryChannelDisplayLabel(channel.id)}{channel.connected ? '' : ` · ${isGerman ? 'nicht verbunden' : 'not connected'}`}
               </option>
             ))}
-            <option value="silent">{isGerman ? 'Nur speichern' : 'Save only'}</option>
           </select>
         </label>
-        {!isSaveOnly ? (
-          <label className="flex min-w-0 flex-col gap-1 text-sm">
-            <span className="text-xs text-muted-foreground">{isGerman ? 'Session' : 'Session'}</span>
-            <select
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-              value={state.deliverySessionMode}
-              onChange={(event) => updateState({ deliverySessionMode: event.target.value as AutomationDeliverySessionMode })}
-            >
-              {(['new_session', 'channel_active', 'fixed_session'] as AutomationDeliverySessionMode[]).map((mode) => (
-                <option key={mode} value={mode}>{deliverySessionModeLabel(mode)}</option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        {!isSaveOnly && state.deliverySessionMode === 'fixed_session' ? (
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="text-xs text-muted-foreground">{isGerman ? 'Session' : 'Session'}</span>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={state.deliverySessionMode}
+            onChange={(event) => updateState({ deliverySessionMode: event.target.value as AutomationDeliverySessionMode })}
+          >
+            {(['new_session', 'channel_active', 'fixed_session'] as AutomationDeliverySessionMode[]).map((mode) => (
+              <option key={mode} value={mode}>{deliverySessionModeLabel(mode)}</option>
+            ))}
+          </select>
+        </label>
+        {state.deliverySessionMode === 'fixed_session' ? (
           <label className="flex min-w-0 flex-col gap-1 text-sm md:col-span-2">
             <span className="text-xs text-muted-foreground">{isGerman ? 'Session-ID' : 'Session ID'}</span>
             <input

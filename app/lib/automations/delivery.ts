@@ -33,15 +33,9 @@ function defaultWebChannelSessionKey(userId: string): string {
 }
 
 function resolveDeliveryChannel(job: AutomationJobRecord, userId: string) {
-  if (job.deliveryMode === 'silent') {
-    return {
-      channelId: WEB_CHANNEL_ID,
-      channelSessionKey: defaultWebChannelSessionKey(userId),
-      activeDelivery: false,
-    };
-  }
-
-  const channelId = job.deliveryChannelId?.trim() || WEB_CHANNEL_ID;
+  const channelId = job.deliveryMode === 'silent'
+    ? WEB_CHANNEL_ID
+    : job.deliveryChannelId?.trim() || WEB_CHANNEL_ID;
   const channelSessionKey = job.deliveryChannelSessionKey?.trim()
     || (channelId === WEB_CHANNEL_ID ? defaultWebChannelSessionKey(userId) : '');
 
@@ -128,7 +122,7 @@ export async function resolveAutomationDeliveryTarget(input: {
       channelId: delivery.channelId,
       channelSessionKey: resolvedChannelSessionKey,
       isPrimary: delivery.channelId === WEB_CHANNEL_ID,
-      deliveryPolicy: job.deliveryMode === 'silent' ? 'muted' : 'last_active',
+      deliveryPolicy: 'last_active',
     });
   }
 
@@ -150,7 +144,7 @@ export function getAutomationDeliveryFailureMessage(
     return null;
   }
 
-  if (dispatch.skippedReason === 'silent' || dispatch.skippedReason === 'empty_result') {
+  if (dispatch.skippedReason === 'empty_result') {
     return null;
   }
 
@@ -181,11 +175,11 @@ export async function dispatchAutomationResult(input: {
 }): Promise<AutomationDeliveryDispatchResult> {
   const text = input.text.trim();
 
-  if (!input.resolution.activeDelivery || input.job.deliveryMode === 'silent') {
+  if (!input.resolution.activeDelivery) {
     return {
       attempted: false,
       delivered: false,
-      skippedReason: 'silent',
+      skippedReason: 'inactive_delivery',
       error: null,
     };
   }

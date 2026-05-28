@@ -194,6 +194,33 @@ async function main() {
   assert.equal(missingExternalDispatch.skippedReason, 'missing_channel_session_key');
   assert.match(getAutomationDeliveryFailureMessage(missingExternalTarget, missingExternalDispatch) || '', /no channel session key/);
 
+  const silentFallback = await resolveAutomationDeliveryTarget({
+    job: {
+      ...baseJob,
+      deliveryMode: 'silent',
+      deliveryChannelId: null,
+      deliveryChannelSessionKey: null,
+    },
+    userId,
+    defaultSessionId: 'auto-silent-fallback',
+  });
+  assert.equal(silentFallback.channelId, 'web');
+  assert.equal(silentFallback.channelSessionKey, `web:user:${userId}`);
+  assert.equal(silentFallback.activeDelivery, true);
+  const silentFallbackDispatch = await dispatchAutomationResult({
+    job: {
+      ...baseJob,
+      deliveryMode: 'silent',
+      deliveryChannelId: null,
+      deliveryChannelSessionKey: null,
+    },
+    userId,
+    resolution: silentFallback,
+    text: 'Legacy silent result',
+  });
+  assert.equal(silentFallbackDispatch.delivered, true);
+  assert.equal(silentFallbackDispatch.error, null);
+
   const webDispatch = await dispatchAutomationResult({
     job: baseJob,
     userId,
