@@ -30,6 +30,8 @@ import {
   getVideoResolutionsForModel,
   getVideoDurationsForModel,
   getImageSizesForModel,
+  GEMINI_FLASH_IMAGE_MODEL_ID,
+  GEMINI_PRO_IMAGE_MODEL_ID,
   type VideoResolution,
   type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
@@ -279,9 +281,9 @@ export function ControlBar({
                             : OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage1'
                               ? 'GPT Image 1 — High Quality'
                               : 'GPT Image 1 Mini — Fast & Affordable'
-                        : m.id === 'gemini-3.1-flash-image-preview'
+                        : m.id === GEMINI_FLASH_IMAGE_MODEL_ID
                           ? 'Gemini 3.1 Flash — Best Quality & Features'
-                          : m.id === 'gemini-3-pro-image-preview'
+                          : m.id === GEMINI_PRO_IMAGE_MODEL_ID
                             ? 'Nano Banana Pro — Pro Quality & Reasoning'
                             : 'Gemini 2.5 Flash — Fast & Affordable'}
                   </option>

@@ -10,6 +10,7 @@ import {
   getVideoResolutionsForModel,
   getVideoDurationsForModel,
   getImageSizesForModel,
+  normalizeGeminiImageModelId,
   type VideoResolution,
   type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
@@ -679,7 +680,7 @@ export function StudioDashboard() {
             store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
             store.setAspectRatio(generation.aspectRatio || '1:1');
             store.setProvider(generation.provider || 'gemini');
-            store.setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+            store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
             const ref = getOutputReference(output);
             if (ref) store.addFileRef(ref);
             setSelectedGenerationId(null);

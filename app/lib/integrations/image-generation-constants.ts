@@ -12,9 +12,26 @@ export const SOUND_PROVIDERS = [
   { id: 'gemini', labelKey: 'Google Gemini' as const },
 ] as const;
 
+export const GEMINI_FLASH_IMAGE_MODEL_ID = 'gemini-3.1-flash-image';
+export const GEMINI_PRO_IMAGE_MODEL_ID = 'gemini-3-pro-image';
+export const GEMINI_LEGACY_IMAGE_MODEL_ALIASES: Record<string, string> = {
+  'gemini-3.1-flash-image-preview': GEMINI_FLASH_IMAGE_MODEL_ID,
+  'gemini-3-pro-image-preview': GEMINI_PRO_IMAGE_MODEL_ID,
+  'gemini-3.1-pro-image': GEMINI_PRO_IMAGE_MODEL_ID,
+  'gemini-3.1-pro-image-preview': GEMINI_PRO_IMAGE_MODEL_ID,
+  'gemini-2.5-flash-image-preview': 'gemini-2.5-flash-image',
+  'gemini-2.0-flash-preview-image-generation': GEMINI_FLASH_IMAGE_MODEL_ID,
+  'gemini-2.0-flash-exp-image-generation': GEMINI_FLASH_IMAGE_MODEL_ID,
+};
+
+export function normalizeGeminiImageModelId(model: string): string {
+  const trimmed = model.trim();
+  return GEMINI_LEGACY_IMAGE_MODEL_ALIASES[trimmed] ?? trimmed;
+}
+
 export const GEMINI_MODELS = [
-  { id: 'gemini-3.1-flash-image-preview', optionKey: 'bestQuality' as const },
-  { id: 'gemini-3-pro-image-preview', optionKey: 'proQuality' as const },
+  { id: GEMINI_FLASH_IMAGE_MODEL_ID, optionKey: 'bestQuality' as const },
+  { id: GEMINI_PRO_IMAGE_MODEL_ID, optionKey: 'proQuality' as const },
   { id: 'gemini-2.5-flash-image', optionKey: 'fastAffordable' as const },
 ] as const;
 
@@ -22,8 +39,9 @@ export const GEMINI_IMAGE_SIZES = ['1K', '2K', '4K'] as const;
 export const GEMINI_FLASH_IMAGE_SIZES = ['512', '1K', '2K', '4K'] as const;
 
 export function getImageSizesForModel(model: string): readonly string[] {
-  if (model === 'gemini-2.5-flash-image') return [];
-  if (model === 'gemini-3.1-flash-image-preview') return GEMINI_FLASH_IMAGE_SIZES;
+  const normalizedModel = normalizeGeminiImageModelId(model);
+  if (normalizedModel === 'gemini-2.5-flash-image') return [];
+  if (normalizedModel === GEMINI_FLASH_IMAGE_MODEL_ID) return GEMINI_FLASH_IMAGE_SIZES;
   return GEMINI_IMAGE_SIZES;
 }
 
@@ -205,7 +223,7 @@ export function getMaxReferenceImages(mode: 'image' | 'video' | 'sound', provide
   if (provider === 'openai') {
     return OPENAI_MAX_REFERENCE_IMAGES;
   }
-  if (model === 'gemini-2.5-flash-image') {
+  if (normalizeGeminiImageModelId(model) === 'gemini-2.5-flash-image') {
     return 3;
   }
   return 14;
@@ -213,5 +231,5 @@ export function getMaxReferenceImages(mode: 'image' | 'video' | 'sound', provide
 
 export function getDefaultModelForProvider(mode: 'image' | 'video' | 'sound', provider: string): string {
   const models = getModelsForProvider(mode, provider);
-  return models[0]?.id ?? 'gemini-3.1-flash-image-preview';
+  return models[0]?.id ?? GEMINI_FLASH_IMAGE_MODEL_ID;
 }

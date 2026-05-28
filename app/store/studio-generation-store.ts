@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import type { StudioGenerationMode } from '@/app/apps/studio/types/generation';
 import type { StudioPreset } from '@/app/apps/studio/types/presets';
-import type { VideoResolution, StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
+import {
+  GEMINI_FLASH_IMAGE_MODEL_ID,
+  type VideoResolution,
+  type StudioVideoDuration,
+} from '@/app/lib/integrations/image-generation-constants';
 
 export interface ReferenceTag {
   id: string;
@@ -132,7 +136,7 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
   provider: 'gemini',
   setProvider: (provider) => set({ provider }),
 
-  model: 'gemini-3.1-flash-image-preview',
+  model: GEMINI_FLASH_IMAGE_MODEL_ID,
   setModel: (model) => set({ model }),
 
   quality: 'auto',

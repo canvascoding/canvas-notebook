@@ -23,7 +23,7 @@ import { ControlBar } from './ControlBar';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { BatchDeleteDialog } from './BatchDeleteDialog';
 import Image from 'next/image';
-import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, getImageSizesForModel, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
+import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, getImageSizesForModel, normalizeGeminiImageModelId, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
@@ -327,7 +327,7 @@ export function CreateView() {
   const applyGenerationSettingsToPrompt = useCallback((generation: StudioGeneration) => {
     store.setMode('image');
     store.setProvider(generation.provider || 'gemini');
-    store.setModel(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini'));
+    store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
     store.setCount(1);
     store.setProductRefs((generation.product_ids ?? []).map((id) => {
       const p = products.find((product) => product.id === id);
@@ -642,7 +642,7 @@ export function CreateView() {
                 store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
                 store.setAspectRatio(generation.aspectRatio || '1:1');
                 store.setProvider(generation.provider || 'gemini');
-                store.setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+                store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
                 replaceFileRefsWithOutput(output);
                 setSelectedGenerationId(null);
                 setSelectedOutputId(null);
@@ -924,7 +924,7 @@ export function CreateView() {
           store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
           store.setAspectRatio(generation.aspectRatio || '1:1');
           store.setProvider(generation.provider || 'gemini');
-          store.setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+          store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
           replaceFileRefsWithOutput(output);
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
@@ -943,7 +943,7 @@ export function CreateView() {
           store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
           store.setAspectRatio(generation.aspectRatio || '1:1');
           store.setProvider(generation.provider || 'gemini');
-          store.setModel(generation.model || 'gemini-2.0-flash-exp-image-generation');
+          store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
           replaceFileRefsWithOutput(output);
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
