@@ -128,6 +128,8 @@ import { eq } from 'drizzle-orm';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
 import { managedEmailRequest } from '@/app/lib/email/managed-client';
+import { createSessionSearchTool } from '@/app/lib/pi/session-search-tool';
+import { getPiToolsetsForTool, type PiToolset } from '@/app/lib/pi/toolsets';
 
 
 const execAsync = promisify(exec);
@@ -1450,13 +1452,14 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session';
 
 export type PiToolMetadata = {
   name: string;
   label: string;
   description: string;
   group: PiToolGroup;
+  toolsets: PiToolset[];
   parameters: string[];
   planningModeAllowed: boolean;
   defaultEnabled: boolean;
@@ -1470,8 +1473,9 @@ function requireToolUserId(userId: string | undefined, toolLabel: string): strin
   return userId;
 }
 
-function createUserScopedTools(userId?: string): AgentTool[] {
+function createUserScopedTools(userId?: string, agentId?: string | null): AgentTool[] {
   return [
+    createSessionSearchTool({ userId, agentId }),
     {
       name: 'list_automation_jobs',
       label: 'Listing automation jobs',
@@ -1702,6 +1706,7 @@ function createUserScopedTools(userId?: string): AgentTool[] {
 
 function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
+  if (toolName === 'session_search') return 'Session';
   if (toolName.startsWith('email_')) return 'Email';
   if (toolName.startsWith('studio_')) return 'Studio';
   if (toolName.includes('automation_job')) return 'Automation';
@@ -1746,7 +1751,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Automation') {
     notes.push('May create, update, delete, or trigger scheduled automation jobs.');
   }
-if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
+  if (group === 'Session') {
+    notes.push('Read-only access to this user and agent session history.');
+  }
+  if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
   if (['write', 'edit', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
@@ -1771,15 +1779,15 @@ if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
   return notes.length > 0 ? notes : ['Read-only or low-side-effect utility under normal use.'];
 }
 
-export function buildPiToolRegistry(userId?: string): AgentTool[] {
-  const userScopedTools = createUserScopedTools(userId);
+export function buildPiToolRegistry(userId?: string, agentId?: string | null): AgentTool[] {
+  const userScopedTools = createUserScopedTools(userId, agentId);
   const overriddenNames = new Set(userScopedTools.map((t) => t.name));
   const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
   return [...coreTools, ...userScopedTools];
 }
 
-export async function buildPiToolRegistryAsync(userId?: string): Promise<AgentTool[]> {
-  const userScopedTools = createUserScopedTools(userId);
+export async function buildPiToolRegistryAsync(userId?: string, agentId?: string | null): Promise<AgentTool[]> {
+  const userScopedTools = createUserScopedTools(userId, agentId);
   const overriddenNames = new Set(userScopedTools.map((t) => t.name));
   const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
   const composioConfigured = await isComposioConfigured();
@@ -1803,6 +1811,7 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
       label: tool.label ?? tool.name,
       description: tool.description ?? '',
       group,
+      toolsets: getPiToolsetsForTool(tool.name),
       parameters: summarizeToolParameters(tool.parameters),
       planningModeAllowed: PLANNING_MODE_ALLOWED_TOOLS.has(tool.name),
       defaultEnabled: defaultEnabledSet.has(tool.name),
@@ -1812,7 +1821,7 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
 }
 
 export async function getPiTools(userId?: string, agentId?: string | null): Promise<AgentTool[]> {
-  let allTools = await buildPiToolRegistryAsync(userId);
+  let allTools = await buildPiToolRegistryAsync(userId, agentId);
 
   try {
     const effectiveConfig = await resolveAgentRuntimeSettings(agentId);

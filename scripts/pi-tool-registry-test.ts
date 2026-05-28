@@ -28,7 +28,7 @@ async function main() {
   };
 
   const { enableToolInConfig, getDefaultEnabledToolNames, serializeEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
-  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateVideoTool, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
+  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
 
   const studioCalls: StudioGenerateRequest[] = [];
   const studioTool = createStudioGenerateVideoTool({
@@ -138,6 +138,8 @@ async function main() {
   const allTools = buildPiToolRegistry();
   const defaultEnabledTools = getDefaultEnabledToolNames(allTools.map((tool) => tool.name));
   assert.equal(defaultEnabledTools.has('mcp'), true);
+  assert.equal(defaultEnabledTools.has('session_search'), true);
+  assert.equal(allTools.some((tool) => tool.name === 'session_search'), true);
   assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), true);
   assert.equal(defaultEnabledTools.has('studio_bulk_generate'), false);
   assert.equal((await getPiTools()).some((tool) => tool.name === 'studio_bulk_generate'), false);
@@ -150,6 +152,13 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'image_generation'), false);
   assert.equal(allTools.some((tool) => tool.name === 'video_generation'), false);
   assert.equal(allTools.some((tool) => tool.name === 'studio_edit_image'), false);
+
+  const metadata = await getPiToolMetadata();
+  const sessionSearchMetadata = metadata.find((tool) => tool.name === 'session_search');
+  assert.ok(sessionSearchMetadata);
+  assert.equal(sessionSearchMetadata.group, 'Session');
+  assert.deepEqual(sessionSearchMetadata.toolsets, ['session_search']);
+  assert.equal(sessionSearchMetadata.planningModeAllowed, true);
 
   console.log('pi-tool-registry-test: ok');
 

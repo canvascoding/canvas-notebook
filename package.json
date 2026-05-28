@@ -17,6 +17,7 @@
     "test:pi:summary": "tsx scripts/pi-session-summary-test.ts",
     "test:pi:usage": "tsx scripts/pi-usage-test.ts",
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts",
+    "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
     "test:mcp:config": "tsx scripts/mcp-config-test.ts",
     "test:mcp:proxy": "tsx scripts/mcp-proxy-test.ts",
     "test:mcp:manager": "tsx scripts/mcp-manager-test.ts",

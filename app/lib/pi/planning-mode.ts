@@ -11,6 +11,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'read',
   'glob',
   'grep',
+  'session_search',
   'qmd',
   'list_automation_jobs',
 ]);
