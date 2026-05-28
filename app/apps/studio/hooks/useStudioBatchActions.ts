@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import { downloadStudioOutputs } from '../utils/downloadStudioOutput';
 
 interface BatchDeleteResult {
   success: boolean;
@@ -68,33 +69,7 @@ export function useStudioBatchActions() {
   const downloadAsZip = useCallback(async (
     outputIds: string[],
   ): Promise<boolean> => {
-    if (outputIds.length === 0) return false;
-
-    try {
-      const response = await fetch('/api/studio/outputs/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outputIds }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Download failed');
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = response.headers.get('Content-Disposition')?.match(/filename="?([^"]+)"?/)?.[1]
-        ?? (outputIds.length === 1 ? 'studio-output' : 'studio-outputs.zip');
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      return true;
-    } catch {
-      return false;
-    }
+    return downloadStudioOutputs(outputIds);
   }, []);
 
   return {

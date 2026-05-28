@@ -3,6 +3,7 @@
 import { Download, Film, RefreshCcw, Save, Star, Trash2 } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { Button } from '@/components/ui/button';
+import { downloadStudioOutput } from '../../utils/downloadStudioOutput';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,7 +45,7 @@ export function OutputHoverOverlay({
 
   const handleDownload = () => {
     if (!mediaUrl) return;
-    window.open(mediaUrl, '_blank', 'noopener,noreferrer');
+    void downloadStudioOutput(output.id);
   };
 
   const handleDelete = () => {
