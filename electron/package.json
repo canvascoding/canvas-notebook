@@ -12,7 +12,7 @@
     "electronVersion": "42.3.0",
     "buildVersion": "2026.5.28.6",
     "icon": "assets/icon",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "${productName}-${buildVersion}-${os}-${arch}.${ext}",
     "directories": {
       "output": "../dist-electron"
     },
