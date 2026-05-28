@@ -1166,18 +1166,21 @@ function EmailAccountsCard() {
   }, [loadAccounts]);
 
   useEffect(() => {
-    if (emailMode === 'local') {
-      void loadOAuthEnv();
-      return;
-    }
-    if (emailMode === 'managed') {
-      setOauthDraft({
-        googleClientId: '',
-        googleClientSecret: '',
-        microsoftClientId: '',
-        microsoftClientSecret: '',
-      });
-    }
+    const timeout = window.setTimeout(() => {
+      if (emailMode === 'local') {
+        void loadOAuthEnv();
+        return;
+      }
+      if (emailMode === 'managed') {
+        setOauthDraft({
+          googleClientId: '',
+          googleClientSecret: '',
+          microsoftClientId: '',
+          microsoftClientSecret: '',
+        });
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [emailMode, loadOAuthEnv]);
 
   const persistOAuthProvider = async (provider: 'google' | 'microsoft') => {
