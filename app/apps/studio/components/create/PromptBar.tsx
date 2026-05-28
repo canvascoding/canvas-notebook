@@ -25,16 +25,13 @@ import {
   Music,
 } from 'lucide-react';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { ReferenceHoverCard } from './ReferenceHoverCard';
@@ -126,6 +123,75 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
   );
 }
 
+interface ReferenceOption {
+  id: string;
+  name: string;
+  description?: string | null;
+  thumbnailPath?: string | null;
+}
+
+interface ReferenceOptionListProps<T extends ReferenceOption> {
+  items: T[];
+  emptyText: string;
+  fallbackIcon: React.ReactNode;
+  onSelect: (item: T) => void;
+}
+
+function ReferenceOptionList<T extends ReferenceOption>({
+  items,
+  emptyText,
+  fallbackIcon,
+  onSelect,
+}: ReferenceOptionListProps<T>) {
+  if (items.length === 0) {
+    return (
+      <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-border bg-background text-sm text-muted-foreground">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[48vh] overflow-y-auto rounded-md border border-border bg-background p-1">
+      <div className="grid gap-1">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onSelect(item)}
+            className="flex min-h-14 w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {item.thumbnailPath ? (
+              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-border/50 bg-muted">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={toPreviewUrl(item.thumbnailPath, 64, { preset: 'mini' })}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-muted text-muted-foreground">
+                {fallbackIcon}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{item.name}</div>
+              {item.description ? (
+                <div className="truncate text-xs text-muted-foreground">{item.description}</div>
+              ) : null}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 
 export function PromptBar({
   value,
@@ -151,7 +217,9 @@ export function PromptBar({
   onPasteImage,
 }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
+  const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [closeReferenceDialogOnPickerConfirm, setCloseReferenceDialogOnPickerConfirm] = useState(false);
   const [mediaPicker, setMediaPicker] = useState<'image' | 'video' | 'audio' | 'extendVideo'>('image');
   const isSeedanceVideo = mode === 'video' && provider === 'bytedance';
   const isVeoVideo = mode === 'video' && provider === 'veo';
@@ -189,85 +257,10 @@ export function PromptBar({
           {t('title')}
         </div>
         <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="rounded-full"><AtSign className="h-4 w-4" />{t('addReference')}</Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-72">
-              <DropdownMenuLabel>{t('referenceCategories')}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-	              <DropdownMenuItem onSelect={() => { setMediaPicker('image'); setPickerOpen(true); }}><ImageIcon className="h-4 w-4 mr-2" />{t('imageReference')}</DropdownMenuItem>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger><Package2 className="h-4 w-4" />{t('product')}</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-72">
-                  {availableProducts.length === 0 ? <DropdownMenuItem disabled>{t('noProducts')}</DropdownMenuItem> : availableProducts.map((product) => (
-                    <DropdownMenuItem key={product.id} onSelect={() => onProductAdd(product)} className="flex items-center gap-3">
-                      {product.thumbnailPath ? (
-                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={toPreviewUrl(product.thumbnailPath, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        </div>
-                      ) : (
-                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50 bg-muted flex items-center justify-center">
-                          <Package2 className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{product.name}</div>
-                        {product.description ? <div className="truncate text-xs text-muted-foreground">{product.description}</div> : null}
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger><UserRound className="h-4 w-4" />{t('persona')}</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-72">
-                  {availablePersonas.length === 0 ? <DropdownMenuItem disabled>{t('noPersonas')}</DropdownMenuItem> : availablePersonas.map((persona) => (
-                    <DropdownMenuItem key={persona.id} onSelect={() => onPersonaAdd(persona)} className="flex items-center gap-3">
-                      {persona.thumbnailPath ? (
-                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={toPreviewUrl(persona.thumbnailPath, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        </div>
-                      ) : (
-                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50 bg-muted flex items-center justify-center">
-                          <UserRound className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{persona.name}</div>
-                        {persona.description ? <div className="truncate text-xs text-muted-foreground">{persona.description}</div> : null}
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger><LayoutTemplate className="h-4 w-4" />{t('style')}</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-72">
-                  {availableStyles.length === 0 ? <DropdownMenuItem disabled>{t('noStyles')}</DropdownMenuItem> : availableStyles.map((style) => (
-                    <DropdownMenuItem key={style.id} onSelect={() => onStyleAdd(style)} className="flex items-center gap-3">
-                      {style.thumbnailPath ? (
-                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={toPreviewUrl(style.thumbnailPath, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        </div>
-                      ) : (
-                        <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden border border-border/50 bg-muted flex items-center justify-center">
-                          <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{style.name}</div>
-                        {style.description ? <div className="truncate text-xs text-muted-foreground">{style.description}</div> : null}
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => setReferenceDialogOpen(true)}>
+            <AtSign className="h-4 w-4" />
+            {t('addReference')}
+          </Button>
         </div>
       </div>
 
@@ -446,17 +439,17 @@ export function PromptBar({
 
       {isSeedanceVideo ? (
         <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('image'); setPickerOpen(true); }}>
+          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('image'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
             <ImageIcon className="h-4 w-4" />
             Image refs
             <span className="ml-auto text-xs text-muted-foreground">{value.fileRefs.length}/9</span>
           </Button>
-          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('video'); setPickerOpen(true); }}>
+          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('video'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
             <FileVideo className="h-4 w-4" />
             Video refs
             <span className="ml-auto text-xs text-muted-foreground">{videoReferenceRefs.length}/3</span>
           </Button>
-          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('audio'); setPickerOpen(true); }}>
+          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('audio'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
             <Music className="h-4 w-4" />
             Audio refs
             <span className="ml-auto text-xs text-muted-foreground">{audioReferenceRefs.length}/3</span>
@@ -466,7 +459,7 @@ export function PromptBar({
 
       {isVeoVideo ? (
         <div className="mt-3">
-          <Button type="button" variant="outline" size="sm" className="w-full justify-start rounded-xl sm:w-auto" onClick={() => { setMediaPicker('extendVideo'); setPickerOpen(true); }}>
+          <Button type="button" variant="outline" size="sm" className="w-full justify-start rounded-xl sm:w-auto" onClick={() => { setMediaPicker('extendVideo'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
             <FileVideo className="h-4 w-4" />
             Extend source
             <span className="ml-auto text-xs text-muted-foreground">{videoExtendSourceRef ? '1/1' : '0/1'}</span>
@@ -474,9 +467,86 @@ export function PromptBar({
         </div>
       ) : null}
 
+      <Dialog open={referenceDialogOpen} onOpenChange={setReferenceDialogOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl gap-4 p-5 sm:p-6">
+          <DialogHeader>
+            <DialogTitle>{t('addReference')}</DialogTitle>
+            <DialogDescription className="sr-only">{t('referenceCategories')}</DialogDescription>
+          </DialogHeader>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="h-12 w-full justify-start rounded-md"
+            onClick={() => {
+              setMediaPicker('image');
+              setCloseReferenceDialogOnPickerConfirm(true);
+              setPickerOpen(true);
+            }}
+          >
+            <ImageIcon className="h-4 w-4" />
+            {t('imageReference')}
+            <span className="ml-auto text-xs text-muted-foreground">{value.fileRefs.length}/9</span>
+          </Button>
+
+          <Tabs defaultValue="product" className="min-h-0 gap-3">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="product">
+                <Package2 className="h-4 w-4" />
+                {t('product')}
+              </TabsTrigger>
+              <TabsTrigger value="persona">
+                <UserRound className="h-4 w-4" />
+                {t('persona')}
+              </TabsTrigger>
+              <TabsTrigger value="style">
+                <LayoutTemplate className="h-4 w-4" />
+                {t('style')}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="product" className="mt-0">
+              <ReferenceOptionList
+                items={availableProducts}
+                emptyText={t('noProducts')}
+                fallbackIcon={<Package2 className="h-4 w-4" />}
+                onSelect={(product) => {
+                  onProductAdd(product);
+                  setReferenceDialogOpen(false);
+                }}
+              />
+            </TabsContent>
+            <TabsContent value="persona" className="mt-0">
+              <ReferenceOptionList
+                items={availablePersonas}
+                emptyText={t('noPersonas')}
+                fallbackIcon={<UserRound className="h-4 w-4" />}
+                onSelect={(persona) => {
+                  onPersonaAdd(persona);
+                  setReferenceDialogOpen(false);
+                }}
+              />
+            </TabsContent>
+            <TabsContent value="style" className="mt-0">
+              <ReferenceOptionList
+                items={availableStyles}
+                emptyText={t('noStyles')}
+                fallbackIcon={<LayoutTemplate className="h-4 w-4" />}
+                onSelect={(style) => {
+                  onStyleAdd(style);
+                  setReferenceDialogOpen(false);
+                }}
+              />
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+
       <ReferencePickerDialog
         open={pickerOpen}
-        onOpenChange={setPickerOpen}
+        onOpenChange={(open) => {
+          setPickerOpen(open);
+          if (!open) setCloseReferenceDialogOnPickerConfirm(false);
+        }}
         mediaKind={mediaPicker === 'audio' ? 'audio' : mediaPicker === 'image' ? 'image' : 'video'}
         multiple={mediaPicker !== 'extendVideo'}
         maxSelection={mediaPicker === 'extendVideo' ? 1 : mediaPicker === 'image' ? 9 : 3}
@@ -488,6 +558,10 @@ export function PromptBar({
           else if (mediaPicker === 'audio') onAudioReferenceAdd?.(paths);
           else onFileAdd(paths);
           setPickerOpen(false);
+          if (closeReferenceDialogOnPickerConfirm) {
+            setReferenceDialogOpen(false);
+            setCloseReferenceDialogOnPickerConfirm(false);
+          }
         }}
       />
     </div>
