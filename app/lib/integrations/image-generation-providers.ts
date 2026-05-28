@@ -3,6 +3,11 @@ import 'server-only';
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { getGeminiApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations } from './env-config';
+import {
+  GEMINI_FLASH_IMAGE_MODEL_ID,
+  GEMINI_PRO_IMAGE_MODEL_ID,
+  normalizeGeminiImageModelId,
+} from './image-generation-constants';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from './managed-media-client';
 
 export interface ImageModelOption {
@@ -52,13 +57,13 @@ export interface ProviderGenerateResult {
 
 const GEMINI_MODELS: ImageModelOption[] = [
   {
-    id: 'gemini-3.1-flash-image-preview',
+    id: GEMINI_FLASH_IMAGE_MODEL_ID,
     label: '🎨 Best Quality & Features',
     shortLabel: 'Gemini 3.1 Flash Image',
     description: 'Latest model with the highest quality and more capabilities. Supports up to 14 reference images and advanced features like grounding. Best for professional results.',
   },
   {
-    id: 'gemini-3-pro-image-preview',
+    id: GEMINI_PRO_IMAGE_MODEL_ID,
     label: '🎯 Pro Quality & Reasoning',
     shortLabel: 'Nano Banana Pro',
     description: 'Professional asset production model with advanced reasoning for complex instructions and high-fidelity text rendering. Supports up to 14 reference images and 2K resolution output.',
@@ -163,27 +168,29 @@ class GeminiImageProvider implements ImageGenerationProvider {
   supportsImageSize = true;
 
   getMaxReferenceImages(model: string): number {
-    if (model === 'gemini-3.1-flash-image-preview') {
+    const normalizedModel = normalizeGeminiImageModelId(model);
+    if (normalizedModel === GEMINI_FLASH_IMAGE_MODEL_ID) {
       return 14;
     }
-    if (model === 'gemini-3-pro-image-preview') {
+    if (normalizedModel === GEMINI_PRO_IMAGE_MODEL_ID) {
       return 14;
     }
-    if (model === 'gemini-2.5-flash-image') {
+    if (normalizedModel === 'gemini-2.5-flash-image') {
       return 3;
     }
     return this.maxReferenceImages;
   }
 
   async generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult> {
+    const model = normalizeGeminiImageModelId(params.model);
     const apiKey = await getGeminiApiKeyFromIntegrations();
     if (!apiKey) {
       if (isManagedMediaFallbackAvailable()) {
-        console.log(`[Gemini Image] Using managed fallback: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}`);
+        console.log(`[Gemini Image] Using managed fallback: model=${model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}`);
         const result = await generateManagedMedia({
           capability: 'image',
           provider: 'gemini',
-          model: params.model,
+          model,
           prompt: params.prompt,
           parameters: {
             aspectRatio: params.aspectRatio,
@@ -204,7 +211,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
       throw new Error('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.');
     }
 
-    console.log(`[Gemini Image] Generating: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}, contextPrompt=${params.contextPrompt ? 'yes' : 'no'}, prompt="${params.prompt.slice(0, 80)}..."`);
+    console.log(`[Gemini Image] Generating: model=${model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}, contextPrompt=${params.contextPrompt ? 'yes' : 'no'}, prompt="${params.prompt.slice(0, 80)}..."`);
 
     const ai = new GoogleGenAI({ apiKey });
 
@@ -229,7 +236,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
     }
 
     const response = await ai.models.generateContent({
-      model: params.model,
+      model,
       contents: [
         {
           role: 'user',
@@ -240,7 +247,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
         responseModalities: ['IMAGE', 'TEXT'],
         imageConfig: {
           aspectRatio: params.aspectRatio,
-          ...(params.imageSize ? { imageSize: params.imageSize } : {}),
+          ...(model !== 'gemini-2.5-flash-image' && params.imageSize ? { imageSize: params.imageSize } : {}),
         },
       },
     });

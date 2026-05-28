@@ -39,6 +39,10 @@ import {
 } from '@/app/lib/integrations/seedance-generation-service';
 import { classifyMediaReference, loadMediaReference, loadMediaReferences } from '@/app/lib/integrations/media-reference-resolver';
 import { generateSound, LYRIA_CLIP_MODEL_ID, LYRIA_PRO_MODEL_ID, type SoundOutputFormat } from '@/app/lib/integrations/sound-generation-service';
+import {
+  GEMINI_FLASH_IMAGE_MODEL_ID,
+  normalizeGeminiImageModelId,
+} from '@/app/lib/integrations/image-generation-constants';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 type ProviderReferenceMedia = { imageBytes: string; mimeType: string; fileName?: string };
@@ -660,14 +664,17 @@ export async function createStudioGeneration(
   const now = new Date();
   let sourceGenerationId: string | null = null;
 
-  const defaultModel = providerId === 'openai' ? 'gpt-image-2' : 'gemini-3.1-flash-image-preview';
+  const defaultModel = providerId === 'openai' ? 'gpt-image-2' : GEMINI_FLASH_IMAGE_MODEL_ID;
   const videoDefaultModel = providerId === SEEDANCE_PROVIDER_ID ? SEEDANCE_MODEL_ID : 'veo-3.1-fast-generate-preview';
   const soundDefaultModel = LYRIA_CLIP_MODEL_ID;
-  const model = request.mode === 'video'
+  const requestedModel = mode === 'video'
     ? (request.model || videoDefaultModel)
-    : request.mode === 'sound'
+    : mode === 'sound'
       ? (request.model || soundDefaultModel)
       : (request.model || defaultModel);
+  const model = mode === 'image' && providerId === 'gemini'
+    ? normalizeGeminiImageModelId(requestedModel)
+    : requestedModel;
 
   if (request.source_output_id) {
     const sourceOutput = await getStudioOutputForUser(request.source_output_id, userId);
@@ -1009,7 +1016,10 @@ async function generateStudioImages(
     );
   }
 
-  const validatedModel = provider.models.some((m) => m.id === model) ? model : (provider.models[0]?.id || model);
+  const normalizedModel = providerId === 'gemini' ? normalizeGeminiImageModelId(model) : model;
+  const validatedModel = provider.models.some((m) => m.id === normalizedModel)
+    ? normalizedModel
+    : (provider.models[0]?.id || normalizedModel);
 
   if (!provider.supportedAspectRatios.includes(aspectRatio)) {
     throw new StudioServiceError(

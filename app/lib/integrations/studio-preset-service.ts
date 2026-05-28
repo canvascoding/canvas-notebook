@@ -8,6 +8,7 @@ import { and, asc, desc, eq, or } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { studioPresets } from '@/app/lib/db/schema';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
+import { normalizeGeminiImageModelId } from '@/app/lib/integrations/image-generation-constants';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import {
   deleteAssetDir,
@@ -1125,7 +1126,8 @@ export async function generatePresetPreview(
     );
   }
 
-  const model = input.model?.trim() || 'gemini-2.5-flash-image';
+  const rawModel = input.model?.trim() || 'gemini-2.5-flash-image';
+  const model = providerId === 'gemini' ? normalizeGeminiImageModelId(rawModel) : rawModel;
   if (!provider.models.some((entry) => entry.id === model)) {
     throw new StudioServiceError(
       `Unsupported preview model: ${model}`,
