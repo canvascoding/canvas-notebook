@@ -34,21 +34,29 @@ type SummarizeHistoryInput = {
 export type PreparePiHistoryContextResult = {
   summary: PiSessionSummaryState;
   composition: PiHistoryComposition;
+  summaryAttempted: boolean;
+  summaryUpdated: boolean;
+  summaryFailed: boolean;
+  unsummarizedMessageCount: number;
 };
 
 const SUMMARY_SYSTEM_PROMPT = [
   'You maintain a compact internal summary of a coding chat session for context window management.',
-  'Summarize only durable information from older turns.',
-  'Include facts, decisions, open tasks, important file paths, user preferences, and key tool results when relevant.',
-  'Do not quote long passages, do not include verbose chronology, and do not repeat the most recent turns word-for-word.',
-  'Return plain Markdown bullet lists only.',
+  'The summary is reference-only background for a future assistant turn, not active user instructions.',
+  'Preserve durable information from older turns: current task state, decisions, constraints, important file paths, commands, tool results, user preferences, blockers, and remaining work.',
+  'Do not quote long passages, do not include verbose chronology, do not preserve stale requests as new tasks, and do not repeat the most recent turns word-for-word.',
+  'Return concise Markdown with stable sections when applicable: Active Task, Decisions, Files And Commands, Tool Results, Open Questions, User Preferences, Remaining Work.',
 ].join(' ');
 
 const SUMMARY_UPDATE_PROMPT = [
   'Update the internal session summary using the prior summary and the older messages above.',
-  'Keep it compact and useful for future coding turns.',
-  'Use sections only when they add value.',
+  'Merge related facts, remove obsolete details, and keep it compact but specific enough to resume the work safely.',
+  'Clearly distinguish completed work from remaining work. Preserve exact file paths, command names, error messages, and user constraints when they matter.',
 ].join(' ');
+
+const SUMMARY_MESSAGE_TEXT_LIMIT = 6000;
+const SUMMARY_TOOL_TEXT_LIMIT = 3000;
+const SUMMARY_TOOL_ARGUMENT_LIMIT = 1200;
 
 function extractAssistantText(message: AssistantMessage): string {
   return message.content
@@ -58,26 +66,124 @@ function extractAssistantText(message: AssistantMessage): string {
     .trim();
 }
 
+function truncateForSummary(value: string, limit: number): string {
+  if (value.length <= limit) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}\n…`;
+}
+
+function stringifyForSummary(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function extractTextForSummary(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return stringifyForSummary(content);
+  }
+
+  const parts = content.map((part) => {
+    if (!part || typeof part !== 'object' || !('type' in part)) {
+      return stringifyForSummary(part);
+    }
+
+    const typedPart = part as Record<string, unknown>;
+    if (typedPart.type === 'text' && typeof typedPart.text === 'string') {
+      return typedPart.text;
+    }
+
+    if (typedPart.type === 'image') {
+      return '[Image omitted from summary input]';
+    }
+
+    if (typedPart.type === 'toolCall') {
+      const name = typeof typedPart.name === 'string' ? typedPart.name : 'unknown_tool';
+      const args = truncateForSummary(stringifyForSummary(typedPart.arguments ?? {}), SUMMARY_TOOL_ARGUMENT_LIMIT);
+      return `[Tool call: ${name} ${args}]`;
+    }
+
+    return stringifyForSummary(typedPart);
+  });
+
+  return parts.filter(Boolean).join('\n');
+}
+
+function compactToolResultForSummary(message: AgentMessage): Message {
+  const rawMessage = message as unknown as Record<string, unknown>;
+  const toolName = typeof rawMessage.toolName === 'string'
+    ? rawMessage.toolName
+    : 'unknown_tool';
+  const text = truncateForSummary(extractTextForSummary(rawMessage.content), SUMMARY_TOOL_TEXT_LIMIT);
+
+  return {
+    ...rawMessage,
+    content: [{ type: 'text', text: `Tool result from ${toolName}:\n${text}` }],
+  } as unknown as Message;
+}
+
 async function sanitizeMessagesForSummary(messages: AgentMessage[]): Promise<Message[]> {
   const normalized = await normalizePiMessagesForLlm(messages);
 
   return normalized.flatMap((message): Message[] => {
+    if ((message as unknown as AgentMessage).role === 'toolResult') {
+      return [compactToolResultForSummary(message as unknown as AgentMessage)];
+    }
+
     if (message.role !== 'assistant') {
       // Strip images from user messages — summaries are text-only
       if (message.role === 'user' && Array.isArray(message.content)) {
         const textOnly = message.content.filter((part) => part.type === 'text');
-        if (textOnly.length === 0) return [];
-        return [{ ...message, content: textOnly }];
+        if (textOnly.length === 0) {
+          return [{ ...message, content: [{ type: 'text', text: '[User attached image omitted from summary input]' }] }];
+        }
+        return [{
+          ...message,
+          content: textOnly.map((part) => ({
+            ...part,
+            text: truncateForSummary(part.text, SUMMARY_MESSAGE_TEXT_LIMIT),
+          })),
+        }];
       }
       return [message];
     }
 
-    const content = message.content.filter((part) => part.type !== 'thinking');
+    const content = message.content
+      .filter((part) => part.type !== 'thinking')
+      .map((part) => {
+        if (part.type === 'text') {
+          return {
+            ...part,
+            text: truncateForSummary(part.text, SUMMARY_MESSAGE_TEXT_LIMIT),
+          };
+        }
+
+        if (part.type === 'toolCall') {
+          return {
+            type: 'text' as const,
+            text: `[Tool call: ${part.name} ${truncateForSummary(stringifyForSummary(part.arguments ?? {}), SUMMARY_TOOL_ARGUMENT_LIMIT)}]`,
+          };
+        }
+
+        return part;
+      });
     if (content.length === 0) {
       return [];
     }
 
-    return [{ ...message, content }];
+    return [{ ...message, content } as Message];
   });
 }
 
@@ -149,6 +255,9 @@ export async function preparePiHistoryContext({
   signal,
 }: PreparePiHistoryContextOptions): Promise<PreparePiHistoryContextResult> {
   let nextSummary = summary;
+  let summaryAttempted = false;
+  let summaryUpdated = false;
+  let summaryFailed = false;
   let composition = composePiHistoryForLlm({
     messages,
     summary: nextSummary,
@@ -167,10 +276,15 @@ export async function preparePiHistoryContext({
     return {
       summary: nextSummary,
       composition,
+      summaryAttempted,
+      summaryUpdated,
+      summaryFailed,
+      unsummarizedMessageCount: 0,
     };
   }
 
   try {
+    summaryAttempted = true;
     const summaryText = await summarizePiSessionHistory({
       previousSummaryText: nextSummary.summaryText,
       messagesToSummarize: unsummarizedMessages,
@@ -188,6 +302,7 @@ export async function preparePiHistoryContext({
           nextSummary.summaryThroughTimestamp ?? 0,
         ),
       };
+      summaryUpdated = true;
 
       composition = composePiHistoryForLlm({
         messages,
@@ -197,8 +312,12 @@ export async function preparePiHistoryContext({
         modelMaxTokens: model.maxTokens,
         toolCount,
       });
+    } else {
+      summaryFailed = true;
     }
   } catch (error) {
+    summaryAttempted = true;
+    summaryFailed = true;
     console.warn(
       `[PI Summary] Failed to update summary${sessionId ? ` for ${sessionId}` : ''}: ${
         error instanceof Error ? error.message : 'unknown error'
@@ -209,5 +328,9 @@ export async function preparePiHistoryContext({
   return {
     summary: nextSummary,
     composition,
+    summaryAttempted,
+    summaryUpdated,
+    summaryFailed,
+    unsummarizedMessageCount: unsummarizedMessages.length,
   };
 }

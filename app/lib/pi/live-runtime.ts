@@ -414,6 +414,22 @@ class LivePiRuntime {
       sessionId: this.sessionId,
     });
 
+    if (result.summaryFailed && result.composition.omittedMessages.length > 0) {
+      this.lastComposition = composePiHistoryForLlm({
+        messages: this.agent.state.messages,
+        summary: this.summary,
+        systemPromptTokens: estimateTextTokens(this.systemPrompt),
+        contextWindow: this.model.contextWindow,
+        modelMaxTokens: this.model.maxTokens,
+        toolCount: this.tools.length,
+      });
+      this.touch();
+      this.publishStatus();
+      throw new Error(
+        'Context compaction failed because the summary could not be updated. No messages were removed.',
+      );
+    }
+
     this.summary = result.summary;
     this.lastComposition = result.composition;
     this.recordCompaction('manual', result.composition);
@@ -667,6 +683,7 @@ class LivePiRuntime {
     const nextSummaryUpdatedAt = result.summary.summaryUpdatedAt?.getTime() ?? null;
 
     if (
+      result.summaryUpdated &&
       (nextSummaryThroughTimestamp !== previousSummaryThroughTimestamp || nextSummaryUpdatedAt !== previousSummaryUpdatedAt) &&
       (result.composition.includedSummary || result.composition.omittedMessages.length > 0)
     ) {
