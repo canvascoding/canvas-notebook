@@ -30,10 +30,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4.4.0
+        uses: actions/setup-node@v6
         with:
           node-version: 26
           cache: npm
@@ -51,7 +51,7 @@ jobs:
         run: npm run electron:dist
 
       - name: Upload desktop artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: canvas-notebook-desktop-${{ matrix.platform }}
           if-no-files-found: error
@@ -66,4 +66,3 @@ jobs:
             dist-electron/*.rpm
             dist-electron/*.zip
             dist-electron/latest*.yml
-
