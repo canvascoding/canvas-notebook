@@ -136,7 +136,14 @@ import {
 import { eq } from 'drizzle-orm';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
-import { managedEmailRequest } from '@/app/lib/email/managed-client';
+import {
+  createEmailDraft,
+  listEmailAccounts,
+  readEmailMessage,
+  searchEmail,
+  sendEmailDraft,
+  updateEmailDraft,
+} from '@/app/lib/email/service';
 import { createSessionSearchTool } from '@/app/lib/pi/session-search-tool';
 import { getPiToolsetsForTool, type PiToolset } from '@/app/lib/pi/toolsets';
 import { createDelegateTaskTool } from '@/app/lib/pi/delegate-task-tool';
@@ -1134,7 +1141,7 @@ export const piTools: AgentTool[] = [
     parameters: Type.Object({}),
     execute: async () => {
       try {
-        const data = await managedEmailRequest('/v1/managed/email/accounts');
+        const data = await listEmailAccounts();
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
       } catch (error) {
         const message = getErrorMessage(error);
@@ -1153,7 +1160,7 @@ export const piTools: AgentTool[] = [
     }),
     execute: async (_toolCallId, params) => {
       try {
-        const data = await managedEmailRequest('/v1/managed/email/search', { method: 'POST', body: JSON.stringify(params || {}) });
+        const data = await searchEmail(params || {});
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
       } catch (error) {
         const message = getErrorMessage(error);
@@ -1172,7 +1179,7 @@ export const piTools: AgentTool[] = [
     execute: async (_toolCallId, params) => {
       try {
         const p = params as { accountId: string; messageId: string };
-        const data = await managedEmailRequest(`/v1/managed/email/accounts/${encodeURIComponent(p.accountId)}/messages/${encodeURIComponent(p.messageId)}`);
+        const data = await readEmailMessage(p.accountId, p.messageId);
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
       } catch (error) {
         const message = getErrorMessage(error);
@@ -1194,7 +1201,7 @@ export const piTools: AgentTool[] = [
     }),
     execute: async (_toolCallId, params) => {
       try {
-        const data = await managedEmailRequest('/v1/managed/email/drafts', { method: 'POST', body: JSON.stringify(params) });
+        const data = await createEmailDraft(params as Parameters<typeof createEmailDraft>[0]);
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
       } catch (error) {
         const message = getErrorMessage(error);
@@ -1218,7 +1225,7 @@ export const piTools: AgentTool[] = [
     execute: async (_toolCallId, params) => {
       try {
         const { draftId, ...body } = params as Record<string, unknown> & { draftId: string };
-        const data = await managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(draftId)}`, { method: 'PATCH', body: JSON.stringify(body) });
+        const data = await updateEmailDraft(draftId, body as Parameters<typeof updateEmailDraft>[1]);
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
       } catch (error) {
         const message = getErrorMessage(error);
@@ -1237,7 +1244,7 @@ export const piTools: AgentTool[] = [
     execute: async (_toolCallId, params) => {
       try {
         const p = params as { accountId: string; draftId: string };
-        const data = await managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(p.draftId)}/send`, { method: 'POST', body: JSON.stringify({ accountId: p.accountId }) });
+        const data = await sendEmailDraft(p.accountId, p.draftId);
         return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], details: data };
       } catch (error) {
         const message = getErrorMessage(error);

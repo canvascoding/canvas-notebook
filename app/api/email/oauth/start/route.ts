@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { managedEmailRequest } from '@/app/lib/email/managed-client';
+import { startEmailOAuth } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -19,14 +19,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({})) as { provider?: string; returnUrl?: string };
     const origin = request.headers.get('origin') || request.nextUrl.origin;
     const returnUrl = body.returnUrl || `${origin}/settings?tab=integrations`;
-    const data = await managedEmailRequest('/v1/managed/email/oauth/start', {
-      method: 'POST',
-      body: JSON.stringify({ provider: body.provider || 'google', returnUrl }),
-    });
+    const data = await startEmailOAuth({ provider: body.provider || 'google', requestOrigin: origin, returnUrl });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to start email OAuth';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

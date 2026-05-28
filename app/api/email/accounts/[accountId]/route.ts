@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { managedEmailRequest } from '@/app/lib/email/managed-client';
+import { disconnectEmailAccount } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -17,11 +17,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (!limited.ok) return limited.response;
   try {
     const { accountId } = await params;
-    const data = await managedEmailRequest(`/v1/managed/email/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
+    const data = await disconnectEmailAccount(accountId);
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to disconnect email account';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

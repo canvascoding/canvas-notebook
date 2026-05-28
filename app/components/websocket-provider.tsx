@@ -29,11 +29,39 @@ type NotificationDetail = {
   timestamp?: number;
 };
 
+type DesktopChatNotificationPayload = {
+  sessionId: string;
+  sessionTitle: string;
+  notificationType: string;
+  messagePreview?: string;
+  lastMessageAt?: string;
+  targetPath: string;
+};
+
+type CanvasDesktopBridge = {
+  showChatNotification?: (payload: DesktopChatNotificationPayload) => Promise<{
+    ok: boolean;
+    skippedReason?: string;
+    error?: string;
+  }>;
+};
+
 function hasSessionCookie(): boolean {
   if (typeof document === 'undefined') return false;
   const cookies = document.cookie;
   return /(?:^|;\s*)better-auth\.session_token\s*=/.test(cookies)
     || /(?:^|;\s*)__Secure-better-auth\.session_token\s*=/.test(cookies);
+}
+
+function getCanvasDesktopBridge(): CanvasDesktopBridge | null {
+  if (typeof window === 'undefined') return null;
+  const candidate = (window as typeof window & { canvasDesktop?: CanvasDesktopBridge }).canvasDesktop;
+  return candidate || null;
+}
+
+function shouldShowNativeNotification(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.hidden || !document.hasFocus();
 }
 
 function truncateText(value: string | null | undefined, maxLength: number): string {
@@ -100,6 +128,10 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
   const deliveredNotificationKeysRef = useRef<Map<string, number>>(new Map());
   const [, setConnected] = useState(false);
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
+
+  const getSessionTargetPath = useCallback((sessionId: string) => {
+    return `${sessionBasePath}?session=${encodeURIComponent(sessionId)}`;
+  }, [sessionBasePath]);
 
   const clearFallbackNotificationTimer = useCallback((sessionId: string) => {
     const timer = fallbackNotificationTimersRef.current.get(sessionId);
@@ -234,10 +266,29 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
 
       const toastTitle = truncateText(sessionTitle, 60) || t('newChatTitle');
       const toastDescription = messagePreview || t('newResponseReady');
+      const targetPath = getSessionTargetPath(sessionId);
       rememberDeliveredNotification(sessionId, lastMessageAt);
       clearFallbackNotificationTimer(sessionId);
 
       console.log(`[WebSocketProvider] SHOWING TOAST: sessionId=${sessionId}, type=${notificationType}, title="${toastTitle}", description="${toastDescription}"`);
+
+      const desktopBridge = getCanvasDesktopBridge();
+      if (
+        desktopBridge?.showChatNotification &&
+        shouldShowNativeNotification() &&
+        (notificationType === 'new_response' || notificationType === 'error')
+      ) {
+        void desktopBridge.showChatNotification({
+          sessionId,
+          sessionTitle: toastTitle,
+          notificationType,
+          messagePreview: toastDescription,
+          lastMessageAt,
+          targetPath,
+        }).catch((error) => {
+          console.error('[WebSocketProvider] Native notification failed:', error);
+        });
+      }
 
       switch (notificationType) {
         case 'new_response':
@@ -246,7 +297,7 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
             action: {
               label: t('openSession'),
               onClick: () => {
-                router.push(`${sessionBasePath}?session=${encodeURIComponent(sessionId)}`);
+                router.push(targetPath);
               },
             },
             duration: 4000,
@@ -332,7 +383,7 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
       window.removeEventListener('ws-auth-error', handleAuthError);
     };
-  }, [clearFallbackNotificationTimer, isActiveVisibleSession, rememberDeliveredNotification, router, sessionBasePath, t]);
+  }, [clearFallbackNotificationTimer, getSessionTargetPath, isActiveVisibleSession, rememberDeliveredNotification, router, t]);
 
   return <>{children}</>;
 }

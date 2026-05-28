@@ -143,6 +143,8 @@ type EmailOAuthDraft = {
   microsoftClientSecret: string;
 };
 
+type EmailMode = 'unknown' | 'managed' | 'local';
+
 type McpTransportMode = 'stdio' | 'http';
 
 type McpPairDraft = {
@@ -180,6 +182,23 @@ type ScopeCardConfig = {
   emptyPath: string;
   keyHint: string;
 };
+
+const SETTINGS_TABS = ['general', 'integrations', 'agent-settings', 'workspace', 'usage', 'skills', 'channels', 'license'] as const;
+const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
+
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+function isSettingsTab(value: string | null): value is SettingsTab {
+  return SETTINGS_TABS.includes(value as SettingsTab);
+}
+
+function getInitialSettingsTab(requestedTab: string | null): SettingsTab {
+  if (isSettingsTab(requestedTab)) return requestedTab;
+  if (typeof window === 'undefined') return 'general';
+
+  const storedTab = window.localStorage.getItem(SETTINGS_TAB_STORAGE_KEY);
+  return isSettingsTab(storedTab) ? storedTab : 'general';
+}
 
 const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
   integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY', 'COMPOSIO_API_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MICROSOFT_OAUTH_CLIENT_ID', 'MICROSOFT_OAUTH_CLIENT_SECRET', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHANNEL_ENABLED'],
@@ -1081,6 +1100,7 @@ function McpConfigCard(props: {
 function EmailAccountsCard() {
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { readFrom: string; sendTo: string }>>({});
+  const [emailMode, setEmailMode] = useState<EmailMode>('unknown');
   const [oauthDraft, setOauthDraft] = useState<EmailOAuthDraft>({
     googleClientId: '',
     googleClientSecret: '',
@@ -1122,6 +1142,7 @@ function EmailAccountsCard() {
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load email accounts');
       const nextAccounts = (payload.data?.accounts || []) as EmailAccount[];
+      setEmailMode(payload.data?.mode === 'managed' ? 'managed' : 'local');
       setAccounts(nextAccounts);
       setDrafts(Object.fromEntries(nextAccounts.map((account) => [
         account.id,
@@ -1140,12 +1161,26 @@ function EmailAccountsCard() {
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       void loadAccounts();
-      void loadOAuthEnv();
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [loadAccounts, loadOAuthEnv]);
+  }, [loadAccounts]);
 
-  const saveOAuthProvider = async (provider: 'google' | 'microsoft') => {
+  useEffect(() => {
+    if (emailMode === 'local') {
+      void loadOAuthEnv();
+      return;
+    }
+    if (emailMode === 'managed') {
+      setOauthDraft({
+        googleClientId: '',
+        googleClientSecret: '',
+        microsoftClientId: '',
+        microsoftClientSecret: '',
+      });
+    }
+  }, [emailMode, loadOAuthEnv]);
+
+  const persistOAuthProvider = async (provider: 'google' | 'microsoft') => {
     const keys = provider === 'google'
       ? {
           clientId: 'GOOGLE_OAUTH_CLIENT_ID',
@@ -1160,31 +1195,34 @@ function EmailAccountsCard() {
           clientSecretValue: oauthDraft.microsoftClientSecret.trim(),
         };
     if (!keys.clientIdValue || !keys.clientSecretValue) {
-      setError('Client ID and Client Secret are required before saving OAuth settings.');
-      return;
+      throw new Error('Client ID and Client Secret are required before saving or connecting OAuth.');
     }
+    const currentResponse = await fetch('/api/integrations/env?scope=integrations', { cache: 'no-store' });
+    const currentPayload = await currentResponse.json();
+    if (!currentResponse.ok || !currentPayload.success) throw new Error(currentPayload.error || 'Failed to load current integration keys');
+    const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
+    const nextEntries = currentEntries
+      .filter((entry) => entry.key !== keys.clientId && entry.key !== keys.clientSecret)
+      .map((entry) => ({ key: entry.key, value: entry.value }));
+    nextEntries.push({ key: keys.clientId, value: keys.clientIdValue });
+    nextEntries.push({ key: keys.clientSecret, value: keys.clientSecretValue });
+    const saveResponse = await fetch('/api/integrations/env?scope=integrations', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries: nextEntries }),
+    });
+    const savePayload = await saveResponse.json();
+    if (!saveResponse.ok || !savePayload.success) throw new Error(savePayload.error || 'Failed to save OAuth settings');
+    await loadOAuthEnv();
+  };
+
+  const saveOAuthProvider = async (provider: 'google' | 'microsoft') => {
     setActiveAction(`oauth-save:${provider}`);
     setError(null);
     setMessage(null);
     try {
-      const currentResponse = await fetch('/api/integrations/env?scope=integrations', { cache: 'no-store' });
-      const currentPayload = await currentResponse.json();
-      if (!currentResponse.ok || !currentPayload.success) throw new Error(currentPayload.error || 'Failed to load current integration keys');
-      const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
-      const nextEntries = currentEntries
-        .filter((entry) => entry.key !== keys.clientId && entry.key !== keys.clientSecret)
-        .map((entry) => ({ key: entry.key, value: entry.value }));
-      nextEntries.push({ key: keys.clientId, value: keys.clientIdValue });
-      nextEntries.push({ key: keys.clientSecret, value: keys.clientSecretValue });
-      const saveResponse = await fetch('/api/integrations/env?scope=integrations', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries: nextEntries }),
-      });
-      const savePayload = await saveResponse.json();
-      if (!saveResponse.ok || !savePayload.success) throw new Error(savePayload.error || 'Failed to save OAuth settings');
+      await persistOAuthProvider(provider);
       setMessage(`${provider === 'google' ? 'Google' : 'Microsoft'} OAuth settings saved.`);
-      await loadOAuthEnv();
     } catch (saveOAuthError) {
       setError(saveOAuthError instanceof Error ? saveOAuthError.message : 'Failed to save OAuth settings');
     } finally {
@@ -1197,6 +1235,9 @@ function EmailAccountsCard() {
     setError(null);
     setMessage(null);
     try {
+      if (emailMode !== 'managed') {
+        await persistOAuthProvider(provider);
+      }
       const response = await fetch('/api/email/oauth/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1255,13 +1296,17 @@ function EmailAccountsCard() {
     }
   };
 
+  const isManagedEmailMode = emailMode === 'managed';
+  const isLocalEmailMode = emailMode === 'local';
+  const oauthActionDisabled = activeAction !== null || isOAuthLoading || emailMode === 'unknown';
+
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle>Email Accounts</CardTitle>
-            <CardDescription>Connect managed email accounts and control which senders can be read or recipients can be used for sending.</CardDescription>
+            <CardDescription>Connect email accounts and control which senders can be read or recipients can be used for sending.</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => void loadAccounts()} disabled={isLoading}>
@@ -1278,37 +1323,43 @@ function EmailAccountsCard() {
           <div className="space-y-3 border border-border p-4">
             <div>
               <h3 className="text-base font-semibold">Google OAuth</h3>
-              <p className="text-sm text-muted-foreground">Used for connecting Gmail accounts in self-hosted setups.</p>
+              <p className="text-sm text-muted-foreground">{isManagedEmailMode ? 'Connect Gmail accounts with Canvas Managed Services.' : 'Used for connecting Gmail accounts in self-hosted setups.'}</p>
             </div>
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-id">Client ID</Label>
-              <Input
-                id="email-google-client-id"
-                className="font-mono text-xs"
-                value={oauthDraft.googleClientId}
-                onChange={(event) => setOauthDraft((current) => ({ ...current, googleClientId: event.target.value }))}
-                placeholder="GOOGLE_OAUTH_CLIENT_ID"
-                disabled={isOAuthLoading || activeAction !== null}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-secret">Client Secret</Label>
-              <Input
-                id="email-google-client-secret"
-                type="password"
-                className="font-mono text-xs"
-                value={oauthDraft.googleClientSecret}
-                onChange={(event) => setOauthDraft((current) => ({ ...current, googleClientSecret: event.target.value }))}
-                placeholder="GOOGLE_OAUTH_CLIENT_SECRET"
-                disabled={isOAuthLoading || activeAction !== null}
-              />
-            </div>
+            {isLocalEmailMode && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-id">Client ID</Label>
+                  <Input
+                    id="email-google-client-id"
+                    className="font-mono text-xs"
+                    value={oauthDraft.googleClientId}
+                    onChange={(event) => setOauthDraft((current) => ({ ...current, googleClientId: event.target.value }))}
+                    placeholder="GOOGLE_OAUTH_CLIENT_ID"
+                    disabled={isOAuthLoading || activeAction !== null}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-secret">Client Secret</Label>
+                  <Input
+                    id="email-google-client-secret"
+                    type="password"
+                    className="font-mono text-xs"
+                    value={oauthDraft.googleClientSecret}
+                    onChange={(event) => setOauthDraft((current) => ({ ...current, googleClientSecret: event.target.value }))}
+                    placeholder="GOOGLE_OAUTH_CLIENT_SECRET"
+                    disabled={isOAuthLoading || activeAction !== null}
+                  />
+                </div>
+              </>
+            )}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('google')} disabled={isOAuthLoading || activeAction !== null}>
-                {activeAction === 'oauth-save:google' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save
-              </Button>
-              <Button type="button" onClick={() => void startOAuth('google')} disabled={activeAction !== null || isOAuthLoading}>
+              {isLocalEmailMode && (
+                <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('google')} disabled={isOAuthLoading || activeAction !== null}>
+                  {activeAction === 'oauth-save:google' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save
+                </Button>
+              )}
+              <Button type="button" onClick={() => void startOAuth('google')} disabled={oauthActionDisabled}>
                 <ExternalLink className="mr-2 h-4 w-4" />
                 Connect
               </Button>
@@ -1317,37 +1368,43 @@ function EmailAccountsCard() {
           <div className="space-y-3 border border-border p-4">
             <div>
               <h3 className="text-base font-semibold">Microsoft OAuth</h3>
-              <p className="text-sm text-muted-foreground">Used for connecting Microsoft 365 or Outlook accounts.</p>
+              <p className="text-sm text-muted-foreground">{isManagedEmailMode ? 'Connect Microsoft 365 or Outlook accounts with Canvas Managed Services.' : 'Used for connecting Microsoft 365 or Outlook accounts.'}</p>
             </div>
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-id">Client ID</Label>
-              <Input
-                id="email-microsoft-client-id"
-                className="font-mono text-xs"
-                value={oauthDraft.microsoftClientId}
-                onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientId: event.target.value }))}
-                placeholder="MICROSOFT_OAUTH_CLIENT_ID"
-                disabled={isOAuthLoading || activeAction !== null}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-secret">Client Secret</Label>
-              <Input
-                id="email-microsoft-client-secret"
-                type="password"
-                className="font-mono text-xs"
-                value={oauthDraft.microsoftClientSecret}
-                onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientSecret: event.target.value }))}
-                placeholder="MICROSOFT_OAUTH_CLIENT_SECRET"
-                disabled={isOAuthLoading || activeAction !== null}
-              />
-            </div>
+            {isLocalEmailMode && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-id">Client ID</Label>
+                  <Input
+                    id="email-microsoft-client-id"
+                    className="font-mono text-xs"
+                    value={oauthDraft.microsoftClientId}
+                    onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientId: event.target.value }))}
+                    placeholder="MICROSOFT_OAUTH_CLIENT_ID"
+                    disabled={isOAuthLoading || activeAction !== null}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-secret">Client Secret</Label>
+                  <Input
+                    id="email-microsoft-client-secret"
+                    type="password"
+                    className="font-mono text-xs"
+                    value={oauthDraft.microsoftClientSecret}
+                    onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientSecret: event.target.value }))}
+                    placeholder="MICROSOFT_OAUTH_CLIENT_SECRET"
+                    disabled={isOAuthLoading || activeAction !== null}
+                  />
+                </div>
+              </>
+            )}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('microsoft')} disabled={isOAuthLoading || activeAction !== null}>
-                {activeAction === 'oauth-save:microsoft' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save
-              </Button>
-              <Button type="button" onClick={() => void startOAuth('microsoft')} disabled={activeAction !== null || isOAuthLoading}>
+              {isLocalEmailMode && (
+                <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('microsoft')} disabled={isOAuthLoading || activeAction !== null}>
+                  {activeAction === 'oauth-save:microsoft' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save
+                </Button>
+              )}
+              <Button type="button" onClick={() => void startOAuth('microsoft')} disabled={oauthActionDisabled}>
                 <ExternalLink className="mr-2 h-4 w-4" />
                 Connect
               </Button>
@@ -1414,16 +1471,23 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
-  type SettingsTab = 'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage' | 'skills' | 'channels' | 'license';
   const requestedTab = searchParams.get('tab');
-  const initialTab: SettingsTab = requestedTab === 'license' ? 'license' : 'general';
+  const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const { activeTabOverride } = useHintContext();
 
   const effectiveTab = (activeTabOverride as typeof settingsTab) || settingsTab;
   const handleTabChange = (value: string) => {
-    setSettingsTab(value as SettingsTab);
+    if (!isSettingsTab(value)) return;
+
+    setSettingsTab(value);
+    window.localStorage.setItem(SETTINGS_TAB_STORAGE_KEY, value);
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', value);
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
+
   const [editors, setEditors] = useState<Record<EnvScope, ScopeEditorState>>({
     integrations: INITIAL_SCOPE_STATE('integrations'),
     agents: INITIAL_SCOPE_STATE('agents'),

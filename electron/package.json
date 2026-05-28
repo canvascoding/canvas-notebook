@@ -1,0 +1,43 @@
+{
+  "name": "canvas-notebook-desktop",
+  "version": "2026.5.28",
+  "private": true,
+  "description": "Desktop shell for Canvas Notebook",
+  "author": "Canvas Studios",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "main": "main/main.mjs",
+  "build": {
+    "appId": "io.canvasstudios.notebook",
+    "productName": "Canvas Notebook",
+    "electronVersion": "42.3.0",
+    "buildVersion": "2026.5.28.4",
+    "icon": "assets/icon",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "../dist-electron"
+    },
+    "npmRebuild": false,
+    "files": [
+      "**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "category": "Utility",
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
+}

@@ -1,0 +1,69 @@
+name: Electron Desktop Build
+
+on:
+  schedule:
+    # Weekly desktop builds on Wednesdays at 03:00 UTC.
+    - cron: "0 3 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electron-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            os: macos-latest
+          - platform: windows
+            os: windows-latest
+          - platform: linux
+            os: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install Linux packaging dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools rpm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Electron desktop artifacts
+        run: npm run electron:dist
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: canvas-notebook-desktop-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            dist-electron/*.AppImage
+            dist-electron/*.blockmap
+            dist-electron/*.deb
+            dist-electron/*.dmg
+            dist-electron/*.exe
+            dist-electron/*.msi
+            dist-electron/*.rpm
+            dist-electron/*.zip
+            dist-electron/latest*.yml
+
