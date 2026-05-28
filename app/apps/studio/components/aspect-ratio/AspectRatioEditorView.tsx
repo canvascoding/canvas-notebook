@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Crop, FolderInput, ImageIcon, Loader2, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
+import { Check, Crop, FolderInput, ImageIcon, Loader2, Magnet, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { getImageSizesForModel } from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
@@ -87,6 +88,7 @@ const MAX_TARGET_SIZE = 2048;
 const MIN_FRAME_SIZE = 24;
 const STAGE_FIT_PADDING = 72;
 const FALLBACK_STAGE_SIZE = { width: 872, height: 648 };
+const SNAP_DISTANCE_PX = 8;
 
 function parseRatio(ratio: string) {
   const [w, h] = ratio.split(':').map(Number);
@@ -155,6 +157,65 @@ function fitImageToStage(imageWidth: number, imageHeight: number, stage: HTMLDiv
       y: Math.round((stageHeight - imageHeight * zoom) / 2),
     },
   };
+}
+
+function getSnapThreshold(zoom: number) {
+  return SNAP_DISTANCE_PX / Math.max(zoom, 0.001);
+}
+
+function pickSnappedCoordinate(value: number, candidates: number[], threshold: number) {
+  let next = value;
+  let nearestDistance = threshold;
+
+  for (const candidate of candidates) {
+    const distance = Math.abs(value - candidate);
+    if (distance <= nearestDistance) {
+      next = candidate;
+      nearestDistance = distance;
+    }
+  }
+
+  return next;
+}
+
+function snapMovedFrame(frame: Frame, imageWidth: number, imageHeight: number, threshold: number): Frame {
+  return {
+    ...frame,
+    x: pickSnappedCoordinate(frame.x, [0, imageWidth - frame.width], threshold),
+    y: pickSnappedCoordinate(frame.y, [0, imageHeight - frame.height], threshold),
+  };
+}
+
+function snapResizedFrame(frame: Frame, handle: Handle, imageWidth: number, imageHeight: number, threshold: number): Frame {
+  const next = { ...frame };
+
+  if (handle.includes('w') && Math.abs(next.x) <= threshold) {
+    const right = next.x + next.width;
+    next.x = 0;
+    next.width = Math.max(MIN_FRAME_SIZE, right);
+  }
+
+  if (handle.includes('e')) {
+    const right = next.x + next.width;
+    if (Math.abs(right - imageWidth) <= threshold) {
+      next.width = Math.max(MIN_FRAME_SIZE, imageWidth - next.x);
+    }
+  }
+
+  if (handle.includes('n') && Math.abs(next.y) <= threshold) {
+    const bottom = next.y + next.height;
+    next.y = 0;
+    next.height = Math.max(MIN_FRAME_SIZE, bottom);
+  }
+
+  if (handle.includes('s')) {
+    const bottom = next.y + next.height;
+    if (Math.abs(bottom - imageHeight) <= threshold) {
+      next.height = Math.max(MIN_FRAME_SIZE, imageHeight - next.y);
+    }
+  }
+
+  return next;
 }
 
 function clientPointToImagePoint(clientX: number, clientY: number, stage: HTMLDivElement | null, pan: { x: number; y: number }, zoom: number) {
@@ -389,6 +450,7 @@ export function AspectRatioEditorView() {
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [overwriteDialogOpen, setOverwriteDialogOpen] = useState(false);
+  const [snapEnabled, setSnapEnabled] = useState(true);
 
   const mode = imageSize.width > 0 ? getFrameMode(frame, imageSize.width, imageSize.height) : 'crop';
   const targetSize = useMemo(() => getTargetSize(frame, aspectRatio), [aspectRatio, frame]);
@@ -502,7 +564,8 @@ export function AspectRatioEditorView() {
     const dy = currentPoint.y - drag.startImageY;
 
     if (drag.type === 'move-frame') {
-      setFrame({ ...drag.frame, x: drag.frame.x + dx, y: drag.frame.y + dy });
+      const next = { ...drag.frame, x: drag.frame.x + dx, y: drag.frame.y + dy };
+      setFrame(snapEnabled ? snapMovedFrame(next, imageSize.width, imageSize.height, getSnapThreshold(zoom)) : next);
       setPreview(null);
       return;
     }
@@ -537,7 +600,7 @@ export function AspectRatioEditorView() {
       setAspectRatio('freeform');
     }
 
-    setFrame(next);
+    setFrame(snapEnabled ? snapResizedFrame(next, drag.handle, imageSize.width, imageSize.height, getSnapThreshold(zoom)) : next);
     setPreview(null);
   };
 
@@ -760,6 +823,24 @@ export function AspectRatioEditorView() {
                 })}
               </div>
               <p className="text-xs text-muted-foreground">{t('presetHint')}</p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-background p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Magnet className="h-4 w-4 text-primary" />
+                    {t('snap.label')}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{t('snap.description')}</p>
+                </div>
+                <Switch
+                  id="aspect-ratio-snap-toggle"
+                  checked={snapEnabled}
+                  onCheckedChange={setSnapEnabled}
+                  aria-label={t('snap.label')}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
