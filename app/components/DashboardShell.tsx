@@ -56,6 +56,7 @@ const LEFT_SIDEBAR_MIN = 410;
 const LEFT_SIDEBAR_MAX = 940;
 const MIN_EDITOR_WIDTH = 360;
 const NOTEBOOK_OPEN_FILE_STORAGE_KEY = 'canvas.notebookOpenFilePath';
+const NOTEBOOK_DESKTOP_SIDEBAR_VISIBLE_STORAGE_KEY = 'canvas.notebookDesktopSidebarVisible';
 
 function normalizeNotebookFilePath(path: string | null) {
   const normalized = path?.replace(/^\.\/|\/+$/g, '').trim();
@@ -89,6 +90,28 @@ function clearStoredNotebookOpenFilePath() {
     window.localStorage.removeItem(NOTEBOOK_OPEN_FILE_STORAGE_KEY);
   } catch {
     // Non-critical: stale local UI state can be ignored on the next load.
+  }
+}
+
+function readStoredDesktopSidebarVisible() {
+  if (typeof window === 'undefined') return true;
+
+  try {
+    const stored = window.localStorage.getItem(NOTEBOOK_DESKTOP_SIDEBAR_VISIBLE_STORAGE_KEY);
+    if (stored === null) return true;
+    return stored === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function writeStoredDesktopSidebarVisible(visible: boolean) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(NOTEBOOK_DESKTOP_SIDEBAR_VISIBLE_STORAGE_KEY, String(visible));
+  } catch {
+    // Non-critical: the desktop explorer can fall back to its default visibility.
   }
 }
 
@@ -186,6 +209,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const openDesktopSideChat = useCallback(() => {
     setChatVisible(true);
     setDesktopChatMode('side');
+  }, []);
+
+  const setDesktopSidebarVisible = useCallback((nextVisible: boolean | ((current: boolean) => boolean)) => {
+    setSidebarVisible((current) => {
+      const resolvedVisible =
+        typeof nextVisible === 'function' ? nextVisible(current) : nextVisible;
+      writeStoredDesktopSidebarVisible(resolvedVisible);
+      return resolvedVisible;
+    });
   }, []);
 
   const openInitialNotebookChat = useCallback((mode: 'mobile' | 'desktop') => {
@@ -407,7 +439,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           setMobileSurface('editor');
         }
       } else {
-        setSidebarVisible(true);
+        setSidebarVisible(readStoredDesktopSidebarVisible());
         if (!desktopDefaultChatAppliedRef.current) {
           desktopDefaultChatAppliedRef.current = true;
           setChatVisible(true);
@@ -447,7 +479,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       if (viewportMode !== 'desktop') {
         return;
       }
-      setSidebarVisible((current) => !current);
+      setDesktopSidebarVisible((current) => !current);
     };
 
     const handleDesktopChatToggle = () => {
@@ -463,7 +495,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       window.removeEventListener('notebook-desktop-toggle-sidebar', handleDesktopSidebarToggle);
       window.removeEventListener('notebook-desktop-toggle-chat', handleDesktopChatToggle);
     };
-  }, [handleDesktopChatPrimaryAction, viewportMode]);
+  }, [handleDesktopChatPrimaryAction, setDesktopSidebarVisible, viewportMode]);
 
   useEffect(() => {
     const handleKeyboardToggle = (event: KeyboardEvent) => {
@@ -555,7 +587,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     setMobileExplorerOpen(true);
                     setMobileChatOpen(false);
                   } else {
-                    setSidebarVisible((prev) => !prev);
+                    setDesktopSidebarVisible((prev) => !prev);
                   }
                 }}
                 aria-label={isMobileViewport ? tNav('openFileExplorer') : (sidebarVisible ? tNav('hideSidebar') : tNav('showSidebar'))}
