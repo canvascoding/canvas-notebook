@@ -13,6 +13,11 @@ const DEFAULT_CONFIG = Object.freeze({
     y: null,
     maximized: false,
   },
+  notifications: {
+    enabled: true,
+    showPreview: true,
+    sound: true,
+  },
 });
 
 function getConfigPath(app) {
@@ -41,7 +46,37 @@ function normalizeConfig(value) {
     version: 1,
     serverUrl,
     window: normalizeWindowState(source.window),
+    notifications: normalizeNotificationSettings(source.notifications),
   };
+}
+
+function normalizeNotificationSettings(value) {
+  const source = value && typeof value === 'object' ? value : {};
+
+  return {
+    enabled: source.enabled !== false,
+    showPreview: source.showPreview !== false,
+    sound: source.sound !== false,
+  };
+}
+
+function normalizeNotificationSettingsPatch(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const settings = {};
+
+  if (typeof source.enabled === 'boolean') {
+    settings.enabled = source.enabled;
+  }
+
+  if (typeof source.showPreview === 'boolean') {
+    settings.showPreview = source.showPreview;
+  }
+
+  if (typeof source.sound === 'boolean') {
+    settings.sound = source.sound;
+  }
+
+  return settings;
 }
 
 export function readDesktopConfig(app) {
@@ -91,6 +126,16 @@ export function clearServerUrl(app) {
   }));
 }
 
+export function setNotificationSettings(app, settings) {
+  return updateDesktopConfig(app, current => ({
+    ...current,
+    notifications: {
+      ...current.notifications,
+      ...normalizeNotificationSettingsPatch(settings),
+    },
+  }));
+}
+
 export function saveWindowState(app, browserWindow) {
   if (!browserWindow || browserWindow.isDestroyed()) return readDesktopConfig(app);
 
@@ -107,4 +152,3 @@ export function saveWindowState(app, browserWindow) {
     },
   }));
 }
-

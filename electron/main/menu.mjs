@@ -22,6 +22,8 @@ export function createAppMenu(options) {
     loadSetupWindow,
     loadConfiguredServer,
     resetServerUrl,
+    getNotificationsEnabled,
+    setNotificationsEnabled,
   } = options;
 
   const isMac = process.platform === 'darwin';
@@ -69,6 +71,15 @@ export function createAppMenu(options) {
         {
           label: 'Reset Server URL',
           click: resetServerUrl,
+        },
+        { type: 'separator' },
+        {
+          label: 'Native Notifications',
+          type: 'checkbox',
+          checked: getNotificationsEnabled?.() !== false,
+          click: menuItem => {
+            setNotificationsEnabled?.(menuItem.checked);
+          },
         },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
@@ -152,4 +163,3 @@ export function createAppMenu(options) {
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
-

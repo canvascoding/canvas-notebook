@@ -5,10 +5,12 @@ import {
   clearServerUrl,
   readDesktopConfig,
   saveWindowState,
+  setNotificationSettings,
   setServerUrl,
 } from './config-store.mjs';
 import { checkServerHealth } from './health-check.mjs';
 import { createAppMenu } from './menu.mjs';
+import { showChatNotification } from './notifications.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = path.join(__dirname, '../assets/icon.png');
@@ -20,6 +22,7 @@ let mainWindow = null;
 let loadingSetup = false;
 
 app.setName('Canvas Notebook');
+app.setAppUserModelId?.('io.canvasstudios.notebook');
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -37,6 +40,11 @@ function getConfiguredServerUrl() {
 function isSetupSender(event) {
   const senderUrl = event.senderFrame?.url ?? '';
   return senderUrl.startsWith(SETUP_FILE_URL);
+}
+
+function isConfiguredRendererSender(event) {
+  const senderUrl = event.senderFrame?.url ?? '';
+  return isSameConfiguredOrigin(senderUrl);
 }
 
 function isHttpUrl(value) {
@@ -64,6 +72,19 @@ function isAllowedNavigation(value) {
   if (value.startsWith(SETUP_FILE_URL)) return true;
   if (value === 'about:blank') return true;
   return isSameConfiguredOrigin(value);
+}
+
+function buildConfiguredUrl(pathnameOrUrl) {
+  const serverUrl = getConfiguredServerUrl();
+  if (!serverUrl) return null;
+
+  try {
+    const parsed = new URL(typeof pathnameOrUrl === 'string' ? pathnameOrUrl : '/', serverUrl);
+    if (!isSameConfiguredOrigin(parsed.href)) return null;
+    return parsed.href;
+  } catch {
+    return serverUrl;
+  }
 }
 
 async function openExternalUrl(value) {
@@ -121,6 +142,10 @@ function resetServerUrlFromMenu() {
 
   clearServerUrl(app);
   loadSetupWindow(browserWindow);
+}
+
+function setNativeNotificationsEnabled(enabled) {
+  setNotificationSettings(app, { enabled });
 }
 
 function setupNavigationGuards(browserWindow) {
@@ -261,6 +286,44 @@ function registerIpcHandlers() {
     await openExternalUrl(url);
     return { ok: true };
   });
+
+  ipcMain.handle('desktop:get-notification-settings', event => {
+    if (!isSetupSender(event) && !isConfiguredRendererSender(event)) {
+      throw new Error('This action is only available from Canvas Notebook.');
+    }
+
+    return readDesktopConfig(app).notifications;
+  });
+
+  ipcMain.handle('desktop:set-notification-settings', (event, settings) => {
+    if (!isSetupSender(event) && !isConfiguredRendererSender(event)) {
+      throw new Error('This action is only available from Canvas Notebook.');
+    }
+
+    return setNotificationSettings(app, settings).notifications;
+  });
+
+  ipcMain.handle('desktop:show-chat-notification', (event, payload) => {
+    if (!isConfiguredRendererSender(event)) {
+      throw new Error('This action is only available from the configured Canvas Notebook server.');
+    }
+
+    const browserWindow = BrowserWindow.fromWebContents(event.sender) ?? getMainWindow();
+    const config = readDesktopConfig(app);
+    const targetPath = payload && typeof payload === 'object' && typeof payload.targetPath === 'string'
+      ? payload.targetPath
+      : '/notebook';
+    const targetUrl = buildConfiguredUrl(targetPath);
+
+    return showChatNotification({
+      app,
+      browserWindow,
+      iconPath: ICON_PATH,
+      payload,
+      settings: config.notifications,
+      targetUrl,
+    });
+  });
 }
 
 registerIpcHandlers();
@@ -284,6 +347,8 @@ app.whenReady().then(() => {
     loadSetupWindow,
     loadConfiguredServer,
     resetServerUrl: resetServerUrlFromMenu,
+    getNotificationsEnabled: () => readDesktopConfig(app).notifications.enabled,
+    setNotificationsEnabled: setNativeNotificationsEnabled,
   });
 
   createMainWindow();
