@@ -130,8 +130,22 @@ async function main() {
     const proxyStatus = await proxy.execute('auth-status', { action: 'auth_status', server: 'remote' });
     assert.match((proxyStatus.content[0] as { text: string }).text, /authorized/);
 
+    const noAuthConfig = {
+      url: `${baseUrl}/mcp`,
+    };
+    await writeMcpConfigRaw(JSON.stringify({
+      settings: { toolPrefix: 'server', idleTimeout: 10 },
+      mcpServers: { plain: noAuthConfig },
+    }, null, 2));
+    const noAuthStatus = await getMcpOAuthStatus('plain');
+    assert.equal(noAuthStatus.configured, true);
+    assert.equal(noAuthStatus.requiresAuth, false);
+    const noAuthProxyStatus = await proxy.execute('auth-status-noauth', { action: 'auth_status', server: 'plain' });
+    assert.match((noAuthProxyStatus.content[0] as { text: string }).text, /does not require OAuth/);
+
     const discoveredConfig = {
       url: `${baseUrl}/mcp`,
+      auth: 'oauth',
     };
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },

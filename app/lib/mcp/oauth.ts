@@ -147,12 +147,6 @@ function getOAuthConfig(serverConfig: McpServerConfig): OAuthServerConfig | null
   if (serverConfig.auth === 'oauth') {
     return {};
   }
-  if (serverConfig.bearerTokenEnv) {
-    return null;
-  }
-  if (typeof serverConfig.url === 'string' && serverConfig.url.trim() && serverConfig.auth !== 'none') {
-    return {};
-  }
   return null;
 }
 
@@ -261,7 +255,26 @@ async function resolveServerForOAuth(serverName: string): Promise<{ serverConfig
 
 export async function getMcpOAuthStatus(serverName: string): Promise<McpOAuthStatus> {
   try {
-    const { serverConfig, configHash } = await resolveServerForOAuth(serverName);
+    const config = await readMcpConfig();
+    const serverConfig = config.mcpServers[serverName];
+    if (!serverConfig) {
+      throw new McpOAuthError(`Unknown MCP server "${serverName}".`);
+    }
+
+    const oauth = getOAuthConfig(serverConfig);
+    if (!oauth) {
+      return {
+        serverName,
+        configured: true,
+        requiresAuth: false,
+        authorized: false,
+        tokenPath: getOAuthTokenPath(serverName),
+        expiresAt: null,
+        scope: null,
+      };
+    }
+
+    const configHash = hashMcpServerConfig(serverConfig);
     const token = await readJsonIfExists<OAuthTokenRecord>(getOAuthTokenPath(serverName));
     const serverUrl = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
     const bound = Boolean(token && token.configHash === configHash && (!serverUrl || token.serverUrl === serverUrl));
