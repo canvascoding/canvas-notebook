@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useState } from 'react';
+import { getStudioGenerationErrorHint } from '../../utils/generation-error-hints';
 
 interface OutputErrorCardProps {
   mode: 'image' | 'video' | 'sound';
@@ -22,6 +23,7 @@ interface OutputErrorCardProps {
 
 export function OutputErrorCard({ mode, message, onDelete }: OutputErrorCardProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const hint = getStudioGenerationErrorHint(message);
 
   const handleDelete = () => {
     setShowDeleteDialog(false);
@@ -30,7 +32,7 @@ export function OutputErrorCard({ mode, message, onDelete }: OutputErrorCardProp
 
   return (
     <>
-      <div className="flex aspect-square flex-col justify-between rounded-3xl border border-red-500/40 bg-red-500/5 p-4 shadow-sm">
+      <div className={`flex ${hint ? 'min-h-[260px]' : 'aspect-square'} flex-col justify-between rounded-3xl border border-red-500/40 bg-red-500/5 p-4 shadow-sm`}>
         <div className="flex items-center justify-between">
           <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-red-700 dark:text-red-300">
             {mode}
@@ -40,9 +42,17 @@ export function OutputErrorCard({ mode, message, onDelete }: OutputErrorCardProp
 
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground">Generation failed</h3>
-          <p className="line-clamp-4 text-sm leading-6 text-muted-foreground">
+          <p
+            className={`${hint ? 'line-clamp-2' : 'line-clamp-4'} break-words text-sm leading-6 text-muted-foreground`}
+            title={message || undefined}
+          >
             {message || 'The output could not be created. Try again with a simplified prompt or a different preset.'}
           </p>
+          {hint ? (
+            <p className="border-l-2 border-amber-500/70 pl-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+              {hint}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex gap-2">
