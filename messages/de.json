@@ -1995,6 +1995,10 @@
       "presets": "Formate",
       "freeform": "Freiform",
       "presetHint": "Shift beim Ziehen hält das aktuelle Seitenverhältnis. Mausrad zoomt, Hintergrund ziehen verschiebt die Arbeitsfläche.",
+      "snap": {
+        "label": "Kanten-Snap",
+        "description": "Dockt den Frame nahe am Bildrand leicht an, damit kleine Bewegungen im Zuschnitt bleiben."
+      },
       "mode": {
         "label": "Modus",
         "crop": "Zuschnitt",
