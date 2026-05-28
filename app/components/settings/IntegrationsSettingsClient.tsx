@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, startTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ArrowLeft, ExternalLink, Eye, EyeOff, Loader2, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
@@ -1098,6 +1098,8 @@ function McpConfigCard(props: {
 }
 
 function EmailAccountsCard() {
+  const searchParams = useSearchParams();
+  const handledEmailOAuthReturn = useRef(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { readFrom: string; sendTo: string }>>({});
   const [emailMode, setEmailMode] = useState<EmailMode>('unknown');
@@ -1158,6 +1160,13 @@ function EmailAccountsCard() {
     }
   }, []);
 
+  const clearEmailOAuthParams = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('emailOAuth');
+    url.searchParams.delete('emailOAuthError');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       void loadAccounts();
@@ -1182,6 +1191,26 @@ function EmailAccountsCard() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [emailMode, loadOAuthEnv]);
+
+  useEffect(() => {
+    if (handledEmailOAuthReturn.current) return;
+    const emailOAuthStatus = searchParams.get('emailOAuth');
+    const emailOAuthError = searchParams.get('emailOAuthError');
+    if (emailOAuthStatus === 'connected') {
+      handledEmailOAuthReturn.current = true;
+      setMessage('Email account connected.');
+      setError(null);
+      void loadAccounts();
+      clearEmailOAuthParams();
+      return;
+    }
+    if (emailOAuthStatus === 'failed' || emailOAuthError) {
+      handledEmailOAuthReturn.current = true;
+      setError(emailOAuthError || 'Email OAuth failed.');
+      setMessage(null);
+      clearEmailOAuthParams();
+    }
+  }, [clearEmailOAuthParams, loadAccounts, searchParams]);
 
   const persistOAuthProvider = async (provider: 'google' | 'microsoft') => {
     const keys = provider === 'google'
@@ -1234,6 +1263,7 @@ function EmailAccountsCard() {
   };
 
   const startOAuth = async (provider: 'google' | 'microsoft') => {
+    if (accounts.length > 0) return;
     setActiveAction(`oauth:${provider}`);
     setError(null);
     setMessage(null);
@@ -1248,8 +1278,8 @@ function EmailAccountsCard() {
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to start email OAuth');
-      window.open(payload.data.authorizationUrl, '_blank', 'noopener,noreferrer');
-      setMessage('Authorization opened in a new tab. Refresh accounts after completing OAuth.');
+      if (!payload.data?.authorizationUrl) throw new Error('Email OAuth did not return an authorization URL.');
+      window.location.assign(payload.data.authorizationUrl);
     } catch (oauthError) {
       setError(oauthError instanceof Error ? oauthError.message : 'Failed to start email OAuth');
     } finally {
@@ -1301,7 +1331,8 @@ function EmailAccountsCard() {
 
   const isManagedEmailMode = emailMode === 'managed';
   const isLocalEmailMode = emailMode === 'local';
-  const oauthActionDisabled = activeAction !== null || isOAuthLoading || emailMode === 'unknown';
+  const hasConnectedEmailAccount = accounts.length > 0;
+  const oauthActionDisabled = activeAction !== null || isOAuthLoading || emailMode === 'unknown' || hasConnectedEmailAccount;
 
   return (
     <Card>
@@ -1322,98 +1353,100 @@ function EmailAccountsCard() {
       <CardContent className="space-y-4">
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="space-y-3 border border-border p-4">
-            <div>
-              <h3 className="text-base font-semibold">Google OAuth</h3>
-              <p className="text-sm text-muted-foreground">{isManagedEmailMode ? 'Connect Gmail accounts with Canvas Managed Services.' : 'Used for connecting Gmail accounts in self-hosted setups.'}</p>
-            </div>
-            {isLocalEmailMode && (
-              <>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-id">Client ID</Label>
-                  <Input
-                    id="email-google-client-id"
-                    className="font-mono text-xs"
-                    value={oauthDraft.googleClientId}
-                    onChange={(event) => setOauthDraft((current) => ({ ...current, googleClientId: event.target.value }))}
-                    placeholder="GOOGLE_OAUTH_CLIENT_ID"
-                    disabled={isOAuthLoading || activeAction !== null}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-secret">Client Secret</Label>
-                  <Input
-                    id="email-google-client-secret"
-                    type="password"
-                    className="font-mono text-xs"
-                    value={oauthDraft.googleClientSecret}
-                    onChange={(event) => setOauthDraft((current) => ({ ...current, googleClientSecret: event.target.value }))}
-                    placeholder="GOOGLE_OAUTH_CLIENT_SECRET"
-                    disabled={isOAuthLoading || activeAction !== null}
-                  />
-                </div>
-              </>
-            )}
-            <div className="flex flex-wrap justify-end gap-2">
+        {!hasConnectedEmailAccount && (
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="space-y-3 border border-border p-4">
+              <div>
+                <h3 className="text-base font-semibold">Google OAuth</h3>
+                <p className="text-sm text-muted-foreground">{isManagedEmailMode ? 'Connect Gmail accounts with Canvas Managed Services.' : 'Used for connecting Gmail accounts in self-hosted setups.'}</p>
+              </div>
               {isLocalEmailMode && (
-                <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('google')} disabled={isOAuthLoading || activeAction !== null}>
-                  {activeAction === 'oauth-save:google' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Save
-                </Button>
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-id">Client ID</Label>
+                    <Input
+                      id="email-google-client-id"
+                      className="font-mono text-xs"
+                      value={oauthDraft.googleClientId}
+                      onChange={(event) => setOauthDraft((current) => ({ ...current, googleClientId: event.target.value }))}
+                      placeholder="GOOGLE_OAUTH_CLIENT_ID"
+                      disabled={isOAuthLoading || activeAction !== null}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-secret">Client Secret</Label>
+                    <Input
+                      id="email-google-client-secret"
+                      type="password"
+                      className="font-mono text-xs"
+                      value={oauthDraft.googleClientSecret}
+                      onChange={(event) => setOauthDraft((current) => ({ ...current, googleClientSecret: event.target.value }))}
+                      placeholder="GOOGLE_OAUTH_CLIENT_SECRET"
+                      disabled={isOAuthLoading || activeAction !== null}
+                    />
+                  </div>
+                </>
               )}
-              <Button type="button" onClick={() => void startOAuth('google')} disabled={oauthActionDisabled}>
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Connect
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                {isLocalEmailMode && (
+                  <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('google')} disabled={isOAuthLoading || activeAction !== null}>
+                    {activeAction === 'oauth-save:google' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save
+                  </Button>
+                )}
+                <Button type="button" onClick={() => void startOAuth('google')} disabled={oauthActionDisabled}>
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Connect
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-3 border border-border p-4">
+              <div>
+                <h3 className="text-base font-semibold">Microsoft OAuth</h3>
+                <p className="text-sm text-muted-foreground">{isManagedEmailMode ? 'Connect Microsoft 365 or Outlook accounts with Canvas Managed Services.' : 'Used for connecting Microsoft 365 or Outlook accounts.'}</p>
+              </div>
+              {isLocalEmailMode && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-id">Client ID</Label>
+                    <Input
+                      id="email-microsoft-client-id"
+                      className="font-mono text-xs"
+                      value={oauthDraft.microsoftClientId}
+                      onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientId: event.target.value }))}
+                      placeholder="MICROSOFT_OAUTH_CLIENT_ID"
+                      disabled={isOAuthLoading || activeAction !== null}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-secret">Client Secret</Label>
+                    <Input
+                      id="email-microsoft-client-secret"
+                      type="password"
+                      className="font-mono text-xs"
+                      value={oauthDraft.microsoftClientSecret}
+                      onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientSecret: event.target.value }))}
+                      placeholder="MICROSOFT_OAUTH_CLIENT_SECRET"
+                      disabled={isOAuthLoading || activeAction !== null}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="flex flex-wrap justify-end gap-2">
+                {isLocalEmailMode && (
+                  <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('microsoft')} disabled={isOAuthLoading || activeAction !== null}>
+                    {activeAction === 'oauth-save:microsoft' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save
+                  </Button>
+                )}
+                <Button type="button" onClick={() => void startOAuth('microsoft')} disabled={oauthActionDisabled}>
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Connect
+                </Button>
+              </div>
             </div>
           </div>
-          <div className="space-y-3 border border-border p-4">
-            <div>
-              <h3 className="text-base font-semibold">Microsoft OAuth</h3>
-              <p className="text-sm text-muted-foreground">{isManagedEmailMode ? 'Connect Microsoft 365 or Outlook accounts with Canvas Managed Services.' : 'Used for connecting Microsoft 365 or Outlook accounts.'}</p>
-            </div>
-            {isLocalEmailMode && (
-              <>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-id">Client ID</Label>
-                  <Input
-                    id="email-microsoft-client-id"
-                    className="font-mono text-xs"
-                    value={oauthDraft.microsoftClientId}
-                    onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientId: event.target.value }))}
-                    placeholder="MICROSOFT_OAUTH_CLIENT_ID"
-                    disabled={isOAuthLoading || activeAction !== null}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-secret">Client Secret</Label>
-                  <Input
-                    id="email-microsoft-client-secret"
-                    type="password"
-                    className="font-mono text-xs"
-                    value={oauthDraft.microsoftClientSecret}
-                    onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientSecret: event.target.value }))}
-                    placeholder="MICROSOFT_OAUTH_CLIENT_SECRET"
-                    disabled={isOAuthLoading || activeAction !== null}
-                  />
-                </div>
-              </>
-            )}
-            <div className="flex flex-wrap justify-end gap-2">
-              {isLocalEmailMode && (
-                <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('microsoft')} disabled={isOAuthLoading || activeAction !== null}>
-                  {activeAction === 'oauth-save:microsoft' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Save
-                </Button>
-              )}
-              <Button type="button" onClick={() => void startOAuth('microsoft')} disabled={oauthActionDisabled}>
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Connect
-              </Button>
-            </div>
-          </div>
-        </div>
+        )}
         {accounts.length === 0 ? (
           <div className="border border-border p-4 text-sm text-muted-foreground">No email accounts connected.</div>
         ) : (
@@ -1444,6 +1477,9 @@ function EmailAccountsCard() {
                       onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, readFrom: event.target.value } }))}
                       placeholder="All senders allowed"
                     />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Add one sender per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all senders are allowed.
+                    </p>
                   </div>
                   <div>
                     <Label className="text-xs uppercase tracking-wider text-muted-foreground">Send to emails</Label>
@@ -1453,6 +1489,9 @@ function EmailAccountsCard() {
                       onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, sendTo: event.target.value } }))}
                       placeholder="All recipients allowed"
                     />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Add one recipient per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all recipients are allowed.
+                    </p>
                   </div>
                 </div>
                 <div className="flex justify-end">
