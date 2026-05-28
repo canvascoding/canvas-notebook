@@ -183,6 +183,23 @@ type ScopeCardConfig = {
   keyHint: string;
 };
 
+const SETTINGS_TABS = ['general', 'integrations', 'agent-settings', 'workspace', 'usage', 'skills', 'channels', 'license'] as const;
+const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
+
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+function isSettingsTab(value: string | null): value is SettingsTab {
+  return SETTINGS_TABS.includes(value as SettingsTab);
+}
+
+function getInitialSettingsTab(requestedTab: string | null): SettingsTab {
+  if (isSettingsTab(requestedTab)) return requestedTab;
+  if (typeof window === 'undefined') return 'general';
+
+  const storedTab = window.localStorage.getItem(SETTINGS_TAB_STORAGE_KEY);
+  return isSettingsTab(storedTab) ? storedTab : 'general';
+}
+
 const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
   integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY', 'COMPOSIO_API_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MICROSOFT_OAUTH_CLIENT_ID', 'MICROSOFT_OAUTH_CLIENT_SECRET', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHANNEL_ENABLED'],
   agents: ['OPENROUTER_API_KEY', 'OLLAMA_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
@@ -1454,16 +1471,23 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
-  type SettingsTab = 'general' | 'integrations' | 'agent-settings' | 'workspace' | 'usage' | 'skills' | 'channels' | 'license';
   const requestedTab = searchParams.get('tab');
-  const initialTab: SettingsTab = requestedTab === 'license' ? 'license' : 'general';
+  const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const { activeTabOverride } = useHintContext();
 
   const effectiveTab = (activeTabOverride as typeof settingsTab) || settingsTab;
   const handleTabChange = (value: string) => {
-    setSettingsTab(value as SettingsTab);
+    if (!isSettingsTab(value)) return;
+
+    setSettingsTab(value);
+    window.localStorage.setItem(SETTINGS_TAB_STORAGE_KEY, value);
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', value);
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
+
   const [editors, setEditors] = useState<Record<EnvScope, ScopeEditorState>>({
     integrations: INITIAL_SCOPE_STATE('integrations'),
     agents: INITIAL_SCOPE_STATE('agents'),
