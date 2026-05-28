@@ -1,6 +1,7 @@
 import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from "next";
 import createNextIntlPlugin from 'next-intl/plugin';
+import packageJson from './package.json';
 
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts');
 
@@ -15,12 +16,17 @@ const externalPackages = [
 ];
 
 const sentryTunnelRoute = process.env.SENTRY_TUNNEL_ROUTE?.trim() || undefined;
+const deploymentId = (
+  process.env.NEXT_DEPLOYMENT_ID?.trim() || `canvas-notebook-${packageJson.version}`
+).replace(/[^A-Za-z0-9_-]/g, '-');
 
 const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
   ? process.env.NEXT_ALLOWED_DEV_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
   : [];
 
 const nextConfig: NextConfig = {
+  deploymentId,
+
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
 
   onDemandEntries: {
