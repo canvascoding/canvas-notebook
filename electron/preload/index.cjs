@@ -11,5 +11,7 @@ contextBridge.exposeInMainWorld('canvasDesktop', {
   setServerUrl: url => invoke('desktop:set-server-url', url),
   clearServerUrl: () => invoke('desktop:clear-server-url'),
   openExternal: url => invoke('desktop:open-external', url),
+  getNotificationSettings: () => invoke('desktop:get-notification-settings'),
+  setNotificationSettings: settings => invoke('desktop:set-notification-settings', settings),
+  showChatNotification: payload => invoke('desktop:show-chat-notification', payload),
 });
-

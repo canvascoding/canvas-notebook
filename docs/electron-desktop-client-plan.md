@@ -296,10 +296,18 @@ Minimal:
 6. Login pruefen
 7. REST-Aufruf in der App pruefen
 8. WebSocket-Funktion pruefen
-9. Server-URL zuruecksetzen und neu setzen
-10. externe Links oeffnen im Systembrowser
+9. Native Notification bei eingehender Chat-/Agent-Meldung pruefen, wenn das Electron-Fenster im Hintergrund ist
+10. Klick auf Notification pruefen: App fokussiert sich und oeffnet die Session
+11. Server-URL zuruecksetzen und neu setzen
+12. externe Links oeffnen im Systembrowser
 
 UI- und E2E-Pruefungen sollen gemaess Repository-Regel nur mit Playwright oder vergleichbaren Browser-Tools laufen, wenn das explizit freigegeben wurde oder vorher gefragt wurde.
+
+## Notifications in V1
+
+Die Electron-App zeigt native OS-Notifications fuer Chat-/Agent-Meldungen, wenn die App laeuft und das Webapp-Fenster im Hintergrund oder nicht fokussiert ist. Die Notification nutzt den bestehenden WebSocket-Notification-Event der Webapp und wird ueber eine sichere Preload-Bridge an den Electron-Main-Prozess weitergereicht.
+
+Einschraenkung: Das ist kein echter Push bei komplett beendeter App. Dafuer waere spaeter ein separater Push-/APNs-/FCM-Flow noetig.
 
 ## V2 Ausbaustufe
 
@@ -307,7 +315,7 @@ Nach erfolgreichem V1-MVP:
 
 - native Downloads mit Save Dialog
 - native Upload-/Open-File-Dialoge
-- Desktop Notifications fuer Agent-Fertigmeldungen
+- erweiterte Notification-Einstellungen und optional echter Push fuer beendete Apps
 - App-Menue-Commands fuer wichtige Aktionen
 - globale oder lokale Shortcuts
 - OS Keychain fuer Desktop-Tokens
@@ -353,4 +361,3 @@ Diese Stufe ist deutlich komplexer und sollte erst angegangen werden, wenn V1 va
 8. `npm run build` ausfuehren.
 9. Manuelle Desktop-Smoke-Pruefung.
 10. Erst danach V2-native Bridges planen.
-
