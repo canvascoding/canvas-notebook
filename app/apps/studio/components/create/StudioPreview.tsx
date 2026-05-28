@@ -8,6 +8,7 @@ import type { StudioGeneration, StudioGenerationOutput } from '../../types/gener
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import type { StudioPreset } from '../../types/presets';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
+import { downloadStudioOutput } from '../../utils/downloadStudioOutput';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -164,7 +165,7 @@ export function StudioPreview({
 
   const handleDownload = () => {
     if (!output.mediaUrl) return;
-    window.open(output.mediaUrl, '_blank', 'noopener,noreferrer');
+    void downloadStudioOutput(output.id);
   };
 
   const handleDelete = () => {
