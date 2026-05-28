@@ -13,6 +13,30 @@ import {
 } from './channels/HeartbeatChannelCard';
 import { TelegramChannelCard, type TelegramStatus } from './channels/TelegramChannelCard';
 
+type ApiJson = {
+  success?: boolean;
+  error?: string;
+  [key: string]: unknown;
+};
+
+async function readApiJson(response: Response): Promise<ApiJson> {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.toLowerCase().includes('application/json')) {
+    return await response.json() as ApiJson;
+  }
+
+  await response.text().catch(() => '');
+  if (response.status === 401) {
+    throw new Error('Unauthorized');
+  }
+  if (response.status === 402) {
+    throw new Error('License activation required');
+  }
+  throw new Error(response.ok
+    ? 'Server returned an unexpected response.'
+    : `Request failed (${response.status} ${response.statusText || 'unexpected response'}).`);
+}
+
 export function ChannelsPanel() {
   const t = useTranslations('settings');
   const router = useRouter();
@@ -309,7 +333,7 @@ export function ChannelsPanel() {
     return { kind: 'daily', times: heartbeatTimes, timeZone: heartbeatTimezone };
   };
 
-  const saveHeartbeatConfig = async (enabled: boolean) => {
+  const saveHeartbeatConfig = async (enabled: boolean): Promise<boolean> => {
     setHeartbeatSaving(true);
     setHeartbeatError(null);
     setHeartbeatSuccess(null);
@@ -321,30 +345,36 @@ export function ChannelsPanel() {
         credentials: 'include',
         body: JSON.stringify({ enabled, schedule }),
       });
-      const data = await res.json();
+      const data = await readApiJson(res);
       if (!data.success) throw new Error(data.error || 'Failed to save');
       setHeartbeatConfig({
-        configured: data.configured,
-        enabled: data.enabled,
-        schedule: data.schedule,
-        nextRunAt: data.nextRunAt,
-        lastRunAt: data.lastRunAt,
-        lastRunStatus: data.lastRunStatus,
-        jobId: data.jobId,
+        configured: Boolean(data.configured),
+        enabled: Boolean(data.enabled),
+        schedule: data.schedule as HeartbeatSchedule | null,
+        nextRunAt: typeof data.nextRunAt === 'string' ? data.nextRunAt : null,
+        lastRunAt: typeof data.lastRunAt === 'string' ? data.lastRunAt : null,
+        lastRunStatus: typeof data.lastRunStatus === 'string' ? data.lastRunStatus : null,
+        jobId: typeof data.jobId === 'string' ? data.jobId : null,
       });
       setHeartbeatSuccess(t('channels.heartbeat.saved'));
       setTimeout(() => setHeartbeatSuccess(null), 3000);
+      return true;
     } catch (err) {
       setHeartbeatError(err instanceof Error ? err.message : t('channels.heartbeat.saveError'));
+      return false;
     } finally {
       setHeartbeatSaving(false);
     }
   };
 
   const handleHeartbeatToggle = async () => {
-    const newEnabled = !heartbeatConfig?.enabled;
+    const previousEnabled = heartbeatConfig?.enabled ?? false;
+    const newEnabled = !previousEnabled;
     setHeartbeatConfig((prev) => prev ? { ...prev, enabled: newEnabled } : null);
-    await saveHeartbeatConfig(newEnabled);
+    const saved = await saveHeartbeatConfig(newEnabled);
+    if (!saved) {
+      setHeartbeatConfig((prev) => prev ? { ...prev, enabled: previousEnabled } : null);
+    }
   };
 
   const formatNextRun = (dateStr: string | null) => {

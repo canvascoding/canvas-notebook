@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getHeartbeatJob, upsertHeartbeatJob } from '@/app/lib/automations/store';
 import { validateFriendlySchedule } from '@/app/lib/automations/schedule';
+import { getTelegramConfigFromIntegrations } from '@/app/lib/integrations/env-config';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -74,6 +75,22 @@ export async function PUT(request: NextRequest) {
     }
 
     const isEnabled = enabled !== undefined ? enabled : (existing ? existing.status === 'active' : false);
+
+    if (isEnabled) {
+      const telegramConfig = await getTelegramConfigFromIntegrations();
+      if (!telegramConfig.botToken) {
+        return NextResponse.json(
+          { success: false, error: 'Telegram bot token is required before enabling heartbeat.' },
+          { status: 400 },
+        );
+      }
+      if (!telegramConfig.channelEnabled) {
+        return NextResponse.json(
+          { success: false, error: 'Telegram channel must be enabled before enabling heartbeat.' },
+          { status: 400 },
+        );
+      }
+    }
 
     const job = await upsertHeartbeatJob({
       enabled: isEnabled,
