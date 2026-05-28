@@ -59,6 +59,8 @@ function getActivationCopy(locale: string) {
           'Canvas Notebook wird unter der Sustainable Use License 1.0 bereitgestellt. Sie erlaubt selbst gehostete interne geschäftliche Nutzung, private Nutzung und nicht-kommerzielle Nutzung. Nicht erlaubt ist, Canvas Notebook, modifizierte Versionen oder daraus abgeleitete gehostete Dienste Dritten als Managed Service oder konkurrierenden Dienst anzubieten.',
         renewalDescription:
           'Community-Lizenzen sind standardmäßig ein Jahr gültig und erneuern sich aktuell nicht automatisch. Wenn die Lizenz abläuft, fordere hier einen neuen kostenlosen Key an und aktiviere ihn.',
+        managedDescription:
+          'Bei Nutzung über den offiziellen Canvas Notebook Vertriebskanal wird die Managed-Lizenz automatisch von Canvas ausgestellt und für diese Instanz aktiviert. Ein separater Aktivierungs-Key ist dafür nicht erforderlich.',
         viewLicense: 'Vollständige Lizenz anzeigen',
         instanceId: 'Instance ID',
         expires: 'Läuft ab',
@@ -81,6 +83,8 @@ function getActivationCopy(locale: string) {
           'Canvas Notebook is provided under the Sustainable Use License 1.0. It allows self-hosted internal business use, personal use, and non-commercial use. It does not allow offering Canvas Notebook, modified versions, or derived hosted services to third parties as a managed or competing service.',
         renewalDescription:
           'Community licenses are valid for one year by default and do not renew automatically yet. When the license expires, request a new free key here and activate it.',
+        managedDescription:
+          'When Canvas Notebook is provided through the official Canvas Notebook distribution channel, the managed license is issued by Canvas and activated for this instance automatically. No separate activation key is required.',
         viewLicense: 'View full license',
         instanceId: 'Instance ID',
         expires: 'Expires',
@@ -160,6 +164,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
   }
 
   const isLicensed = Boolean(status?.licensed);
+  const isManaged = status?.plan === 'managed';
   const statusCode = status?.code || codeFromLicenseError(status?.error as Parameters<typeof codeFromLicenseError>[0]);
 
   return (
@@ -198,7 +203,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
                     {copy.termsDescription}
                   </p>
                   <p className="mt-2 text-muted-foreground">
-                    {copy.renewalDescription}
+                    {isManaged ? copy.managedDescription : copy.renewalDescription}
                   </p>
                   <a
                     href="https://github.com/canvascoding/canvas-notebook?tab=License-1-ov-file"
