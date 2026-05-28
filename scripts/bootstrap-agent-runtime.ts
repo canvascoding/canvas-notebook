@@ -38,6 +38,10 @@ function resolveAgentStorageDir(cwd = process.cwd()): string {
   return path.join(resolveCanvasDataRoot(cwd), 'canvas-agent');
 }
 
+function resolveAgentsStorageRoot(cwd = process.cwd()): string {
+  return path.join(resolveCanvasDataRoot(cwd), 'agents');
+}
+
 function resolveSecretsDir(cwd = process.cwd()): string {
   return path.join(resolveCanvasDataRoot(cwd), 'secrets');
 }
@@ -53,6 +57,8 @@ function resolveDefaultAgentsEnvPath(cwd = process.cwd()): string {
 loadAppEnv(process.cwd());
 
 const AGENT_STORAGE_DIR = resolveAgentStorageDir();
+const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
+const CANVAS_AGENT_STORAGE_DIR = path.join(AGENTS_STORAGE_ROOT, 'canvas-agent');
 const SECRETS_DIR = resolveSecretsDir();
 const DEFAULT_INTEGRATIONS_ENV_PATH = resolveDefaultIntegrationsEnvPath();
 const DEFAULT_AGENTS_ENV_PATH = resolveDefaultAgentsEnvPath();
@@ -105,6 +111,33 @@ async function readFileIfExists(filePath: string): Promise<string | null> {
   }
 }
 
+async function copyManagedFilesIfTargetEmpty(sourceDir: string, label: string): Promise<void> {
+  if (!(await fileExists(sourceDir))) {
+    return;
+  }
+
+  console.log(`[bootstrap-agent-runtime] Checking for managed files in ${label}: ${sourceDir}...`);
+  await fs.mkdir(CANVAS_AGENT_STORAGE_DIR, { recursive: true });
+
+  for (const fileName of MANAGED_FILE_NAMES) {
+    const sourcePath = path.join(sourceDir, fileName);
+    const targetPath = path.join(CANVAS_AGENT_STORAGE_DIR, fileName);
+
+    if (!(await fileExists(sourcePath))) {
+      continue;
+    }
+
+    const targetContent = await readFileIfExists(targetPath);
+    if (!isContentEmpty(targetContent)) {
+      continue;
+    }
+
+    console.log(`[bootstrap-agent-runtime] Migrating ${fileName} from ${label}...`);
+    await fs.copyFile(sourcePath, targetPath);
+    await fs.chmod(targetPath, 0o600);
+  }
+}
+
 function getIntegrationsEnvPath(): string {
   const configured = process.env.INTEGRATIONS_ENV_PATH?.trim();
   return configured || DEFAULT_INTEGRATIONS_ENV_PATH;
@@ -116,24 +149,14 @@ function getAgentsEnvPath(): string {
 }
 
 async function migrateLegacyFiles(): Promise<void> {
-  // Migrate managed markdown files from /home/node/canvas-agent to /data/canvas-agent
+  // Migrate managed markdown files into the canonical /data/agents/canvas-agent directory.
+  await copyManagedFilesIfTargetEmpty(LEGACY_AGENT_STORAGE_DIR, 'legacy /home/node/canvas-agent');
+  await copyManagedFilesIfTargetEmpty(AGENT_STORAGE_DIR, 'legacy /data/canvas-agent');
+
+  // Runtime config files still live under /data/canvas-agent for compatibility.
   if (await fileExists(LEGACY_AGENT_STORAGE_DIR)) {
-    console.log(`[bootstrap-agent-runtime] Checking for legacy files in ${LEGACY_AGENT_STORAGE_DIR}...`);
     await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
-    
-    for (const fileName of MANAGED_FILE_NAMES) {
-      const legacyPath = path.join(LEGACY_AGENT_STORAGE_DIR, fileName);
-      const newPath = path.join(AGENT_STORAGE_DIR, fileName);
-      
-      if (await fileExists(legacyPath)) {
-        if (!(await fileExists(newPath))) {
-          console.log(`[bootstrap-agent-runtime] Migrating ${fileName} from legacy location...`);
-          await fs.copyFile(legacyPath, newPath);
-          await fs.chmod(newPath, 0o600);
-        }
-      }
-    }
-    
+
     // Migrate legacy runtime config if exists and new one doesn't
     const legacyRuntimeConfig = path.join(LEGACY_AGENT_STORAGE_DIR, 'agent-runtime-config.json');
     if (await fileExists(legacyRuntimeConfig) && !(await fileExists(RUNTIME_CONFIG_PATH))) {
@@ -256,12 +279,13 @@ async function writeJsonAtomic(filePath: string, payload: unknown): Promise<void
 
 async function ensureAgentStorageBootstrap(): Promise<void> {
   await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
+  await fs.mkdir(CANVAS_AGENT_STORAGE_DIR, { recursive: true });
 
   // Check onboarding status for BOOTSTRAP.md handling
   const onboardingComplete = await isOnboardingComplete().catch(() => false);
 
   for (const fileName of MANAGED_FILE_NAMES) {
-    const targetPath = path.join(AGENT_STORAGE_DIR, fileName);
+    const targetPath = path.join(CANVAS_AGENT_STORAGE_DIR, fileName);
     const existingContent = await readFileIfExists(targetPath);
 
     // Skip if file exists and has content
@@ -282,7 +306,7 @@ async function ensureAgentStorageBootstrap(): Promise<void> {
 
   // Handle BOOTSTRAP.md separately - only copy if onboarding not complete
   if (!onboardingComplete) {
-    const bootstrapTargetPath = path.join(AGENT_STORAGE_DIR, 'BOOTSTRAP.md');
+    const bootstrapTargetPath = path.join(CANVAS_AGENT_STORAGE_DIR, 'BOOTSTRAP.md');
     const existingBootstrap = await readFileIfExists(bootstrapTargetPath);
 
     if (isContentEmpty(existingBootstrap)) {
@@ -348,7 +372,8 @@ async function main() {
   await runLegacySessionCleanupIfNeeded();
 
   console.log('[bootstrap-agent-runtime] Agent runtime bootstrap complete.');
-  console.log(`[bootstrap-agent-runtime] Agent files location: ${AGENT_STORAGE_DIR}`);
+  console.log(`[bootstrap-agent-runtime] Agent files location: ${CANVAS_AGENT_STORAGE_DIR}`);
+  console.log(`[bootstrap-agent-runtime] Runtime config location: ${AGENT_STORAGE_DIR}`);
   console.log(`[bootstrap-agent-runtime] Secrets location: ${SECRETS_DIR}`);
 }
 

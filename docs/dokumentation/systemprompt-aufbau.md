@@ -6,7 +6,7 @@ Diese Dokumentation beschreibt, wie der Systemprompt des Canvas Chat Agents zusa
 
 Der Agent bekommt seinen dauerhaften Kontext nicht aus einem einzigen festen Prompt. Stattdessen wird der Prompt bei Runtime-Start aus mehreren Quellen zusammengesetzt:
 
-1. editierbare Agent-Dateien aus `/data/canvas-agent`
+1. editierbare Agent-Dateien aus `/data/agents/<agentId>`
 2. Beschreibungen der aktivierten Skills aus `/data/skills`
 3. technische Hinweise zu Chat-Uploads
 4. dynamische Kontextinformationen wie Uhrzeit, offene Datei, Planning Mode oder Studio-Kontext
@@ -18,7 +18,7 @@ Anpassbare Regeln sollen in den Agent-Dateien liegen, damit sie ueber die Settin
 | Reihenfolge | Baustein | Quelle | Wann enthalten? |
 |---:|---|---|---|
 | 1 | Einleitung zu Agent-Dateien | Code | Wenn mindestens eine Agent-Datei Inhalt hat |
-| 2 | Agent-Dateien | `/data/canvas-agent/*.md` | Nur nicht-leere Dateien |
+| 2 | Agent-Dateien | `/data/agents/<agentId>/*.md` | Nur nicht-leere Dateien |
 | 3 | Aktivierte Skills | `/data/skills/<skill>/SKILL.md` | Nur aktivierte Skills |
 | 4 | Upload-/Attachment-Regeln | Code | Immer |
 | 5 | Current Date & Time | Chat-Request-Kontext | Wenn Zeit und Zeitzone mitgeschickt werden |
@@ -29,7 +29,7 @@ Anpassbare Regeln sollen in den Agent-Dateien liegen, damit sie ueber die Settin
 
 ## Agent-Dateien
 
-Die Agent-Dateien liegen unter `/data/canvas-agent` und koennen im Settings-Bereich bearbeitet werden. Sie bilden den wichtigsten, anpassbaren Teil des Systemprompts.
+Die Agent-Dateien liegen unter `/data/agents/<agentId>`. Der Canvas Main Agent verwendet `/data/agents/canvas-agent`. Sie koennen im Settings-Bereich bearbeitet werden und bilden den wichtigsten, anpassbaren Teil des Systemprompts.
 
 Geladen werden diese Dateien in fester Reihenfolge:
 
@@ -39,12 +39,13 @@ Geladen werden diese Dateien in fester Reihenfolge:
 - `MEMORY.md`
 - `SOUL.md`
 - `TOOLS.md`
+- `HEARTBEAT.md`
 
 Leere Dateien werden uebersprungen. Jede geladene Datei wird mit ihrem Dateinamen und Speicherort in den Prompt eingefuegt:
 
 ```text
 ## AGENTS.md
-Source: /data/canvas-agent/AGENTS.md
+Source: /data/agents/canvas-agent/AGENTS.md
 
 [Inhalt der Datei]
 ```
@@ -140,15 +141,15 @@ Diese Aenderung reduziert Dopplungen und haelt den Systemprompt schlanker. Anpas
 Ein vereinfachter Systemprompt kann so aussehen:
 
 ```text
-The following agent-managed files define your runtime behavior, memory, tone, and tool guidance. These files are stored in /data/canvas-agent and can be edited when the user asks.
+The following agent-managed files define your runtime behavior, memory, tone, and tool guidance. These files are stored under /data/agents/<agent-id> and can be edited when the user asks.
 
 ## AGENTS.md
-Source: /data/canvas-agent/AGENTS.md
+Source: /data/agents/canvas-agent/AGENTS.md
 
 [Regeln aus AGENTS.md]
 
 ## MEMORY.md
-Source: /data/canvas-agent/MEMORY.md
+Source: /data/agents/canvas-agent/MEMORY.md
 
 [dauerhafte Fakten aus MEMORY.md]
 

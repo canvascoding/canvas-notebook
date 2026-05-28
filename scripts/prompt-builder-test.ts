@@ -31,12 +31,12 @@ const populated = composeManagedAgentSystemPrompt(
 
 assert.equal(populated.diagnostics.usedFallback, false);
 assert.deepEqual(populated.diagnostics.includedFiles, ['AGENTS.md', 'MEMORY.md', 'TOOLS.md']);
-assert.deepEqual(populated.diagnostics.emptyFiles, ['IDENTITY.md', 'USER.md', 'SOUL.md']);
+assert.deepEqual(populated.diagnostics.emptyFiles, ['IDENTITY.md', 'USER.md', 'SOUL.md', 'HEARTBEAT.md']);
 assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas Notebook\./);
-assert.match(populated.systemPrompt, /## AGENTS\.md\nSource: .*\/data\/canvas-agent\/AGENTS\.md\n\n- Follow repo rules\./);
-assert.match(populated.systemPrompt, /## MEMORY\.md\nSource: .*\/data\/canvas-agent\/MEMORY\.md\n\nRemember the migration state\./);
+assert.match(populated.systemPrompt, /## AGENTS\.md\nSource: .*\/data\/agents\/canvas-agent\/AGENTS\.md\n\n- Follow repo rules\./);
+assert.match(populated.systemPrompt, /## MEMORY\.md\nSource: .*\/data\/agents\/canvas-agent\/MEMORY\.md\n\nRemember the migration state\./);
 assert.doesNotMatch(populated.systemPrompt, /## SOUL\.md/);
-assert.match(populated.systemPrompt, /## TOOLS\.md\nSource: .*\/data\/canvas-agent\/TOOLS\.md\n\nUse filesystem and terminal carefully\./);
+assert.match(populated.systemPrompt, /## TOOLS\.md\nSource: .*\/data\/agents\/canvas-agent\/TOOLS\.md\n\nUse filesystem and terminal carefully\./);
 assert.doesNotMatch(populated.systemPrompt, /## File Search Strategy \(CRITICAL\)/);
 assert.doesNotMatch(populated.systemPrompt, /## File System Structure/);
 assert.doesNotMatch(populated.systemPrompt, /## Temporary Files Directory/);

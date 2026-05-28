@@ -138,6 +138,8 @@ async function main() {
   const allTools = buildPiToolRegistry();
   const defaultEnabledTools = getDefaultEnabledToolNames(allTools.map((tool) => tool.name));
   assert.equal(defaultEnabledTools.has('mcp'), true);
+  assert.equal(defaultEnabledTools.has('memory'), true);
+  assert.equal(allTools.some((tool) => tool.name === 'memory'), true);
   assert.equal(defaultEnabledTools.has('delegate_task'), true);
   assert.equal(allTools.some((tool) => tool.name === 'delegate_task'), true);
   assert.equal(defaultEnabledTools.has('session_search'), true);
@@ -156,6 +158,11 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'studio_edit_image'), false);
 
   const metadata = await getPiToolMetadata();
+  const memoryMetadata = metadata.find((tool) => tool.name === 'memory');
+  assert.ok(memoryMetadata);
+  assert.equal(memoryMetadata.group, 'Memory');
+  assert.deepEqual(memoryMetadata.toolsets, ['memory']);
+  assert.equal(memoryMetadata.planningModeAllowed, false);
   const sessionSearchMetadata = metadata.find((tool) => tool.name === 'session_search');
   assert.ok(sessionSearchMetadata);
   assert.equal(sessionSearchMetadata.group, 'Session');

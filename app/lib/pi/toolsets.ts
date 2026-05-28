@@ -4,6 +4,7 @@ export type PiToolset =
   | 'delegation'
   | 'email'
   | 'file'
+  | 'memory'
   | 'mcp'
   | 'session_search'
   | 'studio'
@@ -41,6 +42,11 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
     name: 'file',
     label: 'File',
     description: 'Read, write, list, and search local workspace or agent files.',
+  },
+  memory: {
+    name: 'memory',
+    label: 'Memory',
+    description: 'Read and maintain durable agent or user memory.',
   },
   mcp: {
     name: 'mcp',
@@ -88,6 +94,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'email_update_draft',
   ]),
   file: new Set(['glob', 'grep', 'ls', 'read', 'rg', 'write']),
+  memory: new Set(['memory']),
   mcp: new Set(['mcp']),
   session_search: new Set(['session_search']),
   studio: new Set([

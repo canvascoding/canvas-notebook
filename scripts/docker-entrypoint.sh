@@ -152,6 +152,7 @@ printf 'Canvas initializing...\n\n'
 step "Preparing data directories"
 {
   mkdir -p /data/canvas-agent
+  mkdir -p /data/agents/canvas-agent
   mkdir -p /data/pi-oauth-states
   mkdir -p /data/secrets
   mkdir -p /data/skills

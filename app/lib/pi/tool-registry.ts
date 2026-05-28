@@ -12,10 +12,19 @@ import { JSDOM } from 'jsdom';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 import { filterSafeEnv } from '@/app/lib/security/env-allowlist';
+import {
+  addMemory,
+  deleteMemory,
+  readMemory,
+  updateMemory,
+  type MemoryAction,
+  type MemoryReadResult,
+  type MemoryTarget,
+} from '@/app/lib/agents/memory-store';
 
 // NOTE: resolveAgentPath allows absolute paths, but agent file tools must call
 // assertAgentPathAllowed before touching the filesystem.
-// The agent must be able to access /data/canvas-agent (its own config/memory files)
+// The agent must be able to access /data/agents (its own prompt and memory files)
 // in addition to /data/workspace. Relative paths still resolve from the workspace
 // root for convenience. The UI file browser (api/files/*) remains sandboxed via
 // workspace-files.ts — only agent tools use this unrestricted resolver.
@@ -1241,7 +1250,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'ls',
     label: 'Listing directory',
-    description: 'Lists files and directories. Use absolute paths (e.g. /data/canvas-agent) or relative paths from /data/workspace.',
+    description: 'Lists files and directories. Use absolute paths (e.g. /data/agents/canvas-agent) or relative paths from /data/workspace.',
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: 'The path to list. Absolute or workspace-relative. Defaults to /data/workspace.' })),
     }),
@@ -1282,7 +1291,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. Use absolute paths (e.g. /data/canvas-agent/AGENTS.md) or relative paths from /data/workspace.',
+    description: 'Reads the content of a file. Use absolute paths (e.g. /data/agents/canvas-agent/AGENTS.md) or relative paths from /data/workspace.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
     }),
@@ -1315,7 +1324,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'write',
     label: 'Writing file',
-    description: 'Writes content to a file. Use absolute paths (e.g. /data/canvas-agent/memory.md) or relative paths from /data/workspace. Creates directories if needed.',
+    description: 'Writes content to a file. Use absolute paths (e.g. /data/agents/canvas-agent/MEMORY.md) or relative paths from /data/workspace. Creates directories if needed.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
@@ -1345,7 +1354,7 @@ export const piTools: AgentTool[] = [
     name: 'bash',
     label: 'Executing command',
     // NOTE: cwd is intentionally '/' (not restricted to workspace) so the agent
-    // can run commands in /data/canvas-agent or any other path it needs.
+    // can run commands in /data/agents/canvas-agent or any other path it needs.
     description: 'Executes a bash command. Not restricted to workspace — use cd or absolute paths as needed.',
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
@@ -1455,7 +1464,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory';
 
 export type PiToolMetadata = {
   name: string;
@@ -1476,9 +1485,102 @@ function requireToolUserId(userId: string | undefined, toolLabel: string): strin
   return userId;
 }
 
+function formatMemoryResult(result: MemoryReadResult): string {
+  const label = result.target === 'user' ? 'User memory' : 'Agent memory';
+  if (result.entries.length === 0) {
+    return `${label} has no stored entries.`;
+  }
+  return [
+    `${label} entries from ${result.fileName}:`,
+    ...result.entries.map((entry) => `- [${entry.id}] ${entry.content}`),
+  ].join('\n');
+}
+
+function createMemoryTool(agentId?: string | null): AgentTool {
+  return {
+    name: 'memory',
+    label: 'Managing memory',
+    description:
+      'Reads and maintains durable memory. Use target "agent" for agent-specific MEMORY.md and target "user" for shared USER.md. ' +
+      'Use only for long-term facts, preferences, and recurring context; never store secrets, logs, temporary tasks, or session summaries.',
+    parameters: Type.Object({
+      action: Type.Union([
+        Type.Literal('read'),
+        Type.Literal('add'),
+        Type.Literal('update'),
+        Type.Literal('delete'),
+      ], { description: 'Memory operation to perform.' }),
+      target: Type.Union([
+        Type.Literal('agent'),
+        Type.Literal('user'),
+      ], { description: 'agent writes this agent MEMORY.md; user writes the shared Canvas Agent USER.md.' }),
+      id: Type.Optional(Type.String({ description: 'Required for update and delete.' })),
+      content: Type.Optional(Type.String({ description: 'Required for add and update.' })),
+      reason: Type.Optional(Type.String({ description: 'Optional short reason for why this memory matters.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const input = params as {
+          action?: MemoryAction;
+          target?: MemoryTarget;
+          id?: string;
+          content?: string;
+          reason?: string;
+        };
+        const target = input.target;
+        if (target !== 'agent' && target !== 'user') {
+          throw new Error('target must be "agent" or "user".');
+        }
+
+        if (input.action === 'read') {
+          const result = await readMemory({ target, agentId });
+          return { content: [{ type: 'text', text: formatMemoryResult(result) }], details: result };
+        }
+
+        if (input.action === 'add') {
+          if (typeof input.content !== 'string') {
+            throw new Error('content is required for add.');
+          }
+          const result = await addMemory({ target, agentId, content: input.content });
+          const prefix = result.changed ? 'Memory entry added.' : 'Memory entry already existed.';
+          return { content: [{ type: 'text', text: `${prefix}\n${formatMemoryResult(result)}` }], details: result };
+        }
+
+        if (input.action === 'update') {
+          if (!input.id) {
+            throw new Error('id is required for update.');
+          }
+          if (typeof input.content !== 'string') {
+            throw new Error('content is required for update.');
+          }
+          const result = await updateMemory({ target, agentId, id: input.id, content: input.content });
+          return { content: [{ type: 'text', text: `Memory entry updated.\n${formatMemoryResult(result)}` }], details: result };
+        }
+
+        if (input.action === 'delete') {
+          if (!input.id) {
+            throw new Error('id is required for delete.');
+          }
+          const result = await deleteMemory({ target, agentId, id: input.id });
+          return { content: [{ type: 'text', text: `Memory entry deleted.\n${formatMemoryResult(result)}` }], details: result };
+        }
+
+        throw new Error('action must be read, add, update, or delete.');
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
 function createUserScopedTools(userId?: string, agentId?: string | null): AgentTool[] {
   const sourceAgentId = normalizeManagedAgentId(agentId);
   const tools: AgentTool[] = [
+    createMemoryTool(agentId),
     createSessionSearchTool({ userId, agentId }),
   ];
 
@@ -1719,6 +1821,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null): AgentT
 
 function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
+  if (toolName === 'memory') return 'Memory';
   if (toolName === 'delegate_task') return 'Delegation';
   if (toolName === 'session_search') return 'Session';
   if (toolName.startsWith('email_')) return 'Email';
@@ -1770,6 +1873,9 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   }
   if (group === 'Delegation') {
     notes.push('Starts another managed agent session and may call external models or tools through that agent.');
+  }
+  if (group === 'Memory') {
+    notes.push('May update durable agent or user memory files under /data/agents.');
   }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');

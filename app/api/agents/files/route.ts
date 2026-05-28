@@ -97,7 +97,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Invalid fileName. Allowed: AGENTS.md, IDENTITY.md, USER.md, MEMORY.md, SOUL.md, TOOLS.md',
+          error: 'Invalid fileName. Allowed: AGENTS.md, IDENTITY.md, USER.md, MEMORY.md, SOUL.md, TOOLS.md, HEARTBEAT.md',
         },
         { status: 400 }
       );
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            error: 'Invalid fileName. Allowed: AGENTS.md, IDENTITY.md, USER.md, MEMORY.md, SOUL.md, TOOLS.md',
+            error: 'Invalid fileName. Allowed: AGENTS.md, IDENTITY.md, USER.md, MEMORY.md, SOUL.md, TOOLS.md, HEARTBEAT.md',
           },
           { status: 400 }
         );
