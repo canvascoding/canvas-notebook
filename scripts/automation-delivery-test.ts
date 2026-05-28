@@ -13,7 +13,7 @@ async function main() {
   const { user, piSessions, sessionChannelLinks } = await import('../app/lib/db/schema');
   const { setActiveChannelSession } = await import('../app/lib/channels/active-sessions');
   const { getChannelRegistry } = await import('../app/lib/channels/registry');
-  const { dispatchAutomationResult, resolveAutomationDeliveryTarget } = await import('../app/lib/automations/delivery');
+  const { dispatchAutomationResult, getAutomationDeliveryFailureMessage, resolveAutomationDeliveryTarget } = await import('../app/lib/automations/delivery');
 
   const now = new Date();
   const userId = 'user-automation-delivery';
@@ -133,6 +133,22 @@ async function main() {
   assert.equal(active.mode, 'channel_active');
   assert.equal(active.channelId, 'telegram');
 
+  const inferredActive = await resolveAutomationDeliveryTarget({
+    job: {
+      ...baseJob,
+      deliveryMode: 'origin',
+      deliveryChannelId: 'telegram',
+      deliveryChannelSessionKey: null,
+      deliverySessionMode: 'channel_active',
+    },
+    userId,
+    defaultSessionId: 'auto-inferred-active',
+  });
+  assert.equal(inferredActive.sessionId, 'active-session');
+  assert.equal(inferredActive.mode, 'channel_active');
+  assert.equal(inferredActive.channelId, 'telegram');
+  assert.equal(inferredActive.channelSessionKey, 'telegram:42');
+
   const missingActive = await resolveAutomationDeliveryTarget({
     job: {
       ...baseJob,
@@ -147,6 +163,36 @@ async function main() {
   assert.equal(missingActive.sessionId, 'auto-missing-active');
   assert.equal(missingActive.mode, 'new_session');
   assert.ok(missingActive.warnings.length > 0);
+
+  const missingExternalTarget = await resolveAutomationDeliveryTarget({
+    job: {
+      ...baseJob,
+      agentId: 'other-agent',
+      deliveryMode: 'origin',
+      deliveryChannelId: 'slack',
+      deliveryChannelSessionKey: null,
+      deliverySessionMode: 'channel_active',
+    },
+    userId,
+    defaultSessionId: 'auto-missing-external-target',
+  });
+  assert.equal(missingExternalTarget.channelId, 'slack');
+  assert.equal(missingExternalTarget.channelSessionKey, '');
+  const missingExternalDispatch = await dispatchAutomationResult({
+    job: {
+      ...baseJob,
+      agentId: 'other-agent',
+      deliveryMode: 'origin',
+      deliveryChannelId: 'slack',
+      deliveryChannelSessionKey: null,
+    },
+    userId,
+    resolution: missingExternalTarget,
+    text: 'Slack result',
+  });
+  assert.equal(missingExternalDispatch.delivered, false);
+  assert.equal(missingExternalDispatch.skippedReason, 'missing_channel_session_key');
+  assert.match(getAutomationDeliveryFailureMessage(missingExternalTarget, missingExternalDispatch) || '', /no channel session key/);
 
   const webDispatch = await dispatchAutomationResult({
     job: baseJob,

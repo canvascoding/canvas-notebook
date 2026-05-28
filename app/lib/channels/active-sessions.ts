@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { channelActiveSessions } from '@/app/lib/db/schema';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey } from './constants';
@@ -25,6 +25,27 @@ export async function getActiveChannelSession(input: ChannelContextKey): Promise
     columns: { sessionId: true },
   });
   return row?.sessionId ?? null;
+}
+
+export async function getLatestActiveChannelSession(input: {
+  userId: string;
+  channelId: string;
+  agentId?: string | null;
+}): Promise<{ sessionId: string; channelSessionKey: string; channelThreadKey: string } | null> {
+  const row = await db.query.channelActiveSessions.findFirst({
+    where: and(
+      eq(channelActiveSessions.userId, input.userId),
+      eq(channelActiveSessions.agentId, resolveAgentId(input.agentId)),
+      eq(channelActiveSessions.channelId, input.channelId),
+    ),
+    columns: {
+      sessionId: true,
+      channelSessionKey: true,
+      channelThreadKey: true,
+    },
+    orderBy: [desc(channelActiveSessions.updatedAt)],
+  });
+  return row ?? null;
 }
 
 export async function setActiveChannelSession(input: ChannelContextKey & {
