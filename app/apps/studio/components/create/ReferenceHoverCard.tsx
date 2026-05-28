@@ -60,8 +60,8 @@ function PreviewContent({
   const previewUrl = thumbnailPath ? toPreviewUrl(thumbnailPath, 400) : undefined;
 
   return (
-    <div className="flex flex-col gap-2 max-w-full">
-      <div className="relative aspect-square max-w-[280px] max-h-[280px] w-full overflow-hidden rounded-md bg-muted mx-auto">
+    <div className="flex w-full min-w-0 flex-col gap-2">
+      <div className="relative mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-md bg-muted">
         {previewUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -169,7 +169,7 @@ export function ReferenceHoverCard({
         </span>
         <Dialog open={mobileDialogOpen} onOpenChange={setMobileDialogOpen}>
           <DialogContent
-            className="max-w-[90vw] w-auto p-4"
+            className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-sm overflow-y-auto p-3 sm:max-w-sm sm:p-4"
             showCloseButton={false}
           >
             <DialogTitle className="sr-only">{name}</DialogTitle>
