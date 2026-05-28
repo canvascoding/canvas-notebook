@@ -1,13 +1,16 @@
 name: Electron Desktop Build
 
 on:
+  push:
+    tags:
+      - "v*"
   schedule:
     # Weekly desktop builds on Wednesdays at 03:00 UTC.
     - cron: "0 3 * * 3"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: electron-desktop-${{ github.ref }}
@@ -66,3 +69,36 @@ jobs:
             dist-electron/*.rpm
             dist-electron/*.zip
             dist-electron/latest*.yml
+
+      - name: Upload desktop artifacts to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(
+            dist-electron/*.AppImage
+            dist-electron/*.blockmap
+            dist-electron/*.deb
+            dist-electron/*.dmg
+            dist-electron/*.exe
+            dist-electron/*.msi
+            dist-electron/*.rpm
+            dist-electron/*.zip
+            dist-electron/latest*.yml
+          )
+
+          if (( ${#files[@]} == 0 )); then
+            echo "No desktop artifacts found for release upload."
+            exit 1
+          fi
+
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --title "$GITHUB_REF_NAME" \
+              --notes "Desktop artifacts for $GITHUB_REF_NAME."
+          fi
+
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
