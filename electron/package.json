@@ -11,6 +11,7 @@
     "productName": "Canvas Notebook",
     "electronVersion": "42.3.0",
     "buildVersion": "2026.5.28.4",
+    "icon": "assets/icon",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "../dist-electron"

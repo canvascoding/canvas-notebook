@@ -11,6 +11,7 @@ import { checkServerHealth } from './health-check.mjs';
 import { createAppMenu } from './menu.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ICON_PATH = path.join(__dirname, '../assets/icon.png');
 const PRELOAD_PATH = path.join(__dirname, '../preload/index.cjs');
 const SETUP_FILE_PATH = path.join(__dirname, '../renderer/setup.html');
 const SETUP_FILE_URL = pathToFileURL(SETUP_FILE_PATH).href;
@@ -166,6 +167,7 @@ function createMainWindow() {
     minWidth: 960,
     minHeight: 680,
     title: 'Canvas Notebook',
+    icon: ICON_PATH,
     backgroundColor: '#f7f8fb',
     show: false,
     webPreferences: {
