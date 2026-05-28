@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { managedEmailRequest } from '@/app/lib/email/managed-client';
+import { readEmailMessage } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -17,11 +17,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!limited.ok) return limited.response;
   try {
     const { accountId, messageId } = await params;
-    const data = await managedEmailRequest(`/v1/managed/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(messageId)}`);
+    const data = await readEmailMessage(accountId, messageId);
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to read email message';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

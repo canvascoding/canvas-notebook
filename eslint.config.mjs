@@ -33,6 +33,8 @@ const eslintConfig = defineConfig([
     // Compiled JavaScript files (TypeScript source exists)
     "server/*.js",
     "scripts/*.js",
+    // Electron preload stays CommonJS for Electron's sandboxed preload runtime.
+    "electron/preload/**/*.cjs",
     // Third-party file explorer widget (pure JS)
     "bsp-filebrowser/**",
     // Skill seed templates (reference/template code, not runtime)

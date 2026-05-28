@@ -822,14 +822,25 @@ function addColumns(
   table: string,
   columns: Record<string, string>,
 ): void {
-  const existing = new Set(
-    (sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name),
-  );
+  const existing = getColumnNames(sqlite, table);
   for (const [col, def] of Object.entries(columns)) {
     if (!existing.has(col)) {
       try {
         sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
-      } catch { /* already exists in a concurrent scenario, ignore */ }
+        existing.add(col);
+      } catch (error) {
+        const refreshed = getColumnNames(sqlite, table);
+        if (!refreshed.has(col)) {
+          throw error;
+        }
+        existing.add(col);
+      }
     }
   }
+}
+
+function getColumnNames(sqlite: InstanceType<typeof Database>, table: string): Set<string> {
+  return new Set(
+    (sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name),
+  );
 }
