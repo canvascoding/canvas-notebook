@@ -191,7 +191,7 @@ class FileWatcherService {
 
       this.watchers.set(fullPath, watcher);
     } catch (error) {
-      console.warn(`[FileWatcher] Failed to watch directory ${relativeDir}:`, error);
+      console.warn('[FileWatcher] Failed to watch directory:', relativeDir, error);
     }
   }
 

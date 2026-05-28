@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { db } from '@/app/lib/db';
 import { aiSessions, aiMessages, user, piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
@@ -51,7 +52,7 @@ function resolveRequestedModel(value: unknown): AgentId | null {
 }
 
 function buildSessionId(): string {
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `sess-${Date.now()}-${randomUUID()}`;
 }
 
 function normalizeTitle(value: unknown, fallback: string): string {

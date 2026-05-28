@@ -15,6 +15,15 @@ import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 const DATA_ROOT = resolveCanvasDataRoot(process.cwd());
 const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
 
+function normalizeOAuthFlowId(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
+}
+
 /**
  * POST /api/oauth/pi/exchange
  * Exchange authorization code for OAuth credentials
@@ -31,11 +40,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { flowId, provider, code } = await request.json();
+    const { flowId: rawFlowId, provider, code } = await request.json();
+    const flowId = normalizeOAuthFlowId(rawFlowId);
 
     if (!flowId) {
       return NextResponse.json(
-        { success: false, error: 'Missing flowId' },
+        { success: false, error: 'Missing or invalid flowId' },
         { status: 400 }
       );
     }
@@ -54,10 +64,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const stateFile = `${OAUTH_STATE_DIR}/${flowId}.json`;
-    const codeFile = `${OAUTH_STATE_DIR}/${flowId}_code.txt`;
+    const stateFile = join(OAUTH_STATE_DIR, `${flowId}.json`);
+    const codeFile = join(OAUTH_STATE_DIR, `${flowId}_code.txt`);
     // Credentials are saved in the temp script directory by the background process
-    const tempAuthPath = `${OAUTH_STATE_DIR}/${flowId}_oauth/credentials.json`;
+    const tempAuthPath = join(OAUTH_STATE_DIR, `${flowId}_oauth`, 'credentials.json');
 
     // Check if flow exists
     try {

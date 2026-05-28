@@ -5,6 +5,7 @@ import {
   PI_OAUTH_PROVIDERS,
   PROVIDER_DISPLAY_NAMES,
 } from '@/app/lib/pi/oauth';
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'child_process';
 import { writeFile, mkdir, readFile, readdir, symlink } from 'fs/promises';
 import { existsSync } from 'fs';
@@ -92,11 +93,11 @@ export async function POST(request: NextRequest) {
     await killStaleFlows(provider);
 
     // Create unique flow ID
-    const flowId = `flow_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const stateFile = `${OAUTH_STATE_DIR}/${flowId}.json`;
-    const tempScriptDir = `${OAUTH_STATE_DIR}/${flowId}_oauth`;
-    const tempScriptPath = `${tempScriptDir}/oauth.mjs`;
-    const tempAuthPath = `${tempScriptDir}/credentials.json`;
+    const flowId = `flow_${Date.now()}_${randomUUID()}`;
+    const stateFile = join(OAUTH_STATE_DIR, `${flowId}.json`);
+    const tempScriptDir = join(OAUTH_STATE_DIR, `${flowId}_oauth`);
+    const tempScriptPath = join(tempScriptDir, 'oauth.mjs');
+    const tempAuthPath = join(tempScriptDir, 'credentials.json');
 
     // Ensure script directory exists
     await mkdir(tempScriptDir, { recursive: true });
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest) {
         '@mariozechner/pi-ai': '*'
       }
     }, null, 2);
-    await writeFile(`${tempScriptDir}/package.json`, tempPackageJson);
+    await writeFile(join(tempScriptDir, 'package.json'), tempPackageJson);
     await writeFile(stateFile, JSON.stringify({
       flowId,
       provider,

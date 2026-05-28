@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { AgentContext, AgentMessage, AgentTool, ThinkingLevel } from '@mariozechner/pi-agent-core';
 import { Type } from 'typebox';
 import { and, eq } from 'drizzle-orm';
@@ -71,7 +72,7 @@ function normalizeAgentId(agentId?: string | null): string {
 }
 
 function buildDelegatedSessionId(): string {
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `sess-${Date.now()}-${randomUUID()}`;
 }
 
 function clampTimeoutSeconds(value: unknown): number {

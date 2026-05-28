@@ -103,6 +103,14 @@ function managedProviderPath(provider: ManagedControlPlaneProvider): string {
   return 'openrouter';
 }
 
+function isOllamaCloudHost(value: string): boolean {
+  try {
+    return new URL(value).hostname.toLowerCase() === 'cloud.ollama.com';
+  } catch {
+    return value.trim().toLowerCase() === 'cloud.ollama.com';
+  }
+}
+
 export function isCanvasControlPlaneManagedAvailable(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' ||
@@ -379,8 +387,8 @@ export async function resolvePiModel(provider: string, modelName: string) {
     const baseUrl = 'http://localhost:11434/v1';
     
     // Only use custom host if it's explicitly set and not the default cloud URL
-    if (providerConfig?.ollamaHost && 
-        !providerConfig.ollamaHost.includes('cloud.ollama.com')) {
+    if (providerConfig?.ollamaHost &&
+        !isOllamaCloudHost(providerConfig.ollamaHost)) {
       const customUrl = providerConfig.ollamaHost.endsWith('/v1') 
         ? providerConfig.ollamaHost 
         : `${providerConfig.ollamaHost}/v1`;

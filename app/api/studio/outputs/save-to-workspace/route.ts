@@ -5,12 +5,20 @@ import { readOutputFile } from '@/app/lib/integrations/studio-workspace';
 import { getFileStats, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { getStudioOutputForUser } from '@/app/lib/integrations/studio-generation-service';
 
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
 function joinWorkspacePath(dirPath: string, fileName: string) {
   if (dirPath === '.' || dirPath === './') {
     return fileName;
   }
 
-  return `${dirPath.replace(/\/+$/, '')}/${fileName}`;
+  return `${stripTrailingSlashes(dirPath)}/${fileName}`;
 }
 
 async function workspacePathExists(filePath: string) {
