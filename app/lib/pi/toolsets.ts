@@ -1,6 +1,7 @@
 export type PiToolset =
   | 'automation'
   | 'composio'
+  | 'delegation'
   | 'email'
   | 'file'
   | 'mcp'
@@ -25,6 +26,11 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
     name: 'composio',
     label: 'Composio',
     description: 'Call connected third-party application tools through Composio.',
+  },
+  delegation: {
+    name: 'delegation',
+    label: 'Delegation',
+    description: 'Delegate focused tasks to another managed Canvas Agent session.',
   },
   email: {
     name: 'email',
@@ -72,6 +78,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'update_automation_job',
   ]),
   composio: new Set(['composio_execute']),
+  delegation: new Set(['delegate_task']),
   email: new Set([
     'email_create_draft',
     'email_list_accounts',

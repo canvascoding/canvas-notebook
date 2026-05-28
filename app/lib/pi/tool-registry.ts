@@ -130,6 +130,9 @@ import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
 import { managedEmailRequest } from '@/app/lib/email/managed-client';
 import { createSessionSearchTool } from '@/app/lib/pi/session-search-tool';
 import { getPiToolsetsForTool, type PiToolset } from '@/app/lib/pi/toolsets';
+import { createDelegateTaskTool } from '@/app/lib/pi/delegate-task-tool';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 
 
 const execAsync = promisify(exec);
@@ -1452,7 +1455,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation';
 
 export type PiToolMetadata = {
   name: string;
@@ -1474,8 +1477,16 @@ function requireToolUserId(userId: string | undefined, toolLabel: string): strin
 }
 
 function createUserScopedTools(userId?: string, agentId?: string | null): AgentTool[] {
-  return [
+  const sourceAgentId = normalizeManagedAgentId(agentId);
+  const tools: AgentTool[] = [
     createSessionSearchTool({ userId, agentId }),
+  ];
+
+  if (sourceAgentId === DEFAULT_AGENT_ID) {
+    tools.push(createDelegateTaskTool({ userId, sourceAgentId }));
+  }
+
+  tools.push(
     {
       name: 'list_automation_jobs',
       label: 'Listing automation jobs',
@@ -1701,11 +1712,14 @@ function createUserScopedTools(userId?: string, agentId?: string | null): AgentT
     createStudioListProductsTool({ userId }),
     createStudioListPersonasTool({ userId }),
     createStudioListStylesTool({ userId }),
-  ];
+  );
+
+  return tools;
 }
 
 function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
+  if (toolName === 'delegate_task') return 'Delegation';
   if (toolName === 'session_search') return 'Session';
   if (toolName.startsWith('email_')) return 'Email';
   if (toolName.startsWith('studio_')) return 'Studio';
@@ -1753,6 +1767,9 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   }
   if (group === 'Session') {
     notes.push('Read-only access to this user and agent session history.');
+  }
+  if (group === 'Delegation') {
+    notes.push('Starts another managed agent session and may call external models or tools through that agent.');
   }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
