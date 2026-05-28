@@ -66,6 +66,23 @@ function nextWithCommonHeaders() {
   return response;
 }
 
+function isFetchServerAction(request: NextRequest) {
+  return request.method === 'POST' && request.headers.has('next-action');
+}
+
+function staleServerActionResponse(request: NextRequest) {
+  const redirectTarget = `${request.nextUrl.pathname}${request.nextUrl.search}`.replace(/;/g, '%3B') || '/';
+  const response = new NextResponse('Server action is no longer available. Reloading.', {
+    status: 409,
+    headers: {
+      'content-type': 'text/plain; charset=utf-8',
+      'x-action-redirect': `${redirectTarget};replace`,
+    },
+  });
+  setCommonHeaders(response);
+  return response;
+}
+
 function getSecret(): string {
   return process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET || 'canvas-notebook-local-dev-secret-change-me';
 }
@@ -194,6 +211,13 @@ function isPublicRoute(pathname: string) {
 
 export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Canvas Notebook handles mutations through API routes. A next-action POST here
+  // is from a stale client after a rebuild; reload the page instead of letting
+  // Next.js emit a noisy "Failed to find Server Action" warning.
+  if (isFetchServerAction(request)) {
+    return staleServerActionResponse(request);
+  }
 
   if (isWebSocketRoute(pathname)) {
     return NextResponse.next();
