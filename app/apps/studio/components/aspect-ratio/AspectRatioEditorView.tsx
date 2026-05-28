@@ -85,6 +85,8 @@ const PRESETS = [
 
 const MAX_TARGET_SIZE = 2048;
 const MIN_FRAME_SIZE = 24;
+const STAGE_FIT_PADDING = 72;
+const FALLBACK_STAGE_SIZE = { width: 872, height: 648 };
 
 function parseRatio(ratio: string) {
   const [w, h] = ratio.split(':').map(Number);
@@ -135,6 +137,23 @@ function fitFrameToRatio(imageWidth: number, imageHeight: number, ratio: string)
     y: Math.round((imageHeight - height) / 2),
     width: Math.round(width),
     height: Math.round(height),
+  };
+}
+
+function fitImageToStage(imageWidth: number, imageHeight: number, stage: HTMLDivElement | null) {
+  const rect = stage?.getBoundingClientRect();
+  const stageWidth = rect && rect.width > 0 ? rect.width : FALLBACK_STAGE_SIZE.width;
+  const stageHeight = rect && rect.height > 0 ? rect.height : FALLBACK_STAGE_SIZE.height;
+  const availableWidth = Math.max(1, stageWidth - STAGE_FIT_PADDING * 2);
+  const availableHeight = Math.max(1, stageHeight - STAGE_FIT_PADDING * 2);
+  const zoom = Math.min(1, availableWidth / imageWidth, availableHeight / imageHeight);
+
+  return {
+    zoom,
+    pan: {
+      x: Math.round((stageWidth - imageWidth * zoom) / 2),
+      y: Math.round((stageHeight - imageHeight * zoom) / 2),
+    },
   };
 }
 
@@ -411,9 +430,9 @@ export function AspectRatioEditorView() {
   }, [initialModel, initialProvider, t]);
 
   const resetView = useCallback((width: number, height: number) => {
-    const initialZoom = Math.min(1, 680 / Math.max(width, height));
-    setZoom(initialZoom);
-    setPan({ x: 96, y: 64 });
+    const nextView = fitImageToStage(width, height, stageRef.current);
+    setZoom(nextView.zoom);
+    setPan(nextView.pan);
     setAspectRatio('1:1');
     setFrame(fitFrameToRatio(width, height, '1:1'));
   }, []);
