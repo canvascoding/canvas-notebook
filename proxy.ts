@@ -147,6 +147,32 @@ async function buildLicenseGateCookie(status: {
   return `${payload}.${await sign(payload)}`;
 }
 
+async function setLicenseGateCookie(response: NextResponse, status: {
+  licensed?: boolean;
+  plan?: string;
+  instanceId?: string;
+  expiresAt?: string | null;
+}) {
+  response.cookies.set(LICENSE_GATE_COOKIE, await buildLicenseGateCookie(status), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 60 * 60 * 12,
+  });
+}
+
+async function primeLicenseGateCookie(request: NextRequest, response: NextResponse) {
+  if (await hasValidLicenseGateCookie(request)) return response;
+
+  const status = await loadLicenseStatus(request);
+  if (status?.licensed) {
+    await setLicenseGateCookie(response, status);
+  }
+
+  return response;
+}
+
 function isPublicRoute(pathname: string) {
   // Strip locale prefix if present for checking public routes
   const locales = routing.locales;
@@ -200,13 +226,7 @@ export default async function middleware(request: NextRequest) {
       const status = await loadLicenseStatus(request);
       if (status?.licensed) {
         const licensedResponse = nextWithCommonHeaders();
-        licensedResponse.cookies.set(LICENSE_GATE_COOKIE, await buildLicenseGateCookie(status), {
-          httpOnly: true,
-          sameSite: 'lax',
-          secure: process.env.NODE_ENV === 'production',
-          path: '/',
-          maxAge: 60 * 60 * 12,
-        });
+        await setLicenseGateCookie(licensedResponse, status);
         return licensedResponse;
       }
 
@@ -270,13 +290,7 @@ export default async function middleware(request: NextRequest) {
     if (status?.licensed) {
       const licensedResponse = NextResponse.next();
       setCommonHeaders(licensedResponse);
-      licensedResponse.cookies.set(LICENSE_GATE_COOKIE, await buildLicenseGateCookie(status), {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
-        path: '/',
-        maxAge: 60 * 60 * 12,
-      });
+      await setLicenseGateCookie(licensedResponse, status);
       return licensedResponse;
     }
 
@@ -288,7 +302,7 @@ export default async function middleware(request: NextRequest) {
     return errorResponse;
   }
 
-  return response;
+  return primeLicenseGateCookie(request, response);
 }
 
 export const config = {
