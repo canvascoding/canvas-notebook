@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { managedEmailRequest } from '@/app/lib/email/managed-client';
+import { listEmailAccounts } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -16,11 +16,10 @@ export async function GET(request: NextRequest) {
   const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'email-accounts-get' });
   if (!limited.ok) return limited.response;
   try {
-    const data = await managedEmailRequest('/v1/managed/email/accounts');
+    const data = await listEmailAccounts();
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load email accounts';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

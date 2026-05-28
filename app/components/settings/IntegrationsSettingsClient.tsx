@@ -1145,7 +1145,7 @@ function EmailAccountsCard() {
     return () => window.clearTimeout(timeout);
   }, [loadAccounts, loadOAuthEnv]);
 
-  const saveOAuthProvider = async (provider: 'google' | 'microsoft') => {
+  const persistOAuthProvider = async (provider: 'google' | 'microsoft') => {
     const keys = provider === 'google'
       ? {
           clientId: 'GOOGLE_OAUTH_CLIENT_ID',
@@ -1160,31 +1160,34 @@ function EmailAccountsCard() {
           clientSecretValue: oauthDraft.microsoftClientSecret.trim(),
         };
     if (!keys.clientIdValue || !keys.clientSecretValue) {
-      setError('Client ID and Client Secret are required before saving OAuth settings.');
-      return;
+      throw new Error('Client ID and Client Secret are required before saving or connecting OAuth.');
     }
+    const currentResponse = await fetch('/api/integrations/env?scope=integrations', { cache: 'no-store' });
+    const currentPayload = await currentResponse.json();
+    if (!currentResponse.ok || !currentPayload.success) throw new Error(currentPayload.error || 'Failed to load current integration keys');
+    const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
+    const nextEntries = currentEntries
+      .filter((entry) => entry.key !== keys.clientId && entry.key !== keys.clientSecret)
+      .map((entry) => ({ key: entry.key, value: entry.value }));
+    nextEntries.push({ key: keys.clientId, value: keys.clientIdValue });
+    nextEntries.push({ key: keys.clientSecret, value: keys.clientSecretValue });
+    const saveResponse = await fetch('/api/integrations/env?scope=integrations', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries: nextEntries }),
+    });
+    const savePayload = await saveResponse.json();
+    if (!saveResponse.ok || !savePayload.success) throw new Error(savePayload.error || 'Failed to save OAuth settings');
+    await loadOAuthEnv();
+  };
+
+  const saveOAuthProvider = async (provider: 'google' | 'microsoft') => {
     setActiveAction(`oauth-save:${provider}`);
     setError(null);
     setMessage(null);
     try {
-      const currentResponse = await fetch('/api/integrations/env?scope=integrations', { cache: 'no-store' });
-      const currentPayload = await currentResponse.json();
-      if (!currentResponse.ok || !currentPayload.success) throw new Error(currentPayload.error || 'Failed to load current integration keys');
-      const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
-      const nextEntries = currentEntries
-        .filter((entry) => entry.key !== keys.clientId && entry.key !== keys.clientSecret)
-        .map((entry) => ({ key: entry.key, value: entry.value }));
-      nextEntries.push({ key: keys.clientId, value: keys.clientIdValue });
-      nextEntries.push({ key: keys.clientSecret, value: keys.clientSecretValue });
-      const saveResponse = await fetch('/api/integrations/env?scope=integrations', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries: nextEntries }),
-      });
-      const savePayload = await saveResponse.json();
-      if (!saveResponse.ok || !savePayload.success) throw new Error(savePayload.error || 'Failed to save OAuth settings');
+      await persistOAuthProvider(provider);
       setMessage(`${provider === 'google' ? 'Google' : 'Microsoft'} OAuth settings saved.`);
-      await loadOAuthEnv();
     } catch (saveOAuthError) {
       setError(saveOAuthError instanceof Error ? saveOAuthError.message : 'Failed to save OAuth settings');
     } finally {
@@ -1197,6 +1200,7 @@ function EmailAccountsCard() {
     setError(null);
     setMessage(null);
     try {
+      await persistOAuthProvider(provider);
       const response = await fetch('/api/email/oauth/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

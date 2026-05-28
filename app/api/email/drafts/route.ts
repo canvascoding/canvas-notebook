@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { managedEmailRequest } from '@/app/lib/email/managed-client';
+import { createEmailDraft } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -17,14 +17,10 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const body = await request.json().catch(() => ({}));
-    const data = await managedEmailRequest('/v1/managed/email/drafts', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
+    const data = await createEmailDraft(body);
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create email draft';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-
