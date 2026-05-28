@@ -61,20 +61,20 @@ function PreviewContent({
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-2">
-      <div className="relative mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-md bg-muted">
+      <div className="relative mx-auto flex w-full max-w-[320px] items-center justify-center overflow-hidden rounded-md bg-muted">
         {previewUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={previewUrl}
             alt={name}
-            className="h-full w-full object-cover"
+            className="block h-auto max-h-[min(52dvh,360px)] w-auto max-w-full object-contain"
             loading="lazy"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none';
             }}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
+          <div className="flex aspect-square w-full max-w-[280px] items-center justify-center">
             {fallbackIcon}
           </div>
         )}
@@ -140,7 +140,7 @@ export function ReferenceHoverCard({
             <span className="inline-flex">{children}</span>
           </HoverCardTrigger>
           <HoverCardContent
-            className="w-auto max-w-[320px] p-3 border-border/60"
+            className="w-80 max-w-[calc(100vw-2rem)] border-border/60 p-3"
             side="top"
             align="center"
             sideOffset={8}
