@@ -364,7 +364,7 @@ function toMcpServerDraft(name: string, serverConfig: Record<string, unknown> = 
 }
 
 function createBlankMcpServerDraft(): McpServerDraft {
-  return toMcpServerDraft('', { enabled: false, command: '', args: [''], env: {}, envPassthrough: [''], cwd: '' });
+  return toMcpServerDraft('', { enabled: true, command: '', args: [''], env: {}, envPassthrough: [''], cwd: '' });
 }
 
 function pairsToRecord(pairs: McpPairDraft[], options: { envReference?: boolean } = {}): Record<string, string> | undefined {
