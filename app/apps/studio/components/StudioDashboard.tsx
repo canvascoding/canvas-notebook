@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
-import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import {
   getDefaultModelForProvider,
   getAspectRatiosForProvider,
@@ -31,6 +31,7 @@ import { AudioLines, Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
+import { buildStudioGeneratePayload } from '../utils/studio-generate-payload';
 
 interface StartingPoint {
   id: string;
@@ -78,12 +79,6 @@ function getOutputReference(output: StudioGenerationOutput) {
   return { id: output.filePath, name, thumbnailPath };
 }
 
-function getReferenceRequestValue(ref: { id: string }) {
-  if (ref.id.startsWith('/api/studio/media/') || ref.id.startsWith('/api/studio/references/')) return ref.id;
-  if (/^https?:\/\//i.test(ref.id)) return ref.id;
-  return toMediaUrl(ref.id);
-}
-
 export function StudioDashboard() {
   const t = useTranslations('studio');
   const router = useRouter();
@@ -108,6 +103,10 @@ export function StudioDashboard() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<'start' | 'end' | 'references'>('references');
+
+  useEffect(() => {
+    router.prefetch('/studio/create');
+  }, [router]);
 
   useEffect(() => {
     void fetchGenerations();
@@ -156,61 +155,11 @@ export function StudioDashboard() {
     );
   }, [store.mode, store.provider, store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length, store.videoExtendSourceRef]);
 
-  const hasVideoImageInput = store.mode === 'video' && !store.videoExtendSourceRef && (
-    !!store.startFramePath ||
-    store.productRefs.length > 0 ||
-    store.personaRefs.length > 0 ||
-    store.styleRefs.length > 0 ||
-    store.fileRefs.length > 0 ||
-    store.videoReferenceRefs.length > 0 ||
-    store.audioReferenceRefs.length > 0
-  );
-  const personGeneration = hasVideoImageInput ? 'allow_adult' as const : 'allow_all' as const;
-
   const handleGenerate = useCallback(async () => {
-    const fileUrls = store.fileRefs.map(getReferenceRequestValue).slice(0, store.mode === 'sound' ? 10 : undefined);
-    const videoReferenceUrls = store.videoReferenceRefs.map(getReferenceRequestValue).slice(0, 3);
-    const audioReferenceUrls = store.audioReferenceRefs.map(getReferenceRequestValue).slice(0, 3);
-    const videoExtendSourcePath = store.videoExtendSourceRef ? getReferenceRequestValue(store.videoExtendSourceRef) : undefined;
-    const isVeoExtend = store.mode === 'video' && store.provider === 'veo' && Boolean(videoExtendSourcePath);
-    const result = await generationHook.generate({
-      prompt: store.rawPrompt.trim(),
-      mode: store.mode,
-      product_ids: store.productRefs.map((p) => p.id),
-      persona_ids: store.personaRefs.map((p) => p.id),
-      preset_id: store.presetRef?.id,
-      aspect_ratio: store.aspectRatio,
-      count: store.mode === 'video' || store.mode === 'sound' ? 1 : store.count,
-      provider: store.provider,
-      model: store.model,
-      quality: store.provider === 'openai' ? store.quality : undefined,
-      output_format: store.mode === 'sound'
-        ? (store.outputFormat === 'wav' ? 'wav' : 'mp3')
-        : store.provider === 'openai'
-          ? (['png', 'jpeg', 'webp'].includes(store.outputFormat) ? store.outputFormat as 'png' | 'jpeg' | 'webp' : 'png')
-          : undefined,
-      background: store.provider === 'openai' ? store.background : undefined,
-      image_size: store.mode === 'image' && store.provider === 'gemini' && store.model !== 'gemini-2.5-flash-image' ? store.imageSize : undefined,
-      extra_reference_urls: isVeoExtend ? undefined : fileUrls,
-      video_reference_urls: !isVeoExtend && store.mode === 'video' && store.provider === 'bytedance' ? videoReferenceUrls : undefined,
-      audio_reference_urls: !isVeoExtend && store.mode === 'video' && store.provider === 'bytedance' ? audioReferenceUrls : undefined,
-      video_extend_source_path: isVeoExtend ? videoExtendSourcePath : undefined,
-      video_resolution: store.mode === 'video' ? (isVeoExtend ? '720p' : store.videoResolution) : undefined,
-      video_duration: store.mode === 'video' ? (isVeoExtend ? 8 : store.videoDuration) : undefined,
-      start_frame_path: store.mode === 'video' && !isVeoExtend ? store.startFramePath : undefined,
-      end_frame_path: store.mode === 'video' && !isVeoExtend ? store.endFramePath : undefined,
-      is_looping: store.mode === 'video' && !isVeoExtend ? store.isLooping : undefined,
-      person_generation: store.mode === 'video' ? personGeneration : undefined,
-      video_generate_audio: store.mode === 'video' && store.provider === 'bytedance' ? store.videoGenerateAudio : undefined,
-      video_web_search: store.mode === 'video' && store.provider === 'bytedance' ? store.videoWebSearch : undefined,
-      video_nsfw_checker: store.mode === 'video' && store.provider === 'bytedance' ? store.videoNsfwChecker : undefined,
-    });
-
-    if (result) {
-      store.resetAfterGenerate();
-      router.push(`/studio/create?generation=${encodeURIComponent(result.id)}`);
-    }
-  }, [store, generationHook, personGeneration, router]);
+    store.queueGenerateRequest(buildStudioGeneratePayload(store));
+    store.resetAfterGenerate();
+    router.push('/studio/create');
+  }, [store, router]);
 
   const handleStartingPoint = useCallback((sp: StartingPoint) => {
     store.setRawPrompt(sp.prompt);

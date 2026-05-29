@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { generateRandomId } from '@/app/lib/utils/random-id';
+import { useStudioGenerationsCacheStore } from '@/app/store/studio-generations-cache-store';
 import type {
   StudioGeneratePayload,
   StudioGenerateResponse,
@@ -132,15 +133,44 @@ function createPendingGeneration(
 
 const COMPLETED_ANIMATION_MS = 1500;
 
+function setGenerationsState(
+  updater: StudioGeneration[] | ((current: StudioGeneration[]) => StudioGeneration[]),
+) {
+  useStudioGenerationsCacheStore.setState((state) => ({
+    generations: typeof updater === 'function' ? updater(state.generations) : updater,
+  }));
+}
+
+function setCurrentGenerationState(
+  updater: StudioGeneration | null | ((current: StudioGeneration | null) => StudioGeneration | null),
+) {
+  useStudioGenerationsCacheStore.setState((state) => ({
+    currentGeneration: typeof updater === 'function' ? updater(state.currentGeneration) : updater,
+  }));
+}
+
+function preserveActiveGenerations(
+  current: StudioGeneration[],
+  nextGenerations: StudioGeneration[],
+): StudioGeneration[] {
+  const nextIds = new Set(nextGenerations.map((generation) => generation.id));
+  const optimistic = current.filter((generation) => {
+    if (nextIds.has(generation.id)) return false;
+    return generation.id.startsWith('temp-') || generation.status === 'pending' || generation.status === 'generating';
+  });
+
+  return mergeGenerationPages(optimistic, nextGenerations);
+}
+
 export function useStudioGeneration(): UseStudioGenerationReturn {
-  const [generations, setGenerations] = useState<StudioGeneration[]>([]);
-  const [currentGeneration, setCurrentGeneration] = useState<StudioGeneration | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeGenerationId, setActiveGenerationId] = useState<string | null>(null);
-  const [recentlyCompletedIds, setRecentlyCompletedIds] = useState<Set<string>>(new Set());
-  const [hasMoreGenerations, setHasMoreGenerations] = useState(false);
+  const generations = useStudioGenerationsCacheStore((state) => state.generations);
+  const currentGeneration = useStudioGenerationsCacheStore((state) => state.currentGeneration);
+  const loading = useStudioGenerationsCacheStore((state) => state.loading);
+  const loadingMore = useStudioGenerationsCacheStore((state) => state.loadingMore);
+  const error = useStudioGenerationsCacheStore((state) => state.error);
+  const activeGenerationId = useStudioGenerationsCacheStore((state) => state.activeGenerationId);
+  const recentlyCompletedIds = useStudioGenerationsCacheStore((state) => state.recentlyCompletedIds);
+  const hasMoreGenerations = useStudioGenerationsCacheStore((state) => state.hasMoreGenerations);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -148,14 +178,14 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    setActiveGenerationId(null);
+    useStudioGenerationsCacheStore.setState({ activeGenerationId: null });
   }, []);
 
   const fetchGeneration = useCallback(async (id: string, options?: { silent?: boolean }) => {
     if (!options?.silent) {
-      setLoading(true);
+      useStudioGenerationsCacheStore.setState({ loading: true });
     }
-    setError(null);
+    useStudioGenerationsCacheStore.setState({ error: null });
 
     try {
       const response = await fetch(`/api/studio/generations/${id}`);
@@ -165,7 +195,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       if (generation) {
         const isTerminal = generation.status === 'completed' || generation.status === 'failed';
 
-        setGenerations((current) => {
+        setGenerationsState((current) => {
           const existing = current.find((g) => g.id === generation.id);
           if (existing && existing.status === generation.status && existing.outputs.length === generation.outputs.length) {
             return current;
@@ -173,7 +203,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
           return mergeGenerationLists(current, generation);
         });
 
-        setCurrentGeneration((current) => {
+        setCurrentGenerationState((current) => {
           if (current?.id === generation.id && current.status === generation.status && current.outputs.length === generation.outputs.length) {
             return current;
           }
@@ -183,16 +213,16 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
         if (isTerminal) {
           stopPolling();
           const genId = generation.id;
-          setRecentlyCompletedIds((prev) => {
-            const next = new Set(prev);
-            next.add(genId);
-            return next;
+          useStudioGenerationsCacheStore.setState((state) => {
+            const recentlyCompletedIds = new Set(state.recentlyCompletedIds);
+            recentlyCompletedIds.add(genId);
+            return { recentlyCompletedIds };
           });
           setTimeout(() => {
-            setRecentlyCompletedIds((prev) => {
-              const next = new Set(prev);
-              next.delete(genId);
-              return next;
+            useStudioGenerationsCacheStore.setState((state) => {
+              const recentlyCompletedIds = new Set(state.recentlyCompletedIds);
+              recentlyCompletedIds.delete(genId);
+              return { recentlyCompletedIds };
             });
           }, COMPLETED_ANIMATION_MS);
         }
@@ -201,68 +231,70 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       return generation;
     } catch (err) {
       const message = toErrorMessage(err, 'Failed to fetch generation');
-      setError(message);
+      useStudioGenerationsCacheStore.setState({ error: message });
       if (options?.silent) {
         stopPolling();
       }
       return null;
     } finally {
       if (!options?.silent) {
-        setLoading(false);
+        useStudioGenerationsCacheStore.setState({ loading: false });
       }
     }
   }, [stopPolling]);
 
   const fetchGenerations = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    useStudioGenerationsCacheStore.setState({ loading: true, error: null });
     try {
       const response = await fetch(`/api/studio/generations?limit=${GENERATIONS_PAGE_SIZE}&offset=0`);
       const data = await parseJsonResponse(response);
       const nextGenerations = (data.generations ?? []) as StudioGeneration[];
-      setGenerations(nextGenerations);
-      setHasMoreGenerations(Boolean(data.hasMore));
-      setCurrentGeneration((current) => {
+      setGenerationsState((current) => preserveActiveGenerations(current, nextGenerations));
+      useStudioGenerationsCacheStore.setState({ hasMoreGenerations: Boolean(data.hasMore) });
+      setCurrentGenerationState((current) => {
+        const latestGenerations = preserveActiveGenerations(
+          useStudioGenerationsCacheStore.getState().generations,
+          nextGenerations,
+        );
         if (!current) {
-          return nextGenerations[0] ?? null;
+          return latestGenerations[0] ?? null;
         }
-        return nextGenerations.find((generation) => generation.id === current.id) ?? current;
+        return latestGenerations.find((generation) => generation.id === current.id) ?? current;
       });
     } catch (err) {
-      setError(toErrorMessage(err, 'Failed to fetch generations'));
+      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to fetch generations') });
     } finally {
-      setLoading(false);
+      useStudioGenerationsCacheStore.setState({ loading: false });
     }
   }, []);
 
   const loadMoreGenerations = useCallback(async () => {
+    const { generations, hasMoreGenerations, loadingMore } = useStudioGenerationsCacheStore.getState();
     if (loadingMore || !hasMoreGenerations) {
       return;
     }
 
-    setLoadingMore(true);
-    setError(null);
+    useStudioGenerationsCacheStore.setState({ loadingMore: true, error: null });
     try {
       const loadedServerGenerationCount = generations.filter((generation) => !generation.id.startsWith('temp-')).length;
       const response = await fetch(`/api/studio/generations?limit=${GENERATIONS_PAGE_SIZE}&offset=${loadedServerGenerationCount}`);
       const data = await parseJsonResponse(response);
       const nextGenerations = (data.generations ?? []) as StudioGeneration[];
-      setGenerations((current) => mergeGenerationPages(current, nextGenerations));
-      setHasMoreGenerations(Boolean(data.hasMore));
+      setGenerationsState((current) => mergeGenerationPages(current, nextGenerations));
+      useStudioGenerationsCacheStore.setState({ hasMoreGenerations: Boolean(data.hasMore) });
     } catch (err) {
-      setError(toErrorMessage(err, 'Failed to load more generations'));
+      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to load more generations') });
     } finally {
-      setLoadingMore(false);
+      useStudioGenerationsCacheStore.setState({ loadingMore: false });
     }
-  }, [generations, hasMoreGenerations, loadingMore]);
+  }, []);
 
   const watchGeneration = useCallback((id: string) => {
-    setActiveGenerationId(id);
+    useStudioGenerationsCacheStore.setState({ activeGenerationId: id });
   }, []);
 
   const generate = useCallback(async (payload: StudioGeneratePayload) => {
-    setLoading(true);
-    setError(null);
+    useStudioGenerationsCacheStore.setState({ loading: true, error: null });
 
     const temporaryId = `temp-${generateRandomId()}`;
     const expectedCount = payload.mode === 'video' || payload.mode === 'sound' ? 1 : Math.min(Math.max(payload.count ?? 1, 1), 4);
@@ -289,8 +321,8 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       metadata: JSON.stringify({ expectedCount }),
     };
 
-    setCurrentGeneration(temporaryGeneration);
-    setGenerations((current) => mergeGenerationLists(current, temporaryGeneration));
+    setCurrentGenerationState(temporaryGeneration);
+    setGenerationsState((current) => mergeGenerationLists(current, temporaryGeneration));
 
     try {
       const response = await fetch('/api/studio/generate', {
@@ -300,72 +332,72 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       });
       const data = await parseJsonResponse(response);
       const generation = createPendingGeneration(data.generationId, payload, data as StudioGenerateResponse);
-      setCurrentGeneration(generation);
-      setGenerations((current) => {
+      setCurrentGenerationState(generation);
+      setGenerationsState((current) => {
         const withoutTemporary = current.filter((item) => item.id !== temporaryId);
         return mergeGenerationLists(withoutTemporary, generation);
       });
-      setActiveGenerationId(data.generationId);
+      useStudioGenerationsCacheStore.setState({ activeGenerationId: data.generationId });
       return generation;
     } catch (err) {
       const message = toErrorMessage(err, 'Failed to create generation');
-      setError(message);
+      useStudioGenerationsCacheStore.setState({ error: message });
       const failedGeneration: StudioGeneration = {
         ...temporaryGeneration,
         status: 'failed',
         updatedAt: new Date().toISOString(),
         metadata: JSON.stringify({ expectedCount, error: message }),
       };
-      setCurrentGeneration(failedGeneration);
-      setGenerations((current) => {
+      setCurrentGenerationState(failedGeneration);
+      setGenerationsState((current) => {
         const withoutTemporary = current.filter((item) => item.id !== temporaryId);
         return mergeGenerationLists(withoutTemporary, failedGeneration);
       });
       return null;
     } finally {
-      setLoading(false);
+      useStudioGenerationsCacheStore.setState({ loading: false });
     }
   }, []);
 
   const deleteGeneration = useCallback(async (id: string) => {
-    setError(null);
+    useStudioGenerationsCacheStore.setState({ error: null });
     try {
       const response = await fetch(`/api/studio/generations/${id}`, { method: 'DELETE' });
       await parseJsonResponse(response);
-      setGenerations((current) => current.filter((generation) => generation.id !== id));
-      setCurrentGeneration((current) => (current?.id === id ? null : current));
+      setGenerationsState((current) => current.filter((generation) => generation.id !== id));
+      setCurrentGenerationState((current) => (current?.id === id ? null : current));
       if (activeGenerationId === id) {
         stopPolling();
       }
       return true;
     } catch (err) {
-      setError(toErrorMessage(err, 'Failed to delete generation'));
+      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to delete generation') });
       return false;
     }
   }, [activeGenerationId, stopPolling]);
 
   const deleteOutput = useCallback(async (generationId: string, outputId: string) => {
-    setError(null);
+    useStudioGenerationsCacheStore.setState({ error: null });
     try {
       const response = await fetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, { method: 'DELETE' });
       const data = await parseJsonResponse(response);
       const generationDeleted = data.generationDeleted === true;
 
       if (generationDeleted) {
-        setGenerations((current) => current.filter((g) => g.id !== generationId));
-        setCurrentGeneration((current) => (current?.id === generationId ? null : current));
+        setGenerationsState((current) => current.filter((g) => g.id !== generationId));
+        setCurrentGenerationState((current) => (current?.id === generationId ? null : current));
         if (activeGenerationId === generationId) {
           stopPolling();
         }
       } else {
-        setGenerations((current) =>
+        setGenerationsState((current) =>
           current.map((g) =>
             g.id === generationId
               ? { ...g, outputs: g.outputs.filter((o) => o.id !== outputId) }
               : g,
           ),
         );
-        setCurrentGeneration((current) =>
+        setCurrentGenerationState((current) =>
           current?.id === generationId
             ? { ...current, outputs: current.outputs.filter((o) => o.id !== outputId) }
             : current,
@@ -374,21 +406,21 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 
       return true;
     } catch (err) {
-      setError(toErrorMessage(err, 'Failed to delete output'));
+      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to delete output') });
       return false;
     }
   }, [activeGenerationId, stopPolling]);
 
   const toggleFavorite = useCallback(async (generationId: string, outputId: string, isFavorite: boolean) => {
-    setError(null);
-    setGenerations((current) =>
+    useStudioGenerationsCacheStore.setState({ error: null });
+    setGenerationsState((current) =>
       current.map((generation) =>
         generation.id === generationId
           ? updateOutputInGeneration(generation, outputId, (output) => ({ ...output, isFavorite }))
           : generation,
       ),
     );
-    setCurrentGeneration((current) =>
+    setCurrentGenerationState((current) =>
       current?.id === generationId ? updateOutputInGeneration(current, outputId, (output) => ({ ...output, isFavorite })) : current,
     );
 
@@ -401,15 +433,15 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       await parseJsonResponse(response);
       return true;
     } catch (err) {
-      setError(toErrorMessage(err, 'Failed to update favorite'));
-      setGenerations((current) =>
+      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to update favorite') });
+      setGenerationsState((current) =>
         current.map((generation) =>
           generation.id === generationId
             ? updateOutputInGeneration(generation, outputId, (output) => ({ ...output, isFavorite: !isFavorite }))
             : generation,
         ),
       );
-      setCurrentGeneration((current) =>
+      setCurrentGenerationState((current) =>
         current?.id === generationId
           ? updateOutputInGeneration(current, outputId, (output) => ({ ...output, isFavorite: !isFavorite }))
           : current,
@@ -455,7 +487,6 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchGeneration(activeGenerationId, { silent: true });
 
     if (intervalRef.current) {
@@ -463,7 +494,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     }
 
     intervalRef.current = setInterval(() => {
-    void fetchGeneration(activeGenerationId, { silent: true });
+      void fetchGeneration(activeGenerationId, { silent: true });
     }, POLL_INTERVAL_MS);
 
     return () => {
