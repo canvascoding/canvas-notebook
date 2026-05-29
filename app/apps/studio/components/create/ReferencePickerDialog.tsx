@@ -20,6 +20,7 @@ import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
+import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { ReferenceHoverCard } from './ReferenceHoverCard';
 
 type Source = 'workspace' | 'studio' | 'upload' | 'urls';
@@ -51,7 +52,7 @@ const MEDIA_EXTS: Record<MediaKind, Set<string>> = {
   audio: new Set(['mp3', 'wav']),
 };
 const MEDIA_ACCEPT: Record<MediaKind, string> = {
-  image: 'image/*',
+  image: 'image/*,.heic,.heif',
   video: 'video/mp4,video/quicktime,.mp4,.mov',
   audio: 'audio/mpeg,audio/wav,.mp3,.wav',
 };
@@ -422,13 +423,18 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   const handleImagePreprocessConfirm = async (convertParams: (ConvertParams | null)[]) => {
     if (imagePreprocessPendingFiles.length === 0) return;
     const files = imagePreprocessPendingFiles;
+    const convertParamsByFile = new Map<File, ConvertParams | null>();
+    imagePreprocessFiles?.forEach((item, index) => {
+      convertParamsByFile.set(item.file, convertParams[index] ?? null);
+    });
+    const uploadConvertParams = files.map((file) => convertParamsByFile.get(file) ?? null);
     setIsUploading(true);
     setError(null);
     try {
       const formData = new FormData();
       files.forEach((file) => formData.append('files', file, file.name));
-      if (convertParams.length > 0) {
-        const serializable = convertParams.map((p) =>
+      if (uploadConvertParams.length > 0) {
+        const serializable = uploadConvertParams.map((p) =>
           p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
         );
         formData.append('convertParams', JSON.stringify(serializable));
@@ -462,14 +468,10 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   };
 
   const handleImagePreprocessSkip = async () => {
-    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
-    const HEIC_EXTS = new Set(['heic', 'heif']);
-    const nonHeic = imagePreprocessPendingFiles.filter((f) => {
-      return !HEIC_TYPES.has(f.type.toLowerCase()) && !HEIC_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '');
-    });
-    if (nonHeic.length > 0) {
+    const filesToUpload = imagePreprocessPendingFiles.filter((f) => !isHeicUploadFile(f));
+    if (filesToUpload.length > 0) {
       const dt = new DataTransfer();
-      nonHeic.forEach((f) => dt.items.add(f));
+      filesToUpload.forEach((f) => dt.items.add(f));
       await handleUploadFiles(dt.files);
     }
     setImagePreprocessFiles(null);
@@ -477,28 +479,24 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   };
 
   const preprocessFileSelection = useCallback(async (files: FileList) => {
-    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
-    const HEIC_EXTS = new Set(['heic', 'heif']);
-    const SIZE_THRESHOLD = 1_500_000;
     const preprocessList: import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] = [];
     const normalFiles: File[] = [];
-    for (const file of Array.from(files)) {
-      const isHeic = HEIC_TYPES.has(file.type.toLowerCase()) || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
-      const isImg = file.type.startsWith('image/') || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
-      if (isHeic || (isImg && file.size > SIZE_THRESHOLD)) {
-        preprocessList.push({ file, isHeic, isLarge: file.size > SIZE_THRESHOLD });
+    const allFiles = Array.from(files);
+    for (const file of allFiles) {
+      const preprocessInfo = shouldPreprocessImageFile(file);
+      if (preprocessInfo) {
+        preprocessList.push({ file, ...preprocessInfo });
       } else {
         normalFiles.push(file);
       }
     }
-    if (normalFiles.length > 0) {
+    if (preprocessList.length > 0) {
+      setImagePreprocessPendingFiles(allFiles);
+      setImagePreprocessFiles(preprocessList);
+    } else if (normalFiles.length > 0) {
       const dt = new DataTransfer();
       normalFiles.forEach((f) => dt.items.add(f));
       await handleUploadFiles(dt.files);
-    }
-    if (preprocessList.length > 0) {
-      setImagePreprocessPendingFiles(preprocessList.map((f) => f.file));
-      setImagePreprocessFiles(preprocessList);
     }
   }, [handleUploadFiles]);
 
@@ -782,6 +780,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
         files={imagePreprocessFiles ?? []}
         onConfirm={handleImagePreprocessConfirm}
         onSkip={handleImagePreprocessSkip}
+        isProcessing={isUploading}
       />
     </>
   );

@@ -1,20 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { saveUploadBuffer } from '@/app/lib/filesystem/upload-handler';
 import { auth } from '@/app/lib/auth';
-import { convertImage, getImageConversionErrorMessage, isHeicFile } from '@/app/lib/images/convert';
-import { fileTypeFromBuffer } from 'file-type';
+import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
+import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
 
 const MAX_FILE_SIZE_MB = 10;
-
-interface ConvertParams {
-  format: 'jpg' | 'webp' | 'png';
-  quality: number;
-  maxDimension?: number;
-}
-
-function isImageMimeType(mimeType: string): boolean {
-  return mimeType.startsWith('image/');
-}
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -31,17 +21,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'No file provided' }, { status: 400 });
     }
 
-    let convertParamsList: (ConvertParams | null)[] | null = null;
-    if (convertParamsRaw) {
-      try {
-        const parsed = JSON.parse(convertParamsRaw);
-        if (Array.isArray(parsed) && parsed.length === files.length) {
-          convertParamsList = parsed;
-        }
-      } catch {
-        // Invalid JSON — ignore convertParams
-      }
+    const parsedConvertParams = parseUploadConvertParams(convertParamsRaw, files.length);
+    if (!parsedConvertParams.ok) {
+      return NextResponse.json({ success: false, error: parsedConvertParams.error }, { status: 400 });
     }
+    const convertParamsList = parsedConvertParams.params;
 
     const maxBytes = MAX_FILE_SIZE_MB * 1024 * 1024;
     const uploadedFiles = [];
@@ -56,50 +40,27 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        let buffer: Buffer = Buffer.from(await file.arrayBuffer());
-        let filename = file.name;
-        let mimeType = file.type || 'application/octet-stream';
+        const buffer = Buffer.from(await file.arrayBuffer());
+        const filename = file.name;
+        const mimeType = file.type || 'application/octet-stream';
 
         const convertParams = convertParamsList?.[i] ?? null;
 
-        if (convertParams) {
-          try {
-            const result = await convertImage(buffer, filename, {
-              format: convertParams.format,
-              quality: convertParams.quality,
-              maxDimension: convertParams.maxDimension,
-            });
-            buffer = result.buffer as Buffer;
-            filename = result.filename;
-            mimeType = result.mimeType;
-          } catch (err) {
-            console.error(`[API] Image conversion failed for ${file.name}:`, err);
-            errors.push(getImageConversionErrorMessage(file.name, err));
-            continue;
-          }
-        } else if (isImageMimeType(mimeType) || isHeicFile(filename, mimeType)) {
-          const detectedType = await fileTypeFromBuffer(buffer);
-          const isHeic = isHeicFile(filename, mimeType) ||
-            (detectedType?.mime === 'image/heic' || detectedType?.mime === 'image/heif' || detectedType?.mime === 'image/heic-sequence');
-
-          if (isHeic) {
-            try {
-              const result = await convertImage(buffer, filename, {
-                format: 'jpg',
-                quality: 80,
-              });
-              buffer = result.buffer as Buffer;
-              filename = result.filename;
-              mimeType = result.mimeType;
-            } catch (err) {
-              console.error(`[API] HEIC auto-conversion failed for ${file.name}:`, err);
-              errors.push(getImageConversionErrorMessage(file.name, err));
-              continue;
-            }
-          }
+        let normalized;
+        try {
+          normalized = await normalizeUploadImageBuffer({
+            buffer,
+            filename,
+            mimeType,
+            convertParams,
+          });
+        } catch (err) {
+          console.error(`[API] Image conversion failed for ${file.name}:`, err);
+          errors.push(getImageConversionErrorMessage(file.name, err));
+          continue;
         }
 
-        const uploadedFile = await saveUploadBuffer(buffer, filename, mimeType);
+        const uploadedFile = await saveUploadBuffer(normalized.buffer, normalized.filename, normalized.mimeType);
 
         uploadedFiles.push({
           id: uploadedFile.id,

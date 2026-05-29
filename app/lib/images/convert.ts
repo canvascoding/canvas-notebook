@@ -51,6 +51,7 @@ export interface ConvertOptions {
   format: 'jpg' | 'webp' | 'png';
   quality?: number;
   maxDimension?: number;
+  sourceMimeType?: string;
 }
 
 export interface ConvertResult {
@@ -193,8 +194,8 @@ async function performConversion(
   originalName: string,
   options: ConvertOptions,
 ): Promise<ConvertResult> {
-  const { format, quality = 80, maxDimension } = options;
-  const sourceIsHeic = isHeicExtension(originalName);
+  const { format, quality = 80, maxDimension, sourceMimeType } = options;
+  const sourceIsHeic = isHeicFile(originalName, sourceMimeType);
 
   let pipeline = sharp(buffer, { limitInputPixels: false }).rotate();
 
@@ -208,8 +209,6 @@ async function performConversion(
       withoutEnlargement: true,
     });
   }
-
-  pipeline = pipeline.withMetadata({ orientation: undefined });
 
   switch (format) {
     case 'jpg':
@@ -315,5 +314,7 @@ export function getImageConversionErrorMessage(fileName: string, error: unknown)
     }
   }
 
-  return `${fileName}: Image conversion failed`;
+  return error instanceof Error
+    ? `${fileName}: ${error.message}`
+    : `${fileName}: Image conversion failed`;
 }
