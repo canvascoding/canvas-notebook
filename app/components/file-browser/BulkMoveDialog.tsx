@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { ChevronRight, Folder, FileWarning, Loader2 } from 'lucide-react';
+import { FileWarning } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
 import { toast } from 'sonner';
+import { DirectoryBrowser } from './DirectoryBrowser';
 
 interface ConflictState {
   type: 'file' | 'directory';
@@ -34,8 +35,6 @@ export function BulkMoveDialog() {
     multiSelectPaths,
     clearMultiSelect,
     renamePath,
-    loadSubdirectory,
-    loadingDirs,
     loadFileTree,
     bulkMoveOpen,
     setBulkMoveOpen,
@@ -53,7 +52,7 @@ export function BulkMoveDialog() {
     setBulkMoveOpen(false);
   };
 
-  const toggleMoveDir = (path: string, isExpanded: boolean) => {
+  const toggleMoveDir = (path: string) => {
     setMoveExpandedDirs(prev => {
       const newSet = new Set(prev);
       if (newSet.has(path)) {
@@ -62,48 +61,6 @@ export function BulkMoveDialog() {
         newSet.add(path);
       }
       return newSet;
-    });
-    if (!isExpanded) {
-      void loadSubdirectory(path, true);
-    }
-  };
-
-  const renderMoveDirectories = (nodes: typeof fileTree, depth = 0): ReactNode[] => {
-    return nodes.flatMap((entry) => {
-      if (entry.type !== 'directory') return [];
-      
-      const isSelected = moveTarget === entry.path;
-      const isExpanded = moveExpandedDirs.has(entry.path);
-      const isLoading = loadingDirs.has(entry.path);
-      
-      const row = (
-        <div key={entry.path} className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
-          <button
-            type="button"
-            className="p-1 rounded hover:bg-accent/70"
-            onClick={() => toggleMoveDir(entry.path, isExpanded)}
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            ) : (
-              <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-            )}
-          </button>
-          <button
-            type="button"
-            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
-              isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/70'
-            }`}
-            onClick={() => setMoveTarget(entry.path)}
-          >
-            <Folder className="h-4 w-4 text-muted-foreground" />
-            <span className="truncate">{entry.name}</span>
-          </button>
-        </div>
-      );
-      
-      const children = isExpanded && entry.children ? renderMoveDirectories(entry.children, depth + 1) : [];
-      return [row, ...children];
     });
   };
 
@@ -246,24 +203,13 @@ export function BulkMoveDialog() {
           <div className="space-y-4">
             <div>
               <label className="text-xs text-muted-foreground">{t('destinationFolder')}</label>
-              <div className="mt-1 rounded border border-border bg-muted/40 p-2">
-                <div className="mb-2 text-xs text-muted-foreground">{t('chooseDestination')}</div>
-                <div className="max-h-56 overflow-auto">
-                  <button
-                    type="button"
-                    className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
-                      moveTarget === '.'
-                        ? 'bg-accent text-accent-foreground'
-                        : 'text-foreground hover:bg-accent/70'
-                    }`}
-                    onClick={() => setMoveTarget('.')}
-                  >
-                    <Folder className="h-4 w-4 text-muted-foreground" />
-                    <span className="truncate">{t('rootDirectory')}</span>
-                  </button>
-                  {renderMoveDirectories(fileTree)}
-                </div>
-              </div>
+              <DirectoryBrowser
+                tree={fileTree}
+                selectedPath={moveTarget}
+                onSelect={setMoveTarget}
+                expandedDirs={moveExpandedDirs}
+                onToggleDir={toggleMoveDir}
+              />
             </div>
           </div>
           <DialogFooter className="gap-2">
