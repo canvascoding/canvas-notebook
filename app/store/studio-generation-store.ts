@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { StudioGenerationMode } from '@/app/apps/studio/types/generation';
+import type { StudioGeneratePayload, StudioGenerationMode } from '@/app/apps/studio/types/generation';
 import type { StudioPreset } from '@/app/apps/studio/types/presets';
 import {
   GEMINI_FLASH_IMAGE_MODEL_ID,
@@ -15,7 +15,12 @@ export interface ReferenceTag {
   mediaKind?: 'image' | 'video' | 'audio';
 }
 
-interface StudioGenerationState {
+export interface PendingStudioGenerateRequest {
+  id: string;
+  payload: StudioGeneratePayload;
+}
+
+export interface StudioGenerationState {
   inspirationCollapsed: boolean;
   setInspirationCollapsed: (collapsed: boolean) => void;
 
@@ -114,7 +119,18 @@ interface StudioGenerationState {
   endFramePath: string | null;
   setEndFramePath: (path: string | null) => void;
 
+  pendingGenerateRequest: PendingStudioGenerateRequest | null;
+  queueGenerateRequest: (payload: StudioGeneratePayload) => string;
+  clearGenerateRequest: (id?: string) => void;
+
   resetAfterGenerate: () => void;
+}
+
+function createPendingGenerateRequestId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `studio-generate-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export const useStudioGenerationStore = create<StudioGenerationState>((set) => ({
@@ -254,6 +270,18 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
 
   endFramePath: null,
   setEndFramePath: (endFramePath) => set({ endFramePath }),
+
+  pendingGenerateRequest: null,
+  queueGenerateRequest: (payload) => {
+    const id = createPendingGenerateRequestId();
+    set({ pendingGenerateRequest: { id, payload } });
+    return id;
+  },
+  clearGenerateRequest: (id) =>
+    set((state) => {
+      if (id && state.pendingGenerateRequest?.id !== id) return state;
+      return { pendingGenerateRequest: null };
+    }),
 
   resetAfterGenerate: () =>
     set({
