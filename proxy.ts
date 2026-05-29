@@ -273,6 +273,9 @@ export default async function middleware(request: NextRequest) {
 
   // 2. Allow public routes and auth API routes
   if (isPublicRoute(pathname)) {
+    if (getSessionCookie(request)) {
+      return primeLicenseGateCookie(request, response);
+    }
     return response;
   }
 

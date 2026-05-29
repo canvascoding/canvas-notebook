@@ -14,6 +14,7 @@ import {routing} from '@/i18n/routing';
 import {notFound} from 'next/navigation';
 import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
+import { LicenseGatePrimer } from '@/app/components/license/LicenseGatePrimer';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -86,7 +87,10 @@ export default async function LocaleLayout({
   setRequestLocale(locale);
 
   const messages = await getMessages();
-  const websocketEnabled = !isOnboardingEnabled() || !(await isOnboardingComplete()) || (await getLicenseStatus()).licensed;
+  const onboardingEnabled = isOnboardingEnabled();
+  const onboardingComplete = onboardingEnabled ? await isOnboardingComplete() : true;
+  const licenseStatus = onboardingEnabled && onboardingComplete ? await getLicenseStatus() : null;
+  const websocketEnabled = !onboardingEnabled || !onboardingComplete || Boolean(licenseStatus?.licensed);
 
   return (
     <html lang={locale} suppressHydrationWarning>
@@ -99,6 +103,7 @@ export default async function LocaleLayout({
         <NextIntlClientProvider messages={messages}>
           <AppThemeProvider>
             <WebSocketProvider enabled={websocketEnabled}>
+              <LicenseGatePrimer enabled={Boolean(licenseStatus?.licensed)} />
               {children}
               <Toaster richColors position="top-right" />
             </WebSocketProvider>
