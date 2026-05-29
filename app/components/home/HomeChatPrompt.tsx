@@ -7,6 +7,7 @@ import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandS
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { Button } from '@/components/ui/button';
@@ -397,6 +398,7 @@ export function HomeChatPrompt() {
       const data = {
         prompt: normalizedPrompt,
         attachments: attachments,
+        agentId: DEFAULT_AGENT_ID,
       };
       window.sessionStorage.setItem(
         CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY, 

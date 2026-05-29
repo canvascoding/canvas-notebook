@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Send, Paperclip, X, Image as ImageIcon, FileText, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 
@@ -289,6 +290,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
       const data = {
         prompt: normalizedPrompt,
         attachments: attachments,
+        agentId: DEFAULT_AGENT_ID,
       };
       window.sessionStorage.setItem(
         CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY,
