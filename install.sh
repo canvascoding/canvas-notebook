@@ -210,11 +210,28 @@ configure_secrets() {
 configure_compose_values() {
   [[ -n "${ADMIN_EMAIL:-}" ]] && config_json_write env.BOOTSTRAP_ADMIN_EMAIL "$ADMIN_EMAIL" && ok "Set BOOTSTRAP_ADMIN_EMAIL"
   [[ -n "${ADMIN_PASSWORD:-}" ]] && config_json_write env.BOOTSTRAP_ADMIN_PASSWORD "$ADMIN_PASSWORD" && ok "Set BOOTSTRAP_ADMIN_PASSWORD"
+  [[ -n "${ADMIN_NAME:-}" ]] && config_json_write env.BOOTSTRAP_ADMIN_NAME "$ADMIN_NAME" && ok "Set BOOTSTRAP_ADMIN_NAME"
   if [[ -n "${BASE_URL:-}" ]]; then
     config_json_write env.BETTER_AUTH_BASE_URL "$BASE_URL"
     config_json_write env.BASE_URL "$BASE_URL"
     ok "Set BASE_URL / BETTER_AUTH_BASE_URL"
   fi
+  local managed_env_key
+  for managed_env_key in \
+    CANVAS_MANAGED_SERVICES_ENABLED \
+    CANVAS_CONTROL_PLANE_URL \
+    CANVAS_LICENSE_CONTROL_PLANE_URL \
+    NEXT_PUBLIC_CANVAS_CONTROL_PLANE_URL \
+    CANVAS_INSTANCE_ID \
+    CANVAS_INSTANCE_TOKEN \
+    CANVAS_LICENSE_CERT \
+    CANVAS_LICENSE_PUBLIC_KEY \
+    CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS; do
+    if [[ -n "${!managed_env_key:-}" ]]; then
+      config_json_write "env.${managed_env_key}" "${!managed_env_key}"
+      ok "Set ${managed_env_key}"
+    fi
+  done
 
   local has_placeholders=false
   local email_val pw_val url_val
