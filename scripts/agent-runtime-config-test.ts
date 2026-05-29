@@ -33,7 +33,10 @@ async function main() {
         getProviders: () => ['google', 'openrouter'],
         getModels: (provider: string) => {
           if (provider === 'google') return [model(provider, 'gemini-1.5-pro')];
-          if (provider === 'openrouter') return [model(provider, 'anthropic/claude-3.5-sonnet')];
+          if (provider === 'openrouter') return [
+            model(provider, 'anthropic/claude-sonnet-4.5'),
+            model(provider, 'anthropic/claude-3.7-sonnet'),
+          ];
           return [];
         },
       };
@@ -97,6 +100,16 @@ async function main() {
   assert.equal(customConfig.thinkingLevel, 'high');
   assert.deepEqual(customConfig.enabledTools, ['bash']);
   assert.deepEqual(customConfig.overrideState, { model: true, tools: true });
+
+  const legacyAgent = await createAgentProfile({
+    name: 'Legacy OpenRouter Agent',
+    defaultProvider: 'openrouter',
+    defaultModel: 'anthropic/claude-3.5-sonnet',
+  });
+  const legacyConfig = await resolveAgentRuntimeConfig(legacyAgent.agentId);
+  assert.equal(legacyConfig.activeProvider, 'openrouter');
+  assert.equal(legacyConfig.providerConfig.model, 'anthropic/claude-3.5-sonnet');
+  assert.equal(legacyConfig.model.id, 'anthropic/claude-sonnet-4.5');
 
   await updateAgentProfile({
     agentId: customAgent.agentId,

@@ -9,9 +9,18 @@ import {
   readPiRuntimeConfig,
   writePiRuntimeConfig,
 } from '@/app/lib/agents/storage';
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
+import { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { normalizeManagedAgentId, updateAgentProfile } from '@/app/lib/agents/registry';
-import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, getPiProviders, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
+import {
+  CANVAS_CONTROL_PLANE_PROVIDER_ID,
+  findModelWithCompatibilityFallback,
+  getCanvasControlPlaneModels,
+  getPiModels,
+  getPiProviders,
+  OLLAMA_PROVIDER_ID,
+  OPENAI_COMPATIBLE_PROVIDER_ID,
+  resolvePiModel,
+} from '@/app/lib/pi/model-resolver';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import type { PiRuntimeConfig, PiThinkingLevel } from '@/app/lib/pi/config';
 
@@ -57,7 +66,7 @@ async function isValidProviderModel(piConfig: PiRuntimeConfig, provider: string,
   const models = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
     ? await getCanvasControlPlaneModels()
     : getPiModels(provider, customModel);
-  return models.some((candidate) => candidate.id === model);
+  return Boolean(findModelWithCompatibilityFallback(models, model));
 }
 
 async function requireSession(request: NextRequest) {
@@ -92,7 +101,15 @@ export async function GET(request: NextRequest) {
 
   try {
     const agentId = request.nextUrl.searchParams.get('agentId');
-    const effective = await resolveAgentRuntimeConfig(agentId);
+    const effective = await resolveAgentRuntimeSettings(agentId);
+    let resolvedModel = effective.providerConfig.model;
+    let modelResolutionError: string | null = null;
+    try {
+      resolvedModel = (await resolvePiModel(effective.activeProvider, effective.providerConfig.model)).id;
+    } catch (error) {
+      modelResolutionError = error instanceof Error ? error.message : 'Failed to resolve configured model.';
+      console.warn(`[agents/config] GET: ${modelResolutionError}`);
+    }
     const piConfig = effective.piConfig;
     const readiness = await buildAgentConfigReadiness();
     const engine = getActiveAiAgentEngine();
@@ -129,9 +146,10 @@ export async function GET(request: NextRequest) {
           agentId: effective.agentId,
           isMainAgent: effective.isMainAgent,
           activeProvider: effective.activeProvider,
-          model: effective.model.id,
+          model: resolvedModel,
           thinkingLevel: effective.thinkingLevel,
           enabledTools: effective.enabledTools,
+          modelResolutionError,
         },
         inheritedFromMain: !effective.isMainAgent,
         overrideState: effective.overrideState,

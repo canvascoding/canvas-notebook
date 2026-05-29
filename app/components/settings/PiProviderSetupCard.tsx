@@ -526,6 +526,11 @@ export function PiProviderSetupCard({
   }
 
   const activeProviderConfig = piConfigDraft.providers[piConfigDraft.activeProvider];
+  const activeProviderModels = discovery[piConfigDraft.activeProvider]?.models || [];
+  const activeProviderConfiguredModel = activeProviderConfig?.model?.trim() || '';
+  const activeProviderModelIsDiscovered = activeProviderConfiguredModel
+    ? activeProviderModels.some((model) => model.id === activeProviderConfiguredModel)
+    : true;
 
   const filteredProviders = isOverrideMode
     ? Object.keys(discovery).length > 0
@@ -713,7 +718,7 @@ export function PiProviderSetupCard({
                     disabled={configSaving}
                   >
                     <option value="">{t('provider.selectModel')}</option>
-                    {(discovery[piConfigDraft.activeProvider]?.models || []).map((model) => (
+                    {activeProviderModels.map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.name || model.id}
                       </option>
@@ -768,12 +773,12 @@ export function PiProviderSetupCard({
                     disabled={configSaving}
                   >
                     <option value="">{t('provider.selectModel')}</option>
-                    {(discovery[piConfigDraft.activeProvider]?.models || []).map((model) => (
+                    {activeProviderModels.map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.name || model.id}
                       </option>
                     ))}
-                    {!discovery[piConfigDraft.activeProvider] && (
+                    {!activeProviderModelIsDiscovered && activeProviderConfiguredModel && (
                       <option value={activeProviderConfig.model}>
                         {activeProviderConfig.model} {t('provider.manualModelSuffix')}
                       </option>
