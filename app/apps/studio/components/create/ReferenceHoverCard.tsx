@@ -57,7 +57,7 @@ function PreviewContent({
   onRemove: () => void;
   showCloseButton: boolean;
 }) {
-  const previewUrl = thumbnailPath ? toPreviewUrl(thumbnailPath, 400) : undefined;
+  const previewUrl = thumbnailPath ? toPreviewUrl(thumbnailPath, 320, { preset: 'mini' }) : undefined;
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-2">
