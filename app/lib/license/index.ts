@@ -6,6 +6,28 @@ import { resolveLicensePublicKeys } from './public-key';
 import { loadStoredLicenseCert, saveLicenseCert } from './storage';
 import type { LicenseCert, LicenseStatus } from './types';
 
+const LOG_PREFIX = '[license/status]';
+const MANAGED_LOG_PREFIX = '[license/managed]';
+
+function getControlPlaneHost(): string {
+  try {
+    return new URL(getControlPlaneLicenseBaseUrl()).host;
+  } catch {
+    return 'invalid_control_plane_url';
+  }
+}
+
+function certLogContext(token: string | null, instanceId: string) {
+  const decoded = token ? decodeLicenseJwt(token) : null;
+  return {
+    instanceId,
+    certSubject: decoded?.sub,
+    certPlan: decoded?.plan,
+    certExpiresAt: decoded?.exp ? new Date(decoded.exp * 1000).toISOString() : null,
+    subjectMatchesInstance: decoded?.sub === instanceId,
+  };
+}
+
 function statusFromPayload(payload: LicenseCert, instanceId: string, source: LicenseStatus['source']): LicenseStatus {
   return {
     plan: payload.plan,
@@ -45,11 +67,21 @@ function isManagedLicenseAvailable(): boolean {
 async function fetchManagedLicenseCert(instanceId: string): Promise<string | null> {
   const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
   if (!token) {
-    console.warn('[license/managed] managed license unavailable: missing CANVAS_INSTANCE_TOKEN', { instanceId });
+    console.warn(`${MANAGED_LOG_PREFIX} managed license unavailable: missing CANVAS_INSTANCE_TOKEN`, {
+      instanceId,
+      managedEnabled: process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
+      controlPlaneHost: getControlPlaneHost(),
+    });
     return null;
   }
 
   try {
+    console.info(`${MANAGED_LOG_PREFIX} requesting managed license from control plane`, {
+      instanceId,
+      managedEnabled: process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
+      hasInstanceToken: true,
+      controlPlaneHost: getControlPlaneHost(),
+    });
     const response = await fetch(`${getControlPlaneLicenseBaseUrl()}/v1/license/managed`, {
       method: 'GET',
       headers: {
@@ -60,7 +92,7 @@ async function fetchManagedLicenseCert(instanceId: string): Promise<string | nul
     });
     const payload = await response.json().catch(() => ({})) as { license?: string; error?: string; code?: string };
     if (!response.ok || !payload.license) {
-      console.warn('[license/managed] control plane did not return a managed license', {
+      console.warn(`${MANAGED_LOG_PREFIX} control plane did not return a managed license`, {
         instanceId,
         status: response.status,
         code: payload.code,
@@ -68,11 +100,16 @@ async function fetchManagedLicenseCert(instanceId: string): Promise<string | nul
       });
       return null;
     }
-    console.info('[license/managed] resolved managed license from control plane', { instanceId });
+    console.info(`${MANAGED_LOG_PREFIX} resolved managed license from control plane`, {
+      instanceId,
+      status: response.status,
+      controlPlaneHost: getControlPlaneHost(),
+    });
     return payload.license;
   } catch (error) {
-    console.warn('[license/managed] failed to resolve managed license', {
+    console.warn(`${MANAGED_LOG_PREFIX} failed to resolve managed license`, {
       instanceId,
+      controlPlaneHost: getControlPlaneHost(),
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
@@ -85,10 +122,15 @@ async function getManagedLicenseStatus(instanceId: string): Promise<LicenseStatu
   if (!cert) return null;
   const payload = await verifyLicenseJwt(cert, instanceId);
   if (!payload) {
-    console.warn('[license/managed] managed license certificate is invalid for this instance', { instanceId });
+    console.warn(`${MANAGED_LOG_PREFIX} managed license certificate is invalid for this instance`, certLogContext(cert, instanceId));
     return null;
   }
   await saveLicenseCert(cert, payload);
+  console.info(`${MANAGED_LOG_PREFIX} managed license verified and stored`, {
+    instanceId,
+    plan: payload.plan,
+    expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+  });
   return statusFromPayload(payload, instanceId, 'managed');
 }
 
@@ -100,20 +142,51 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
     const payload = await verifyLicenseJwt(envCert, instanceId);
     if (payload) {
       await saveLicenseCert(envCert, payload);
+      console.info(`${LOG_PREFIX} resolved from env certificate`, {
+        instanceId,
+        plan: payload.plan,
+        expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+        managedConfigured: isManagedLicenseAvailable(),
+      });
       return statusFromPayload(payload, instanceId, 'env');
     }
+    console.warn(`${LOG_PREFIX} env certificate did not verify`, {
+      ...certLogContext(envCert, instanceId),
+      managedConfigured: isManagedLicenseAvailable(),
+    });
   }
 
   const stored = await loadStoredLicenseCert(instanceId);
   if (stored) {
     const payload = await verifyLicenseJwt(stored, instanceId);
-    if (payload) return statusFromPayload(payload, instanceId, 'stored');
+    if (payload) {
+      console.info(`${LOG_PREFIX} resolved from stored certificate`, {
+        instanceId,
+        plan: payload.plan,
+        expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+        managedConfigured: isManagedLicenseAvailable(),
+      });
+      return statusFromPayload(payload, instanceId, 'stored');
+    }
+    console.warn(`${LOG_PREFIX} stored certificate did not verify`, {
+      ...certLogContext(stored, instanceId),
+      managedConfigured: isManagedLicenseAvailable(),
+    });
   }
 
   const managedStatus = await getManagedLicenseStatus(instanceId);
   if (managedStatus) return managedStatus;
 
   const error = expiredLicenseError(envCert || stored, instanceId) || await publicKeyUnavailableError();
+
+  console.warn(`${LOG_PREFIX} unresolved license status`, {
+    instanceId,
+    error,
+    managedConfigured: isManagedLicenseAvailable(),
+    hasEnvCert: Boolean(envCert),
+    hasStoredCert: Boolean(stored),
+    controlPlaneHost: getControlPlaneHost(),
+  });
 
   return {
     plan: 'unregistered',
