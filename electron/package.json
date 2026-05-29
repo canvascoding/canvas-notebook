@@ -1,6 +1,6 @@
 {
   "name": "canvas-notebook-desktop",
-  "version": "2026.5.28",
+  "version": "2026.5.29",
   "private": true,
   "description": "Desktop shell for Canvas Notebook",
   "author": "Canvas Studios",
@@ -10,7 +10,7 @@
     "appId": "io.canvasstudios.notebook",
     "productName": "Canvas Notebook",
     "electronVersion": "42.3.0",
-    "buildVersion": "2026.5.28.6",
+    "buildVersion": "2026.5.29.1",
     "icon": "assets/icon",
     "artifactName": "${productName}-${buildVersion}-${os}-${arch}.${ext}",
     "directories": {
