@@ -973,6 +973,10 @@
     "envCard": {
       "fileLocatedAt": "File is located at",
       "loadingConfig": "Loading configuration...",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "configuredSummary": "{count, plural, =0 {No values set} one {# value set} other {# values set}}",
+      "errorSummary": "Load error",
       "fileLabel": "File",
       "formatLabel": "Format",
       "permissionsLabel": "Permissions",

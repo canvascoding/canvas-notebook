@@ -972,6 +972,10 @@
     "envCard": {
       "fileLocatedAt": "Datei liegt unter",
       "loadingConfig": "Lade Konfiguration...",
+      "expand": "Aufklappen",
+      "collapse": "Einklappen",
+      "configuredSummary": "{count, plural, =0 {Keine Werte gesetzt} one {# Wert gesetzt} other {# Werte gesetzt}}",
+      "errorSummary": "Fehler beim Laden",
       "fileLabel": "Datei",
       "formatLabel": "Format",
       "permissionsLabel": "Berechtigung",

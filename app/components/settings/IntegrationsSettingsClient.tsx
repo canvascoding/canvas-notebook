@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ArrowLeft, ExternalLink, Eye, EyeOff, Loader2, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
 
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
@@ -17,6 +17,7 @@ import { CodeEditor } from '@/app/components/editor/CodeEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -186,8 +187,10 @@ type ScopeCardConfig = {
 
 const SETTINGS_TABS = ['general', 'integrations', 'agent-settings', 'workspace', 'usage', 'skills', 'channels', 'license'] as const;
 const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
+const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
+type EnvCardOpenState = Record<EnvScope, boolean>;
 
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
@@ -199,6 +202,21 @@ function getInitialSettingsTab(requestedTab: string | null): SettingsTab {
 
   const storedTab = window.localStorage.getItem(SETTINGS_TAB_STORAGE_KEY);
   return isSettingsTab(storedTab) ? storedTab : 'general';
+}
+
+function getInitialEnvCardOpenState(): EnvCardOpenState {
+  const fallback: EnvCardOpenState = { integrations: false, agents: false };
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    const storedState = JSON.parse(window.localStorage.getItem(ENV_CARD_OPEN_STORAGE_KEY) || '{}') as Partial<EnvCardOpenState>;
+    return {
+      integrations: typeof storedState.integrations === 'boolean' ? storedState.integrations : fallback.integrations,
+      agents: typeof storedState.agents === 'boolean' ? storedState.agents : fallback.agents,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
@@ -290,6 +308,10 @@ function toDraftEntries(scope: EnvScope, entries: EnvEntry[]): DraftEntry[] {
 
 function buildHiddenState(entries: DraftEntry[]): Record<string, boolean> {
   return Object.fromEntries(entries.map((entry) => [entry.id, false])) as Record<string, boolean>;
+}
+
+function countConfiguredEntries(entries: DraftEntry[]): number {
+  return entries.filter((entry) => entry.key.trim().length > 0 && (entry.value.length > 0 || entry.encrypted)).length;
 }
 
 function createMcpPairDraft(entry?: Partial<McpPairDraft>): McpPairDraft {
@@ -445,6 +467,8 @@ function deleteMcpConfigRawServer(rawContent: string, serverName: string): strin
 function EnvEditorCard(props: {
   card: ScopeCardConfig;
   editor: ScopeEditorState;
+  isOpen: boolean;
+  onOpenChange: (scope: EnvScope, isOpen: boolean) => void;
   onActiveTabChange: (scope: EnvScope, value: 'kv' | 'raw') => void;
   onLoad: (scope: EnvScope) => Promise<void>;
   onAddEntry: (scope: EnvScope) => void;
@@ -459,9 +483,11 @@ function EnvEditorCard(props: {
   const {
     card,
     editor,
+    isOpen,
     onActiveTabChange,
     onAddEntry,
     onLoad,
+    onOpenChange,
     onRawChange,
     onRemoveEntry,
     onSaveKeyValue,
@@ -469,147 +495,187 @@ function EnvEditorCard(props: {
     onToggleSecret,
     onUpdateEntry,
   } = props;
+  const configuredCount = countConfiguredEntries(editor.draftEntries);
 
   return (
-    <Card id={card.scope === 'integrations' ? 'onboarding-settings-env-integrations' : 'onboarding-settings-env-agents'}>
-      <CardHeader className="px-4 sm:px-6">
-        <CardTitle>{t(`scopes.${card.scope}.title`)}</CardTitle>
-        <CardDescription>
-          {t(`scopes.${card.scope}.description`)} {t('envCard.fileLocatedAt')}{' '}
-          <span className="break-all font-mono">{editor.state?.path || card.emptyPath}</span>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
-        {editor.isLoading ? (
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t('envCard.loadingConfig')}
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>{t('envCard.fileLabel')}: {card.keyHint}</span>
-              <span>•</span>
-              <span>{t('envCard.formatLabel')}: .env</span>
-              <span>•</span>
-              <span>{t('envCard.permissionsLabel')}: 0600</span>
-              <span>•</span>
-              <span>{editor.state?.encryptionEnabled ? t('envCard.encryptionActive') : t('envCard.encryptionInactive')}</span>
-            </div>
-
-            {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
-            {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
-
-            <Tabs
-              value={editor.activeTab}
-              onValueChange={(value) => onActiveTabChange(card.scope, value as 'kv' | 'raw')}
+    <Collapsible open={isOpen} onOpenChange={(nextOpen) => onOpenChange(card.scope, nextOpen)}>
+      <Card id={card.scope === 'integrations' ? 'onboarding-settings-env-integrations' : 'onboarding-settings-env-agents'} className="gap-0 py-0">
+        <CardHeader className="p-0">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full flex-col gap-3 rounded-lg px-4 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:px-6"
+              aria-label={isOpen ? t('envCard.collapse') : t('envCard.expand')}
             >
-              <TabsList className="grid h-auto w-full grid-cols-2">
-                <TabsTrigger value="kv">{t('envCard.tabKeyValue')}</TabsTrigger>
-                <TabsTrigger value="raw">{t('envCard.tabRaw')}</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="kv" className="space-y-3">
-                <div className="hidden grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] gap-3 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase md:grid">
-                  <span>{t('envCard.columnKey')}</span>
-                  <span>{t('envCard.columnValue')}</span>
-                  <span className="text-right">{t('envCard.columnAction')}</span>
+              <div className="flex w-full items-start justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <CardTitle>{t(`scopes.${card.scope}.title`)}</CardTitle>
+                  <CardDescription>
+                    {t(`scopes.${card.scope}.description`)} {t('envCard.fileLocatedAt')}{' '}
+                    <span className="break-all font-mono">{editor.state?.path || card.emptyPath}</span>.
+                  </CardDescription>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <span className="hidden sm:inline">{isOpen ? t('envCard.collapse') : t('envCard.expand')}</span>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="rounded-md bg-muted px-2 py-1">{t('envCard.configuredSummary', { count: configuredCount })}</span>
+                <span className="rounded-md bg-muted px-2 py-1">{t('envCard.fileLabel')}: {card.keyHint}</span>
+                {editor.isLoading ? (
+                  <span className="inline-flex items-center rounded-md bg-muted px-2 py-1">
+                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                    {t('envCard.loadingConfig')}
+                  </span>
+                ) : (
+                  <span className="rounded-md bg-muted px-2 py-1">
+                    {editor.state?.encryptionEnabled ? t('envCard.encryptionActive') : t('envCard.encryptionInactive')}
+                  </span>
+                )}
+                {editor.error && (
+                  <span className="rounded-md bg-destructive/10 px-2 py-1 text-destructive">
+                    {t('envCard.errorSummary')}
+                  </span>
+                )}
+              </div>
+            </button>
+          </CollapsibleTrigger>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className="space-y-4 px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+            {editor.isLoading ? (
+              <div className="flex items-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t('envCard.loadingConfig')}
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>{t('envCard.fileLabel')}: {card.keyHint}</span>
+                  <span>•</span>
+                  <span>{t('envCard.formatLabel')}: .env</span>
+                  <span>•</span>
+                  <span>{t('envCard.permissionsLabel')}: 0600</span>
+                  <span>•</span>
+                  <span>{editor.state?.encryptionEnabled ? t('envCard.encryptionActive') : t('envCard.encryptionInactive')}</span>
                 </div>
 
-                <div className="space-y-3">
-                  {editor.draftEntries.map((entry, index) => {
-                    const secret = isSecretKey(entry.key);
-                    const visible = Boolean(editor.secretVisibilityById[entry.id]);
+                {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
+                {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
 
-                    return (
-                      <div
-                        key={entry.id}
-                        className="grid gap-2 md:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] md:items-center"
-                      >
-                        <Input
-                          placeholder={t('envCard.placeholderKeyName')}
-                          value={entry.key}
-                          onChange={(event) => onUpdateEntry(card.scope, index, { key: event.target.value })}
-                          disabled={editor.isSaving}
-                        />
-                        <div className="relative min-w-0">
-                          <Input
-                            type={secret && !visible ? 'password' : 'text'}
-                            placeholder={entry.encrypted ? t('envCard.placeholderEncryptedValue') : t('envCard.placeholderValue')}
-                            value={entry.value}
-                            onChange={(event) => onUpdateEntry(card.scope, index, { value: event.target.value })}
-                            disabled={editor.isSaving}
-                            className={secret ? 'pr-11' : undefined}
-                          />
-                          {secret && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="absolute right-1 top-1/2 -translate-y-1/2"
-                              aria-label={visible ? t('envCard.hideSecret') : t('envCard.showSecret')}
-                              onClick={() => onToggleSecret(card.scope, entry.id)}
+                <Tabs
+                  value={editor.activeTab}
+                  onValueChange={(value) => onActiveTabChange(card.scope, value as 'kv' | 'raw')}
+                >
+                  <TabsList className="grid h-auto w-full grid-cols-2">
+                    <TabsTrigger value="kv">{t('envCard.tabKeyValue')}</TabsTrigger>
+                    <TabsTrigger value="raw">{t('envCard.tabRaw')}</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="kv" className="space-y-3">
+                    <div className="hidden grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] gap-3 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase md:grid">
+                      <span>{t('envCard.columnKey')}</span>
+                      <span>{t('envCard.columnValue')}</span>
+                      <span className="text-right">{t('envCard.columnAction')}</span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {editor.draftEntries.map((entry, index) => {
+                        const secret = isSecretKey(entry.key);
+                        const visible = Boolean(editor.secretVisibilityById[entry.id]);
+
+                        return (
+                          <div
+                            key={entry.id}
+                            className="grid gap-2 md:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] md:items-center"
+                          >
+                            <Input
+                              placeholder={t('envCard.placeholderKeyName')}
+                              value={entry.key}
+                              onChange={(event) => onUpdateEntry(card.scope, index, { key: event.target.value })}
                               disabled={editor.isSaving}
+                            />
+                            <div className="relative min-w-0">
+                              <Input
+                                type={secret && !visible ? 'password' : 'text'}
+                                placeholder={entry.encrypted ? t('envCard.placeholderEncryptedValue') : t('envCard.placeholderValue')}
+                                value={entry.value}
+                                onChange={(event) => onUpdateEntry(card.scope, index, { value: event.target.value })}
+                                disabled={editor.isSaving}
+                                className={secret ? 'pr-11' : undefined}
+                              />
+                              {secret && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                                  aria-label={visible ? t('envCard.hideSecret') : t('envCard.showSecret')}
+                                  onClick={() => onToggleSecret(card.scope, entry.id)}
+                                  disabled={editor.isSaving}
+                                >
+                                  {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </Button>
+                              )}
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label={t('envCard.deleteRow')}
+                              onClick={() => onRemoveEntry(card.scope, index)}
+                              disabled={editor.isSaving}
+                              className="justify-self-start md:justify-self-end"
                             >
-                              {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              <Trash2 className="h-4 w-4" />
                             </Button>
-                          )}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="icon-sm"
-                          aria-label={t('envCard.deleteRow')}
-                          onClick={() => onRemoveEntry(card.scope, index)}
-                          disabled={editor.isSaving}
-                          className="justify-self-start md:justify-self-end"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
+                          </div>
+                        );
+                      })}
+                    </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" onClick={() => onAddEntry(card.scope)} disabled={editor.isSaving}>
-                    <Plus className="mr-1 h-4 w-4" />
-                    {t('envCard.addRow')}
-                  </Button>
-                  <Button type="button" onClick={() => void onSaveKeyValue(card.scope)} disabled={editor.isSaving || editor.isLoading}>
-                    {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {t('envCard.save')}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => void onLoad(card.scope)} disabled={editor.isSaving}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    {t('envCard.reload')}
-                  </Button>
-                </div>
-              </TabsContent>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" variant="outline" onClick={() => onAddEntry(card.scope)} disabled={editor.isSaving}>
+                        <Plus className="mr-1 h-4 w-4" />
+                        {t('envCard.addRow')}
+                      </Button>
+                      <Button type="button" onClick={() => void onSaveKeyValue(card.scope)} disabled={editor.isSaving || editor.isLoading}>
+                        {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {t('envCard.save')}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => void onLoad(card.scope)} disabled={editor.isSaving}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        {t('envCard.reload')}
+                      </Button>
+                    </div>
+                  </TabsContent>
 
-              <TabsContent value="raw" className="space-y-2">
-                <textarea
-                  className="min-h-[360px] w-full rounded-md border border-input bg-background p-3 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                  value={editor.rawContent}
-                  onChange={(event) => onRawChange(card.scope, event.target.value)}
-                  spellCheck={false}
-                  disabled={editor.isSaving}
-                />
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" onClick={() => void onSaveRaw(card.scope)} disabled={editor.isSaving || editor.isLoading}>
-                    {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {t('envCard.saveRaw')}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => void onLoad(card.scope)} disabled={editor.isSaving}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    {t('envCard.reload')}
-                  </Button>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </>
-        )}
-      </CardContent>
-    </Card>
+                  <TabsContent value="raw" className="space-y-2">
+                    <textarea
+                      className="min-h-[360px] w-full rounded-md border border-input bg-background p-3 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      value={editor.rawContent}
+                      onChange={(event) => onRawChange(card.scope, event.target.value)}
+                      spellCheck={false}
+                      disabled={editor.isSaving}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" onClick={() => void onSaveRaw(card.scope)} disabled={editor.isSaving || editor.isLoading}>
+                        {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {t('envCard.saveRaw')}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => void onLoad(card.scope)} disabled={editor.isSaving}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        {t('envCard.reload')}
+                      </Button>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </>
+            )}
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
 
@@ -1576,6 +1642,7 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
     agents: INITIAL_SCOPE_STATE('agents'),
   });
   const [mcpEditor, setMcpEditor] = useState<McpEditorState>(INITIAL_MCP_STATE);
+  const [envCardOpenByScope, setEnvCardOpenByScope] = useState<EnvCardOpenState>(getInitialEnvCardOpenState);
 
   const loadState = useCallback(async (scope: EnvScope) => {
     setEditors((current) => ({
@@ -1999,6 +2066,17 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
     }));
   };
 
+  const setEnvCardOpen = (scope: EnvScope, isOpen: boolean) => {
+    setEnvCardOpenByScope((current) => {
+      const nextState = {
+        ...current,
+        [scope]: isOpen,
+      };
+      window.localStorage.setItem(ENV_CARD_OPEN_STORAGE_KEY, JSON.stringify(nextState));
+      return nextState;
+    });
+  };
+
   const updateDraftEntry = (scope: EnvScope, index: number, patch: Partial<DraftEntry>) => {
     setEditors((current) => ({
       ...current,
@@ -2161,6 +2239,8 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
               key={card.scope}
               card={card}
               editor={editors[card.scope]}
+              isOpen={envCardOpenByScope[card.scope]}
+              onOpenChange={setEnvCardOpen}
               onActiveTabChange={setActiveTab}
               onLoad={loadState}
               onAddEntry={addDraftEntry}
