@@ -1616,7 +1616,17 @@ function EmailAccountsCard() {
   );
 }
 
-export function IntegrationsSettingsClient({ isAdmin = false, userName = '', userEmail = '' }: { isAdmin?: boolean; userName?: string; userEmail?: string }) {
+export function IntegrationsSettingsClient({
+  isAdmin = false,
+  userName = '',
+  userEmail = '',
+  isManagedControlPlane = false,
+}: {
+  isAdmin?: boolean;
+  userName?: string;
+  userEmail?: string;
+  isManagedControlPlane?: boolean;
+}) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
 
@@ -2218,7 +2228,11 @@ export function IntegrationsSettingsClient({ isAdmin = false, userName = '', use
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
-          <GeneralSettingsPanel userName={userName} userEmail={userEmail} />
+          <GeneralSettingsPanel
+            userName={userName}
+            userEmail={userEmail}
+            isManagedControlPlane={isManagedControlPlane}
+          />
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-4" id="onboarding-settings-integrations">
