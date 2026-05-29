@@ -1,6 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useRef, startTransition } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  startTransition,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronDown, Loader2, Pause, Play, Plus, Search, Trash2, X } from 'lucide-react';
 
@@ -133,6 +142,7 @@ export function ToolkitToolsDialog({
   const [triggerConfigText, setTriggerConfigText] = useState('{}');
   const [targetOutputPath, setTargetOutputPath] = useState('');
   const [webhookSubStatus, setWebhookSubStatus] = useState<{ configured: boolean; webhookUrl?: string; expectedUrl?: string; urlMismatch?: boolean; mode?: string } | null>(null);
+  const backdropPointerDownRef = useRef(false);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -385,8 +395,23 @@ export function ToolkitToolsDialog({
     }
   };
 
+  const handleBackdropPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    backdropPointerDownRef.current = event.target === event.currentTarget;
+  }, []);
+
+  const handleBackdropClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (backdropPointerDownRef.current && event.target === event.currentTarget) {
+      onClose();
+    }
+    backdropPointerDownRef.current = false;
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50"
+      onPointerDown={handleBackdropPointerDown}
+      onClick={handleBackdropClick}
+    >
       <div
         className="relative w-full rounded-t-lg border border-border bg-background shadow-lg sm:mx-4 sm:max-w-2xl sm:rounded-lg max-h-[90vh] sm:max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
