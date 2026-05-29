@@ -75,7 +75,15 @@ function LoginForm() {
       </div>
       <div className="w-full max-w-md border border-border bg-card p-8 shadow-sm">
         <div className="flex items-center justify-center mb-8">
-          <Image src="/logo.jpg" alt={t('logoAlt')} width={48} height={48} className="mr-3 border border-border" />
+          <Image
+            src="/logo-login.webp"
+            alt={t('logoAlt')}
+            width={40}
+            height={40}
+            sizes="40px"
+            unoptimized
+            className="mr-3 h-10 w-10 border border-border"
+          />
           <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
         </div>
 
