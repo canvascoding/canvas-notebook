@@ -45,7 +45,13 @@ async function main() {
   };
 
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
-  const { DEFAULT_MANAGED_AGENT_ID, isWritableManagedAgentFileName, readManagedAgentFile, writePiRuntimeConfig } = await import('../app/lib/agents/storage');
+  const {
+    DEFAULT_MANAGED_AGENT_ID,
+    PI_RUNTIME_CONFIG_PATH,
+    isWritableManagedAgentFileName,
+    readManagedAgentFile,
+    writePiRuntimeConfig,
+  } = await import('../app/lib/agents/storage');
   const { createAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
   const { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
 
@@ -132,6 +138,42 @@ async function main() {
   assert.equal(clearedConfig.model.id, 'gemini-1.5-pro');
   assert.deepEqual(clearedConfig.enabledTools, ['read', 'ls']);
   assert.deepEqual(clearedConfig.overrideState, { model: false, tools: false });
+
+  await fs.rm(PI_RUNTIME_CONFIG_PATH, { force: true });
+  process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
+  process.env.CANVAS_CONTROL_PLANE_URL = 'https://control-plane.example.test';
+  process.env.CANVAS_INSTANCE_TOKEN = 'instance-token';
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    models: [
+      {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        provider: 'openrouter',
+        reasoning: true,
+      },
+    ],
+  }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+
+  try {
+    const managedSettings = await resolveAgentRuntimeSettings(DEFAULT_MANAGED_AGENT_ID);
+    assert.equal(managedSettings.activeProvider, 'canvas-control-plane');
+    assert.equal(managedSettings.providerConfig.model, 'deepseek-v4-flash');
+    assert.equal(managedSettings.setupState.modelConfigured, true);
+
+    const managedConfig = await resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID);
+    assert.equal(managedConfig.activeProvider, 'canvas-control-plane');
+    assert.equal(managedConfig.model.id, 'deepseek-v4-flash');
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.CANVAS_MANAGED_SERVICES_ENABLED;
+    delete process.env.CANVAS_CONTROL_PLANE_URL;
+    delete process.env.CANVAS_INSTANCE_TOKEN;
+  }
 
   moduleInternals._load = originalLoad;
   console.log('agent-runtime-config-test: ok');
