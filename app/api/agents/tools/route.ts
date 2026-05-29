@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
+import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getPiToolMetadata } from '@/app/lib/pi/tool-registry';
 
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   try {
     const [tools, effectiveConfig] = await Promise.all([
       getPiToolMetadata(),
-      resolveAgentRuntimeConfig(request.nextUrl.searchParams.get('agentId')),
+      resolveAgentRuntimeSettings(request.nextUrl.searchParams.get('agentId')),
     ]);
     return NextResponse.json({
       success: true,

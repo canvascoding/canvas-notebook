@@ -47,7 +47,16 @@ async function main() {
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
   const { DEFAULT_MANAGED_AGENT_ID, isWritableManagedAgentFileName, readManagedAgentFile, writePiRuntimeConfig } = await import('../app/lib/agents/storage');
   const { createAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
-  const { resolveAgentRuntimeConfig } = await import('../app/lib/agents/effective-runtime-config');
+  const { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
+
+  const unconfiguredSettings = await resolveAgentRuntimeSettings(DEFAULT_MANAGED_AGENT_ID);
+  assert.equal(unconfiguredSettings.activeProvider, DEFAULT_PI_CONFIG.activeProvider);
+  assert.equal(unconfiguredSettings.providerConfig.model, '');
+  assert.equal(unconfiguredSettings.setupState.modelConfigured, false);
+  await assert.rejects(
+    () => resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID),
+    /No model selected/,
+  );
 
   await writePiRuntimeConfig({
     ...DEFAULT_PI_CONFIG,

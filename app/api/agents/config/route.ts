@@ -9,7 +9,7 @@ import {
   readPiRuntimeConfig,
   writePiRuntimeConfig,
 } from '@/app/lib/agents/storage';
-import { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
+import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { normalizeManagedAgentId, updateAgentProfile } from '@/app/lib/agents/registry';
 import {
   CANVAS_CONTROL_PLANE_PROVIDER_ID,
@@ -23,6 +23,7 @@ import {
 } from '@/app/lib/pi/model-resolver';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import type { PiRuntimeConfig, PiThinkingLevel } from '@/app/lib/pi/config';
+import type { EffectiveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 
 type PatchConfigPayload = {
   agentId?: unknown;
@@ -84,6 +85,43 @@ async function requireSession(request: NextRequest) {
   };
 }
 
+async function buildAgentConfigResponseData(
+  effective: EffectiveAgentRuntimeSettings,
+  options: {
+    piConfig?: PiRuntimeConfig;
+    model?: string | null;
+    modelResolutionError?: string | null;
+  } = {},
+) {
+  const readiness = await buildAgentConfigReadiness();
+  const engine = getActiveAiAgentEngine();
+  const model = options.model !== undefined
+    ? options.model
+    : effective.providerConfig.model?.trim() || null;
+
+  return {
+    piConfig: options.piConfig ?? effective.piConfig,
+    effectiveConfig: {
+      agentId: effective.agentId,
+      isMainAgent: effective.isMainAgent,
+      activeProvider: effective.activeProvider,
+      model,
+      thinkingLevel: effective.thinkingLevel,
+      enabledTools: effective.enabledTools,
+      modelResolutionError: options.modelResolutionError ?? null,
+      setupState: effective.setupState,
+    },
+    inheritedFromMain: !effective.isMainAgent,
+    overrideState: effective.overrideState,
+    engine,
+    readiness,
+    setupState: effective.setupState,
+    managed: {
+      canvasControlPlaneAvailable: effective.setupState.managedControlPlaneAvailable,
+    },
+  };
+}
+
 export async function GET(request: NextRequest) {
   const { session, response } = await requireSession(request);
   if (response || !session) {
@@ -102,17 +140,17 @@ export async function GET(request: NextRequest) {
   try {
     const agentId = request.nextUrl.searchParams.get('agentId');
     const effective = await resolveAgentRuntimeSettings(agentId);
-    let resolvedModel = effective.providerConfig.model;
+    let resolvedModel: string | null = effective.providerConfig.model?.trim() || null;
     let modelResolutionError: string | null = null;
-    try {
-      resolvedModel = (await resolvePiModel(effective.activeProvider, effective.providerConfig.model)).id;
-    } catch (error) {
-      modelResolutionError = error instanceof Error ? error.message : 'Failed to resolve configured model.';
-      console.warn(`[agents/config] GET: ${modelResolutionError}`);
+    if (resolvedModel) {
+      try {
+        resolvedModel = (await resolvePiModel(effective.activeProvider, resolvedModel)).id;
+      } catch (error) {
+        modelResolutionError = error instanceof Error ? error.message : 'Failed to resolve configured model.';
+        console.warn(`[agents/config] GET: ${modelResolutionError}`);
+      }
     }
     const piConfig = effective.piConfig;
-    const readiness = await buildAgentConfigReadiness();
-    const engine = getActiveAiAgentEngine();
 
     // Discovery metadata - all models now support files/images
     const providers = getPiProviders();
@@ -137,24 +175,15 @@ export async function GET(request: NextRequest) {
       })
     );
     const discovery = Object.fromEntries(discoveryEntries);
+    const data = await buildAgentConfigResponseData(effective, {
+      model: resolvedModel,
+      modelResolutionError,
+    });
 
     return NextResponse.json({
       success: true,
       data: {
-        piConfig,
-        effectiveConfig: {
-          agentId: effective.agentId,
-          isMainAgent: effective.isMainAgent,
-          activeProvider: effective.activeProvider,
-          model: resolvedModel,
-          thinkingLevel: effective.thinkingLevel,
-          enabledTools: effective.enabledTools,
-          modelResolutionError,
-        },
-        inheritedFromMain: !effective.isMainAgent,
-        overrideState: effective.overrideState,
-        engine,
-        readiness,
+        ...data,
         discovery,
       },
     });
@@ -213,27 +242,11 @@ export async function PATCH(request: NextRequest) {
         defaultModel: model || providerConfig.model,
         defaultThinking: thinkingLevel || providerConfig.thinking || 'off',
       });
-      const effective = await resolveAgentRuntimeConfig(agentId);
-      const readiness = await buildAgentConfigReadiness();
-      const engine = getActiveAiAgentEngine();
+      const effective = await resolveAgentRuntimeSettings(agentId);
 
       return NextResponse.json({
         success: true,
-        data: {
-          piConfig: effective.piConfig,
-          effectiveConfig: {
-            agentId: effective.agentId,
-            isMainAgent: effective.isMainAgent,
-            activeProvider: effective.activeProvider,
-            model: effective.model.id,
-            thinkingLevel: effective.thinkingLevel,
-            enabledTools: effective.enabledTools,
-          },
-          inheritedFromMain: true,
-          overrideState: effective.overrideState,
-          engine,
-          readiness,
-        },
+        data: await buildAgentConfigResponseData(effective),
       });
     }
 
@@ -249,16 +262,11 @@ export async function PATCH(request: NextRequest) {
         },
       },
     });
-    const readiness = await buildAgentConfigReadiness();
-    const engine = getActiveAiAgentEngine();
+    const effective = await resolveAgentRuntimeSettings(agentId);
 
     return NextResponse.json({
       success: true,
-      data: {
-        piConfig,
-        engine,
-        readiness,
-      },
+      data: await buildAgentConfigResponseData(effective, { piConfig }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update runtime config.';
@@ -313,41 +321,20 @@ export async function PUT(request: NextRequest) {
         defaultThinking: thinking,
       });
 
-      const effective = await resolveAgentRuntimeConfig(agentId);
-      const readiness = await buildAgentConfigReadiness();
-      const engine = getActiveAiAgentEngine();
+      const effective = await resolveAgentRuntimeSettings(agentId);
 
       return NextResponse.json({
         success: true,
-        data: {
-          piConfig: effective.piConfig,
-          effectiveConfig: {
-            agentId: effective.agentId,
-            isMainAgent: effective.isMainAgent,
-            activeProvider: effective.activeProvider,
-            model: effective.model.id,
-            thinkingLevel: effective.thinkingLevel,
-            enabledTools: effective.enabledTools,
-          },
-          inheritedFromMain: true,
-          overrideState: effective.overrideState,
-          engine,
-          readiness,
-        },
+        data: await buildAgentConfigResponseData(effective),
       });
     }
 
     const piConfig = await writePiRuntimeConfig(piConfigInput);
-    const readiness = await buildAgentConfigReadiness();
-    const engine = getActiveAiAgentEngine();
+    const effective = await resolveAgentRuntimeSettings(agentId);
 
     return NextResponse.json({
       success: true,
-      data: {
-        piConfig,
-        engine,
-        readiness,
-      },
+      data: await buildAgentConfigResponseData(effective, { piConfig }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update runtime config.';

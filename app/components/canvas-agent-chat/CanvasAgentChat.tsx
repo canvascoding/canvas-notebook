@@ -96,7 +96,7 @@ import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
-import { DEFAULT_PI_CONFIG, type PiThinkingLevel } from '@/app/lib/pi/config';
+import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
 interface Attachment {
@@ -219,8 +219,12 @@ type AgentConfig = {
   effectiveConfig?: {
     agentId: string;
     activeProvider: string;
-    model: string;
+    model: string | null;
     thinkingLevel: PiThinkingLevel;
+    setupState?: {
+      modelConfigured: boolean;
+      issues: string[];
+    };
   };
   discovery: Record<string, { models: DiscoveryModel[] }>;
 };
@@ -265,8 +269,8 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
   organize: FolderTree,
 };
 
-const DEFAULT_PROVIDER_ID = DEFAULT_PI_CONFIG.activeProvider;
-const DEFAULT_MODEL_ID = DEFAULT_PI_CONFIG.providers[DEFAULT_PROVIDER_ID]?.model || 'model';
+const DEFAULT_PROVIDER_ID = '';
+const DEFAULT_MODEL_ID = '';
 const DEFAULT_THINKING_LEVEL: PiThinkingLevel = 'off';
 const BOTTOM_LOCK_THRESHOLD_PX = 12;
 const SCROLL_BUTTON_THRESHOLD_PX = 160;
@@ -300,6 +304,17 @@ function resolveAgentModelState(config: AgentConfig | null): AgentModelState | n
     provider,
     model,
     thinkingLevel: config.effectiveConfig?.thinkingLevel || providerConfig?.thinking || DEFAULT_THINKING_LEVEL,
+  };
+}
+
+function resolveAgentProviderState(config: AgentConfig | null): AgentModelState {
+  const provider = config?.effectiveConfig?.activeProvider || config?.piConfig?.activeProvider || DEFAULT_PROVIDER_ID;
+  const providerConfig = provider ? config?.piConfig?.providers?.[provider] : undefined;
+  const modelState = resolveAgentModelState(config);
+  return {
+    provider,
+    model: modelState?.model || '',
+    thinkingLevel: modelState?.thinkingLevel || providerConfig?.thinking || DEFAULT_THINKING_LEVEL,
   };
 }
 
@@ -2502,6 +2517,10 @@ export default function CanvasAgentChat({
       return;
     }
 
+    if (!activeModel.trim()) {
+      throw new Error(t('modelRequiredError'));
+    }
+
     // Close history when sending message (always on mobile, conditionally on desktop)
     if (showHistory && (isMobile || shouldShowHistoryAsOverlay)) {
       setShowHistory(false);
@@ -2571,7 +2590,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, resetInputHistoryNavigation, runtimeStatus?.phase, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, wsRequest]);
+  }, [activeModel, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, resetInputHistoryNavigation, runtimeStatus?.phase, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -2645,16 +2664,12 @@ export default function CanvasAgentChat({
     const isCurrentAgentConfig = agentConfig?.effectiveConfig?.agentId
       ? agentConfig.effectiveConfig.agentId === nextAgentId
       : nextAgentId === selectedAgentId;
-    const modelState = isCurrentAgentConfig ? resolveAgentModelState(agentConfig) : null;
-    if (modelState) {
-      setActiveProvider(modelState.provider);
-      setActiveModel(modelState.model);
-      setActiveThinkingLevel(modelState.thinkingLevel);
-    } else {
-      setActiveProvider(DEFAULT_PROVIDER_ID);
-      setActiveModel(DEFAULT_MODEL_ID);
-      setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
-    }
+    const providerState = isCurrentAgentConfig
+      ? resolveAgentProviderState(agentConfig)
+      : { provider: DEFAULT_PROVIDER_ID, model: DEFAULT_MODEL_ID, thinkingLevel: DEFAULT_THINKING_LEVEL };
+    setActiveProvider(providerState.provider);
+    setActiveModel(providerState.model);
+    setActiveThinkingLevel(providerState.thinkingLevel);
     toolMessageIdsRef.current = {};
   }, [agentConfig, resetInputHistoryNavigation, resetStreamConnection, selectedAgentId, isMobile, shouldShowHistoryAsOverlay]);
 
@@ -3372,13 +3387,11 @@ export default function CanvasAgentChat({
     if (sessionId) {
       return;
     }
-    const modelState = resolveAgentModelState(agentConfig);
-    if (modelState) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setActiveProvider(modelState.provider);
-      setActiveModel(modelState.model);
-      setActiveThinkingLevel(modelState.thinkingLevel);
-    }
+    const providerState = resolveAgentProviderState(agentConfig);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveProvider(providerState.provider);
+    setActiveModel(providerState.model);
+    setActiveThinkingLevel(providerState.thinkingLevel);
   }, [agentConfig, sessionId]);
 
 
@@ -3543,6 +3556,21 @@ export default function CanvasAgentChat({
 
       return {
         ...current,
+        effectiveConfig: current.effectiveConfig
+          ? {
+              ...current.effectiveConfig,
+              activeProvider: next.provider,
+              model: next.model,
+              thinkingLevel: next.thinkingLevel,
+              setupState: current.effectiveConfig.setupState
+                ? {
+                    ...current.effectiveConfig.setupState,
+                    modelConfigured: true,
+                    issues: current.effectiveConfig.setupState.issues.filter((issue) => !issue.toLowerCase().includes('model')),
+                  }
+                : current.effectiveConfig.setupState,
+            }
+          : current.effectiveConfig,
         piConfig: {
           ...current.piConfig,
           activeProvider: next.provider,
@@ -3668,6 +3696,7 @@ export default function CanvasAgentChat({
   const contextProgressPercent = Math.min(100, Math.max(0, runtimeStatus?.contextUsagePercent ?? 0));
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
+  const isModelConfigured = Boolean(activeModel.trim());
   const scrollContentPadding = composerHeight + 24;
   const scrollButtonOffset = composerHeight + 16;
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
@@ -3767,7 +3796,9 @@ export default function CanvasAgentChat({
     : isCompactComposer
       ? t('composerPlaceholderCompact')
       : t('composerPlaceholderDefault');
-  const composerPlaceholderText = isWebSocketUnavailable
+  const composerPlaceholderText = !isModelConfigured
+    ? t('modelRequiredPlaceholder')
+    : isWebSocketUnavailable
     ? t('liveUpdatesUnavailable')
     : composerPlaceholder;
   const composerHint =
@@ -4858,6 +4889,22 @@ export default function CanvasAgentChat({
           </div>
         )}
 
+        {!isModelConfigured && (
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
+            <div className="min-w-0">
+              <div className="font-medium">{t('modelRequiredTitle')}</div>
+              <div className="mt-1 text-[11px] opacity-80">{t('modelRequiredDescription')}</div>
+            </div>
+            <Link
+              href="/settings?tab=agent"
+              className="inline-flex shrink-0 items-center gap-1 border border-amber-500/40 bg-background/60 px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              <Settings className="h-3 w-3" />
+              {t('openAgentSettings')}
+            </Link>
+          </div>
+        )}
+
         {attachments.length > 0 && (
           <div
             className={`mb-2 gap-2 border border-border bg-muted/60 p-2 ${
@@ -4905,7 +4952,7 @@ export default function CanvasAgentChat({
                   type="button"
                   data-testid="chat-queue"
                   onClick={() => void handleQueue()}
-                  disabled={!hasComposerContent || isWebSocketUnavailable}
+                  disabled={!hasComposerContent || isWebSocketUnavailable || !isModelConfigured}
                   className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {t('queueAction')}
@@ -4926,7 +4973,7 @@ export default function CanvasAgentChat({
               type="button"
               data-testid="chat-queue"
               onClick={() => void handleQueue()}
-              disabled={!hasComposerContent || isWebSocketUnavailable}
+              disabled={!hasComposerContent || isWebSocketUnavailable || !isModelConfigured}
               className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('queueAction')}
@@ -5007,7 +5054,7 @@ export default function CanvasAgentChat({
                 ? 'bg-foreground text-background hover:bg-foreground/90'
                 : 'bg-primary text-primary-foreground hover:bg-primary/90',
             )}
-            disabled={isRuntimeBusy ? !runtimeStatus?.canAbort || isWebSocketUnavailable : !hasComposerContent || isWebSocketUnavailable}
+            disabled={isRuntimeBusy ? !runtimeStatus?.canAbort || isWebSocketUnavailable : !hasComposerContent || isWebSocketUnavailable || !isModelConfigured}
             title={isRuntimeBusy ? t('stop') : t('sendAction')}
           >
             {isRuntimeBusy ? (
@@ -5029,7 +5076,7 @@ export default function CanvasAgentChat({
                 activeProvider={activeProvider}
                 thinkingLevel={activeThinkingLevel}
                 agentConfig={agentConfig}
-                disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle')}
+                disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle') || !activeProvider}
                 compact={isCompactView}
                 onModelChange={handleModelChange}
                 onRuntimeInvalidated={invalidateRuntimeAfterModelChange}

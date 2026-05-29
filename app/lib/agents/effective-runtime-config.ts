@@ -4,12 +4,19 @@ import type { Api, Model } from '@mariozechner/pi-ai';
 
 import type { AgentProfile } from './registry';
 import { getAgentProfile, normalizeManagedAgentId } from './registry';
-import { DEFAULT_MANAGED_AGENT_ID, readPiRuntimeConfig } from './storage';
+import { DEFAULT_MANAGED_AGENT_ID, isManagedControlPlaneAvailable, readPiRuntimeConfig } from './storage';
 import type { PiProviderConfig, PiRuntimeConfig, PiThinkingLevel } from '@/app/lib/pi/config';
 
 type AgentOverrideState = {
   model: boolean;
   tools: boolean;
+};
+
+export type AgentRuntimeSetupState = {
+  providerConfigured: boolean;
+  modelConfigured: boolean;
+  managedControlPlaneAvailable: boolean;
+  issues: string[];
 };
 
 export type EffectiveAgentRuntimeConfig = {
@@ -24,6 +31,7 @@ export type EffectiveAgentRuntimeConfig = {
   thinkingLevel: PiThinkingLevel;
   enabledTools: string[];
   overrideState: AgentOverrideState;
+  setupState: AgentRuntimeSetupState;
 };
 
 export type EffectiveAgentRuntimeSettings = Omit<EffectiveAgentRuntimeConfig, 'model'>;
@@ -75,6 +83,26 @@ function resolveEffectiveProviderConfig(
   };
 }
 
+function buildSetupState(activeProvider: string, providerConfig: PiProviderConfig): AgentRuntimeSetupState {
+  const issues: string[] = [];
+  const providerConfigured = Boolean(activeProvider?.trim());
+  const modelConfigured = Boolean(providerConfig.model?.trim());
+
+  if (!providerConfigured) {
+    issues.push('No provider selected.');
+  }
+  if (!modelConfigured) {
+    issues.push(`No model selected for provider "${activeProvider || 'unknown'}".`);
+  }
+
+  return {
+    providerConfigured,
+    modelConfigured,
+    managedControlPlaneAvailable: isManagedControlPlaneAvailable(),
+    issues,
+  };
+}
+
 export async function resolveAgentRuntimeSettings(agentIdInput?: string | null): Promise<EffectiveAgentRuntimeSettings> {
   const agentId = normalizeManagedAgentId(agentIdInput);
   const [mainPiConfig, agent] = await Promise.all([
@@ -87,6 +115,7 @@ export async function resolveAgentRuntimeSettings(agentIdInput?: string | null):
   }
 
   const { activeProvider, providerConfig, overrideState } = resolveEffectiveProviderConfig(mainPiConfig, agent);
+  const setupState = buildSetupState(activeProvider, providerConfig);
   const effectivePiConfig = clonePiConfig(mainPiConfig);
   effectivePiConfig.activeProvider = activeProvider;
   effectivePiConfig.providers = {
@@ -105,12 +134,16 @@ export async function resolveAgentRuntimeSettings(agentIdInput?: string | null):
     thinkingLevel: providerConfig.thinking || 'off',
     enabledTools: providerConfig.enabledTools || [],
     overrideState,
+    setupState,
   };
 }
 
 export async function resolveAgentRuntimeConfig(agentIdInput?: string | null): Promise<EffectiveAgentRuntimeConfig> {
   const settings = await resolveAgentRuntimeSettings(agentIdInput);
   const { resolvePiModel } = await import('@/app/lib/pi/model-resolver');
+  if (!settings.setupState.modelConfigured) {
+    throw new Error(settings.setupState.issues[0] || 'No model selected for this agent.');
+  }
 
   return {
     ...settings,

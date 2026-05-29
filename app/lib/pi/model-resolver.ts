@@ -1,5 +1,5 @@
 import { getModels, getProviders, registerBuiltInApiProviders, type KnownProvider, type Model } from '@mariozechner/pi-ai';
-import { readPiRuntimeConfig } from '../agents/storage';
+import { isManagedControlPlaneAvailable, readPiRuntimeConfig } from '../agents/storage';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 
 // Ensure all built-in providers are registered once
@@ -121,10 +121,7 @@ function isOllamaCloudHost(value: string): boolean {
 }
 
 export function isCanvasControlPlaneManagedAvailable(): boolean {
-  return (
-    process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' ||
-    Boolean(process.env.CANVAS_CONTROL_PLANE_URL?.trim() && process.env.CANVAS_INSTANCE_TOKEN?.trim())
-  );
+  return isManagedControlPlaneAvailable();
 }
 
 function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel | null {
