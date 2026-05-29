@@ -22,7 +22,9 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "identity": null,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": true,
       "target": [
         "dmg",
         "zip"

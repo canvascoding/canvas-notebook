@@ -41,6 +41,79 @@ jobs:
           node-version: 26
           cache: npm
 
+      - name: Prepare macOS signing credentials
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          SIGNING_CSC_LINK: ${{ secrets.CSC_LINK }}
+          SIGNING_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          NOTARY_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+          NOTARY_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          NOTARY_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          NOTARY_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          append_env() {
+            local name="$1"
+            local value="$2"
+            local delimiter="CANVAS_${name}_${RANDOM}_${RANDOM}"
+            {
+              echo "${name}<<${delimiter}"
+              printf '%s\n' "$value"
+              echo "$delimiter"
+            } >> "$GITHUB_ENV"
+          }
+
+          missing=()
+          [[ -n "${SIGNING_CSC_LINK:-}" ]] || missing+=("CSC_LINK")
+          [[ -n "${SIGNING_CSC_KEY_PASSWORD:-}" ]] || missing+=("CSC_KEY_PASSWORD")
+
+          has_api_key=false
+          if [[ -n "${NOTARY_API_KEY_ID:-}" && -n "${NOTARY_API_ISSUER:-}" ]] && { [[ -n "${NOTARY_API_KEY_CONTENT:-}" ]] || [[ -n "${NOTARY_API_KEY_BASE64:-}" ]]; }; then
+            has_api_key=true
+          fi
+
+          has_apple_id=false
+          if [[ -n "${NOTARY_APPLE_ID:-}" && -n "${NOTARY_APP_SPECIFIC_PASSWORD:-}" && -n "${NOTARY_TEAM_ID:-}" ]]; then
+            has_apple_id=true
+          fi
+
+          if [[ "$has_api_key" != "true" && "$has_apple_id" != "true" ]]; then
+            missing+=("APPLE_API_KEY or APPLE_API_KEY_BASE64 with APPLE_API_KEY_ID and APPLE_API_ISSUER, or APPLE_ID with APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID")
+          fi
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing GitHub secret(s) required for macOS Developer ID signing and notarization:\n' >&2
+            printf ' - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
+          append_env "CSC_LINK" "$SIGNING_CSC_LINK"
+          append_env "CSC_KEY_PASSWORD" "$SIGNING_CSC_KEY_PASSWORD"
+
+          if [[ "$has_api_key" == "true" ]]; then
+            key_path="$RUNNER_TEMP/AuthKey_${NOTARY_API_KEY_ID}.p8"
+            if [[ -n "${NOTARY_API_KEY_BASE64:-}" ]]; then
+              printf '%s' "$NOTARY_API_KEY_BASE64" | base64 -D > "$key_path"
+            else
+              printf '%s\n' "$NOTARY_API_KEY_CONTENT" > "$key_path"
+            fi
+            chmod 600 "$key_path"
+            echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
+            append_env "APPLE_API_KEY_ID" "$NOTARY_API_KEY_ID"
+            append_env "APPLE_API_ISSUER" "$NOTARY_API_ISSUER"
+          else
+            append_env "APPLE_ID" "$NOTARY_APPLE_ID"
+            append_env "APPLE_APP_SPECIFIC_PASSWORD" "$NOTARY_APP_SPECIFIC_PASSWORD"
+            append_env "APPLE_TEAM_ID" "$NOTARY_TEAM_ID"
+          fi
+
+          echo "macOS signing credentials are configured."
+
       - name: Install Linux packaging dependencies
         if: matrix.platform == 'linux'
         run: |
@@ -52,6 +125,22 @@ jobs:
 
       - name: Build Electron desktop artifacts
         run: npm run electron:dist
+
+      - name: Verify macOS signing and notarization
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app_path="$(/usr/bin/find dist-electron -type d -name 'Canvas Notebook.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "No packaged macOS app bundle found under dist-electron." >&2
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          xcrun stapler validate "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
 
       - name: Upload desktop artifacts
         uses: actions/upload-artifact@v7
