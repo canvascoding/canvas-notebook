@@ -167,6 +167,7 @@ type McpServerDraft = {
   url: string;
   auth: 'oauth' | 'none';
   bearerTokenEnv: string;
+  bearerTokenValue: string;
   headers: McpPairDraft[];
   headersFromEnv: McpPairDraft[];
 };
@@ -311,6 +312,10 @@ function makeMcpEnvKey(serverName: string, key: string): string {
   return `MCP_${server}_${name}`;
 }
 
+function makeMcpBearerTokenEnvKey(draft: Pick<McpServerDraft, 'bearerTokenEnv' | 'name'>): string {
+  return draft.bearerTokenEnv.trim() || makeMcpEnvKey(draft.name, 'BEARER_TOKEN');
+}
+
 function parseEnvReference(value: string): string | null {
   const match = value.trim().match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/u);
   return match?.[1] || null;
@@ -358,6 +363,7 @@ function toMcpServerDraft(name: string, serverConfig: Record<string, unknown> = 
     url: typeof serverConfig.url === 'string' ? serverConfig.url : '',
     auth: serverConfig.auth === 'oauth' || (serverConfig.oauth && typeof serverConfig.oauth === 'object' && !Array.isArray(serverConfig.oauth)) ? 'oauth' : 'none',
     bearerTokenEnv: typeof serverConfig.bearerTokenEnv === 'string' ? serverConfig.bearerTokenEnv : '',
+    bearerTokenValue: '',
     headers,
     headersFromEnv,
   };
@@ -382,18 +388,26 @@ function pairsToRecord(pairs: McpPairDraft[], options: { envReference?: boolean 
 
 function collectMcpEnvEntries(draft: McpServerDraft): Array<{ key: string; value: string }> {
   const pairs = draft.mode === 'stdio' ? draft.env : draft.headers;
-  return pairs
+  const entries = pairs
     .filter((pair) => pair.storeInEnv && pair.envKey.trim() && pair.value)
     .map((pair) => ({ key: pair.envKey.trim(), value: pair.value }));
+  if (draft.mode === 'http' && draft.bearerTokenValue.trim()) {
+    entries.push({
+      key: makeMcpBearerTokenEnvKey(draft),
+      value: draft.bearerTokenValue.trim(),
+    });
+  }
+  return entries;
 }
 
 function draftToMcpServerConfig(draft: McpServerDraft): Record<string, unknown> {
   if (draft.mode === 'http') {
+    const bearerTokenEnv = draft.bearerTokenEnv.trim() || (draft.bearerTokenValue.trim() ? makeMcpBearerTokenEnvKey(draft) : '');
     return {
       enabled: draft.enabled,
       url: draft.url.trim(),
       auth: draft.auth,
-      ...(draft.bearerTokenEnv.trim() ? { bearerTokenEnv: draft.bearerTokenEnv.trim() } : {}),
+      ...(bearerTokenEnv ? { bearerTokenEnv } : {}),
       ...(pairsToRecord(draft.headers, { envReference: true }) ? { headers: pairsToRecord(draft.headers, { envReference: true }) } : {}),
       ...(pairsToRecord(draft.headersFromEnv) ? { headersFromEnv: pairsToRecord(draft.headersFromEnv) } : {}),
     };
@@ -739,6 +753,8 @@ function McpConfigCard(props: {
     }));
   };
 
+  const bearerTokenEnvKey = makeMcpBearerTokenEnvKey(serverDraft);
+
   const renderPairRows = (field: 'env' | 'headers' | 'headersFromEnv', keyPlaceholder: string, valuePlaceholder: string) => (
     <div className="space-y-2">
       {serverDraft[field].map((entry, index) => (
@@ -1042,7 +1058,18 @@ function McpConfigCard(props: {
                     </div>
                     <div>
                       <Label htmlFor="mcp-bearer">{t('mcpConfig.bearerEnv')}</Label>
-                      <Input id="mcp-bearer" className="mt-2" value={serverDraft.bearerTokenEnv} onChange={(event) => updateServerDraft({ bearerTokenEnv: event.target.value })} placeholder="MCP_BEARER_TOKEN" />
+                      <Input
+                        id="mcp-bearer"
+                        className="mt-2"
+                        value={serverDraft.bearerTokenValue}
+                        onChange={(event) => updateServerDraft({ bearerTokenValue: event.target.value })}
+                        placeholder={serverDraft.bearerTokenEnv ? t('mcpConfig.bearerTokenPlaceholderExisting') : t('mcpConfig.bearerTokenPlaceholder')}
+                        type="password"
+                        autoComplete="off"
+                      />
+                      <p className="mt-2 break-all text-xs text-muted-foreground">
+                        {t('mcpConfig.bearerEnvStoredAs', { key: bearerTokenEnvKey })}
+                      </p>
                     </div>
                     <div>
                       <Label>{t('mcpConfig.headers')}</Label>
