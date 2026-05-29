@@ -1176,12 +1176,17 @@
       "chatDisplay": {
         "title": "Chat-Anzeige",
         "description": "Lege fest, wie viel Hintergrundaktivität im Chat sichtbar ist.",
+        "currentMode": "Aktuell: {mode}",
         "minimal": "Minimal",
         "minimalDescription": "Tool-Aufrufe ausblenden und nur eine ruhige Aktivitätsanzeige zeigen, während der Agent arbeitet.",
         "subtle": "Kompakt",
         "subtleDescription": "Kompakte, lesbare Badges anzeigen. Für Details kann ein Badge angeklickt werden.",
         "verbose": "Detailliert",
         "verboseDescription": "Vollständige Tool-Details mit Input und Output zum Debuggen anzeigen."
+      },
+      "sections": {
+        "expand": "Aufklappen",
+        "collapse": "Einklappen"
       },
       "inheritance": {
         "title": "Spezial-Agent Overrides",
@@ -1202,6 +1207,10 @@
       "doctor": {
         "title": "Doctor",
         "description": "System-Check für Provider und Konnektivität.",
+        "notRunSummary": "Noch nicht geprüft",
+        "runningSummary": "Prüfung läuft",
+        "issueSummary": "{errors, plural, =0 {Keine Fehler} one {# Fehler} other {# Fehler}} · {warnings, plural, =0 {keine Warnungen} one {# Warnung} other {# Warnungen}}",
+        "errorSummary": "Fehler beim Prüfen",
         "run": "Doctor ausführen",
         "statusLabel": "Status:",
         "ready": "Bereit",
@@ -1292,6 +1301,8 @@
       "sessions": {
         "title": "Sessions",
         "description": "Chat-Historie verwalten.",
+        "summary": "{count, plural, =0 {Keine Sessions} one {# Session} other {# Sessions}}",
+        "errorSummary": "Fehler beim Laden",
         "newSessionPlaceholder": "Neue Session (Titel optional)",
         "new": "Neu",
         "deleteAll": "Alle löschen",
