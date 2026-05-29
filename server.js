@@ -406,6 +406,48 @@ const server = http.createServer((req, res) => {
   handle(req, res);
 });
 
+let shutdownInProgress = false;
+
+function exitCodeForSignal(signal) {
+  if (signal === 'SIGINT') return 130;
+  if (signal === 'SIGTERM') return 143;
+  return 0;
+}
+
+function shutdownServer(signal) {
+  if (shutdownInProgress) {
+    return;
+  }
+  shutdownInProgress = true;
+
+  console.log(`[Startup] Received ${signal}; closing HTTP server...`);
+  const forceExitTimer = setTimeout(() => {
+    console.warn(`[Startup] Forced exit after ${signal}; HTTP server did not close in time`);
+    process.exit(exitCodeForSignal(signal));
+  }, 10_000);
+  forceExitTimer.unref?.();
+
+  server.close((error) => {
+    if (error) {
+      console.error(`[Startup] Error while closing HTTP server after ${signal}:`, error);
+      process.exit(1);
+    }
+    console.log(`[Startup] HTTP server closed after ${signal}`);
+    process.exit(exitCodeForSignal(signal));
+  });
+}
+
+process.on('SIGTERM', () => shutdownServer('SIGTERM'));
+process.on('SIGINT', () => shutdownServer('SIGINT'));
+process.on('uncaughtException', (error) => {
+  console.error('[Startup] Uncaught exception:', error);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Startup] Unhandled rejection:', reason);
+  process.exit(1);
+});
+
 // Register the chat WebSocket handler before Next attaches its own upgrade
 // listeners. After app.prepare() we wrap Next's listeners so they never see
 // /ws/chat sockets; otherwise Next can still corrupt or close the upgraded
