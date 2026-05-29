@@ -5,13 +5,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
+import { db } from '@/app/lib/db';
+import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
 import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
 import { classifyMediaReference, loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 import {
   ensureStudioEditsWorkspace,
+  ensureStudioOutputsWorkspace,
   getStudioEditsRoot,
   readEditFile,
+  writeOutputFile,
   writeEditFile,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
@@ -58,6 +62,10 @@ export interface AspectRatioSaveRequest {
   previewPath: string;
   action: AspectRatioSaveAction;
   sourcePath?: string;
+  aspectRatio?: string;
+  mode?: AspectRatioMode;
+  provider?: AspectRatioProvider;
+  model?: string;
   targetDirectory?: string;
   fileName?: string;
   confirmOverwrite?: boolean;
@@ -335,12 +343,94 @@ function joinWorkspacePath(dirPath: string, fileName: string) {
   return `${stripTrailingSlashes(cleanDir)}/${fileName}`;
 }
 
-export async function saveAspectRatioEdit(input: AspectRatioSaveRequest): Promise<{ path: string }> {
+async function keepEditAsStudioOutput(
+  input: AspectRatioSaveRequest,
+  userId: string,
+  editRelativePath: string,
+  buffer: Buffer,
+): Promise<{ path: string; generationId: string; outputId: string }> {
+  await ensureStudioOutputsWorkspace();
+
+  const outputFileName = path.posix.basename(editRelativePath);
+  await writeOutputFile(outputFileName, buffer);
+
+  const metadata = await sharp(buffer, { limitInputPixels: false }).metadata();
+  const now = new Date();
+  const generationId = crypto.randomUUID();
+  const outputId = crypto.randomUUID();
+  const aspectRatio = typeof input.aspectRatio === 'string' && input.aspectRatio.trim()
+    ? input.aspectRatio.trim()
+    : 'freeform';
+  const mode = input.mode === 'ai_extend' ? 'ai_extend' : 'crop';
+  const provider = input.provider || 'aspect-ratio';
+  const model = typeof input.model === 'string' && input.model.trim()
+    ? input.model.trim()
+    : mode;
+  const outputPath = outputFileName;
+
+  await db.insert(studioGenerations).values({
+    id: generationId,
+    userId,
+    mode: 'image',
+    prompt: 'Aspect ratio edit',
+    rawPrompt: input.sourcePath || input.previewPath,
+    studioPresetId: null,
+    aspectRatio,
+    provider,
+    model,
+    bulkJobId: null,
+    sourceGenerationId: null,
+    metadata: JSON.stringify({
+      source: 'studio-aspect-ratio',
+      sourcePath: input.sourcePath || null,
+      previewPath: input.previewPath,
+      editMode: mode,
+      expectedCount: 1,
+    }),
+    status: 'completed',
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await db.insert(studioGenerationOutputs).values({
+    id: outputId,
+    generationId,
+    variationIndex: 0,
+    type: 'image',
+    filePath: outputPath,
+    fileName: outputFileName,
+    mediaUrl: toMediaUrl(outputPath),
+    fileSize: buffer.length,
+    mimeType: input.previewPath.endsWith('.jpg') || input.previewPath.endsWith('.jpeg')
+      ? 'image/jpeg'
+      : input.previewPath.endsWith('.webp')
+        ? 'image/webp'
+        : 'image/png',
+    width: metadata.width ?? null,
+    height: metadata.height ?? null,
+    isFavorite: false,
+    metadata: JSON.stringify({
+      source: 'studio-aspect-ratio',
+      sourcePath: input.sourcePath || null,
+      previewPath: input.previewPath,
+      editMode: mode,
+    }),
+    createdAt: now,
+  });
+
+  return {
+    path: `studio/outputs/${outputPath}`,
+    generationId,
+    outputId,
+  };
+}
+
+export async function saveAspectRatioEdit(input: AspectRatioSaveRequest, userId: string): Promise<{ path: string; generationId?: string; outputId?: string }> {
   const editRelativePath = getEditRelativePath(input.previewPath);
   const buffer = await readEditFile(editRelativePath);
 
   if (input.action === 'keep_edit') {
-    return { path: `studio/edits/${editRelativePath}` };
+    return keepEditAsStudioOutput(input, userId, editRelativePath, buffer);
   }
 
   if (input.action === 'copy_workspace') {

@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await saveAspectRatioEdit(body);
+    const result = await saveAspectRatioEdit(body, session.user.id);
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Save failed';

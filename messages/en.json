@@ -2037,7 +2037,7 @@
       },
       "toasts": {
         "previewSaved": "Preview saved in /data/studio/edits",
-        "keepEdit": "Edit remains in /data/studio/edits",
+        "keepEdit": "Edit saved in /data/studio/outputs",
         "originalOverwritten": "Original overwritten",
         "copiedTo": "Copied to {path}"
       },
