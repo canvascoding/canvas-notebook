@@ -5,10 +5,10 @@ import { useTranslations } from 'next-intl';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 
 export type ToolMetadata = {
   name: string;
@@ -30,6 +30,8 @@ type AgentToolsCardProps = {
   toolsLoading: boolean;
   toolsSaving: boolean;
   toolsError: string | null;
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
   toolSearchQuery: string;
   isToolEnabled: (toolName: string) => boolean;
   onToolSearchQueryChange: (value: string) => void;
@@ -50,6 +52,8 @@ export function AgentToolsCard({
   toolsLoading,
   toolsSaving,
   toolsError,
+  isOpen,
+  onOpenChange,
   toolSearchQuery,
   isToolEnabled,
   onToolSearchQueryChange,
@@ -61,17 +65,25 @@ export function AgentToolsCard({
   onDisableAll,
 }: AgentToolsCardProps) {
   const t = useTranslations('settings');
+  const enabledToolCount = availableTools.filter((tool) => isToolEnabled(tool.name)).length;
+  const summaryItems = [
+    toolsLoading
+      ? t('agentPanel.tools.loading')
+      : t('agentPanel.tools.enabledSummary', { enabled: enabledToolCount, total: availableTools.length }),
+    toolsError ? t('agentPanel.tools.errorSummary') : null,
+  ].filter((item): item is string => Boolean(item));
 
   return (
-    <Card id="onboarding-settings-tools">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Wrench className="h-5 w-5" />
-          {t('agentPanel.tools.title')}
-        </CardTitle>
-        <CardDescription>{t('agentPanel.tools.description')}</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <AgentSettingsAccordionCard
+      id="onboarding-settings-tools"
+      title={t('agentPanel.tools.title')}
+      description={t('agentPanel.tools.description')}
+      icon={Wrench}
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      summaryItems={summaryItems}
+      contentClassName="space-y-0"
+    >
         {toolsLoading ? (
           <div className="flex items-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -207,7 +219,6 @@ export function AgentToolsCard({
           </div>
         )}
         {toolsError && <p className="mt-2 text-sm text-destructive">{toolsError}</p>}
-      </CardContent>
-    </Card>
+    </AgentSettingsAccordionCard>
   );
 }

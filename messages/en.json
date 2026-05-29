@@ -1275,6 +1275,8 @@
         "searchPlaceholder": "Search tools...",
         "allGroups": "All",
         "showingCount": "{shown} of {total} tools",
+        "enabledSummary": "{enabled} of {total} enabled",
+        "errorSummary": "Load error",
         "noMatchingTools": "No tools match your search."
       },
       "files": {
@@ -1336,6 +1338,10 @@
       "cardDescription": "Configuration for the PI-based agent engine.",
       "saveButton": "Save settings",
       "saveSuccess": "Agent configuration saved.",
+      "savedSummary": "Saved",
+      "runtimeSummary": "{provider} · {model}",
+      "errorSummary": "Load error",
+      "notSet": "not set",
       "loadingConfig": "Loading agent configuration...",
       "loadConfigFailed": "Could not load agent configuration.",
       "activeProvider": "Active provider",

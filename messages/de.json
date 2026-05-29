@@ -1274,6 +1274,8 @@
         "searchPlaceholder": "Werkzeuge suchen...",
         "allGroups": "Alle",
         "showingCount": "{shown} von {total} Werkzeugen",
+        "enabledSummary": "{enabled} von {total} aktiv",
+        "errorSummary": "Fehler beim Laden",
         "noMatchingTools": "Keine Werkzeuge entsprechen deiner Suche."
       },
       "files": {
@@ -1335,6 +1337,10 @@
       "cardDescription": "Konfiguration der PI-basierten Agent-Engine.",
       "saveButton": "Einstellungen speichern",
       "saveSuccess": "Agent-Konfiguration gespeichert.",
+      "savedSummary": "Gespeichert",
+      "runtimeSummary": "{provider} · {model}",
+      "errorSummary": "Fehler beim Laden",
+      "notSet": "nicht gesetzt",
       "loadingConfig": "Lade Agent-Konfiguration...",
       "loadConfigFailed": "Agent-Konfiguration konnte nicht geladen werden.",
       "activeProvider": "Aktiver Provider",
