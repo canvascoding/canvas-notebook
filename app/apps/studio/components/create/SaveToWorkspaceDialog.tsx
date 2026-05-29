@@ -75,15 +75,15 @@ export function SaveToWorkspaceDialog({ open, onOpenChange, outputIds, onImporte
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg overflow-hidden">
         <DialogHeader>
           <DialogTitle>In Workspace importieren</DialogTitle>
           <DialogDescription>
             Kopiert {outputIds.length} ausgewählte Datei{outputIds.length === 1 ? '' : 'en'} aus Studio in einen Workspace-Ordner.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-4">
-          <div className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-2">
+        <div className="min-w-0 py-4">
+          <div className="mb-4 min-w-0 overflow-hidden rounded-md border border-border bg-muted/40 px-3 py-2">
             <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Zielordner</p>
             <p className="mt-1 truncate font-mono text-sm">{selectedDir === '.' ? 'Workspace root' : selectedDir}</p>
           </div>

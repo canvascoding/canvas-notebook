@@ -33,10 +33,10 @@ export function DirectoryBrowser({ tree, selectedPath, onSelect, expandedDirs, o
       const isLoading = loadingDirs.has(entry.path);
 
       const row = (
-        <div key={entry.path} className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
+        <div key={entry.path} className="flex min-w-0 items-center" style={{ paddingLeft: `${depth * 12}px` }}>
           <button
             type="button"
-            className="p-1 rounded hover:bg-accent/70"
+            className="shrink-0 rounded p-1 hover:bg-accent/70"
             onClick={() => void handleToggleDir(entry.path, isExpanded)}
           >
             {isLoading ? (
@@ -47,13 +47,13 @@ export function DirectoryBrowser({ tree, selectedPath, onSelect, expandedDirs, o
           </button>
           <button
             type="button"
-            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
+            className={`flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm ${
               isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/70'
             }`}
             onClick={() => onSelect(entry.path)}
           >
-            <Folder className="h-4 w-4 text-muted-foreground" />
-            <span className="truncate">{entry.name}</span>
+            <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">{entry.name}</span>
           </button>
         </div>
       );
@@ -64,20 +64,20 @@ export function DirectoryBrowser({ tree, selectedPath, onSelect, expandedDirs, o
   };
 
   return (
-    <div className="rounded border border-border bg-muted/40 p-2">
+    <div className="min-w-0 overflow-hidden rounded border border-border bg-muted/40 p-2">
       <div className="mb-2 text-xs text-muted-foreground">{t('chooseDestination')}</div>
-      <div className="max-h-56 overflow-auto">
+      <div className="max-h-56 min-w-0 overflow-x-hidden overflow-y-auto">
         <button
           type="button"
-          className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm ${
+          className={`flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-sm ${
             selectedPath === '.'
               ? 'bg-accent text-accent-foreground'
               : 'text-foreground hover:bg-accent/70'
           }`}
           onClick={() => onSelect('.')}
         >
-          <Folder className="h-4 w-4 text-muted-foreground" />
-          <span className="truncate">{t('rootDirectory')}</span>
+          <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 truncate">{t('rootDirectory')}</span>
         </button>
         {renderDirectories(tree)}
       </div>

@@ -393,17 +393,17 @@ function WorkspaceCopyDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg overflow-hidden">
         <DialogHeader>
           <DialogTitle>{t('workspaceDialog.title')}</DialogTitle>
           <DialogDescription>{t('workspaceDialog.description')}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <label className="flex flex-col gap-1 text-sm">
+        <div className="min-w-0 space-y-4 py-2">
+          <label className="flex min-w-0 flex-col gap-1 text-sm">
             <span className="text-xs font-medium text-muted-foreground">{t('workspaceDialog.fileName')}</span>
             <Input value={fileName} onChange={(event) => setFileName(event.target.value)} />
           </label>
-          <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+          <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/40 px-3 py-2">
             <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{t('workspaceDialog.targetFolder')}</p>
             <p className="mt-1 truncate font-mono text-sm">{selectedDir === '.' ? t('workspaceDialog.workspaceRoot') : selectedDir}</p>
           </div>
