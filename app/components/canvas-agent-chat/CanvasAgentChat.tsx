@@ -96,7 +96,7 @@ import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
-import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { DEFAULT_PI_CONFIG, type PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
 interface Attachment {
@@ -216,6 +216,12 @@ type AgentConfig = {
     activeProvider: string;
     providers: Record<string, { model: string; thinking?: PiThinkingLevel }>;
   };
+  effectiveConfig?: {
+    agentId: string;
+    activeProvider: string;
+    model: string;
+    thinkingLevel: PiThinkingLevel;
+  };
   discovery: Record<string, { models: DiscoveryModel[] }>;
 };
 
@@ -259,7 +265,8 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
   organize: FolderTree,
 };
 
-const DEFAULT_MODEL_ID = 'pi';
+const DEFAULT_PROVIDER_ID = DEFAULT_PI_CONFIG.activeProvider;
+const DEFAULT_MODEL_ID = DEFAULT_PI_CONFIG.providers[DEFAULT_PROVIDER_ID]?.model || 'model';
 const DEFAULT_THINKING_LEVEL: PiThinkingLevel = 'off';
 const BOTTOM_LOCK_THRESHOLD_PX = 12;
 const SCROLL_BUTTON_THRESHOLD_PX = 160;
@@ -270,6 +277,31 @@ const DESKTOP_TEXTAREA_MAX_HEIGHT_PX = 256;
 const MOBILE_TEXTAREA_MAX_VIEWPORT_RATIO = 0.3;
 const DESKTOP_TEXTAREA_MAX_VIEWPORT_RATIO = 0.35;
 const TOUCH_SCROLL_UNLOCK_THRESHOLD_PX = 8;
+
+type AgentModelState = {
+  provider: string;
+  model: string;
+  thinkingLevel: PiThinkingLevel;
+};
+
+function resolveAgentModelState(config: AgentConfig | null): AgentModelState | null {
+  if (!config?.piConfig) {
+    return null;
+  }
+
+  const provider = config.effectiveConfig?.activeProvider || config.piConfig.activeProvider;
+  const providerConfig = config.piConfig.providers?.[provider];
+  const model = config.effectiveConfig?.model || providerConfig?.model;
+  if (!provider || !model) {
+    return null;
+  }
+
+  return {
+    provider,
+    model,
+    thinkingLevel: config.effectiveConfig?.thinkingLevel || providerConfig?.thinking || DEFAULT_THINKING_LEVEL,
+  };
+}
 
 const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?: string }>> = {
   command: Terminal,
@@ -1237,7 +1269,7 @@ export default function CanvasAgentChat({
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
-  const [activeProvider, setActiveProvider] = useState('pi');
+  const [activeProvider, setActiveProvider] = useState(DEFAULT_PROVIDER_ID);
   const [activeThinkingLevel, setActiveThinkingLevel] = useState<PiThinkingLevel>(DEFAULT_THINKING_LEVEL);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
   const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
@@ -2610,14 +2642,16 @@ export default function CanvasAgentChat({
     }
     setShowMobileDetails(false);
     setShowMobileActionPanel(false);
-    if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
-      const provider = agentConfig.piConfig.activeProvider;
-      const providerConfig = agentConfig.piConfig.providers[provider];
-      setActiveProvider(provider);
-      setActiveModel(providerConfig?.model || DEFAULT_MODEL_ID);
-      setActiveThinkingLevel(providerConfig?.thinking || DEFAULT_THINKING_LEVEL);
+    const isCurrentAgentConfig = agentConfig?.effectiveConfig?.agentId
+      ? agentConfig.effectiveConfig.agentId === nextAgentId
+      : nextAgentId === selectedAgentId;
+    const modelState = isCurrentAgentConfig ? resolveAgentModelState(agentConfig) : null;
+    if (modelState) {
+      setActiveProvider(modelState.provider);
+      setActiveModel(modelState.model);
+      setActiveThinkingLevel(modelState.thinkingLevel);
     } else {
-      setActiveProvider('pi');
+      setActiveProvider(DEFAULT_PROVIDER_ID);
       setActiveModel(DEFAULT_MODEL_ID);
       setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
     }
@@ -3294,20 +3328,28 @@ export default function CanvasAgentChat({
   }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, navigateInputHistory, referencePickerItems, selectedReferenceIndex, togglePlanningMode]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchConfig = async () => {
       try {
+        setAgentConfig(null);
         const params = new URLSearchParams({ agentId: selectedAgentId });
         const res = await fetch(`/api/agents/config?${params.toString()}`);
         const data = await safeFetchJson<{ success: boolean; data?: AgentConfig }>(res);
-        if (data?.success) {
+        if (!cancelled && data?.success) {
           setAgentConfig(data.data ?? null);
         }
       } catch (err) {
-        console.error('Failed to fetch agent config', err);
+        if (!cancelled) {
+          console.error('Failed to fetch agent config', err);
+        }
       }
     };
 
     void fetchConfig();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedAgentId]);
 
   useEffect(() => {
@@ -3330,16 +3372,12 @@ export default function CanvasAgentChat({
     if (sessionId) {
       return;
     }
-    if (agentConfig?.piConfig?.activeProvider && agentConfig?.piConfig?.providers) {
-      const provider = agentConfig.piConfig.activeProvider;
-      const providerConfig = agentConfig.piConfig.providers[provider];
-      const model = providerConfig?.model;
-      if (model) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setActiveProvider(provider);
-        setActiveModel(model);
-        setActiveThinkingLevel(providerConfig?.thinking || DEFAULT_THINKING_LEVEL);
-      }
+    const modelState = resolveAgentModelState(agentConfig);
+    if (modelState) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveProvider(modelState.provider);
+      setActiveModel(modelState.model);
+      setActiveThinkingLevel(modelState.thinkingLevel);
     }
   }, [agentConfig, sessionId]);
 
