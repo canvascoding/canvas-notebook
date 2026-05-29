@@ -570,6 +570,7 @@
     "modelRequiredDescription": "This agent has no model configured yet. Open Agent Settings and choose one first.",
     "modelRequiredError": "No model is configured for this agent. Open Agent Settings and select a model first.",
     "modelRequiredPlaceholder": "Select a model in Agent Settings before sending a message.",
+    "modelLoadingPlaceholder": "Loading model configuration...",
     "searchSessions": "Search sessions...",
     "filterUnreadOnly": "Unread only",
     "filterAllSessions": "All sessions",

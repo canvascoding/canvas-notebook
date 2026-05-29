@@ -288,6 +288,14 @@ type AgentModelState = {
   thinkingLevel: PiThinkingLevel;
 };
 
+type InitialPromptPayload = {
+  prompt: string;
+  attachments: Attachment[];
+  agentId: string | null;
+};
+
+const MANAGED_AGENT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
 function resolveAgentModelState(config: AgentConfig | null): AgentModelState | null {
   if (!config?.piConfig) {
     return null;
@@ -316,6 +324,74 @@ function resolveAgentProviderState(config: AgentConfig | null): AgentModelState 
     model: modelState?.model || '',
     thinkingLevel: modelState?.thinkingLevel || providerConfig?.thinking || DEFAULT_THINKING_LEVEL,
   };
+}
+
+function isAgentConfigForAgent(config: AgentConfig | null, agentId: string): boolean {
+  const configAgentId = config?.effectiveConfig?.agentId;
+  return !configAgentId || configAgentId === agentId;
+}
+
+function normalizeInitialPromptAgentId(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return MANAGED_AGENT_ID_PATTERN.test(normalized) ? normalized : null;
+}
+
+function parseInitialPromptAttachment(value: unknown): Attachment | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const contentKind = value.contentKind === 'image' || value.contentKind === 'document'
+    ? value.contentKind
+    : null;
+  const name = typeof value.name === 'string' ? value.name : '';
+  const id = typeof value.id === 'string' ? value.id : '';
+
+  if (!contentKind || !name || !id) {
+    return null;
+  }
+
+  return {
+    name,
+    id,
+    contentKind,
+    mimeType: typeof value.mimeType === 'string' ? value.mimeType : undefined,
+    category: typeof value.category === 'string' ? value.category : undefined,
+    filePath: typeof value.filePath === 'string' ? value.filePath : undefined,
+  };
+}
+
+function parseInitialPromptPayload(storedData: string): InitialPromptPayload | null {
+  try {
+    const parsed = JSON.parse(storedData) as unknown;
+    if (!isRecord(parsed)) {
+      return null;
+    }
+
+    const prompt = typeof parsed.prompt === 'string' ? parsed.prompt : '';
+    const attachments = Array.isArray(parsed.attachments)
+      ? parsed.attachments
+        .map(parseInitialPromptAttachment)
+        .filter((attachment): attachment is Attachment => Boolean(attachment))
+      : [];
+
+    if (!prompt.trim() && attachments.length === 0) {
+      return null;
+    }
+
+    return {
+      prompt,
+      attachments,
+      agentId: normalizeInitialPromptAgentId(parsed.agentId),
+    };
+  } catch {
+    const prompt = storedData.trim();
+    return prompt ? { prompt, attachments: [], agentId: null } : null;
+  }
 }
 
 const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?: string }>> = {
@@ -1287,6 +1363,7 @@ export default function CanvasAgentChat({
   const [activeProvider, setActiveProvider] = useState(DEFAULT_PROVIDER_ID);
   const [activeThinkingLevel, setActiveThinkingLevel] = useState<PiThinkingLevel>(DEFAULT_THINKING_LEVEL);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [isAgentConfigLoading, setIsAgentConfigLoading] = useState(true);
   const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(CHAT_AGENT_ID);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
@@ -2517,8 +2594,18 @@ export default function CanvasAgentChat({
       return;
     }
 
-    if (!activeModel.trim()) {
+    const effectiveAgentConfig = isAgentConfigForAgent(agentConfig, selectedAgentId) ? agentConfig : null;
+    const configuredModelState = resolveAgentModelState(effectiveAgentConfig);
+    const effectiveModel = activeModel.trim() || configuredModelState?.model || '';
+
+    if (!effectiveModel.trim()) {
       throw new Error(t('modelRequiredError'));
+    }
+
+    if (!activeModel.trim() && configuredModelState) {
+      setActiveProvider(configuredModelState.provider);
+      setActiveModel(configuredModelState.model);
+      setActiveThinkingLevel(configuredModelState.thinkingLevel);
     }
 
     // Close history when sending message (always on mobile, conditionally on desktop)
@@ -2590,7 +2677,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [activeModel, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, resetInputHistoryNavigation, runtimeStatus?.phase, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
+  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, resetInputHistoryNavigation, runtimeStatus?.phase, selectedAgentId, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -3348,6 +3435,7 @@ export default function CanvasAgentChat({
     const fetchConfig = async () => {
       try {
         setAgentConfig(null);
+        setIsAgentConfigLoading(true);
         const params = new URLSearchParams({ agentId: selectedAgentId });
         const res = await fetch(`/api/agents/config?${params.toString()}`);
         const data = await safeFetchJson<{ success: boolean; data?: AgentConfig }>(res);
@@ -3357,6 +3445,10 @@ export default function CanvasAgentChat({
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to fetch agent config', err);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsAgentConfigLoading(false);
         }
       }
     };
@@ -3399,11 +3491,15 @@ export default function CanvasAgentChat({
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
     if (!agentConfig) return;
+    if (!isAgentConfigForAgent(agentConfig, selectedAgentId)) return;
 
-    const queueInitialPrompt = async (promptText: string, promptAttachments: Attachment[]) => {
+    const queueInitialPrompt = async (promptText: string, promptAttachments: Attachment[], storageKey?: string) => {
       initialPromptConsumedRef.current = true;
       try {
         await handleControlAction('send', { text: promptText, attachments: promptAttachments });
+        if (storageKey && typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(storageKey);
+        }
       } catch (error) {
         setIsResolvingInitialChatState(false);
         appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
@@ -3420,22 +3516,23 @@ export default function CanvasAgentChat({
     const storedData = window.sessionStorage.getItem(initialPromptStorageKey);
     if (!storedData) return;
 
-    try {
-      const parsed = JSON.parse(storedData);
-      if (parsed && (parsed.prompt || parsed.attachments)) {
-        window.sessionStorage.removeItem(initialPromptStorageKey);
-        void queueInitialPrompt(parsed.prompt || '', parsed.attachments || []);
-        return;
-      }
-    } catch {
-      // fallback below
+    const parsed = parseInitialPromptPayload(storedData);
+    if (!parsed) {
+      return;
     }
 
-    if (storedData.trim()) {
-      window.sessionStorage.removeItem(initialPromptStorageKey);
-      void queueInitialPrompt(storedData.trim(), []);
+    const targetAgentId = parsed.agentId || CHAT_AGENT_ID;
+    if (targetAgentId !== selectedAgentId) {
+      sessionAgentIdRef.current = targetAgentId;
+      Promise.resolve().then(() => {
+        setHistoryAgentFilter(targetAgentId);
+        setSelectedAgentId(targetAgentId);
+      });
+      return;
     }
-  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, t]);
+
+    void queueInitialPrompt(parsed.prompt, parsed.attachments, initialPromptStorageKey);
+  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, selectedAgentId, t]);
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;
@@ -3696,7 +3793,16 @@ export default function CanvasAgentChat({
   const contextProgressPercent = Math.min(100, Math.max(0, runtimeStatus?.contextUsagePercent ?? 0));
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
-  const isModelConfigured = Boolean(activeModel.trim());
+  const selectedAgentConfig = isAgentConfigForAgent(agentConfig, selectedAgentId) ? agentConfig : null;
+  const selectedAgentModelState = resolveAgentModelState(selectedAgentConfig);
+  const effectiveActiveProvider = activeProvider || selectedAgentModelState?.provider || DEFAULT_PROVIDER_ID;
+  const effectiveActiveModel = activeModel || selectedAgentModelState?.model || DEFAULT_MODEL_ID;
+  const effectiveActiveThinkingLevel = activeModel
+    ? activeThinkingLevel
+    : selectedAgentModelState?.thinkingLevel || activeThinkingLevel;
+  const isModelConfigured = Boolean(effectiveActiveModel.trim());
+  const isModelConfigurationLoading = isAgentConfigLoading && !isModelConfigured;
+  const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const scrollContentPadding = composerHeight + 24;
   const scrollButtonOffset = composerHeight + 16;
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
@@ -3796,11 +3902,13 @@ export default function CanvasAgentChat({
     : isCompactComposer
       ? t('composerPlaceholderCompact')
       : t('composerPlaceholderDefault');
-  const composerPlaceholderText = !isModelConfigured
-    ? t('modelRequiredPlaceholder')
-    : isWebSocketUnavailable
-    ? t('liveUpdatesUnavailable')
-    : composerPlaceholder;
+  const composerPlaceholderText = isModelConfigurationLoading
+    ? t('modelLoadingPlaceholder')
+    : showModelRequiredNotice
+      ? t('modelRequiredPlaceholder')
+      : isWebSocketUnavailable
+        ? t('liveUpdatesUnavailable')
+        : composerPlaceholder;
   const composerHint =
     runtimeStatus?.phase !== 'idle'
       ? isMobile
@@ -4889,7 +4997,7 @@ export default function CanvasAgentChat({
           </div>
         )}
 
-        {!isModelConfigured && (
+        {showModelRequiredNotice && (
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
             <div className="min-w-0">
               <div className="font-medium">{t('modelRequiredTitle')}</div>
@@ -5072,11 +5180,11 @@ export default function CanvasAgentChat({
               <ChatModelSelector
                 agentId={selectedAgentId}
                 sessionId={sessionId}
-                activeModel={activeModel}
-                activeProvider={activeProvider}
-                thinkingLevel={activeThinkingLevel}
-                agentConfig={agentConfig}
-                disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle') || !activeProvider}
+                activeModel={effectiveActiveModel}
+                activeProvider={effectiveActiveProvider}
+                thinkingLevel={effectiveActiveThinkingLevel}
+                agentConfig={selectedAgentConfig}
+                disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle') || !effectiveActiveProvider}
                 compact={isCompactView}
                 onModelChange={handleModelChange}
                 onRuntimeInvalidated={invalidateRuntimeAfterModelChange}

@@ -569,6 +569,7 @@
     "modelRequiredDescription": "Für diesen Agent ist noch kein Modell konfiguriert. Öffne die Agent-Einstellungen und wähle zuerst ein Modell.",
     "modelRequiredError": "Für diesen Agent ist kein Modell konfiguriert. Öffne die Agent-Einstellungen und wähle zuerst ein Modell.",
     "modelRequiredPlaceholder": "Wähle in den Agent-Einstellungen ein Modell aus, bevor du eine Nachricht sendest.",
+    "modelLoadingPlaceholder": "Modell-Konfiguration wird geladen...",
     "searchSessions": "Sessions durchsuchen...",
     "filterUnreadOnly": "Nur ungelesene",
     "filterAllSessions": "Alle Sessions",
