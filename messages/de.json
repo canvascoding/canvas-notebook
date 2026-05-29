@@ -1343,7 +1343,7 @@
       "notSet": "nicht gesetzt",
       "loadingConfig": "Lade Agent-Konfiguration...",
       "loadConfigFailed": "Agent-Konfiguration konnte nicht geladen werden.",
-      "activeProvider": "Aktiver Provider",
+      "activeProvider": "Provider",
       "modelFor": "Modell für {provider}",
       "selectProvider": "-- Provider wählen --",
       "selectModel": "-- Modell wählen --",

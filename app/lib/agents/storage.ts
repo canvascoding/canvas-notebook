@@ -4,6 +4,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, normalizePiRuntimeConfig, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
+import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels } from '../managed/control-plane-models';
 import { resolveAgentStorageDir, resolveAgentsStorageRoot } from '../runtime-data-paths';
 
 export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
@@ -85,15 +86,52 @@ function deepClone<T>(value: T): T {
 
 function withRuntimeProviderDefaults(config: PiRuntimeConfig): PiRuntimeConfig {
   const next = normalizePiRuntimeConfig(deepClone(config));
-  if (isManagedControlPlaneAvailable() && !next.providers['canvas-control-plane']) {
-    next.providers['canvas-control-plane'] = {
-      id: 'canvas-control-plane',
+  if (isManagedControlPlaneAvailable() && !next.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID]) {
+    next.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID] = {
+      id: CANVAS_CONTROL_PLANE_PROVIDER_ID,
       model: '',
       thinking: 'medium',
       enabledTools: [],
     };
   }
   return next;
+}
+
+async function withManagedRuntimeDefaults(config: PiRuntimeConfig): Promise<PiRuntimeConfig> {
+  const next = withRuntimeProviderDefaults(config);
+  if (!isManagedControlPlaneAvailable()) {
+    return next;
+  }
+
+  const activeProviderConfig = next.providers[next.activeProvider];
+  if (activeProviderConfig?.model?.trim()) {
+    return next;
+  }
+
+  const existingManagedConfig = next.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID];
+  const configuredManagedModel = existingManagedConfig?.model?.trim();
+  const discoveredManagedModel = configuredManagedModel
+    || (await getCanvasControlPlaneModels())[0]?.id
+    || '';
+
+  if (!discoveredManagedModel) {
+    return next;
+  }
+
+  return {
+    ...next,
+    activeProvider: CANVAS_CONTROL_PLANE_PROVIDER_ID,
+    providers: {
+      ...next.providers,
+      [CANVAS_CONTROL_PLANE_PROVIDER_ID]: {
+        ...existingManagedConfig,
+        id: CANVAS_CONTROL_PLANE_PROVIDER_ID,
+        model: discoveredManagedModel,
+        thinking: existingManagedConfig?.thinking || 'medium',
+        enabledTools: existingManagedConfig?.enabledTools || [],
+      },
+    },
+  };
 }
 
 function createUnconfiguredPiRuntimeConfig(): PiRuntimeConfig {
@@ -304,14 +342,14 @@ export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
   await ensureStorageDirectory();
   const rawContent = await readFileIfExists(PI_RUNTIME_CONFIG_PATH);
   if (rawContent === null) {
-    return createUnconfiguredPiRuntimeConfig();
+    return withManagedRuntimeDefaults(createUnconfiguredPiRuntimeConfig());
   }
 
   try {
     const config = JSON.parse(rawContent) as PiRuntimeConfig;
-    return withRuntimeProviderDefaults(config);
+    return withManagedRuntimeDefaults(config);
   } catch {
-    return createUnconfiguredPiRuntimeConfig();
+    return withManagedRuntimeDefaults(createUnconfiguredPiRuntimeConfig());
   }
 }
 

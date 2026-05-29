@@ -1,6 +1,15 @@
 import { getModels, getProviders, registerBuiltInApiProviders, type KnownProvider, type Model } from '@mariozechner/pi-ai';
 import { isManagedControlPlaneAvailable, readPiRuntimeConfig } from '../agents/storage';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
+import {
+  CANVAS_CONTROL_PLANE_PROVIDER_ID,
+  FALLBACK_CANVAS_CONTROL_PLANE_MODELS,
+  getCanvasControlPlaneModels,
+  managedProviderPath,
+  type ManagedControlPlaneModel,
+} from '../managed/control-plane-models';
+
+export { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels };
 
 // Ensure all built-in providers are registered once
 registerBuiltInApiProviders();
@@ -13,21 +22,6 @@ registerBuiltInApiProviders();
 export const OLLAMA_PROVIDER_ID = 'ollama';
 // OpenAI-Compatible provider ID - used for custom OpenAI-compatible servers
 export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
-export const CANVAS_CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
-
-type ManagedControlPlaneProvider = 'openrouter' | 'groq' | 'openai-compatible';
-type ManagedControlPlanePricing = {
-  currency: string;
-  inputPer1m: number;
-  outputPer1m: number;
-  cacheReadPer1m: number;
-  cacheWritePer1m: number;
-  source?: string;
-};
-type ManagedControlPlaneModel = Model<'openai-completions'> & {
-  managedProvider: ManagedControlPlaneProvider;
-  managedPricing?: ManagedControlPlanePricing | null;
-};
 
   // Recommended Ollama models with metadata
 // Using 'openai-completions' api type for OpenAI-compatible Ollama API
@@ -86,9 +80,6 @@ export const OLLAMA_MODELS: Model<'openai-completions'>[] = [
   { id: 'gpt-oss:120b', name: 'GPT-OSS 120B (OpenAI)', api: 'openai-completions', provider: 'ollama', baseUrl: 'http://localhost:11434/v1', reasoning: false, input: ['text', 'image'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192 },
 ];
 
-const FALLBACK_CANVAS_CONTROL_PLANE_MODELS: ManagedControlPlaneModel[] = [
-];
-
 const LEGACY_MODEL_COMPATIBILITY: Record<string, string[]> = {
   'anthropic/claude-3.5-sonnet': [
     'anthropic/claude-sonnet-4.5',
@@ -97,20 +88,6 @@ const LEGACY_MODEL_COMPATIBILITY: Record<string, string[]> = {
     '~anthropic/claude-sonnet-latest',
   ],
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function numberValue(value: unknown, fallback = 0) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function managedProviderPath(provider: ManagedControlPlaneProvider): string {
-  if (provider === 'groq') return 'groq';
-  if (provider === 'openai-compatible') return 'openai-compatible';
-  return 'openrouter';
-}
 
 function isOllamaCloudHost(value: string): boolean {
   try {
@@ -122,93 +99,6 @@ function isOllamaCloudHost(value: string): boolean {
 
 export function isCanvasControlPlaneManagedAvailable(): boolean {
   return isManagedControlPlaneAvailable();
-}
-
-function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel | null {
-  if (!isRecord(value)) return null;
-  const id = typeof value.id === 'string' ? value.id.trim() : '';
-  const name = typeof value.name === 'string' ? value.name.trim() : id;
-  const managedProvider = value.provider === 'groq'
-    ? 'groq'
-    : value.provider === 'openai-compatible'
-      ? 'openai-compatible'
-      : value.provider === 'openrouter'
-        ? 'openrouter'
-        : null;
-  const contextWindow = typeof value.contextWindow === 'number' && Number.isFinite(value.contextWindow)
-    ? value.contextWindow
-    : 128000;
-  const maxTokens = typeof value.maxTokens === 'number' && Number.isFinite(value.maxTokens)
-    ? value.maxTokens
-    : 8192;
-  const input = Array.isArray(value.input) && value.input.every((entry) => entry === 'text' || entry === 'image')
-    ? value.input as ('text' | 'image')[]
-    : ['text', 'image'] as ('text' | 'image')[];
-  const pricingValue = isRecord(value.pricing) ? value.pricing : null;
-  const pricing = pricingValue ? {
-    currency: typeof pricingValue.currency === 'string' ? pricingValue.currency : 'usd',
-    inputPer1m: numberValue(pricingValue.inputPer1m),
-    outputPer1m: numberValue(pricingValue.outputPer1m),
-    cacheReadPer1m: numberValue(pricingValue.cacheReadPer1m, numberValue(pricingValue.inputPer1m)),
-    cacheWritePer1m: numberValue(pricingValue.cacheWritePer1m, numberValue(pricingValue.inputPer1m)),
-    source: typeof pricingValue.source === 'string' ? pricingValue.source : undefined,
-  } : null;
-
-  if (!id || !managedProvider) return null;
-
-  return {
-    id,
-    name,
-    api: 'openai-completions',
-    provider: CANVAS_CONTROL_PLANE_PROVIDER_ID,
-    managedProvider,
-    baseUrl: '',
-    reasoning: Boolean(value.reasoning),
-    input,
-    cost: {
-      input: pricing?.inputPer1m ?? 0,
-      output: pricing?.outputPer1m ?? 0,
-      cacheRead: pricing?.cacheReadPer1m ?? pricing?.inputPer1m ?? 0,
-      cacheWrite: pricing?.cacheWritePer1m ?? pricing?.inputPer1m ?? 0,
-    },
-    contextWindow,
-    maxTokens,
-    managedPricing: pricing,
-  };
-}
-
-export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlaneModel[]> {
-  const controlPlaneUrl = getManagedControlPlaneBaseUrl();
-  const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
-  if (!controlPlaneUrl || !token) {
-    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-  try {
-    const response = await fetch(`${controlPlaneUrl}/v1/managed/models`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      console.warn(`[Canvas Control Plane] Failed to load managed models: HTTP ${response.status}${body ? ` ${body.slice(0, 300)}` : ''}`);
-      return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
-    }
-    const payload = await response.json();
-    const rawModels = isRecord(payload) && Array.isArray(payload.models) ? payload.models : [];
-    const models = rawModels
-      .map(parseManagedControlPlaneModel)
-      .filter((model): model is ManagedControlPlaneModel => Boolean(model));
-    return models.length > 0 ? models : FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
-  } catch {
-    console.warn('[Canvas Control Plane] Failed to load managed models from Control Plane.');
-    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 export function getPiProviders(): string[] {
