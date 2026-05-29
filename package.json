@@ -36,6 +36,7 @@
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
     "test:browser-start": "node scripts/browser-start-test.mjs",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
+    "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
     "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",
     "test:automation:schedule": "tsx scripts/automation-schedule-test.ts",

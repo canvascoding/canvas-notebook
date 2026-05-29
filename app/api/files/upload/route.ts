@@ -5,8 +5,8 @@ import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
-import { convertImage, getImageConversionErrorMessage, isHeicFile } from '@/app/lib/images/convert';
-import { fileTypeFromBuffer } from 'file-type';
+import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
+import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
@@ -14,12 +14,6 @@ const MAX_FILES_PER_REQUEST = 100;
 
 const VALID_FILENAME_REGEX = /^[a-zA-Z0-9._\-\s\/\(\)]+$/;
 const INVALID_PATH_PATTERNS = ['..', '~', '//', '\\\\', ':', '*', '?', '"', '<', '>', '|'];
-
-interface ConvertParams {
-  format: 'jpg' | 'webp' | 'png';
-  quality: number;
-  maxDimension?: number;
-}
 
 function isValidFilename(filename: string): boolean {
   if (INVALID_PATH_PATTERNS.some(pattern => filename.includes(pattern))) {
@@ -35,16 +29,6 @@ function sanitizeFilePath(filePath: string): string {
     .map(segment => path.posix.basename(segment))
     .filter(segment => segment.length > 0 && segment !== '.' && segment !== '..');
   return sanitized.join('/');
-}
-
-function replaceExtension(filename: string, newExt: string): string {
-  const lastDot = filename.lastIndexOf('.');
-  const baseName = lastDot > 0 ? filename.slice(0, lastDot) : filename;
-  return baseName + newExt;
-}
-
-function isImageMimeType(mimeType: string): boolean {
-  return mimeType.startsWith('image/');
 }
 
 export async function POST(request: NextRequest) {
@@ -100,17 +84,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let convertParamsList: (ConvertParams | null)[] | null = null;
-    if (convertParamsRaw) {
-      try {
-        const parsed = JSON.parse(convertParamsRaw);
-        if (Array.isArray(parsed) && parsed.length === files.length) {
-          convertParamsList = parsed;
-        }
-      } catch {
-        // Invalid JSON — ignore convertParams
-      }
+    const parsedConvertParams = parseUploadConvertParams(convertParamsRaw, files.length);
+    if (!parsedConvertParams.ok) {
+      return NextResponse.json({ success: false, error: parsedConvertParams.error }, { status: 400 });
     }
+    const convertParamsList = parsedConvertParams.params;
 
     if (targetDir && targetDir !== '.') {
       await createDirectory(targetDir);
@@ -129,52 +107,28 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      let buffer: Buffer = Buffer.from(await file.arrayBuffer());
+      const buffer = Buffer.from(await file.arrayBuffer());
       let filename = sanitizedPath;
-      let mimeType = file.type || 'application/octet-stream';
+      const mimeType = file.type || 'application/octet-stream';
 
       const convertParams = convertParamsList?.[i] ?? null;
 
-      if (convertParams) {
-        try {
-          const result = await convertImage(buffer, filename, {
-            format: convertParams.format,
-            quality: convertParams.quality,
-            maxDimension: convertParams.maxDimension,
-          });
-          buffer = result.buffer as Buffer;
-          filename = replaceExtension(sanitizedPath, path.extname(result.filename) || `.${convertParams.format}`);
-          mimeType = result.mimeType;
-        } catch (err) {
-          console.error(`[API] Image conversion failed for ${file.name}:`, err);
-          return NextResponse.json(
-            { success: false, error: getImageConversionErrorMessage(file.name, err) },
-            { status: 400 }
-          );
-        }
-      } else if (isImageMimeType(mimeType) || isHeicFile(filename, mimeType)) {
-        const detectedType = await fileTypeFromBuffer(buffer);
-        const isHeic = isHeicFile(filename, mimeType) ||
-          (detectedType?.mime === 'image/heic' || detectedType?.mime === 'image/heif' || detectedType?.mime === 'image/heic-sequence');
-
-        if (isHeic) {
-          try {
-            const result = await convertImage(buffer, filename, {
-              format: 'jpg',
-              quality: 80,
-            });
-            buffer = result.buffer as Buffer;
-            filename = replaceExtension(sanitizedPath, '.jpg');
-            mimeType = result.mimeType;
-          } catch (err) {
-            console.error(`[API] HEIC auto-conversion failed for ${file.name}:`, err);
-            return NextResponse.json(
-              { success: false, error: getImageConversionErrorMessage(file.name, err) },
-              { status: 400 }
-            );
-          }
-        }
+      let normalized;
+      try {
+        normalized = await normalizeUploadImageBuffer({
+          buffer,
+          filename,
+          mimeType,
+          convertParams,
+        });
+      } catch (err) {
+        console.error(`[API] Image conversion failed for ${file.name}:`, err);
+        return NextResponse.json(
+          { success: false, error: getImageConversionErrorMessage(file.name, err) },
+          { status: 400 }
+        );
       }
+      filename = normalized.filename;
 
       const targetPath = path.posix.join(targetDir, filename);
 
@@ -183,7 +137,7 @@ export async function POST(request: NextRequest) {
         await createDirectory(parentDir);
       }
 
-      await writeFile(targetPath, buffer);
+      await writeFile(targetPath, normalized.buffer);
       uploadedFiles.push(filename);
     }
 

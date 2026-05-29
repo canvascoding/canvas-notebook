@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { AlertTriangle, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,6 +12,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  getDefaultImageConvertFormat,
+  getDefaultImageMaxDimension,
+} from '@/app/lib/images/client-preprocess';
 
 export interface PreprocessFileInfo {
   file: File;
@@ -31,6 +35,7 @@ export interface ImagePreprocessDialogProps {
   files: PreprocessFileInfo[];
   onConfirm: (convertParams: (ConvertParams | null)[]) => void;
   onSkip?: () => void;
+  isProcessing?: boolean;
 }
 
 const QUALITY_PRESETS = [
@@ -45,14 +50,12 @@ const DIMENSION_OPTIONS = [
   { label: '4096px', value: 4096 },
 ] as const;
 
+type DimensionValue = number | 'original';
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getFormatForFile(_file: File, _isHeic: boolean): 'jpg' | 'webp' | 'png' {
-  return 'jpg';
 }
 
 function getQualityForFile(
@@ -66,37 +69,53 @@ function getQualityForFile(
   return 80;
 }
 
+function resolveDimensionValue(value: DimensionValue | null | undefined, defaultValue?: number): number | undefined {
+  if (value === 'original') return undefined;
+  return value ?? defaultValue;
+}
+
 export function ImagePreprocessDialog({
   open,
   onOpenChange,
   files,
   onConfirm,
   onSkip,
+  isProcessing = false,
 }: ImagePreprocessDialogProps) {
   const t = useTranslations('notebook');
 
   const [applyToAll, setApplyToAll] = useState(false);
-  const [globalFormat, setGlobalFormat] = useState<'jpg' | 'webp' | 'png'>('jpg');
+  const [globalFormat, setGlobalFormat] = useState<'jpg' | 'webp' | 'png' | null>(null);
   const [globalQuality, setGlobalQuality] = useState<number>(80);
-  const [globalDimension, setGlobalDimension] = useState<number | undefined>(undefined);
+  const [globalDimension, setGlobalDimension] = useState<DimensionValue | null>(null);
   const [globalCustomQuality, setGlobalCustomQuality] = useState(false);
   const [globalCustomQualityValue, setGlobalCustomQualityValue] = useState(80);
   const [perFileFormat, setPerFileFormat] = useState<Record<number, 'jpg' | 'webp' | 'png'>>({});
   const [perFileQuality, setPerFileQuality] = useState<Record<number, number>>({});
   const [perFileCustomQuality, setPerFileCustomQuality] = useState<Record<number, boolean>>({});
-  const [perFileDimension, setPerFileDimension] = useState<Record<number, number | undefined>>({});
+  const [perFileDimension, setPerFileDimension] = useState<Record<number, DimensionValue>>({});
 
   const hasHeic = files.some((f) => f.isHeic);
   const _allHeic = files.every((f) => f.isHeic);
   const canSkip = !hasHeic;
+  const defaultGlobalFormat = useMemo(() => {
+    if (files.length === 0) return 'jpg';
+    const defaultFormats = files.map((f) => getDefaultImageConvertFormat(f.file, f.isHeic));
+    return defaultFormats.every((format) => format === defaultFormats[0]) ? defaultFormats[0] : 'jpg';
+  }, [files]);
+  const defaultGlobalDimension = useMemo(() => (
+    files.some((f) => f.isLarge) ? getDefaultImageMaxDimension(true) : undefined
+  ), [files]);
 
   const effectiveGlobalQuality = globalCustomQuality ? globalCustomQualityValue : globalQuality;
+  const effectiveGlobalFormat = globalFormat ?? defaultGlobalFormat;
+  const effectiveGlobalDimension = resolveDimensionValue(globalDimension, defaultGlobalDimension);
 
   const resetState = useCallback(() => {
     setApplyToAll(false);
-    setGlobalFormat('jpg');
+    setGlobalFormat(null);
     setGlobalQuality(80);
-    setGlobalDimension(undefined);
+    setGlobalDimension(null);
     setGlobalCustomQuality(false);
     setGlobalCustomQualityValue(80);
     setPerFileFormat({});
@@ -106,12 +125,14 @@ export function ImagePreprocessDialog({
   }, []);
 
   const handleConfirm = useCallback(() => {
-    const params: (ConvertParams | null)[] = files.map((f, i) => {
-      const format = applyToAll
-        ? globalFormat
-        : (perFileFormat[i] ?? getFormatForFile(f.file, f.isHeic));
-      const quality = applyToAll ? effectiveGlobalQuality : getQualityForFile(i, perFileQuality);
-      const maxDimension = applyToAll ? globalDimension : perFileDimension[i];
+      const params: (ConvertParams | null)[] = files.map((f, i) => {
+        const format = applyToAll
+          ? effectiveGlobalFormat
+          : (perFileFormat[i] ?? getDefaultImageConvertFormat(f.file, f.isHeic));
+        const quality = applyToAll ? effectiveGlobalQuality : getQualityForFile(i, perFileQuality);
+        const maxDimension = applyToAll
+          ? effectiveGlobalDimension
+          : resolveDimensionValue(perFileDimension[i], getDefaultImageMaxDimension(f.isLarge));
       return {
         format,
         quality,
@@ -120,7 +141,7 @@ export function ImagePreprocessDialog({
     });
     resetState();
     onConfirm(params);
-  }, [files, applyToAll, globalFormat, effectiveGlobalQuality, globalDimension, perFileFormat, perFileQuality, perFileDimension, onConfirm, resetState]);
+  }, [files, applyToAll, effectiveGlobalFormat, effectiveGlobalQuality, effectiveGlobalDimension, perFileFormat, perFileQuality, perFileDimension, onConfirm, resetState]);
 
   const showPerFileControls = !applyToAll && files.length > 1;
   const handleDialogOpenChange = useCallback((nextOpen: boolean) => {
@@ -142,11 +163,13 @@ export function ImagePreprocessDialog({
           {files.map((f, i) => {
              const isHeic = f.isHeic;
              const isLarge = f.isLarge;
-             const fileFormat = applyToAll
-               ? globalFormat
-               : (perFileFormat[i] ?? getFormatForFile(f.file, isHeic));
+               const fileFormat = applyToAll
+	               ? effectiveGlobalFormat
+	               : (perFileFormat[i] ?? getDefaultImageConvertFormat(f.file, isHeic));
             const fileQuality = applyToAll ? effectiveGlobalQuality : getQualityForFile(i, perFileQuality);
-            const fileDimension = applyToAll ? globalDimension : (perFileDimension[i] ?? undefined);
+            const fileDimension = applyToAll
+              ? effectiveGlobalDimension
+              : resolveDimensionValue(perFileDimension[i], getDefaultImageMaxDimension(isLarge));
             const isCustomQuality = !!perFileCustomQuality[i];
 
             return (
@@ -176,7 +199,7 @@ export function ImagePreprocessDialog({
                       <select
                           className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
                           value={fileFormat}
-                          disabled={applyToAll}
+                          disabled={applyToAll || isProcessing}
                           onChange={(e) => {
                             if (!applyToAll) {
                               setPerFileFormat((prev) => ({ ...prev, [i]: e.target.value as 'jpg' | 'webp' | 'png' }));
@@ -200,7 +223,7 @@ export function ImagePreprocessDialog({
                                 ? 'bg-primary text-primary-foreground border-primary'
                                 : 'bg-background border-input hover:bg-accent'
                             }`}
-                            disabled={applyToAll}
+	                          disabled={applyToAll || isProcessing}
                             onClick={() => {
                               if (!applyToAll) {
                                 setPerFileCustomQuality((prev) => ({ ...prev, [i]: false }));
@@ -216,7 +239,7 @@ export function ImagePreprocessDialog({
                           className={`min-w-[4.5rem] px-2 py-1.5 rounded text-xs border ${
                             isCustomQuality ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-input hover:bg-accent'
                           }`}
-                          disabled={applyToAll}
+	                          disabled={applyToAll || isProcessing}
                           onClick={() => {
                             if (!applyToAll) {
                               setPerFileCustomQuality((prev) => {
@@ -256,11 +279,11 @@ export function ImagePreprocessDialog({
                       <select
                         className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
                         value={fileDimension ?? 'original'}
-                        disabled={applyToAll}
+	                        disabled={applyToAll || isProcessing}
                         onChange={(e) => {
                           if (!applyToAll) {
-                            const val = e.target.value === 'original' ? undefined : Number(e.target.value);
-                            setPerFileDimension((prev) => ({ ...prev, [i]: val }));
+	                            const val: DimensionValue = e.target.value === 'original' ? 'original' : Number(e.target.value);
+	                            setPerFileDimension((prev) => ({ ...prev, [i]: val }));
                           }
                         }}
                       >
@@ -284,6 +307,7 @@ export function ImagePreprocessDialog({
                   type="checkbox"
                   checked={applyToAll}
                   onChange={(e) => setApplyToAll(e.target.checked)}
+                  disabled={isProcessing}
                   className="rounded border-input"
                 />
                 {t('imagePreprocessApplyToAll')}
@@ -299,7 +323,8 @@ export function ImagePreprocessDialog({
                 </label>
                 <select
                   className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                  value={globalFormat}
+                  value={effectiveGlobalFormat}
+                  disabled={isProcessing}
                   onChange={(e) => setGlobalFormat(e.target.value as 'jpg' | 'webp' | 'png')}
                 >
                   <option value="jpg">JPG</option>
@@ -319,10 +344,11 @@ export function ImagePreprocessDialog({
                           ? 'bg-primary text-primary-foreground border-primary'
                           : 'bg-background border-input hover:bg-accent'
                       }`}
-                      onClick={() => {
-                        setGlobalCustomQuality(false);
-                        setGlobalQuality(preset.value);
-                      }}
+	                      onClick={() => {
+	                        setGlobalCustomQuality(false);
+	                        setGlobalQuality(preset.value);
+	                      }}
+	                      disabled={isProcessing}
                     >
                       {preset.label}
                     </button>
@@ -334,7 +360,8 @@ export function ImagePreprocessDialog({
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-background border-input hover:bg-accent'
                     }`}
-                    onClick={() => setGlobalCustomQuality(!globalCustomQuality)}
+	                    onClick={() => setGlobalCustomQuality(!globalCustomQuality)}
+	                    disabled={isProcessing}
                   >
                     Custom
                   </button>
@@ -354,10 +381,11 @@ export function ImagePreprocessDialog({
                 <label className="text-muted-foreground block mb-1">{t('imagePreprocessMaxDimension')}</label>
                 <select
                   className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
-                  value={globalDimension ?? 'original'}
+		                  value={effectiveGlobalDimension ?? 'original'}
+	                  disabled={isProcessing}
                   onChange={(e) => {
-                    const val = e.target.value === 'original' ? undefined : Number(e.target.value);
-                    setGlobalDimension(val);
+	                    const val: DimensionValue = e.target.value === 'original' ? 'original' : Number(e.target.value);
+	                    setGlobalDimension(val);
                   }}
                 >
                   {DIMENSION_OPTIONS.map((opt) => (
@@ -380,19 +408,20 @@ export function ImagePreprocessDialog({
 
         <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           {canSkip && onSkip && (
-            <Button className="w-full sm:w-auto" variant="ghost" onClick={() => {
-              resetState();
-              onSkip();
-            }}>
+            <Button className="w-full sm:w-auto" variant="ghost" disabled={isProcessing} onClick={() => {
+	              resetState();
+	              onSkip();
+	            }}>
               {t('imagePreprocessSkip')}
             </Button>
           )}
-          <Button className="w-full sm:w-auto" variant="outline" onClick={() => handleDialogOpenChange(false)}>
-            {t('cancel')}
-          </Button>
-          <Button className="w-full sm:w-auto" onClick={handleConfirm}>
-            {t('imagePreprocessConfirm')}
-          </Button>
+	          <Button className="w-full sm:w-auto" variant="outline" disabled={isProcessing} onClick={() => handleDialogOpenChange(false)}>
+	            {t('cancel')}
+	          </Button>
+	          <Button className="w-full sm:w-auto" disabled={isProcessing} onClick={handleConfirm}>
+	            {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+	            {t('imagePreprocessConfirm')}
+	          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

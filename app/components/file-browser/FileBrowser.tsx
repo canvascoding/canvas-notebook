@@ -287,7 +287,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       <CreateItemDialog open={createOpen} onOpenChange={setCreateOpen} type={createType} defaultPath={resolveTargetDir()} onCreate={handleCreate} />
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} defaultPath={resolveTargetDir()} onUpload={handleUpload} />
       <DeleteConfirmDialog open={deleteOpen} onOpenChange={setDeleteOpen} paths={deletePaths} skippedCount={deleteSkippedCount} onConfirm={handleConfirmDelete} />
-      <ImagePreprocessDialog open={imagePreprocess.dialogState !== null} onOpenChange={(open) => { if (!open) imagePreprocess.setDialogState(null); }} files={imagePreprocess.dialogState?.files ?? []} onConfirm={imagePreprocess.handleConfirm} onSkip={imagePreprocess.handleSkip} />
+      <ImagePreprocessDialog open={imagePreprocess.dialogState !== null} onOpenChange={(open) => { if (!open) imagePreprocess.setDialogState(null); }} files={imagePreprocess.dialogState?.files ?? []} onConfirm={imagePreprocess.handleConfirm} onSkip={imagePreprocess.handleSkip} isProcessing={imagePreprocess.isProcessing} />
 
       {isFullscreen && (
         <FilePreviewDialog
