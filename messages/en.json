@@ -1177,12 +1177,17 @@
       "chatDisplay": {
         "title": "Chat Display",
         "description": "Choose how much background activity appears in the chat.",
+        "currentMode": "Current: {mode}",
         "minimal": "Minimal",
         "minimalDescription": "Hide tool calls and only show a quiet activity indicator while the agent works.",
         "subtle": "Subtle",
         "subtleDescription": "Show compact readable badges. Click a badge when you need details.",
         "verbose": "Verbose",
         "verboseDescription": "Show full tool call details with input and output for debugging."
+      },
+      "sections": {
+        "expand": "Expand",
+        "collapse": "Collapse"
       },
       "inheritance": {
         "title": "Special Agent Overrides",
@@ -1203,6 +1208,10 @@
       "doctor": {
         "title": "Doctor",
         "description": "System check for providers and connectivity.",
+        "notRunSummary": "Not checked yet",
+        "runningSummary": "Check running",
+        "issueSummary": "{errors, plural, =0 {No errors} one {# error} other {# errors}} · {warnings, plural, =0 {no warnings} one {# warning} other {# warnings}}",
+        "errorSummary": "Check error",
         "run": "Run doctor",
         "statusLabel": "Status:",
         "ready": "Ready",
@@ -1293,6 +1302,8 @@
       "sessions": {
         "title": "Sessions",
         "description": "Manage chat history.",
+        "summary": "{count, plural, =0 {No sessions} one {# session} other {# sessions}}",
+        "errorSummary": "Load error",
         "newSessionPlaceholder": "New session (title optional)",
         "new": "New",
         "deleteAll": "Delete all",

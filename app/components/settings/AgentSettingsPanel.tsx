@@ -37,6 +37,36 @@ type PiConfigData = {
   [key: string]: unknown;
 };
 
+type AgentSettingsSectionId = 'chatDisplay' | 'sessions' | 'doctor';
+type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
+
+const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
+const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState = {
+  chatDisplay: false,
+  sessions: false,
+  doctor: false,
+};
+
+function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSettingsSectionOpenState {
+  const fallback = {
+    ...DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE,
+    doctor: requestedPanel === 'doctor',
+  };
+
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    const storedState = JSON.parse(window.localStorage.getItem(AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY) || '{}') as Partial<AgentSettingsSectionOpenState>;
+    return {
+      chatDisplay: typeof storedState.chatDisplay === 'boolean' ? storedState.chatDisplay : fallback.chatDisplay,
+      sessions: typeof storedState.sessions === 'boolean' ? storedState.sessions : fallback.sessions,
+      doctor: requestedPanel === 'doctor' || (typeof storedState.doctor === 'boolean' ? storedState.doctor : fallback.doctor),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: 'include',
@@ -61,8 +91,10 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 export function AgentSettingsPanel() {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
+  const requestedPanel = searchParams.get('panel');
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
   const setToolVerbosity = useToolVerbosityStore((s) => s.setToolVerbosity);
+  const [agentSectionOpenById, setAgentSectionOpenById] = useState<AgentSettingsSectionOpenState>(() => getInitialAgentSectionOpenState(requestedPanel));
 
   const [agents, setAgents] = useState<AgentProfileItem[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
@@ -297,7 +329,19 @@ export function AgentSettingsPanel() {
     await loadToolsConfig();
   }, [isMainAgent, loadAgents, loadToolsConfig, selectedAgentId]);
 
+  const setAgentSectionOpen = useCallback((sectionId: AgentSettingsSectionId, isOpen: boolean) => {
+    setAgentSectionOpenById((current) => {
+      const nextState = {
+        ...current,
+        [sectionId]: isOpen,
+      };
+      window.localStorage.setItem(AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY, JSON.stringify(nextState));
+      return nextState;
+    });
+  }, []);
+
   const runDoctor = useCallback(async () => {
+    setAgentSectionOpen('doctor', true);
     setDoctorRunning(true);
     setDoctorError(null);
 
@@ -313,7 +357,7 @@ export function AgentSettingsPanel() {
     } finally {
       setDoctorRunning(false);
     }
-  }, [selectedAgentId, t]);
+  }, [selectedAgentId, setAgentSectionOpen, t]);
 
   useEffect(() => {
     startTransition(() => {
@@ -809,6 +853,8 @@ export function AgentSettingsPanel() {
 
       <AgentChatDisplayCard
         toolVerbosity={toolVerbosity}
+        isOpen={agentSectionOpenById.chatDisplay}
+        onOpenChange={(isOpen) => setAgentSectionOpen('chatDisplay', isOpen)}
         onToolVerbosityChange={setToolVerbosity}
       />
 
@@ -868,6 +914,8 @@ export function AgentSettingsPanel() {
         sessions={sessions}
         sessionsLoading={sessionsLoading}
         sessionError={sessionError}
+        isOpen={agentSectionOpenById.sessions}
+        onOpenChange={(isOpen) => setAgentSectionOpen('sessions', isOpen)}
         createTitle={createTitle}
         sessionPendingId={sessionPendingId}
         renameDrafts={renameDrafts}
@@ -889,6 +937,8 @@ export function AgentSettingsPanel() {
         doctorResult={doctorResult}
         doctorRunning={doctorRunning}
         doctorError={doctorError}
+        isOpen={agentSectionOpenById.doctor}
+        onOpenChange={(isOpen) => setAgentSectionOpen('doctor', isOpen)}
         onRunDoctor={() => void runDoctor()}
       />
     </div>
