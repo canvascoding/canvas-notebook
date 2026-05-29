@@ -34,6 +34,14 @@ export interface LicensePublicKeyResolution {
 let positiveMemoryCache: { resolution: LicensePublicKeyResolution; expiresAt: number } | null = null;
 let negativeMemoryCache: { resolution: LicensePublicKeyResolution; expiresAt: number } | null = null;
 
+function getControlPlaneHost(): string {
+  try {
+    return new URL(getControlPlaneLicenseBaseUrl()).host;
+  } catch {
+    return 'invalid_control_plane_url';
+  }
+}
+
 function normalizePem(value: string): string {
   return value.trim().replace(/\\n/g, '\n');
 }
@@ -151,6 +159,7 @@ async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
       console.warn(`${LOG_PREFIX} control plane public key request failed`, {
         status: response.status,
         error: resolution.error,
+        controlPlaneHost: getControlPlaneHost(),
       });
       cacheNegativeResolution(resolution);
       return resolution;
@@ -165,7 +174,9 @@ async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
 
     if (!data || typeof data.publicKey !== 'string' || data.alg !== LICENSE_KEY_ALG) {
       const resolution: LicensePublicKeyResolution = { keys: [], source: 'none', error: 'invalid_response' };
-      console.warn(`${LOG_PREFIX} invalid control plane public key response`);
+      console.warn(`${LOG_PREFIX} invalid control plane public key response`, {
+        controlPlaneHost: getControlPlaneHost(),
+      });
       cacheNegativeResolution(resolution);
       return resolution;
     }
@@ -173,7 +184,10 @@ async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
     const key = toLicensePublicKey(data.publicKey, typeof data.kid === 'string' ? data.kid : undefined);
     if (!key || (typeof data.fingerprint === 'string' && data.fingerprint.toLowerCase() !== key.fingerprint)) {
       const resolution: LicensePublicKeyResolution = { keys: [], source: 'none', error: 'invalid_response' };
-      console.warn(`${LOG_PREFIX} invalid control plane public key material`);
+      console.warn(`${LOG_PREFIX} invalid control plane public key material`, {
+        kid: typeof data.kid === 'string' ? data.kid : undefined,
+        controlPlaneHost: getControlPlaneHost(),
+      });
       cacheNegativeResolution(resolution);
       return resolution;
     }
@@ -183,6 +197,7 @@ async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
       console.warn(`${LOG_PREFIX} rejected untrusted control plane public key`, {
         kid: key.kid,
         fingerprint: key.fingerprint,
+        controlPlaneHost: getControlPlaneHost(),
       });
       cacheNegativeResolution(resolution);
       return resolution;
@@ -196,9 +211,12 @@ async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
     });
     console.info(`${LOG_PREFIX} resolved from control plane`, { kid: key.kid });
     return { keys: [key], source: 'control_plane' };
-  } catch {
+  } catch (error) {
     const resolution: LicensePublicKeyResolution = { keys: [], source: 'none', error: 'unreachable' };
-    console.warn(`${LOG_PREFIX} control plane public key request unreachable`);
+    console.warn(`${LOG_PREFIX} control plane public key request unreachable`, {
+      controlPlaneHost: getControlPlaneHost(),
+      error: error instanceof Error ? error.message : String(error),
+    });
     cacheNegativeResolution(resolution);
     return resolution;
   }
@@ -267,12 +285,29 @@ async function persistToSQLite(key: LicensePublicKey): Promise<void> {
 
 export async function resolveLicensePublicKeys(): Promise<LicensePublicKeyResolution> {
   const envKeys = resolveFromEnv();
-  if (envKeys.length > 0) return { keys: envKeys, source: 'env' };
+  if (envKeys.length > 0) {
+    console.info(`${LOG_PREFIX} resolved from env`, {
+      count: envKeys.length,
+      kids: envKeys.map((key) => key.kid),
+    });
+    return { keys: envKeys, source: 'env' };
+  }
 
   const bundledKeys = resolveBundled();
-  if (bundledKeys.length > 0) return { keys: bundledKeys, source: 'bundled' };
+  if (bundledKeys.length > 0) {
+    console.info(`${LOG_PREFIX} resolved from bundled keys`, {
+      count: bundledKeys.length,
+      kids: bundledKeys.map((key) => key.kid),
+    });
+    return { keys: bundledKeys, source: 'bundled' };
+  }
 
   if (positiveMemoryCache && Date.now() < positiveMemoryCache.expiresAt) {
+    console.info(`${LOG_PREFIX} resolved from memory cache`, {
+      source: positiveMemoryCache.resolution.source,
+      count: positiveMemoryCache.resolution.keys.length,
+      kids: positiveMemoryCache.resolution.keys.map((key) => key.kid),
+    });
     return positiveMemoryCache.resolution;
   }
 
