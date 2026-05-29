@@ -1229,6 +1229,110 @@ test.describe('PI Chat E2E', () => {
       .toBe('hidden');
   });
 
+  test('should load the selected agent model before the first chat session starts', async ({ page }) => {
+    let patchedConfig: Record<string, unknown> | null = null;
+
+    await page.route('**/api/agents', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            agents: [
+              { agentId: 'canvas-agent', name: 'Canvas Agent', type: 'main', removable: false },
+              { agentId: 'research-agent', name: 'Research Agent', type: 'special', removable: true },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/agents/config**', async (route) => {
+      const request = route.request();
+      if (request.method() === 'PATCH') {
+        patchedConfig = request.postDataJSON() as Record<string, unknown>;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true }),
+        });
+        return;
+      }
+
+      const url = new URL(request.url());
+      const agentId = url.searchParams.get('agentId') || 'canvas-agent';
+      const isResearchAgent = agentId === 'research-agent';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            piConfig: {
+              activeProvider: isResearchAgent ? 'anthropic' : 'openai',
+              providers: isResearchAgent
+                ? { anthropic: { model: 'claude-sonnet-4.5', thinking: 'medium' } }
+                : { openai: { model: 'gpt-4o', thinking: 'off' } },
+            },
+            effectiveConfig: {
+              agentId,
+              activeProvider: isResearchAgent ? 'anthropic' : 'openai',
+              model: isResearchAgent ? 'claude-sonnet-4.5' : 'gpt-4o',
+              thinkingLevel: isResearchAgent ? 'medium' : 'off',
+            },
+            discovery: isResearchAgent
+              ? {
+                  anthropic: {
+                    models: [
+                      { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', reasoning: true },
+                      { id: 'claude-opus-4.1', name: 'Claude Opus 4.1', reasoning: true },
+                    ],
+                  },
+                }
+              : {
+                  openai: {
+                    models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+                  },
+                },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/sessions**', async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.continue();
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, sessions: [] }),
+      });
+    });
+
+    await login(page);
+
+    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /openai \/ GPT-4o/);
+    await page.getByTestId('chat-agent-id').click();
+    await page.getByRole('button', { name: /Research Agent\s+research-agent/i }).click();
+
+    await expect(page.getByTestId('chat-agent-id')).toContainText('Research Agent');
+    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Sonnet 4\.5/);
+
+    await page.getByTestId('chat-model-selector').click();
+    await page.getByText('Claude Opus 4.1').click();
+
+    await expect.poll(() => patchedConfig).toMatchObject({
+      agentId: 'research-agent',
+      provider: 'anthropic',
+      model: 'claude-opus-4.1',
+      makeActiveProvider: true,
+    });
+  });
+
   test('should keep session and model hidden from the mobile header until details are expanded', async ({ page }) => {
     const sessionId = 'sess-mobile-details';
 
