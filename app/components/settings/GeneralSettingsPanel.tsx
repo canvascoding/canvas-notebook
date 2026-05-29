@@ -5,9 +5,12 @@ import { useParams } from 'next/navigation';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { useTranslations } from 'next-intl';
-import { Languages, User, Mail, KeyRound, Info } from 'lucide-react';
+import { ExternalLink, Languages, User, Mail, KeyRound, Info } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+
+const CONTROL_PANEL_DASHBOARD_URL = 'https://notebook.canvas.holdings/dashboard';
 
 const LOGIN_ENV_KEYS = [
   { key: 'BOOTSTRAP_ADMIN_EMAIL', translationKey: 'general.loginInfo.emailKey' },
@@ -15,7 +18,15 @@ const LOGIN_ENV_KEYS = [
   { key: 'BOOTSTRAP_ADMIN_NAME', translationKey: 'general.loginInfo.nameKey' },
 ] as const;
 
-export function GeneralSettingsPanel({ userName = '', userEmail = '' }: { userName?: string; userEmail?: string }) {
+export function GeneralSettingsPanel({
+  userName = '',
+  userEmail = '',
+  isManagedControlPlane = false,
+}: {
+  userName?: string;
+  userEmail?: string;
+  isManagedControlPlane?: boolean;
+}) {
   const t = useTranslations('settings');
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -61,21 +72,35 @@ export function GeneralSettingsPanel({ userName = '', userEmail = '' }: { userNa
           <div className="rounded-lg border border-border bg-muted/40 p-3">
             <div className="flex items-start gap-2">
               <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground leading-relaxed">{t('general.loginInfoSelfHostedNote')}</p>
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t(isManagedControlPlane ? 'general.loginInfoManagedNote' : 'general.loginInfoSelfHostedNote')}
+                </p>
+                {isManagedControlPlane && (
+                  <Button asChild size="sm" variant="outline" className="h-8">
+                    <a href={CONTROL_PANEL_DASHBOARD_URL} target="_blank" rel="noreferrer">
+                      {t('general.loginInfoControlPanelLink')}
+                      <ExternalLink className="ml-2 h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
-          <div className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('general.loginInfoEnvKeys')}</span>
-            <div className="space-y-1.5">
-              {LOGIN_ENV_KEYS.map(({ key, translationKey }) => (
-                <div key={key} className="flex items-center gap-2 text-sm">
-                  <KeyRound className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{key}</code>
-                  <span className="text-muted-foreground">— {t(translationKey)}</span>
-                </div>
-              ))}
+          {!isManagedControlPlane && (
+            <div className="space-y-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('general.loginInfoEnvKeys')}</span>
+              <div className="space-y-1.5">
+                {LOGIN_ENV_KEYS.map(({ key, translationKey }) => (
+                  <div key={key} className="flex items-center gap-2 text-sm">
+                    <KeyRound className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{key}</code>
+                    <span className="text-muted-foreground">— {t(translationKey)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 

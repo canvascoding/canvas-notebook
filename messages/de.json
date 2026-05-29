@@ -864,6 +864,8 @@
       "loginInfoDescription": "Deine aktuellen Zugangsdaten und wie du sie ändern kannst.",
       "loginInfoEmail": "E-Mail",
       "loginInfoName": "Name",
+      "loginInfoManagedNote": "Diese VM wird über das Canvas Control Panel verwaltet. Zugangsdaten änderst du in der Control-Panel-UI; das Notebook übernimmt die aktualisierten Einstellungen von dort.",
+      "loginInfoControlPanelLink": "Control Panel öffnen",
       "loginInfoSelfHostedNote": "In der Self-Hosted-Variante können die Zugangsdaten nur über Umgebungsvariablen geändert werden, bevor der Container gestartet wird. Nach dem Ändern der Werte muss der Container neu gestartet werden.",
       "loginInfoEnvKeys": "Umgebungsvariablen",
       "loginInfo": {

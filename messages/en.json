@@ -865,6 +865,8 @@
       "loginInfoDescription": "Your current login credentials and how to change them.",
       "loginInfoEmail": "Email",
       "loginInfoName": "Name",
+      "loginInfoManagedNote": "This VM is managed by Canvas Control Panel. Change login credentials in the Control Panel UI; the notebook receives the updated settings from there.",
+      "loginInfoControlPanelLink": "Open Control Panel",
       "loginInfoSelfHostedNote": "In the self-hosted version, login credentials can only be changed via environment variables before starting the container. Restart the container after changing the values.",
       "loginInfoEnvKeys": "Environment variables",
       "loginInfo": {
