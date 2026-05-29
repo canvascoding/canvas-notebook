@@ -72,15 +72,83 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trigger EasyPanel deploy webhook
+      - name: Notify Control Plane release webhook
         env:
-          EASYPANEL_DEPLOY_WEBHOOK_URL: ${{ secrets.EASYPANEL_DEPLOY_WEBHOOK_URL }}
+          CONTROL_PLANE_RELEASE_WEBHOOK_URL: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_URL }}
+          CONTROL_PLANE_RELEASE_WEBHOOK_SECRET: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET }}
+          DOCKER_METADATA_TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          if [ -z "${EASYPANEL_DEPLOY_WEBHOOK_URL}" ]; then
-            echo "EASYPANEL_DEPLOY_WEBHOOK_URL secret is missing."
+          if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_URL}" ]; then
+            echo "CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing."
             exit 1
           fi
 
-          curl --fail --show-error --silent --location \
-            --request POST \
-            "${EASYPANEL_DEPLOY_WEBHOOK_URL}"
+          if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_SECRET}" ]; then
+            echo "CONTROL_PLANE_RELEASE_WEBHOOK_SECRET secret is missing."
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+
+          const tags = (process.env.DOCKER_METADATA_TAGS || '')
+            .split(/\r?\n/)
+            .map((tag) => tag.trim())
+            .filter(Boolean);
+          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const isTag = process.env.GITHUB_REF_TYPE === 'tag';
+          const tag = isTag ? process.env.GITHUB_REF_NAME || '' : '';
+          const eventName = process.env.GITHUB_EVENT_NAME || '';
+          const event = isTag ? 'release_published' : eventName === 'schedule' ? 'image_rebuilt' : 'image_pushed';
+          const version = tag ? tag.replace(/^v/i, '') : String(packageJson.version || '');
+          const payload = {
+            event,
+            repository: process.env.GITHUB_REPOSITORY,
+            ref: process.env.GITHUB_REF,
+            tag: tag || undefined,
+            version,
+            commitSha: process.env.GITHUB_SHA,
+            image: {
+              name: process.env.GHCR_IMAGE,
+              tags,
+              digest: process.env.IMAGE_DIGEST || undefined,
+            },
+            workflow: {
+              runId: process.env.GITHUB_RUN_ID,
+              runNumber: process.env.GITHUB_RUN_NUMBER,
+              runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            },
+            source: 'github_actions',
+            publishedAt: new Date().toISOString(),
+            metadata: {
+              actor: process.env.GITHUB_ACTOR,
+              eventName,
+              workflow: process.env.GITHUB_WORKFLOW,
+            },
+          };
+          const body = JSON.stringify(payload);
+          const timestamp = Math.floor(Date.now() / 1000).toString();
+          const delivery = `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${process.env.GITHUB_SHA}`;
+          const signature = 'sha256=' + crypto
+            .createHmac('sha256', process.env.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET)
+            .update(`${timestamp}.${body}`)
+            .digest('hex');
+          const response = await fetch(process.env.CONTROL_PLANE_RELEASE_WEBHOOK_URL, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-canvas-delivery': delivery,
+              'x-canvas-timestamp': timestamp,
+              'x-canvas-signature': signature,
+            },
+            body,
+          });
+          const text = await response.text();
+          if (!response.ok) {
+            console.error(`Control Plane release webhook failed (${response.status}): ${text}`);
+            process.exit(1);
+          }
+          console.log(`Control Plane release webhook accepted: ${text}`);
+          NODE
