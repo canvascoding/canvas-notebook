@@ -649,7 +649,15 @@ export function AspectRatioEditorView() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ action: 'keep_edit', previewPath: preview.path }),
+        body: JSON.stringify({
+          action: 'keep_edit',
+          previewPath: preview.path,
+          sourcePath,
+          aspectRatio,
+          mode: preview.mode,
+          provider,
+          model,
+        }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.saveFailed'));
