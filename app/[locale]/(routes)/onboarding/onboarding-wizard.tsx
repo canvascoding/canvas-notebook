@@ -1,24 +1,59 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState, useTransition } from 'react';
 import Image from 'next/image';
 import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
-import { useTransition } from 'react';
 
 import { PiProviderSetupCard } from '@/app/components/settings/PiProviderSetupCard';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Languages } from 'lucide-react';
+import { CheckCircle2, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
 
-type Step = 'language' | 'provider' | 'done';
+type Step = 'language' | 'license' | 'provider' | 'done';
 
-const STEPS: Step[] = ['language', 'provider', 'done'];
+const STEPS: Step[] = ['language', 'license', 'provider', 'done'];
 
-export default function OnboardingWizard() {
+type LicenseStatus = {
+  licensed?: boolean;
+  plan?: string;
+  source?: string;
+  instanceId?: string;
+  expiresAt?: string | null;
+  error?: string;
+  code?: string;
+};
+
+type LicenseErrorMessageKey =
+  | 'licenseErrorPublicKeyUnavailable'
+  | 'licenseErrorControlPlaneUnreachable'
+  | 'licenseErrorUntrustedPublicKey'
+  | 'licenseErrorExpired'
+  | 'licenseErrorRequired';
+
+function licenseErrorMessage(t: (key: LicenseErrorMessageKey) => string, error?: string) {
+  switch (error) {
+    case 'missing_public_key':
+    case 'public_key_unavailable':
+      return t('licenseErrorPublicKeyUnavailable');
+    case 'control_plane_unreachable':
+      return t('licenseErrorControlPlaneUnreachable');
+    case 'untrusted_public_key':
+      return t('licenseErrorUntrustedPublicKey');
+    case 'license_expired':
+      return t('licenseErrorExpired');
+    default:
+      return error || t('licenseErrorRequired');
+  }
+}
+
+export default function OnboardingWizard({ defaultEmail }: { defaultEmail: string }) {
   const t = useTranslations('onboarding');
   const [step, setStep] = useState<Step>('language');
   const [completeLoading, setCompleteLoading] = useState(false);
@@ -85,6 +120,13 @@ export default function OnboardingWizard() {
 
               {step === 'language' && (
                 <LanguageStep
+                  onContinue={() => setStep('license')}
+                />
+              )}
+
+              {step === 'license' && (
+                <LicenseStep
+                  defaultEmail={defaultEmail}
                   onContinue={() => setStep('provider')}
                 />
               )}
@@ -133,6 +175,171 @@ export default function OnboardingWizard() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function LicenseStep({ defaultEmail, onContinue }: { defaultEmail: string; onContinue: () => void }) {
+  const t = useTranslations('onboarding');
+  const [status, setStatus] = useState<LicenseStatus | null>(null);
+  const [email, setEmail] = useState(defaultEmail);
+  const [key, setKey] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [activating, setActivating] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const response = await fetch('/api/license/status', { cache: 'no-store' });
+      const payload = await response.json().catch(() => ({})) as LicenseStatus;
+      setStatus(payload);
+      if (!response.ok) toast.error(t('licenseStatusError'));
+      return payload;
+    } catch {
+      toast.error(t('licenseStatusError'));
+      return null;
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    const keyParam = new URLSearchParams(window.location.search).get('key');
+    if (keyParam) setKey(keyParam);
+    void loadStatus();
+  }, [loadStatus]);
+
+  async function requestLicense() {
+    setRegistering(true);
+    try {
+      const response = await fetch('/api/license/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, activationPath: window.location.pathname }),
+      });
+      const payload = await response.json().catch(() => ({})) as { success?: boolean; error?: string; code?: string };
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.code ? `${payload.error || t('licenseRequestFailed')} (${payload.code})` : payload.error || t('licenseRequestFailed'));
+      }
+      toast.success(t('licenseEmailSent'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('licenseRequestFailed'));
+    } finally {
+      setRegistering(false);
+    }
+  }
+
+  async function activateLicense() {
+    setActivating(true);
+    try {
+      const response = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      const payload = await response.json().catch(() => ({})) as LicenseStatus & { success?: boolean; error?: string; code?: string };
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.code ? `${payload.error || t('licenseActivationFailed')} (${payload.code})` : payload.error || t('licenseActivationFailed'));
+      }
+      setStatus(payload);
+      toast.success(t('licenseActivated'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('licenseActivationFailed'));
+    } finally {
+      setActivating(false);
+    }
+  }
+
+  const licensed = Boolean(status?.licensed);
+  const managed = status?.plan === 'managed';
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        {licensed ? (
+          <CheckCircle2 className="mx-auto mb-4 h-12 w-12 text-primary" />
+        ) : (
+          <ShieldAlert className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+        )}
+        <h2 className="mb-1 text-xl font-semibold">
+          {licensed && managed ? t('licenseManagedTitle') : t('licenseTitle')}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {licensed && managed ? t('licenseManagedDescription') : t('licenseDescription')}
+        </p>
+      </div>
+
+      <div className="border border-border bg-muted/30 p-4 text-sm">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">{t('licenseStatus')}</span>
+          <Badge variant={licensed ? 'default' : 'secondary'}>{loading ? t('licenseChecking') : status?.plan || t('licenseUnregistered')}</Badge>
+        </div>
+        {status?.instanceId && (
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">{t('licenseInstanceId')}</span>
+            <span className="truncate font-mono text-xs">{status.instanceId}</span>
+          </div>
+        )}
+        {status?.expiresAt && (
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">{t('licenseExpires')}</span>
+            <span>{new Date(status.expiresAt).toLocaleString()}</span>
+          </div>
+        )}
+        {!licensed && status?.error && (
+          <div className="mt-3 border border-destructive/30 bg-destructive/10 p-3 text-destructive">
+            <p>{licenseErrorMessage(t, status.error)}</p>
+            {status.code && <p className="mt-1 font-mono text-xs text-muted-foreground">{status.code}</p>}
+          </div>
+        )}
+      </div>
+
+      {licensed ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button variant="outline" onClick={() => void loadStatus()} disabled={refreshing} className="gap-2">
+            {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {t('licenseCheckAgain')}
+          </Button>
+          <Button onClick={onContinue}>{t('licenseContinue')}</Button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="onboarding-license-email">{t('licenseEmail')}</Label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input id="onboarding-license-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+              <Button onClick={requestLicense} disabled={registering || !email.trim()} className="gap-2">
+                {registering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                {t('licenseSendKey')}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="onboarding-license-key">{t('licenseActivationKey')}</Label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input id="onboarding-license-key" value={key} onChange={(event) => setKey(event.target.value)} />
+              <Button onClick={activateLicense} disabled={activating || !key.trim()} className="gap-2">
+                {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                {t('licenseActivate')}
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+            <Button variant="outline" onClick={() => void loadStatus()} disabled={refreshing} className="gap-2">
+              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {t('licenseCheckAgain')}
+            </Button>
+            <Button onClick={onContinue} disabled={!licensed}>
+              {t('licenseContinue')}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

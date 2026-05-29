@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({})) as { email?: string };
+  const body = await request.json().catch(() => ({})) as { email?: string; activationPath?: string };
   const email = body.email?.trim() || session.user.email;
   if (!email || !email.includes('@')) {
     console.warn(`${LOG_PREFIX} invalid email request`);
@@ -22,7 +22,11 @@ export async function POST(request: NextRequest) {
   try {
     const controlPlaneUrl = getLicenseControlPlaneUrl();
     const instanceId = getLicenseInstanceId();
-    const activationUrl = `${getRequestOrigin(request)}/settings?tab=license`;
+    const activationPath = body.activationPath?.trim();
+    const safeActivationPath = activationPath && activationPath.startsWith('/') && !activationPath.startsWith('//')
+      ? activationPath
+      : '/settings?tab=license';
+    const activationUrl = `${getRequestOrigin(request)}${safeActivationPath}`;
     const response = await fetch(`${controlPlaneUrl}/v1/license/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

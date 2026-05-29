@@ -13,11 +13,12 @@ export default async function OnboardingPage() {
     redirect({ href: '/', locale });
   }
 
-  await requirePageSession({ allowIncompleteOnboarding: true });
+  const session = await requirePageSession({ allowIncompleteOnboarding: true });
+  if (!session) return null;
 
   if (await isOnboardingComplete()) {
     redirect({ href: '/', locale });
   }
 
-  return <OnboardingWizard />;
+  return <OnboardingWizard defaultEmail={session.user.email ?? ''} />;
 }

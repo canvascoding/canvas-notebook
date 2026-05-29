@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingEnabled, isOnboardingComplete, markOnboardingComplete } from '@/app/lib/onboarding/status';
 
 export async function POST(request: NextRequest) {
@@ -15,6 +16,14 @@ export async function POST(request: NextRequest) {
 
   if (await isOnboardingComplete()) {
     return NextResponse.json({ success: true });
+  }
+
+  const licenseStatus = await getLicenseStatus();
+  if (!licenseStatus.licensed) {
+    return NextResponse.json(
+      { error: 'License activation required', code: 'LICENSE_REQUIRED' },
+      { status: 402 },
+    );
   }
 
   await markOnboardingComplete({
