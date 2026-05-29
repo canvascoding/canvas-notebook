@@ -84,6 +84,7 @@ export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
 
 NEXT_PID=""
 SCHEDULER_PID=""
+SHUTDOWN_SIGNAL=""
 
 # ─── Step 1: Terminal Service ─────────────────────────────────────────────
 step "Terminal Service"
@@ -117,7 +118,21 @@ cleanup() {
   if [ -n "${NEXT_PID:-}" ]; then kill "$NEXT_PID" 2>/dev/null || true; fi
   wait || true
 }
-trap cleanup EXIT TERM INT
+
+handle_signal() {
+  SHUTDOWN_SIGNAL="$1"
+  printf '\n  [start-services] Received %s, shutting down...\n' "$SHUTDOWN_SIGNAL" >&2
+  cleanup
+  case "$SHUTDOWN_SIGNAL" in
+    INT) exit 130 ;;
+    TERM) exit 143 ;;
+    *) exit 0 ;;
+  esac
+}
+
+trap cleanup EXIT
+trap 'handle_signal TERM' TERM
+trap 'handle_signal INT' INT
 
 # ─── Step 3: Next.js ─────────────────────────────────────────────────────
 step "Next.js startup"
@@ -161,4 +176,13 @@ step_ok
 
 printf '\n\n  Canvas Notebook ready.\n\n'
 
-wait "$NEXT_PID"
+NEXT_EXIT_STATUS=0
+wait "$NEXT_PID" || NEXT_EXIT_STATUS=$?
+
+if [ "$NEXT_EXIT_STATUS" -eq 0 ]; then
+  printf '\n  [start-services] Next.js process exited cleanly; stopping container.\n' >&2
+else
+  printf '\n  [start-services] Next.js process exited with status %s; stopping container.\n' "$NEXT_EXIT_STATUS" >&2
+fi
+
+exit "$NEXT_EXIT_STATUS"
