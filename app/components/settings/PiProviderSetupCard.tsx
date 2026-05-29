@@ -633,6 +633,7 @@ export function PiProviderSetupCard({
 
   const isCanvasControlPlaneActive = piConfigDraft.activeProvider === CANVAS_CONTROL_PLANE_PROVIDER_ID;
   const normalActiveProviderId = isCanvasControlPlaneActive ? '' : piConfigDraft.activeProvider;
+  const activeProviderSelectValue = piConfigDraft.activeProvider;
   const activeProviderConfig = normalActiveProviderId ? piConfigDraft.providers[normalActiveProviderId] : null;
   const activeProviderModels = normalActiveProviderId ? discovery[normalActiveProviderId]?.models || [] : [];
   const activeProviderConfiguredModel = activeProviderConfig?.model?.trim() || '';
@@ -662,6 +663,10 @@ export function PiProviderSetupCard({
         },
       )
     : discoveredOrConfiguredNormalProviders;
+  const activeProviderOptions = [
+    ...(managed.canvasControlPlaneAvailable || isCanvasControlPlaneActive ? [CANVAS_CONTROL_PLANE_PROVIDER_ID] : []),
+    ...filteredProviders,
+  ].filter((providerId, index, providers) => providers.indexOf(providerId) === index);
 
   const handleAuthMethodChange = (method: AuthMethodCategory) => {
     const previousMethod = authMethodSelection;
@@ -871,7 +876,7 @@ export function PiProviderSetupCard({
             <select
               data-testid="provider-select"
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              value={normalActiveProviderId}
+              value={activeProviderSelectValue}
               onChange={(event) => {
                 const newProvider = event.target.value;
                 if (!newProvider) {
@@ -885,9 +890,9 @@ export function PiProviderSetupCard({
               disabled={configSaving}
             >
               <option value="" disabled>{t('provider.selectProvider')}</option>
-              {filteredProviders.map((providerId) => (
+              {activeProviderOptions.map((providerId) => (
                 <option key={providerId} value={providerId}>
-                  {providerId}
+                  {providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID ? t('provider.canvasControlPlane.title') : providerId}
                 </option>
               ))}
             </select>
