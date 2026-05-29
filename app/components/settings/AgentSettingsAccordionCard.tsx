@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
 
 type AgentSettingsAccordionCardProps = {
   id?: string;
@@ -15,6 +16,8 @@ type AgentSettingsAccordionCardProps = {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   summaryItems?: ReactNode[];
+  cardClassName?: string;
+  contentClassName?: string;
   children: ReactNode;
 };
 
@@ -26,13 +29,15 @@ export function AgentSettingsAccordionCard({
   isOpen,
   onOpenChange,
   summaryItems = [],
+  cardClassName,
+  contentClassName,
   children,
 }: AgentSettingsAccordionCardProps) {
   const t = useTranslations('settings');
 
   return (
     <Collapsible open={isOpen} onOpenChange={onOpenChange}>
-      <Card id={id} className="gap-0 py-0">
+      <Card id={id} className={cn('gap-0 py-0', cardClassName)}>
         <CardHeader className="p-0">
           <CollapsibleTrigger asChild>
             <button
@@ -68,7 +73,7 @@ export function AgentSettingsAccordionCard({
           </CollapsibleTrigger>
         </CardHeader>
         <CollapsibleContent>
-          <CardContent className="space-y-3 px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+          <CardContent className={cn('space-y-3 px-4 pb-4 pt-0 sm:px-6 sm:pb-6', contentClassName)}>
             {children}
           </CardContent>
         </CollapsibleContent>

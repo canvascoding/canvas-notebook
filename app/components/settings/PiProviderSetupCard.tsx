@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
@@ -11,6 +12,7 @@ import {
   Loader2,
   RefreshCw,
   Save,
+  Settings,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -37,6 +39,7 @@ import {
 } from '@/app/lib/pi/provider-help';
 import { ProviderEnvEditor } from './ProviderEnvEditor';
 import { PiOAuthButton } from './PiOAuthButton';
+import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 
 type DiscoveryMetadata = Record<string, { models: { id: string; name: string; supportsVision?: boolean }[] }>;
 
@@ -76,6 +79,8 @@ type PiProviderSetupCardProps = {
   mode?: 'main' | 'override';
   title?: string;
   description?: string;
+  isOpen?: boolean;
+  onOpenChange?: (isOpen: boolean) => void;
   saveButtonLabel?: string;
   saveSuccessMessage?: string;
   onSaved?: (payload: { piConfig: PiRuntimeConfig; readiness: AgentConfigReadiness }) => Promise<void> | void;
@@ -249,6 +254,8 @@ export function PiProviderSetupCard({
   mode = 'main',
   title,
   description,
+  isOpen,
+  onOpenChange,
   saveButtonLabel,
   saveSuccessMessage,
   onSaved,
@@ -275,6 +282,36 @@ export function PiProviderSetupCard({
   const resolvedSaveSuccessMessage = saveSuccessMessage ?? t('provider.saveSuccess');
   const terminalPath = `/${locale}/terminal`;
   const isOverrideMode = mode === 'override';
+  const renderFrame = (children: ReactNode, summaryItems: ReactNode[] = []) => {
+    if (typeof isOpen === 'boolean' && onOpenChange) {
+      return (
+        <AgentSettingsAccordionCard
+          title={resolvedTitle}
+          description={resolvedDescription}
+          icon={Settings}
+          isOpen={isOpen}
+          onOpenChange={onOpenChange}
+          summaryItems={summaryItems}
+          cardClassName="border-primary shadow-sm"
+          contentClassName="space-y-4"
+        >
+          {children}
+        </AgentSettingsAccordionCard>
+      );
+    }
+
+    return (
+      <Card className="border-primary shadow-sm">
+        <CardHeader>
+          <CardTitle>{resolvedTitle}</CardTitle>
+          <CardDescription>{resolvedDescription}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {children}
+        </CardContent>
+      </Card>
+    );
+  };
 
   const loadProviderStatus = useCallback(async (providerId: string) => {
     setSelectedProviderLoading(true);
@@ -562,6 +599,16 @@ export function PiProviderSetupCard({
   };
 
   if (configLoading && !piConfigDraft) {
+    if (typeof isOpen === 'boolean' && onOpenChange) {
+      return renderFrame(
+        <div className="flex items-center text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          {t('provider.loadingConfig')}
+        </div>,
+        [t('provider.loadingConfig')],
+      );
+    }
+
     return (
       <div className="flex items-center p-8 text-sm text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -571,11 +618,17 @@ export function PiProviderSetupCard({
   }
 
   if (!piConfigDraft) {
-    return (
+    const errorContent = (
       <div className="rounded border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
         {configError || t('provider.loadConfigFailed')}
       </div>
     );
+
+    if (typeof isOpen === 'boolean' && onOpenChange) {
+      return renderFrame(errorContent, [t('provider.errorSummary')]);
+    }
+
+    return errorContent;
   }
 
   const isCanvasControlPlaneActive = piConfigDraft.activeProvider === CANVAS_CONTROL_PLANE_PROVIDER_ID;
@@ -651,14 +704,23 @@ export function PiProviderSetupCard({
     return method;
   })();
   console.log(`[PiProviderSetupCard] effectiveAuthMethod=${effectiveAuthMethod}, authMethodSelection=${authMethodSelection ?? 'null'}, providerAuthMethod=${activeProviderConfig?.authMethod ?? 'not set'}`);
+  const runtimeSummaryProvider = isCanvasControlPlaneActive
+    ? t('provider.canvasControlPlane.title')
+    : normalActiveProviderId || t('provider.notSet');
+  const runtimeSummaryModel = isCanvasControlPlaneActive
+    ? canvasControlPlaneConfiguredModel || t('provider.notSet')
+    : activeProviderConfiguredModel || t('provider.notSet');
+  const runtimeSummaryItems = [
+    t('provider.runtimeSummary', {
+      provider: runtimeSummaryProvider,
+      model: runtimeSummaryModel,
+    }),
+    configError ? t('provider.errorSummary') : null,
+    configSuccess ? t('provider.savedSummary') : null,
+  ].filter((item): item is string => Boolean(item));
 
-  return (
-    <Card className="border-primary shadow-sm">
-      <CardHeader>
-        <CardTitle>{resolvedTitle}</CardTitle>
-        <CardDescription>{resolvedDescription}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+  return renderFrame(
+    <>
         {managed.canvasControlPlaneAvailable && (
           <div data-testid="canvas-control-plane-provider-card" className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1188,8 +1250,8 @@ export function PiProviderSetupCard({
             {t('provider.reload')}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+    </>,
+    runtimeSummaryItems,
   );
 }
 

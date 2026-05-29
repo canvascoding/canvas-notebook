@@ -37,12 +37,14 @@ type PiConfigData = {
   [key: string]: unknown;
 };
 
-type AgentSettingsSectionId = 'chatDisplay' | 'sessions' | 'doctor';
+type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'sessions' | 'doctor';
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
 const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
 const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState = {
+  runtime: false,
   chatDisplay: false,
+  tools: false,
   sessions: false,
   doctor: false,
 };
@@ -58,7 +60,9 @@ function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSe
   try {
     const storedState = JSON.parse(window.localStorage.getItem(AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY) || '{}') as Partial<AgentSettingsSectionOpenState>;
     return {
+      runtime: typeof storedState.runtime === 'boolean' ? storedState.runtime : fallback.runtime,
       chatDisplay: typeof storedState.chatDisplay === 'boolean' ? storedState.chatDisplay : fallback.chatDisplay,
+      tools: typeof storedState.tools === 'boolean' ? storedState.tools : fallback.tools,
       sessions: typeof storedState.sessions === 'boolean' ? storedState.sessions : fallback.sessions,
       doctor: requestedPanel === 'doctor' || (typeof storedState.doctor === 'boolean' ? storedState.doctor : fallback.doctor),
     };
@@ -840,6 +844,8 @@ export function AgentSettingsPanel() {
           <PiProviderSetupCard
             agentId={selectedAgentId}
             mode={isMainAgent ? 'main' : 'override'}
+            isOpen={agentSectionOpenById.runtime}
+            onOpenChange={(isOpen) => setAgentSectionOpen('runtime', isOpen)}
             title={isMainAgent ? undefined : t('agentPanel.inheritance.modelCardTitle')}
             description={isMainAgent ? undefined : t('agentPanel.inheritance.modelCardDescription')}
             saveSuccessMessage={isMainAgent ? undefined : t('agentPanel.inheritance.overrideSaved')}
@@ -868,6 +874,8 @@ export function AgentSettingsPanel() {
           toolsLoading={toolsLoading}
           toolsSaving={toolsSaving}
           toolsError={toolsError}
+          isOpen={agentSectionOpenById.tools}
+          onOpenChange={(isOpen) => setAgentSectionOpen('tools', isOpen)}
           toolSearchQuery={toolSearchQuery}
           isToolEnabled={isToolEnabled}
           onToolSearchQueryChange={setToolSearchQuery}
