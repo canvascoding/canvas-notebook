@@ -43,7 +43,7 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
   providers: {
     openrouter: {
       id: 'openrouter',
-      model: 'anthropic/claude-3.5-sonnet',
+      model: 'anthropic/claude-sonnet-4.5',
       thinking: 'medium',
       enabledTools: [],
     },
@@ -68,7 +68,7 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
     },
     'canvas-control-plane': {
       id: 'canvas-control-plane',
-      model: 'anthropic/claude-3.5-sonnet',
+      model: 'anthropic/claude-sonnet-4.5',
       thinking: 'medium',
       enabledTools: [],
     },

@@ -89,6 +89,15 @@ export const OLLAMA_MODELS: Model<'openai-completions'>[] = [
 const FALLBACK_CANVAS_CONTROL_PLANE_MODELS: ManagedControlPlaneModel[] = [
 ];
 
+const LEGACY_MODEL_COMPATIBILITY: Record<string, string[]> = {
+  'anthropic/claude-3.5-sonnet': [
+    'anthropic/claude-sonnet-4.5',
+    'anthropic/claude-sonnet-4',
+    'anthropic/claude-3.7-sonnet',
+    '~anthropic/claude-sonnet-latest',
+  ],
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -292,6 +301,25 @@ export function getPiModels(provider: string, customModel?: string) {
   }
 }
 
+export function findModelWithCompatibilityFallback<T extends { id: string }>(
+  models: T[],
+  modelName: string,
+): T | undefined {
+  const exactModel = models.find((candidate) => candidate.id === modelName);
+  if (exactModel) {
+    return exactModel;
+  }
+
+  for (const fallbackModelName of LEGACY_MODEL_COMPATIBILITY[modelName] || []) {
+    const fallbackModel = models.find((candidate) => candidate.id === fallbackModelName);
+    if (fallbackModel) {
+      return fallbackModel;
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Resolves the PI model instance based on user configuration.
  * For Ollama, dynamically sets the correct baseUrl based on mode.
@@ -310,7 +338,10 @@ export async function resolvePiModel(provider: string, modelName: string) {
   const models = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
     ? await getCanvasControlPlaneModels()
     : getPiModels(provider, customModel);
-  let model = models.find(m => m.id === modelName);
+  let model = findModelWithCompatibilityFallback(models, modelName);
+  if (model && model.id !== modelName) {
+    console.warn(`[PI Model Resolver] Model ${modelName} is no longer available for provider ${provider}; using ${model.id}.`);
+  }
   
   // For Ollama custom models, create model entry if not found
   if (provider === OLLAMA_PROVIDER_ID && !model && providerConfig?.ollamaModelSource === 'custom') {
