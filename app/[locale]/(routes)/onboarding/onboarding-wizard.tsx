@@ -53,7 +53,19 @@ function licenseErrorMessage(t: (key: LicenseErrorMessageKey) => string, error?:
   }
 }
 
-export default function OnboardingWizard({ defaultEmail }: { defaultEmail: string }) {
+async function fetchLicenseStatusPayload() {
+  const response = await fetch('/api/license/status', { cache: 'no-store' });
+  const payload = await response.json().catch(() => ({})) as LicenseStatus;
+  return { response, payload };
+}
+
+export default function OnboardingWizard({
+  defaultEmail,
+  initialLicenseKey,
+}: {
+  defaultEmail: string;
+  initialLicenseKey: string;
+}) {
   const t = useTranslations('onboarding');
   const [step, setStep] = useState<Step>('language');
   const [completeLoading, setCompleteLoading] = useState(false);
@@ -127,6 +139,7 @@ export default function OnboardingWizard({ defaultEmail }: { defaultEmail: strin
               {step === 'license' && (
                 <LicenseStep
                   defaultEmail={defaultEmail}
+                  initialLicenseKey={initialLicenseKey}
                   onContinue={() => setStep('provider')}
                 />
               )}
@@ -179,21 +192,27 @@ export default function OnboardingWizard({ defaultEmail }: { defaultEmail: strin
   );
 }
 
-function LicenseStep({ defaultEmail, onContinue }: { defaultEmail: string; onContinue: () => void }) {
+function LicenseStep({
+  defaultEmail,
+  initialLicenseKey,
+  onContinue,
+}: {
+  defaultEmail: string;
+  initialLicenseKey: string;
+  onContinue: () => void;
+}) {
   const t = useTranslations('onboarding');
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [email, setEmail] = useState(defaultEmail);
-  const [key, setKey] = useState('');
+  const [key, setKey] = useState(initialLicenseKey);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [activating, setActivating] = useState(false);
 
-  const loadStatus = useCallback(async () => {
-    setRefreshing(true);
+  const fetchLicenseStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/license/status', { cache: 'no-store' });
-      const payload = await response.json().catch(() => ({})) as LicenseStatus;
+      const { response, payload } = await fetchLicenseStatusPayload();
       setStatus(payload);
       if (!response.ok) toast.error(t('licenseStatusError'));
       return payload;
@@ -202,15 +221,38 @@ function LicenseStep({ defaultEmail, onContinue }: { defaultEmail: string; onCon
       return null;
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [t]);
 
+  const loadStatus = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      return await fetchLicenseStatus();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchLicenseStatus]);
+
   useEffect(() => {
-    const keyParam = new URLSearchParams(window.location.search).get('key');
-    if (keyParam) setKey(keyParam);
-    void loadStatus();
-  }, [loadStatus]);
+    let mounted = true;
+
+    fetchLicenseStatusPayload()
+      .then(({ response, payload }) => {
+        if (!mounted) return;
+        setStatus(payload);
+        if (!response.ok) toast.error(t('licenseStatusError'));
+      })
+      .catch(() => {
+        if (mounted) toast.error(t('licenseStatusError'));
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [t]);
 
   async function requestLicense() {
     setRegistering(true);

@@ -6,8 +6,17 @@ import OnboardingWizard from './onboarding-wizard';
 
 export const dynamic = 'force-dynamic';
 
-export default async function OnboardingPage() {
+type OnboardingPageProps = {
+  searchParams: Promise<{ key?: string | string[] }>;
+};
+
+function getInitialLicenseKey(keyParam?: string | string[]) {
+  return Array.isArray(keyParam) ? keyParam[0] || '' : keyParam || '';
+}
+
+export default async function OnboardingPage({ searchParams }: OnboardingPageProps) {
   const locale = await getLocale();
+  const params = await searchParams;
 
   if (!isOnboardingEnabled()) {
     redirect({ href: '/', locale });
@@ -20,5 +29,5 @@ export default async function OnboardingPage() {
     redirect({ href: '/', locale });
   }
 
-  return <OnboardingWizard defaultEmail={session.user.email ?? ''} />;
+  return <OnboardingWizard defaultEmail={session.user.email ?? ''} initialLicenseKey={getInitialLicenseKey(params.key)} />;
 }
