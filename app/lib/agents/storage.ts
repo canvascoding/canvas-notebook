@@ -72,7 +72,7 @@ export class AgentConfigValidationError extends Error {
   }
 }
 
-function isManagedControlPlaneAvailable(): boolean {
+export function isManagedControlPlaneAvailable(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' ||
     Boolean(process.env.CANVAS_CONTROL_PLANE_URL?.trim() && process.env.CANVAS_INSTANCE_TOKEN?.trim())
@@ -88,12 +88,26 @@ function withRuntimeProviderDefaults(config: PiRuntimeConfig): PiRuntimeConfig {
   if (isManagedControlPlaneAvailable() && !next.providers['canvas-control-plane']) {
     next.providers['canvas-control-plane'] = {
       id: 'canvas-control-plane',
-      model: 'anthropic/claude-3.5-sonnet',
+      model: '',
       thinking: 'medium',
       enabledTools: [],
     };
   }
   return next;
+}
+
+function createUnconfiguredPiRuntimeConfig(): PiRuntimeConfig {
+  const next = deepClone(DEFAULT_PI_CONFIG);
+  next.providers = Object.fromEntries(
+    Object.entries(next.providers).map(([providerId, providerConfig]) => [
+      providerId,
+      {
+        ...providerConfig,
+        model: '',
+      },
+    ]),
+  );
+  return withRuntimeProviderDefaults(next);
 }
 
 async function ensureStorageDirectory(): Promise<void> {
@@ -290,14 +304,14 @@ export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
   await ensureStorageDirectory();
   const rawContent = await readFileIfExists(PI_RUNTIME_CONFIG_PATH);
   if (rawContent === null) {
-    return withRuntimeProviderDefaults(DEFAULT_PI_CONFIG);
+    return createUnconfiguredPiRuntimeConfig();
   }
 
   try {
     const config = JSON.parse(rawContent) as PiRuntimeConfig;
     return withRuntimeProviderDefaults(config);
   } catch {
-    return withRuntimeProviderDefaults(DEFAULT_PI_CONFIG);
+    return createUnconfiguredPiRuntimeConfig();
   }
 }
 

@@ -728,7 +728,7 @@ export function AgentSettingsPanel() {
 
   const activeProviderId = toolsPiConfig?.activeProvider || selectedAgent?.defaultProvider || 'default';
   const activeProviderConfig = toolsPiConfig?.providers?.[activeProviderId];
-  const inheritedModelSummary = `${activeProviderId} / ${activeProviderConfig?.model || selectedAgent?.defaultModel || 'model'}`;
+  const inheritedModelSummary = `${activeProviderId} / ${activeProviderConfig?.model || selectedAgent?.defaultModel || t('agentPanel.selector.notSet')}`;
   const effectiveEnabledToolCount = availableTools.filter((tool) => isToolEnabled(tool.name)).length;
 
   return (

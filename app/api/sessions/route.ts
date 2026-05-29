@@ -8,7 +8,7 @@ import { and, desc, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
 import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
 import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
 import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
+import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
@@ -358,7 +358,14 @@ export async function POST(request: NextRequest) {
       if (!requestedAgent) {
         return NextResponse.json({ success: false, error: 'Agent not found' }, { status: 404 });
       }
-      const effectiveConfig = await resolveAgentRuntimeConfig(requestedAgentId);
+      const effectiveConfig = await resolveAgentRuntimeSettings(requestedAgentId);
+      if (!effectiveConfig.setupState.modelConfigured) {
+        return NextResponse.json({
+          success: false,
+          error: effectiveConfig.setupState.issues[0] || 'No model selected for this agent.',
+          code: 'MODEL_NOT_CONFIGURED',
+        }, { status: 400 });
+      }
       const provider = effectiveConfig.activeProvider;
       const providerConfig = effectiveConfig.providerConfig;
 

@@ -57,6 +57,9 @@ type AgentConfigResponse = {
   engine: 'legacy' | 'pi';
   readiness: AgentConfigReadiness;
   discovery: DiscoveryMetadata;
+  managed?: {
+    canvasControlPlaneAvailable?: boolean;
+  };
 };
 
 type ProviderStatus = {
@@ -255,6 +258,7 @@ export function PiProviderSetupCard({
   const [piConfigDraft, setPiConfigDraft] = useState<PiRuntimeConfig | null>(null);
   const [discovery, setDiscovery] = useState<DiscoveryMetadata>({});
   const [_readiness, setReadiness] = useState<AgentConfigReadiness | null>(null);
+  const [managed, setManaged] = useState({ canvasControlPlaneAvailable: false });
   const [configLoading, setConfigLoading] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -333,6 +337,9 @@ export function PiProviderSetupCard({
       setPiConfigDraft(deepClone(payload.piConfig));
       setDiscovery(payload.discovery || {});
       setReadiness(payload.readiness);
+      setManaged({
+        canvasControlPlaneAvailable: payload.managed?.canvasControlPlaneAvailable === true,
+      });
     } catch (error) {
       setConfigError(error instanceof Error ? error.message : t('provider.errors.failedToLoadConfig'));
     } finally {
@@ -345,7 +352,11 @@ export function PiProviderSetupCard({
   }, [loadConfig]);
 
   useEffect(() => {
-    if (!piConfigDraft?.activeProvider) {
+    if (!piConfigDraft?.activeProvider || piConfigDraft.activeProvider === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
+      startTransition(() => {
+        setSelectedProviderStatus(null);
+        setSelectedProviderLoading(false);
+      });
       return;
     }
 
@@ -362,7 +373,7 @@ export function PiProviderSetupCard({
   }, [piConfigDraft?.activeProvider]);
 
   useEffect(() => {
-    if (!piConfigDraft?.activeProvider) {
+    if (!piConfigDraft?.activeProvider || piConfigDraft.activeProvider === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
       return;
     }
     if (!authMethodSelection) {
@@ -423,6 +434,35 @@ export function PiProviderSetupCard({
     });
   };
 
+  const persistPiConfig = async (nextConfig: PiRuntimeConfig) => {
+    setConfigSaving(true);
+    setConfigError(null);
+    setConfigSuccess(null);
+
+    try {
+      const payload = await fetchJson<AgentConfigResponse>('/api/agents/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId,
+          piConfig: nextConfig,
+        }),
+      });
+
+      setPiConfigDraft(deepClone(payload.piConfig));
+      setReadiness(payload.readiness);
+      setManaged({
+        canvasControlPlaneAvailable: payload.managed?.canvasControlPlaneAvailable === true,
+      });
+      setConfigSuccess(resolvedSaveSuccessMessage);
+      await onSaved?.({ piConfig: payload.piConfig, readiness: payload.readiness });
+    } catch (error) {
+      setConfigError(error instanceof Error ? error.message : t('provider.errors.failedToSaveConfig'));
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
   const saveConfig = async () => {
     if (!piConfigDraft) {
       return;
@@ -463,29 +503,7 @@ export function PiProviderSetupCard({
       }
     }
 
-    setConfigSaving(true);
-    setConfigError(null);
-    setConfigSuccess(null);
-
-    try {
-      const payload = await fetchJson<AgentConfigResponse>('/api/agents/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentId,
-          piConfig: piConfigDraft,
-        }),
-      });
-
-      setPiConfigDraft(deepClone(payload.piConfig));
-      setReadiness(payload.readiness);
-      setConfigSuccess(resolvedSaveSuccessMessage);
-      await onSaved?.({ piConfig: payload.piConfig, readiness: payload.readiness });
-    } catch (error) {
-      setConfigError(error instanceof Error ? error.message : t('provider.errors.failedToSaveConfig'));
-    } finally {
-      setConfigSaving(false);
-    }
+    await persistPiConfig(piConfigDraft);
   };
 
   const activateProvider = useCallback(async (providerId: string) => {
@@ -497,6 +515,7 @@ export function PiProviderSetupCard({
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        agentId,
         piConfig: {
           ...piConfigDraft,
           activeProvider: providerId,
@@ -506,7 +525,41 @@ export function PiProviderSetupCard({
 
     setPiConfigDraft(deepClone(payload.piConfig));
     setReadiness(payload.readiness);
-  }, [piConfigDraft]);
+    setManaged({
+      canvasControlPlaneAvailable: payload.managed?.canvasControlPlaneAvailable === true,
+    });
+  }, [agentId, piConfigDraft]);
+
+  const saveCanvasControlPlaneConfig = async () => {
+    if (!piConfigDraft) {
+      return;
+    }
+
+    const providerConfig = piConfigDraft.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID] || {
+      id: CANVAS_CONTROL_PLANE_PROVIDER_ID,
+      model: '',
+      thinking: 'medium' as PiThinkingLevel,
+      enabledTools: [],
+    };
+    const model = providerConfig.model?.trim();
+    if (!model) {
+      setConfigError(t('provider.errors.selectModel', { provider: t('provider.canvasControlPlane.title') }));
+      setConfigSuccess(null);
+      return;
+    }
+
+    const nextConfig = deepClone(piConfigDraft);
+    nextConfig.activeProvider = CANVAS_CONTROL_PLANE_PROVIDER_ID;
+    nextConfig.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID] = {
+      ...providerConfig,
+      id: CANVAS_CONTROL_PLANE_PROVIDER_ID,
+      model,
+      thinking: providerConfig.thinking || 'medium',
+      enabledTools: providerConfig.enabledTools || [],
+    };
+
+    await persistPiConfig(nextConfig);
+  };
 
   if (configLoading && !piConfigDraft) {
     return (
@@ -525,37 +578,52 @@ export function PiProviderSetupCard({
     );
   }
 
-  const activeProviderConfig = piConfigDraft.providers[piConfigDraft.activeProvider];
-  const activeProviderModels = discovery[piConfigDraft.activeProvider]?.models || [];
+  const isCanvasControlPlaneActive = piConfigDraft.activeProvider === CANVAS_CONTROL_PLANE_PROVIDER_ID;
+  const normalActiveProviderId = isCanvasControlPlaneActive ? '' : piConfigDraft.activeProvider;
+  const activeProviderConfig = normalActiveProviderId ? piConfigDraft.providers[normalActiveProviderId] : null;
+  const activeProviderModels = normalActiveProviderId ? discovery[normalActiveProviderId]?.models || [] : [];
   const activeProviderConfiguredModel = activeProviderConfig?.model?.trim() || '';
   const activeProviderModelIsDiscovered = activeProviderConfiguredModel
     ? activeProviderModels.some((model) => model.id === activeProviderConfiguredModel)
     : true;
+  const canvasControlPlaneConfig = piConfigDraft.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID] || null;
+  const canvasControlPlaneModels = discovery[CANVAS_CONTROL_PLANE_PROVIDER_ID]?.models || [];
+  const canvasControlPlaneConfiguredModel = canvasControlPlaneConfig?.model?.trim() || '';
+  const canvasControlPlaneModelIsDiscovered = canvasControlPlaneConfiguredModel
+    ? canvasControlPlaneModels.some((model) => model.id === canvasControlPlaneConfiguredModel)
+    : true;
+  const isNormalProvider = (providerId: string) => providerId !== CANVAS_CONTROL_PLANE_PROVIDER_ID;
+  const discoveredOrConfiguredNormalProviders = Object.keys(discovery).length > 0
+    ? Object.keys(discovery).filter(isNormalProvider).sort()
+    : Object.keys(piConfigDraft.providers).filter(isNormalProvider).sort();
 
   const filteredProviders = isOverrideMode
     ? Object.keys(discovery).length > 0
-      ? Object.keys(discovery).sort()
-      : Object.keys(piConfigDraft.providers)
+      ? Object.keys(discovery).filter(isNormalProvider).sort()
+      : Object.keys(piConfigDraft.providers).filter(isNormalProvider).sort()
     : authMethodSelection
     ? getProvidersForAuthMethod(authMethodSelection).filter(
         (id) => {
-          if (id === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
-            return id in discovery || piConfigDraft.activeProvider === id;
-          }
+          if (!isNormalProvider(id)) return false;
           return id in discovery || id in piConfigDraft.providers;
         },
       )
-    : Object.keys(discovery).length > 0
-      ? Object.keys(discovery).sort()
-      : Object.keys(piConfigDraft.providers);
+    : discoveredOrConfiguredNormalProviders;
 
   const handleAuthMethodChange = (method: AuthMethodCategory) => {
     const previousMethod = authMethodSelection;
     console.log(`[PiProviderSetupCard] handleAuthMethodChange: ${previousMethod ?? 'null'} -> ${method}, activeProvider=${piConfigDraft.activeProvider}`);
     setAuthMethodSelection(method);
 
-    const newProviders = getProvidersForAuthMethod(method);
-    const currentProvider = piConfigDraft.activeProvider;
+    const newProviders = getProvidersForAuthMethod(method).filter(isNormalProvider);
+    const currentProvider = normalActiveProviderId || newProviders[0] || '';
+
+    if (!currentProvider) {
+      return;
+    }
+    if (!normalActiveProviderId) {
+      setActivePiProvider(currentProvider);
+    }
 
     if (method === 'api-key') {
       setPiProviderField(currentProvider, 'authMethod', 'api-key');
@@ -577,8 +645,8 @@ export function PiProviderSetupCard({
   };
 
   const effectiveAuthMethod = authMethodSelection ?? (() => {
-    if (!piConfigDraft?.activeProvider) return 'api-key' as const;
-    const method = getAuthMethodForProvider(piConfigDraft.activeProvider);
+    if (!normalActiveProviderId) return 'api-key' as const;
+    const method = getAuthMethodForProvider(normalActiveProviderId);
     if (method === 'both') return activeProviderConfig?.authMethod === 'oauth' ? 'oauth' : 'api-key';
     return method;
   })();
@@ -591,6 +659,78 @@ export function PiProviderSetupCard({
         <CardDescription>{resolvedDescription}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {managed.canvasControlPlaneAvailable && (
+          <div data-testid="canvas-control-plane-provider-card" className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <div className="text-sm font-semibold">{t('provider.canvasControlPlane.title')}</div>
+                <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                  {t('provider.canvasControlPlane.description')}
+                </p>
+              </div>
+              {isCanvasControlPlaneActive ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-background px-2 py-0.5 text-xs font-medium text-primary">
+                  <Check className="h-3 w-3" />
+                  {t('provider.canvasControlPlane.activeBadge')}
+                </span>
+              ) : null}
+            </div>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+              <label className="space-y-2 text-sm">
+                <span className="font-semibold">{t('provider.canvasControlPlane.modelLabel')}</span>
+                <select
+                  data-testid="canvas-control-plane-model-select"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={canvasControlPlaneConfig?.model || ''}
+                  onChange={(event) => setPiProviderField(CANVAS_CONTROL_PLANE_PROVIDER_ID, 'model', event.target.value)}
+                  disabled={configSaving}
+                >
+                  <option value="">{t('provider.selectModel')}</option>
+                  {canvasControlPlaneModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name || model.id}
+                    </option>
+                  ))}
+                  {!canvasControlPlaneModelIsDiscovered && canvasControlPlaneConfiguredModel && (
+                    <option value={canvasControlPlaneConfiguredModel}>
+                      {canvasControlPlaneConfiguredModel} {t('provider.manualModelSuffix')}
+                    </option>
+                  )}
+                </select>
+              </label>
+              <label className="space-y-2 text-sm">
+                <span className="font-semibold">{t('provider.thinkingLevel')}</span>
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={canvasControlPlaneConfig?.thinking || 'medium'}
+                  onChange={(event) => setPiProviderField(CANVAS_CONTROL_PLANE_PROVIDER_ID, 'thinking', event.target.value as PiThinkingLevel)}
+                  disabled={configSaving}
+                >
+                  <option value="off">{t('provider.thinkingLevels.off')}</option>
+                  <option value="minimal">{t('provider.thinkingLevels.minimal')}</option>
+                  <option value="low">{t('provider.thinkingLevels.low')}</option>
+                  <option value="medium">{t('provider.thinkingLevels.medium')}</option>
+                  <option value="high">{t('provider.thinkingLevels.high')}</option>
+                  <option value="xhigh">{t('provider.thinkingLevels.xhigh')}</option>
+                </select>
+              </label>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  onClick={() => void saveCanvasControlPlaneConfig()}
+                  disabled={configSaving || !canvasControlPlaneConfig?.model?.trim()}
+                >
+                  {configSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  {t('provider.canvasControlPlane.useButton')}
+                </Button>
+              </div>
+            </div>
+            {canvasControlPlaneModels.length === 0 ? (
+              <p className="text-xs text-muted-foreground">{t('provider.canvasControlPlane.unavailableModels')}</p>
+            ) : null}
+          </div>
+        )}
+
         {!isOverrideMode && (
         <div className="space-y-2">
           <label className="text-sm font-semibold">{t('provider.authMethod.title')}</label>
@@ -669,9 +809,12 @@ export function PiProviderSetupCard({
             <select
               data-testid="provider-select"
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              value={piConfigDraft.activeProvider}
+              value={normalActiveProviderId}
               onChange={(event) => {
                 const newProvider = event.target.value;
+                if (!newProvider) {
+                  return;
+                }
                 setActivePiProvider(newProvider);
                 if (authMethodSelection === 'oauth') {
                   setPiProviderField(newProvider, 'authMethod', 'oauth');
@@ -679,6 +822,7 @@ export function PiProviderSetupCard({
               }}
               disabled={configSaving}
             >
+              <option value="" disabled>{t('provider.selectProvider')}</option>
               {filteredProviders.map((providerId) => (
                 <option key={providerId} value={providerId}>
                   {providerId}
@@ -687,11 +831,11 @@ export function PiProviderSetupCard({
             </select>
           </label>
 
-          {activeProviderConfig && (
+          {normalActiveProviderId && activeProviderConfig && (
             <div className="space-y-2 text-sm">
-              <span className="font-semibold">{t('provider.modelFor', { provider: piConfigDraft.activeProvider })}</span>
+              <span className="font-semibold">{t('provider.modelFor', { provider: normalActiveProviderId })}</span>
 
-              {piConfigDraft.activeProvider === 'ollama' ? (
+              {normalActiveProviderId === 'ollama' ? (
                 <>
                   <select
                     data-testid="model-select"
@@ -745,7 +889,7 @@ export function PiProviderSetupCard({
                     </div>
                   )}
                 </>
-              ) : piConfigDraft.activeProvider === 'openai-compatible' ? (
+              ) : normalActiveProviderId === 'openai-compatible' ? (
                 <>
                   <Input
                     data-testid="model-select"
@@ -769,7 +913,7 @@ export function PiProviderSetupCard({
                     data-testid="model-select"
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     value={activeProviderConfig.model}
-                    onChange={(event) => setPiProviderField(piConfigDraft.activeProvider, 'model', event.target.value)}
+                    onChange={(event) => setPiProviderField(normalActiveProviderId, 'model', event.target.value)}
                     disabled={configSaving}
                   >
                     <option value="">{t('provider.selectModel')}</option>
@@ -790,7 +934,7 @@ export function PiProviderSetupCard({
           )}
         </div>
 
-        {piConfigDraft.activeProvider === 'ollama' && (
+        {normalActiveProviderId === 'ollama' && (
           <Collapsible open={isOllamaConfigOpen} onOpenChange={setIsOllamaConfigOpen}>
             <CollapsibleTrigger
               data-testid="ollama-config-toggle"
@@ -868,7 +1012,7 @@ export function PiProviderSetupCard({
            </Collapsible>
          )}
 
-        {piConfigDraft.activeProvider === 'openai-compatible' && (
+        {normalActiveProviderId === 'openai-compatible' && (
           <Collapsible open={isOpenAiCompatibleConfigOpen} onOpenChange={setIsOpenAiCompatibleConfigOpen}>
             <CollapsibleTrigger
               data-testid="openai-compatible-config-toggle"
@@ -939,13 +1083,14 @@ export function PiProviderSetupCard({
           </Collapsible>
         )}
 
+        {normalActiveProviderId && activeProviderConfig && (
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2 text-sm">
             <span className="font-semibold">{t('provider.thinkingLevel')}</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               value={activeProviderConfig?.thinking || 'off'}
-              onChange={(event) => setPiProviderField(piConfigDraft.activeProvider, 'thinking', event.target.value as PiThinkingLevel)}
+              onChange={(event) => setPiProviderField(normalActiveProviderId, 'thinking', event.target.value as PiThinkingLevel)}
               disabled={configSaving}
             >
               <option value="off">{t('provider.thinkingLevels.off')}</option>
@@ -976,8 +1121,9 @@ export function PiProviderSetupCard({
             )}
           </div>
         </div>
+        )}
 
-        {!isOverrideMode && piConfigDraft.activeProvider && effectiveAuthMethod === 'oauth' && (
+        {!isOverrideMode && normalActiveProviderId && effectiveAuthMethod === 'oauth' && (
           <div className="space-y-3 rounded border border-border bg-card p-4">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-semibold">{t('provider.oauthAuthentication')}</h4>
@@ -995,11 +1141,11 @@ export function PiProviderSetupCard({
             <p className="text-xs text-muted-foreground">
               {t('provider.oauthAuthenticationDescription')}
             </p>
-            <PiOAuthButton onStatusChange={() => void loadProviderStatus(piConfigDraft.activeProvider)} activeProviderId={piConfigDraft.activeProvider} />
+            <PiOAuthButton onStatusChange={() => void loadProviderStatus(normalActiveProviderId)} activeProviderId={normalActiveProviderId} />
           </div>
         )}
 
-        {!isOverrideMode && piConfigDraft.activeProvider && effectiveAuthMethod === 'api-key' && activeProviderConfig?.authMethod === 'api-key' && supportsBothAuthMethods(piConfigDraft.activeProvider) && (
+        {!isOverrideMode && normalActiveProviderId && effectiveAuthMethod === 'api-key' && activeProviderConfig?.authMethod === 'api-key' && supportsBothAuthMethods(normalActiveProviderId) && (
           <div className="rounded bg-muted/50 p-3 text-xs text-muted-foreground">
             <p className="mb-1 font-medium">{t('provider.apiKeySetupTitle')}</p>
             <p>{t('provider.apiKeySetupDescription')}</p>
@@ -1015,16 +1161,16 @@ export function PiProviderSetupCard({
         </div>
         )}
 
-        {!isOverrideMode && (
+        {!isOverrideMode && normalActiveProviderId && (
         <ProviderHelpSection
-          providerId={piConfigDraft.activeProvider}
+          providerId={normalActiveProviderId}
           isProviderReady={selectedProviderStatus?.isReady ?? false}
           isOpen={isHelpOpen}
           onOpenChange={setIsHelpOpen}
           onProviderActivate={activateProvider}
           onProviderSaved={async () => {
             await loadConfig();
-            await loadProviderStatus(piConfigDraft.activeProvider);
+            await loadProviderStatus(normalActiveProviderId);
           }}
         />
         )}

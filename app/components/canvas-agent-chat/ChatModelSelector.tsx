@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
 
 import {
@@ -92,6 +93,7 @@ export function ChatModelSelector({
   onModelChange,
   onRuntimeInvalidated,
 }: ChatModelSelectorProps) {
+  const t = useTranslations('chat');
   const [pending, setPending] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,11 +102,14 @@ export function ChatModelSelector({
     return agentConfig?.discovery?.[activeProvider]?.models || [];
   }, [activeProvider, agentConfig]);
 
-  const activeModelName = models.find((model) => model.id === activeModel)?.name || activeModel;
+  const hasActiveModel = Boolean(activeModel.trim());
+  const activeModelName = hasActiveModel
+    ? models.find((model) => model.id === activeModel)?.name || activeModel
+    : t('setModel');
   const activeModelShortName = getModelShortLabel(activeModelName);
   const thinkingLabel = getThinkingLabel(thinkingLevel);
   const providerSupportsThinking = models.some((model) => model.reasoning);
-  const canChange = !disabled && !pending;
+  const canChange = Boolean(activeProvider) && !disabled && !pending;
   const visibleThinkingLevels = useMemo(() => {
     if (PRIMARY_THINKING_LEVELS.some((level) => level.value === thinkingLevel)) {
       return PRIMARY_THINKING_LEVELS;
@@ -210,7 +215,7 @@ export function ChatModelSelector({
           <button
             type="button"
             data-testid="chat-model-selector"
-            title={error || `${activeProvider} / ${activeModelName} / ${thinkingLabel}`}
+            title={error || (hasActiveModel ? `${activeProvider} / ${activeModelName} / ${thinkingLabel}` : t('selectModel'))}
             className={cn(
               'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/60 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
               compact ? 'max-w-[180px] px-2 py-0.5 text-[11px]' : 'max-w-[260px] px-2.5 py-0.5 text-xs',
@@ -269,7 +274,7 @@ export function ChatModelSelector({
             </DropdownMenuItem>
           )) : (
             <DropdownMenuItem disabled className="min-h-8 rounded-md px-2.5 py-1.5 text-sm">
-              <span className="truncate font-mono">{activeModel}</span>
+              <span className="truncate font-mono">{hasActiveModel ? activeModel : t('noModelsAvailable')}</span>
             </DropdownMenuItem>
           )}
 
