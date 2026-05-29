@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Crop, FolderInput, ImageIcon, Loader2, Magnet, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
+import { Check, Crop, Download, FolderInput, ImageIcon, Loader2, Magnet, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -920,6 +920,12 @@ export function AspectRatioEditorView() {
                 <img src={toPreviewUrl(preview.path, 720)} alt={preview.name} className="max-h-64 w-full rounded-md object-contain bg-muted" />
                 <p className="truncate font-mono text-xs text-muted-foreground">{preview.path}</p>
                 <div className="grid gap-2">
+                  <Button variant="outline" asChild>
+                    <a href={preview.mediaUrl || toMediaUrl(preview.path)} download={preview.name}>
+                      <Download className="h-4 w-4" />
+                      {t('download')}
+                    </a>
+                  </Button>
                   <Button variant="outline" onClick={handleKeepEdit}>
                     <Save className="h-4 w-4" />
                     {t('keepInEdits')}
