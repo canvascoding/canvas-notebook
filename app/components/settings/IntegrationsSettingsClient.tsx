@@ -192,30 +192,43 @@ const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 type EnvCardOpenState = Record<EnvScope, boolean>;
 
+const DEFAULT_SETTINGS_TAB: SettingsTab = 'general';
+const DEFAULT_ENV_CARD_OPEN_STATE: EnvCardOpenState = { integrations: false, agents: false };
+
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
 }
 
-function getInitialSettingsTab(requestedTab: string | null): SettingsTab {
-  if (isSettingsTab(requestedTab)) return requestedTab;
-  if (typeof window === 'undefined') return 'general';
-
-  const storedTab = window.localStorage.getItem(SETTINGS_TAB_STORAGE_KEY);
-  return isSettingsTab(storedTab) ? storedTab : 'general';
+function normalizeSettingsTab(value: string | null): SettingsTab | null {
+  if (isSettingsTab(value)) return value;
+  if (value === 'agent' || value === 'agentSettings') return 'agent-settings';
+  return null;
 }
 
-function getInitialEnvCardOpenState(): EnvCardOpenState {
-  const fallback: EnvCardOpenState = { integrations: false, agents: false };
-  if (typeof window === 'undefined') return fallback;
+function getInitialSettingsTab(requestedTab: string | null): SettingsTab {
+  return normalizeSettingsTab(requestedTab) ?? DEFAULT_SETTINGS_TAB;
+}
+
+function getStoredSettingsTab(): SettingsTab | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return normalizeSettingsTab(window.localStorage.getItem(SETTINGS_TAB_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function getStoredEnvCardOpenState(): EnvCardOpenState {
+  if (typeof window === 'undefined') return DEFAULT_ENV_CARD_OPEN_STATE;
 
   try {
     const storedState = JSON.parse(window.localStorage.getItem(ENV_CARD_OPEN_STORAGE_KEY) || '{}') as Partial<EnvCardOpenState>;
     return {
-      integrations: typeof storedState.integrations === 'boolean' ? storedState.integrations : fallback.integrations,
-      agents: typeof storedState.agents === 'boolean' ? storedState.agents : fallback.agents,
+      integrations: typeof storedState.integrations === 'boolean' ? storedState.integrations : DEFAULT_ENV_CARD_OPEN_STATE.integrations,
+      agents: typeof storedState.agents === 'boolean' ? storedState.agents : DEFAULT_ENV_CARD_OPEN_STATE.agents,
     };
   } catch {
-    return fallback;
+    return DEFAULT_ENV_CARD_OPEN_STATE;
   }
 }
 
@@ -1635,15 +1648,20 @@ export function IntegrationsSettingsClient({
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const { activeTabOverride } = useHintContext();
 
-  const effectiveTab = (activeTabOverride as typeof settingsTab) || settingsTab;
+  const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
   const handleTabChange = (value: string) => {
-    if (!isSettingsTab(value)) return;
+    const nextTab = normalizeSettingsTab(value);
+    if (!nextTab) return;
 
-    setSettingsTab(value);
-    window.localStorage.setItem(SETTINGS_TAB_STORAGE_KEY, value);
+    setSettingsTab(nextTab);
+    try {
+      window.localStorage.setItem(SETTINGS_TAB_STORAGE_KEY, nextTab);
+    } catch {
+      // Settings still work if persistent browser storage is unavailable.
+    }
 
     const url = new URL(window.location.href);
-    url.searchParams.set('tab', value);
+    url.searchParams.set('tab', nextTab);
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
@@ -1652,7 +1670,7 @@ export function IntegrationsSettingsClient({
     agents: INITIAL_SCOPE_STATE('agents'),
   });
   const [mcpEditor, setMcpEditor] = useState<McpEditorState>(INITIAL_MCP_STATE);
-  const [envCardOpenByScope, setEnvCardOpenByScope] = useState<EnvCardOpenState>(getInitialEnvCardOpenState);
+  const [envCardOpenByScope, setEnvCardOpenByScope] = useState<EnvCardOpenState>(DEFAULT_ENV_CARD_OPEN_STATE);
 
   const loadState = useCallback(async (scope: EnvScope) => {
     setEditors((current) => ({
@@ -1831,22 +1849,17 @@ export function IntegrationsSettingsClient({
 
   useEffect(() => {
     const tab = searchParams.get('tab');
+    const nextTab = normalizeSettingsTab(tab) ?? getStoredSettingsTab() ?? DEFAULT_SETTINGS_TAB;
     startTransition(() => {
-      if (tab === 'agent-settings') {
-        setSettingsTab('agent-settings');
-      } else if (tab === 'workspace') {
-        setSettingsTab('workspace');
-      } else if (tab === 'integrations') {
-        setSettingsTab('integrations');
-      } else if (tab === 'usage') {
-        setSettingsTab('usage');
-      } else if (tab === 'skills') {
-        setSettingsTab('skills');
-      } else if (tab === 'channels') {
-        setSettingsTab('channels');
-      }
+      setSettingsTab(nextTab);
     });
   }, [searchParams]);
+
+  useEffect(() => {
+    startTransition(() => {
+      setEnvCardOpenByScope(getStoredEnvCardOpenState());
+    });
+  }, []);
 
   const saveScope = async (scope: EnvScope, payload: { mode: 'kv'; entries: Array<{ key: string; value: string }> } | { mode: 'raw'; rawContent: string }) => {
     setEditors((current) => ({
