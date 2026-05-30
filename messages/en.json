@@ -2122,6 +2122,10 @@
       "presets": "Formats",
       "freeform": "Freeform",
       "presetHint": "Hold Shift while dragging to keep the current aspect ratio. Use the mouse wheel to zoom, drag the background to move the canvas.",
+      "ratioLock": {
+        "label": "Keep format",
+        "description": "Keeps the selected format while dragging corners. Shift still works as a temporary lock."
+      },
       "snap": {
         "label": "Edge snap",
         "description": "Lightly docks the frame near image edges so small moves stay in crop mode."

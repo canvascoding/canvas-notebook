@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Crop, Download, FolderInput, ImageIcon, Loader2, Magnet, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
+import { Check, Crop, Download, FolderInput, ImageIcon, Loader2, Lock, Magnet, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -89,6 +89,7 @@ const MIN_FRAME_SIZE = 24;
 const STAGE_FIT_PADDING = 72;
 const FALLBACK_STAGE_SIZE = { width: 872, height: 648 };
 const SNAP_DISTANCE_PX = 8;
+const ASPECT_RATIO_LOCK_STORAGE_KEY = 'studio-aspect-ratio-lock-enabled';
 
 function parseRatio(ratio: string) {
   const [w, h] = ratio.split(':').map(Number);
@@ -216,6 +217,24 @@ function snapResizedFrame(frame: Frame, handle: Handle, imageWidth: number, imag
   }
 
   return next;
+}
+
+function readAspectRatioLockPreference() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(ASPECT_RATIO_LOCK_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeAspectRatioLockPreference(enabled: boolean) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(ASPECT_RATIO_LOCK_STORAGE_KEY, String(enabled));
+  } catch {
+    // The toggle still works for the current session if localStorage is unavailable.
+  }
 }
 
 function clientPointToImagePoint(clientX: number, clientY: number, stage: HTMLDivElement | null, pan: { x: number; y: number }, zoom: number) {
@@ -455,6 +474,7 @@ export function AspectRatioEditorView() {
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [overwriteDialogOpen, setOverwriteDialogOpen] = useState(false);
+  const [ratioLockEnabled, setRatioLockEnabled] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
 
   const mode = imageSize.width > 0 ? getFrameMode(frame, imageSize.width, imageSize.height) : 'crop';
@@ -467,6 +487,11 @@ export function AspectRatioEditorView() {
   useEffect(() => {
     setChatContext({ currentPage: '/studio/aspect-ratio' });
   }, [setChatContext]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRatioLockEnabled(readAspectRatioLockPreference());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -518,6 +543,11 @@ export function AspectRatioEditorView() {
     setAspectRatio(ratio);
     setFrame(fitFrameToRatio(imageSize.width, imageSize.height, ratio));
     setPreview(null);
+  };
+
+  const handleRatioLockChange = (checked: boolean) => {
+    setRatioLockEnabled(checked);
+    writeAspectRatioLockPreference(checked);
   };
 
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -575,8 +605,8 @@ export function AspectRatioEditorView() {
       return;
     }
 
-    const keepRatio = event.shiftKey;
-    const ratio = drag.frame.width / drag.frame.height;
+    const keepRatio = ratioLockEnabled || event.shiftKey;
+    const ratio = parseRatio(aspectRatio) ?? drag.frame.width / drag.frame.height;
     const next = { ...drag.frame };
     if (drag.handle.includes('e')) next.width = Math.max(MIN_FRAME_SIZE, drag.frame.width + dx);
     if (drag.handle.includes('s')) next.height = Math.max(MIN_FRAME_SIZE, drag.frame.height + dy);
@@ -601,7 +631,7 @@ export function AspectRatioEditorView() {
         next.width = next.height * ratio;
         if (drag.handle.includes('w')) next.x += previousWidth - next.width;
       }
-    } else {
+    } else if (aspectRatio !== 'freeform') {
       setAspectRatio('freeform');
     }
 
@@ -836,6 +866,24 @@ export function AspectRatioEditorView() {
                 })}
               </div>
               <p className="text-xs text-muted-foreground">{t('presetHint')}</p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-background p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Lock className="h-4 w-4 text-primary" />
+                    {t('ratioLock.label')}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{t('ratioLock.description')}</p>
+                </div>
+                <Switch
+                  id="aspect-ratio-lock-toggle"
+                  checked={ratioLockEnabled}
+                  onCheckedChange={handleRatioLockChange}
+                  aria-label={t('ratioLock.label')}
+                />
+              </div>
             </div>
 
             <div className="rounded-lg border border-border bg-background p-3">
