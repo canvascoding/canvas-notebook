@@ -81,7 +81,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { ChatModelSelector } from '@/app/components/canvas-agent-chat/ChatModelSelector';
-import type { RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
+import type { RuntimeQueueItem, RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
@@ -140,6 +140,8 @@ interface ChatMessage {
     toolName: string;
   };
 }
+
+type QueuePreviewItem = RuntimeQueueItem & { kind: 'follow_up' | 'steer' };
 
 interface AISession {
   id: number;
@@ -3025,13 +3027,15 @@ export default function CanvasAgentChat({
 
   const postControl = useCallback(async (
     targetSessionId: string,
-    action: 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact',
+    action: 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'abort' | 'replace' | 'compact',
     message?: Extract<AgentMessage, { role: 'user' }>,
+    queueItemId?: string,
   ) => {
     const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('control', {
       sessionId: targetSessionId,
       action,
       ...(message ? { message } : {}),
+      ...(queueItemId ? { queueItemId } : {}),
     });
 
     if (payload.status) {
@@ -3182,6 +3186,15 @@ export default function CanvasAgentChat({
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
   }, [appendSystemMessage, handleControlAction, t]);
+
+  const handlePromoteQueuedMessage = useCallback(async (queueItemId: string) => {
+    if (!sessionIdRef.current) return;
+    try {
+      await postControl(sessionIdRef.current, 'promote_queued_to_steer', undefined, queueItemId);
+    } catch (error) {
+      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
+    }
+  }, [appendSystemMessage, postControl, t]);
 
   const handleStop = useCallback(async () => {
     if (!sessionIdRef.current) return;
@@ -4423,7 +4436,10 @@ export default function CanvasAgentChat({
 
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const isRuntimeBusy = Boolean(runtimeStatus && runtimeStatus.phase !== 'idle');
-  const queuePreview = [...(runtimeStatus?.steeringQueue || []), ...(runtimeStatus?.followUpQueue || [])].slice(0, 3);
+  const queuePreview: QueuePreviewItem[] = [
+    ...(runtimeStatus?.steeringQueue || []).map((entry) => ({ ...entry, kind: 'steer' as const })),
+    ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
+  ].slice(0, 3);
   const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
   const collapsedRunMap = useMemo(() => buildCollapsedRunMap(messages, isRuntimeBusy), [messages, isRuntimeBusy]);
   const hiddenStepIds = useMemo(() => {
@@ -4452,6 +4468,8 @@ export default function CanvasAgentChat({
   const contextProgressPercent = Math.min(100, Math.max(0, runtimeStatus?.contextUsagePercent ?? 0));
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
+  const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
+  const primaryActionLabel = primaryActionIsStop ? t('stop') : t('sendAction');
   const selectedAgentConfig = isAgentConfigForAgent(agentConfig, selectedAgentId) ? agentConfig : null;
   const selectedAgentModelState = resolveAgentModelState(selectedAgentConfig);
   const effectiveActiveProvider = activeProvider || selectedAgentModelState?.provider || DEFAULT_PROVIDER_ID;
@@ -4460,6 +4478,9 @@ export default function CanvasAgentChat({
     ? activeThinkingLevel
     : selectedAgentModelState?.thinkingLevel || activeThinkingLevel;
   const isModelConfigured = Boolean(effectiveActiveModel.trim());
+  const primaryActionDisabled = primaryActionIsStop
+    ? !runtimeStatus?.canAbort || isWebSocketUnavailable
+    : !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
   const isModelConfigurationLoading = isAgentConfigLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const scrollContentPadding = composerHeight + 24;
@@ -4936,9 +4957,18 @@ export default function CanvasAgentChat({
                   <div className="mb-1 font-medium text-foreground">{t('queuedCount', { count: totalQueuedMessages })}</div>
                   <div className="flex flex-wrap gap-1 text-muted-foreground">
                     {queuePreview.map((entry) => (
-                      <span key={entry.id} className="border border-border/60 bg-muted/40 px-1.5 py-0.5">
+                      <button
+                        key={entry.id}
+                        type="button"
+                        data-testid="chat-queue-item"
+                        data-queue-kind={entry.kind}
+                        onClick={() => void handlePromoteQueuedMessage(entry.id)}
+                        disabled={isWebSocketUnavailable}
+                        className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-left transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        title={t('steerAction')}
+                      >
                         {entry.text || t('imageMessage')}
-                      </span>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -5715,9 +5745,18 @@ export default function CanvasAgentChat({
             </div>
             <div className="flex flex-wrap gap-2 text-muted-foreground">
               {queuePreview.map((entry) => (
-                <span key={entry.id} className="border border-border/70 bg-background/60 px-2 py-1">
+                <button
+                  key={entry.id}
+                  type="button"
+                  data-testid="chat-queue-item"
+                  data-queue-kind={entry.kind}
+                  onClick={() => void handlePromoteQueuedMessage(entry.id)}
+                  disabled={isWebSocketUnavailable}
+                  className="border border-border/70 bg-background/60 px-2 py-1 text-left transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                  title={t('steerAction')}
+                >
                   {entry.text || t('imageMessage')}
-                </span>
+                </button>
               ))}
             </div>
           </div>
@@ -5818,10 +5857,10 @@ export default function CanvasAgentChat({
           <button
             type="button"
             data-testid="chat-send"
-            data-action={isRuntimeBusy ? 'stop' : 'send'}
-            aria-label={isRuntimeBusy ? t('stop') : t('sendAction')}
+            data-action={primaryActionIsStop ? 'stop' : 'send'}
+            aria-label={primaryActionLabel}
             onClick={() => {
-              if (isRuntimeBusy) {
+              if (primaryActionIsStop) {
                 void handleStop();
                 return;
               }
@@ -5830,10 +5869,10 @@ export default function CanvasAgentChat({
             className={cn(
               'flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30',
             )}
-            disabled={isRuntimeBusy ? !runtimeStatus?.canAbort || isWebSocketUnavailable : !hasComposerContent || isWebSocketUnavailable || !isModelConfigured}
-            title={isRuntimeBusy ? t('stop') : t('sendAction')}
+            disabled={primaryActionDisabled}
+            title={primaryActionLabel}
           >
-            {isRuntimeBusy ? (
+            {primaryActionIsStop ? (
               <Square className="h-5 w-5 fill-current" />
             ) : (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">

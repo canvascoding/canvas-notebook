@@ -101,7 +101,7 @@ interface MockWsConfig {
   onSubscribe?: () => void;
   onSendMessage?: (message: Record<string, unknown>, context: Record<string, unknown> | undefined, requestId: string) => void;
   onGetStatus?: (requestId: string) => Record<string, unknown> | null;
-  onControl?: (action: string, message: Record<string, unknown> | undefined, requestId: string) => Record<string, unknown>;
+  onControl?: (action: string, message: Record<string, unknown> | undefined, requestId: string, queueItemId?: string) => Record<string, unknown>;
   agentEvents?: AgentEventPayload[];
   sendEventsAfterSendMessage?: boolean;
   runtimeStatus?: Record<string, unknown>;
@@ -174,7 +174,7 @@ function setupMockWebSocket(page: Page, config: MockWsConfig) {
           const action = message.action as string;
           let status: Record<string, unknown> = runtimeStatus ?? { phase: 'idle' };
           if (onControl) {
-            status = onControl(action, message.message, requestId);
+            status = onControl(action, message.message, requestId, message.queueItemId);
           }
           ws.send(JSON.stringify({ type: 'control_result', requestId, success: true, status }));
           break;
@@ -1246,14 +1246,14 @@ contentKind: document
       sessionId,
       runtimeStatus: currentStatus as Record<string, unknown>,
       onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
-      onControl: (action) => {
-        if (action === 'steer') {
+      onControl: (action, _message, _requestId, queueItemId) => {
+        if (action === 'promote_queued_to_steer') {
+          const entryIndex = currentStatus.followUpQueue!.findIndex((entry) => entry.id === queueItemId);
+          const [entry] = entryIndex === -1 ? [] : currentStatus.followUpQueue!.splice(entryIndex, 1);
           currentStatus = {
             ...currentStatus,
-            steeringQueue: [
-              ...currentStatus.steeringQueue!,
-              { id: 'steer-2', text: 'Take over immediately', attachmentCount: 0 },
-            ],
+            followUpQueue: currentStatus.followUpQueue!,
+            steeringQueue: entry ? [...currentStatus.steeringQueue!, entry] : currentStatus.steeringQueue,
           };
         }
 
@@ -1291,16 +1291,15 @@ contentKind: document
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards', { timeout: 15000 });
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Stop and inspect README');
 
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'stop');
     await page.getByTestId('chat-input').fill('Take over immediately');
-    await page.getByTestId('chat-steer').click();
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
 
-    await expect(page.getByTestId('chat-queue-panel')).toContainText('3 queued');
-    await expect(page.getByTestId('chat-message-user').last()).toContainText('Take over immediately');
-
-    await page.getByTestId('chat-input').fill('Ship this first');
-    await page.getByTestId('chat-send-now').click();
-
-    await expect(page.getByTestId('chat-runtime-status')).toContainText('Wird gestoppt');
+    const followUpQueueItem = page.getByTestId('chat-queue-item').filter({ hasText: 'Summarize afterwards' }).first();
+    await expect(followUpQueueItem).toHaveAttribute('data-queue-kind', 'follow_up');
+    await followUpQueueItem.click();
+    await expect(page.getByTestId('chat-queue-item').filter({ hasText: 'Summarize afterwards' }).first()).toHaveAttribute('data-queue-kind', 'steer');
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('2 in Queue');
   });
 
   test('should show productive starter prompts and prefill the mobile composer without overflow', async ({ page }) => {

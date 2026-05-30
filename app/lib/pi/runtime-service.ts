@@ -16,7 +16,7 @@ import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 
 export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
 
-export type ControlAction = 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact';
+export type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'abort' | 'replace' | 'compact';
 
 type RuntimeInstance = Awaited<ReturnType<typeof getOrCreatePiRuntime>>;
 
@@ -222,6 +222,7 @@ export async function control(
   userId: string,
   action: ControlAction,
   message?: unknown,
+  queueItemId?: string,
 ): Promise<PiRuntimeStatus> {
   const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
 
@@ -236,6 +237,11 @@ export async function control(
         throw new RuntimeServiceError('User message required for steer.', 400);
       }
       return runtimeInstance.queueSteering(message);
+    case 'promote_queued_to_steer':
+      if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
+        throw new RuntimeServiceError('Queue item id required for promote_queued_to_steer.', 400);
+      }
+      return runtimeInstance.promoteQueuedMessageToSteering(queueItemId.trim());
     case 'replace':
       if (!isValidUserMessage(message)) {
         throw new RuntimeServiceError('User message required for replace.', 400);
