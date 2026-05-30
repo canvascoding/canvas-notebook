@@ -18,6 +18,8 @@ import { and, desc, eq } from 'drizzle-orm';
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif']);
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
 const AUDIO_EXTENSIONS = new Set(['mp3', 'wav']);
+const IMAGE_GRID_PREVIEW_WIDTH = 256;
+const DEFAULT_MEDIA_PREVIEW_WIDTH = 480;
 type AssetKind = 'image' | 'video' | 'audio';
 
 function getExtension(filePath: string): string {
@@ -46,6 +48,14 @@ function getKind(extension: string): AssetKind | null {
 
 function matchesKind(extension: string, requestedKind: AssetKind): boolean {
   return getKind(extension) === requestedKind;
+}
+
+function getAssetPreviewUrl(filePath: string, kind: AssetKind): string {
+  if (kind === 'image') {
+    return toPreviewUrl(filePath, IMAGE_GRID_PREVIEW_WIDTH, { preset: 'mini' });
+  }
+
+  return toPreviewUrl(filePath, DEFAULT_MEDIA_PREVIEW_WIDTH);
 }
 
 interface AssetItem {
@@ -149,7 +159,7 @@ export async function GET(request: NextRequest) {
           size: row.fileSize ?? undefined,
           modified: row.createdAt?.getTime(),
           mediaUrl: toMediaUrl(row.filePath),
-          previewUrl: toPreviewUrl(row.filePath, 480),
+          previewUrl: getAssetPreviewUrl(row.filePath, 'video'),
         }));
 
       return NextResponse.json({
@@ -200,7 +210,7 @@ export async function GET(request: NextRequest) {
         size: file.size,
         modified: file.modified,
         mediaUrl: toMediaUrl(file.path),
-        previewUrl: toPreviewUrl(file.path, 480),
+        previewUrl: getAssetPreviewUrl(file.path, kind),
       });
     }
 
