@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
 import { useTranslations } from 'next-intl';
-import { Loader2 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // Dynamic import for DocxEditor to avoid SSR issues
 const DocxEditorComponent = dynamic(
@@ -30,6 +30,48 @@ interface OfficeEditorProps {
   onChange?: () => void;
 }
 
+function OfficeDocumentLoadingSkeleton({ path, extension }: { path: string; extension: string }) {
+  const t = useTranslations('notebook');
+  const fileName = path.split('/').filter(Boolean).pop() || t('loadingPreview');
+
+  return (
+    <div data-testid="office-document-loading-skeleton" className="flex h-full w-full flex-col bg-background">
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
+        <div className="min-w-0">
+          <div className="truncate text-xs font-medium text-foreground">{fileName}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {t('openingExtension', { extension: extension.toUpperCase() })}
+          </div>
+        </div>
+        <Skeleton className="h-6 w-24" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden p-5">
+        <div className="mx-auto h-full max-w-4xl space-y-5">
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-2/5" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-[1fr_180px]">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-[94%]" />
+              <Skeleton className="h-4 w-[88%]" />
+              <Skeleton className="h-4 w-[96%]" />
+              <Skeleton className="h-4 w-[72%]" />
+            </div>
+            <Skeleton className="hidden h-32 md:block" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-[92%]" />
+            <Skeleton className="h-4 w-[84%]" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export interface OfficeEditorRef {
   save: () => Promise<string | null>;
   hasChanges: () => boolean;
@@ -40,9 +82,14 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
     const t = useTranslations('notebook');
     const docxEditorRef = useRef<{ save: () => Promise<ArrayBuffer | null> } | null>(null);
     const spreadsheetEditorRef = useRef<{ save: () => Promise<string | null>; getData: () => { name: string; data: (string | number | boolean)[][] }[] | null; hasChanges: () => boolean } | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [docxBuffer, setDocxBuffer] = useState<ArrayBuffer | null>(null);
+    const [docxFile, setDocxFile] = useState<{
+      path: string;
+      buffer: ArrayBuffer | null;
+      error: string | null;
+    } | null>(null);
+    const docxBuffer = extension === 'docx' && docxFile?.path === path ? docxFile.buffer : null;
+    const error = extension === 'docx' && docxFile?.path === path ? docxFile.error : null;
+    const isLoadingDocx = extension === 'docx' && !docxBuffer && !error;
 
     useImperativeHandle(ref, () => ({
       save: async () => {
@@ -104,6 +151,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
 
     useEffect(() => {
       if (extension === 'docx') {
+        let cancelled = false;
         // Load DOCX file for the new editor
         const loadDocx = async () => {
           try {
@@ -112,21 +160,40 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
             });
             if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
             const arrayBuffer = await response.arrayBuffer();
-            setDocxBuffer(arrayBuffer);
-            setLoading(false);
+            if (!cancelled) {
+              setDocxFile({ path, buffer: arrayBuffer, error: null });
+            }
           } catch (err) {
             console.error('[OfficeEditor] Error loading DOCX:', err);
-            setError(err instanceof Error ? err.message : 'Unknown error');
-            setLoading(false);
+            if (!cancelled) {
+              setDocxFile({
+                path,
+                buffer: null,
+                error: err instanceof Error ? err.message : 'Unknown error',
+              });
+            }
           }
         };
-        loadDocx();
-        return;
+        void loadDocx();
+        return () => {
+          cancelled = true;
+        };
       }
-
-      // For XLSX/CSV, loading is handled by SpreadsheetEditor component
-      setLoading(false);
     }, [path, extension]);
+
+    if (isLoadingDocx) {
+      return <OfficeDocumentLoadingSkeleton path={path} extension={extension} />;
+    }
+
+    if (error) {
+      return (
+        <div className="flex h-full w-full items-center justify-center bg-destructive/10 p-4">
+          <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        </div>
+      );
+    }
 
     // Handle DOCX editor
     if (extension === 'docx' && docxBuffer) {
@@ -191,23 +258,6 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
 
     return (
       <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background z-[60]">
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="text-xs text-muted-foreground">{t('openingExtension', { extension: extension.toUpperCase() })}</span>
-            </div>
-          </div>
-        )}
-        
-        {error && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-destructive/10 p-4">
-            <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
-            </div>
-          </div>
-        )}
-
         <div className="flex-1 w-full h-full flex items-center justify-center">
           <div className="text-muted-foreground">
             {t('unsupportedFileFormat', { extension })}

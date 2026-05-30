@@ -149,6 +149,8 @@ interface FileStoreState {
     };
   } | null;
   isLoadingFile: boolean;
+  loadingFilePath: string | null;
+  fileLoadRequestId: number;
   fileError: string | null;
 
   // Browser mode
@@ -247,6 +249,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ browserMode: mode });
   },
   isLoadingFile: false,
+  loadingFilePath: null,
+  fileLoadRequestId: 0,
   fileError: null,
 
   expandedDirs: new Set<string>(initialExplorerState.expandedDirs ?? []),
@@ -583,7 +587,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   loadFile: async (path: string, noCache = false) => {
-    set({ isLoadingFile: true, fileError: null });
+    const requestId = get().fileLoadRequestId + 1;
+    set({
+      fileLoadRequestId: requestId,
+      isLoadingFile: true,
+      loadingFilePath: path,
+      fileError: null,
+    });
 
     try {
       const extension = getExtension(path);
@@ -603,7 +613,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (!response.ok) {
         // If the file is not found (404), clear the editor instead of showing an error.
         if (response.status === 404) {
-          set({ currentFile: null, isLoadingFile: false, fileError: null });
+          if (get().fileLoadRequestId === requestId) {
+            set({
+              currentFile: null,
+              isLoadingFile: false,
+              loadingFilePath: null,
+              fileError: null,
+            });
+          }
           return;
         }
         const error = await response.json();
@@ -611,6 +628,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
 
       const { data } = await response.json();
+      if (get().fileLoadRequestId !== requestId) return;
+
       const fileName = path.split('/').pop() || path;
       set({
         selectedNode: { path, type: 'file', name: fileName },
@@ -620,13 +639,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           stats: data.stats,
         },
         isLoadingFile: false,
+        loadingFilePath: null,
       });
     } catch (error) {
+      if (get().fileLoadRequestId !== requestId) return;
       const message =
         error instanceof Error ? error.message : 'Failed to load file';
       set({
         fileError: message,
         isLoadingFile: false,
+        loadingFilePath: null,
       });
     }
   },
@@ -824,7 +846,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           set({ selectedNode: null });
         }
         if (currentFile?.path === deletedPath) {
-          set({ currentFile: null });
+          set((state) => ({
+            currentFile: null,
+            isLoadingFile: false,
+            loadingFilePath: null,
+            fileLoadRequestId: state.fileLoadRequestId + 1,
+          }));
         }
       }
 
@@ -1027,7 +1054,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   clearCurrentFile: () => {
-    set({ currentFile: null, fileError: null });
+    set((state) => ({
+      currentFile: null,
+      isLoadingFile: false,
+      loadingFilePath: null,
+      fileError: null,
+      fileLoadRequestId: state.fileLoadRequestId + 1,
+    }));
   },
   setSearchQuery: (query: string) => {
     set({ searchQuery: query });

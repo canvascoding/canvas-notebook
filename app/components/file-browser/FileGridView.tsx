@@ -145,21 +145,28 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
           }
         }
 
+        const restoredTree = useFileStore.getState().fileTree;
         const currentExpanded = useFileStore.getState().expandedDirs;
         useFileStore.getState().setExpandedDirs(
           new Set(
-            Array.from(currentExpanded).filter((dirPath) => dirPath === '.' || validExpandedDirs.has(dirPath))
+            Array.from(currentExpanded).filter((dirPath) => (
+              dirPath === '.' ||
+              validExpandedDirs.has(dirPath) ||
+              findPathInTree(dirPath, restoredTree)
+            ))
           )
         );
 
-        const restoredTree = useFileStore.getState().fileTree;
-        const currentDirExists = curDir === '.' || findPathInTree(curDir, restoredTree);
+        const latestState = useFileStore.getState();
+        const latestDir = latestState.currentDirectory;
+        const latestSelectedNode = latestState.selectedNode;
+        const currentDirExists = latestDir === '.' || findPathInTree(latestDir, restoredTree);
 
         if (!currentDirExists) {
-          const fallbackDir = selectedNode?.type === 'directory'
-            ? selectedNode.path
-            : selectedNode?.path
-              ? getParentDirectory(selectedNode.path)
+          const fallbackDir = latestSelectedNode?.type === 'directory'
+            ? latestSelectedNode.path
+            : latestSelectedNode?.path
+              ? getParentDirectory(latestSelectedNode.path)
               : '.';
           useFileStore.getState().setCurrentDirectory(
             fallbackDir !== '.' && findPathInTree(fallbackDir, restoredTree) ? fallbackDir : '.'
