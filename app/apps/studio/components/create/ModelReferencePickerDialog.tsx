@@ -138,7 +138,7 @@ function ReferenceTile<T extends ReferenceOption>({
           onSelect(item);
         }
       }}
-      className="group flex min-h-[210px] cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition hover:border-primary/50 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex h-full cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition hover:border-primary/50 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
         {currentImage ? (
@@ -191,10 +191,10 @@ function ReferenceTile<T extends ReferenceOption>({
           </>
         ) : null}
       </div>
-      <div className="flex min-h-[76px] flex-col justify-center gap-1 px-3 py-2.5">
+      <div className="flex flex-col gap-1 px-3 py-2.5">
         <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">{item.name}</p>
         {item.description ? (
-          <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
+          <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">{item.description}</p>
         ) : null}
       </div>
     </div>
@@ -212,7 +212,7 @@ function CreateReferenceTile({
     <button
       type="button"
       onClick={onClick}
-      className="flex min-h-[210px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-background p-4 text-center text-sm font-medium text-muted-foreground transition hover:border-primary/60 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex min-h-[168px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-background p-4 text-center text-sm font-medium text-muted-foreground transition hover:border-primary/60 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="flex h-12 w-12 items-center justify-center rounded-full border border-current/25 bg-card">
         <Plus className="h-5 w-5" />
@@ -231,7 +231,7 @@ function ReferenceOptionGrid<T extends ReferenceOption>({
   onSelect,
 }: ReferenceOptionGridProps<T>) {
   return (
-    <div className="min-h-[260px] flex-1 overflow-y-auto rounded-md border border-border bg-background p-2 sm:p-3">
+    <div className="max-h-[min(52dvh,430px)] overflow-y-auto rounded-md border border-border bg-background p-2 sm:p-3">
       {isLoading ? (
         <div className="mb-3 flex min-h-32 items-center justify-center rounded-md border border-dashed border-border bg-card/50 p-6 text-center text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -242,7 +242,7 @@ function ReferenceOptionGrid<T extends ReferenceOption>({
           {emptyText}
         </div>
       ) : null}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {!isLoading
           ? items.map((item) => (
             <ReferenceTile
@@ -349,7 +349,7 @@ export function ModelReferencePickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-4 overflow-hidden p-4 sm:max-h-[min(86vh,760px)] sm:p-6">
+      <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-4 overflow-hidden p-4 sm:max-h-[min(86vh,760px)] sm:max-w-[760px] sm:p-6">
         <DialogHeader>
           <DialogTitle>{t('addReference')}</DialogTitle>
           <DialogDescription className="sr-only">{t('referenceCategories')}</DialogDescription>
@@ -390,7 +390,7 @@ export function ModelReferencePickerDialog({
         <Tabs
           value={referenceCategory}
           onValueChange={handleCategoryChange}
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+          className="flex min-h-0 flex-col gap-3 overflow-hidden"
         >
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="product">
@@ -406,7 +406,7 @@ export function ModelReferencePickerDialog({
               {t('style')}
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="product" className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=active]:flex">
+          <TabsContent value="product" className="mt-0 min-h-0 flex-none overflow-visible">
             <ReferenceOptionGrid
               items={filteredProducts}
               emptyText={getEmptyText(products.length, t('noProducts'), productsLoading)}
@@ -422,7 +422,7 @@ export function ModelReferencePickerDialog({
               }}
             />
           </TabsContent>
-          <TabsContent value="persona" className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=active]:flex">
+          <TabsContent value="persona" className="mt-0 min-h-0 flex-none overflow-visible">
             <ReferenceOptionGrid
               items={filteredPersonas}
               emptyText={getEmptyText(personas.length, t('noPersonas'), personasLoading)}
@@ -438,7 +438,7 @@ export function ModelReferencePickerDialog({
               }}
             />
           </TabsContent>
-          <TabsContent value="style" className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=active]:flex">
+          <TabsContent value="style" className="mt-0 min-h-0 flex-none overflow-visible">
             <ReferenceOptionGrid
               items={filteredStyles}
               emptyText={getEmptyText(styles.length, t('noStyles'), stylesLoading)}
