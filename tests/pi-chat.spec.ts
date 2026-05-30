@@ -119,7 +119,7 @@ function setupMockWebSocket(page: Page, config: MockWsConfig) {
 
   let eventQueue: AgentEventPayload[] = [...agentEvents];
 
-  page.routeWebSocket('/ws/chat', (ws: WebSocketRoute) => {
+  page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
     ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
 
     ws.onMessage((rawMessage) => {
@@ -210,6 +210,144 @@ test.describe('PI Chat E2E', () => {
     await login(page);
     await context.storageState({ path: AUTH_STATE_PATH });
     await context.close();
+  });
+
+  test('should render persisted upload references as attachment chips without metadata duplication', async ({ page }) => {
+    const sessionId = 'sess-attachment-history';
+    const createdAt = new Date().toISOString();
+    const imageId = 'reference---mock.png';
+    const documentId = 'briefing---mock.pdf';
+    const userText = `Please inspect these uploads.
+--- Attachment: reference.png ---
+containerFilePath: /data/user-uploads/image/${imageId}
+fileId: ${imageId}
+mimeType: image/png
+category: image
+contentKind: image
+
+[Agent-Hinweis: Verwende containerFilePath, wenn du die Datei per Tool lesen, kopieren, verschieben oder im Workspace organisieren sollst.]
+--- Ende Attachment: reference.png ---
+--- Attachment: briefing.pdf ---
+containerFilePath: /data/user-uploads/document/${documentId}
+fileId: ${documentId}
+mimeType: application/pdf
+category: document
+contentKind: document
+
+[Agent-Hinweis: Verwende containerFilePath, wenn du die Datei per Tool lesen, kopieren, verschieben oder im Workspace organisieren sollst.]
+--- Ende Attachment: briefing.pdf ---`;
+
+    await page.addInitScript(() => {
+      window.sessionStorage.clear();
+      window.localStorage.removeItem('canvas.chat.sessionMessages.v1');
+    });
+
+    await page.route(/\/api\/agents\/config(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            piConfig: {
+              activeProvider: 'openai',
+              providers: { openai: { model: 'gpt-4o' } },
+            },
+            effectiveConfig: {
+              agentId: 'canvas-agent',
+              activeProvider: 'openai',
+              model: 'gpt-4o',
+              thinkingLevel: 'medium',
+              setupState: { modelConfigured: true, issues: [] },
+            },
+            discovery: {
+              openai: {
+                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/agents$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { agents: [] } }),
+      });
+    });
+
+    await page.route(/\/api\/sessions(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          sessions: [{
+            id: 1,
+            sessionId,
+            title: 'Attachment history',
+            agentId: 'canvas-agent',
+            model: 'gpt-4o',
+            provider: 'openai',
+            createdAt,
+            engine: 'pi',
+            lastMessageAt: createdAt,
+            lastViewedAt: createdAt,
+            hasUnread: false,
+          }],
+        }),
+      });
+    });
+
+    await page.route(/\/api\/sessions\/messages\?.*$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          engine: 'pi',
+          hasMoreBefore: false,
+          oldestTimestamp: Date.now(),
+          oldestMessageId: 1,
+          messages: [
+            {
+              id: 1,
+              role: 'user',
+              content: [
+                { type: 'text', text: userText },
+                { type: 'image', data: `/api/files/${encodeURIComponent(imageId)}`, mimeType: 'image/png' },
+              ],
+              timestamp: Date.now(),
+            },
+            {
+              id: 2,
+              role: 'assistant',
+              content: [{ type: 'text', text: 'I can see both uploads.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now() + 1,
+            },
+          ],
+        }),
+      });
+    });
+
+    setupMockWebSocket(page, { sessionId, sendEventsAfterSendMessage: false });
+
+    await page.goto(`/chat?session=${encodeURIComponent(sessionId)}`);
+
+    const userMessage = page.getByTestId('chat-message-user').filter({ hasText: 'Please inspect these uploads.' });
+    await expect(userMessage).toBeVisible({ timeout: 15000 });
+    await expect(userMessage).not.toContainText('containerFilePath');
+    await expect(userMessage).not.toContainText('Agent-Hinweis');
+    await expect(userMessage.getByTestId('chat-message-attachment')).toHaveCount(2);
+    await expect(userMessage.getByTestId('chat-message-attachment').nth(0)).toContainText('reference.png');
+    await expect(userMessage.getByTestId('chat-message-attachment').nth(1)).toContainText('briefing.pdf');
   });
 
   test('should bootstrap a session, show the session id, and derive a history title', async ({ page }) => {
