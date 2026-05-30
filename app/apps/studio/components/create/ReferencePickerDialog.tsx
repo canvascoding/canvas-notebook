@@ -32,6 +32,7 @@ interface ImageAsset {
   mediaUrl: string;
   previewUrl: string;
   modified?: number;
+  size?: number;
   kind?: MediaKind;
 }
 
@@ -124,6 +125,44 @@ function StudioAssetGridSkeleton() {
       ))}
     </div>
   );
+}
+
+function normalizeDownloadedReference(payload: unknown): ImageAsset {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Downloaded reference response is invalid');
+  }
+
+  const data = payload as {
+    path?: unknown;
+    filePath?: unknown;
+    name?: unknown;
+    mediaUrl?: unknown;
+    previewUrl?: unknown;
+    size?: unknown;
+  };
+  const rawPath = typeof data.path === 'string'
+    ? data.path
+    : typeof data.filePath === 'string'
+      ? data.filePath
+      : '';
+  const path = rawPath.trim();
+  if (!path || path === 'undefined') {
+    throw new Error('Downloaded reference response is missing a file path');
+  }
+
+  const name = typeof data.name === 'string' && data.name.trim()
+    ? data.name
+    : path.split('/').pop() || path;
+
+  return {
+    path,
+    name,
+    kind: 'image',
+    size: typeof data.size === 'number' ? data.size : undefined,
+    modified: Date.now(),
+    mediaUrl: typeof data.mediaUrl === 'string' ? data.mediaUrl : toMediaUrl(path),
+    previewUrl: typeof data.previewUrl === 'string' ? data.previewUrl : toPreviewUrl(path, 200),
+  };
 }
 
 function StudioAssetPreviewImage({ asset }: { asset: ImageAsset }) {
@@ -746,17 +785,20 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                         });
                         const payload = await res.json();
                         if (!res.ok || !payload.success) throw new Error(payload.error || 'Failed to download image');
-                        const filePath: string = payload.filePath;
-                        const fullPath = `studio/assets/${filePath}`;
+                        const importedAsset = normalizeDownloadedReference(payload);
                         setSelectedPaths((prev) => {
                           if (!multiple) {
-                            return new Set([fullPath]);
+                            return new Set([importedAsset.path]);
                           }
                           const next = new Set(prev);
                           if (next.size < maxSelection) {
-                            next.add(fullPath);
+                            next.add(importedAsset.path);
                           }
                           return next;
+                        });
+                        setAssets((prev) => {
+                          const withoutImported = prev.filter((asset) => asset.path !== importedAsset.path);
+                          return [importedAsset, ...withoutImported];
                         });
                         setUrlInput('');
                         setTab('studio');
