@@ -147,8 +147,9 @@ function fitImageToStage(imageWidth: number, imageHeight: number, stage: HTMLDiv
   const rect = stage?.getBoundingClientRect();
   const stageWidth = rect && rect.width > 0 ? rect.width : FALLBACK_STAGE_SIZE.width;
   const stageHeight = rect && rect.height > 0 ? rect.height : FALLBACK_STAGE_SIZE.height;
-  const availableWidth = Math.max(1, stageWidth - STAGE_FIT_PADDING * 2);
-  const availableHeight = Math.max(1, stageHeight - STAGE_FIT_PADDING * 2);
+  const fitPadding = stageWidth < 640 ? 24 : stageWidth < 1024 ? 48 : STAGE_FIT_PADDING;
+  const availableWidth = Math.max(1, stageWidth - fitPadding * 2);
+  const availableHeight = Math.max(1, stageHeight - fitPadding * 2);
   const zoom = Math.min(1, availableWidth / imageWidth, availableHeight / imageHeight);
 
   return {
@@ -742,12 +743,12 @@ export function AspectRatioEditorView() {
             <h2 className="text-lg font-semibold">{t('title')}</h2>
             <p className="text-sm text-muted-foreground">{t('description')}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setPickerOpen(true)}>
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            <Button className="flex-1 sm:flex-none" variant="outline" onClick={() => setPickerOpen(true)}>
               <ImageIcon className="h-4 w-4" />
               {t('selectImage')}
             </Button>
-            <Button variant="outline" disabled={!sourcePath} onClick={() => imageSize.width && resetView(imageSize.width, imageSize.height)}>
+            <Button className="flex-1 sm:flex-none" variant="outline" disabled={!sourcePath} onClick={() => imageSize.width && resetView(imageSize.width, imageSize.height)}>
               <RefreshCw className="h-4 w-4" />
               {t('reset')}
             </Button>
@@ -756,10 +757,10 @@ export function AspectRatioEditorView() {
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="min-h-[520px] overflow-hidden bg-[linear-gradient(45deg,hsl(var(--muted))_25%,transparent_25%),linear-gradient(-45deg,hsl(var(--muted))_25%,transparent_25%),linear-gradient(45deg,transparent_75%,hsl(var(--muted))_75%),linear-gradient(-45deg,transparent_75%,hsl(var(--muted))_75%)] bg-[length:28px_28px] bg-[position:0_0,0_14px,14px_-14px,-14px_0px]">
+        <section className="order-2 min-h-[430px] overflow-hidden bg-[linear-gradient(45deg,hsl(var(--muted))_25%,transparent_25%),linear-gradient(-45deg,hsl(var(--muted))_25%,transparent_25%),linear-gradient(45deg,transparent_75%,hsl(var(--muted))_75%),linear-gradient(-45deg,transparent_75%,hsl(var(--muted))_75%)] bg-[length:28px_28px] bg-[position:0_0,0_14px,14px_-14px,-14px_0px] sm:min-h-[520px] lg:order-1 lg:min-h-0">
           <div
             ref={stageRef}
-            className="relative h-full min-h-[520px] cursor-grab overflow-hidden active:cursor-grabbing"
+            className="relative h-[min(72vh,560px)] min-h-[430px] cursor-grab touch-none overflow-hidden active:cursor-grabbing sm:min-h-[520px] lg:h-full lg:min-h-0"
             onWheel={handleWheel}
             onPointerDown={startPan}
             onPointerMove={handlePointerMove}
@@ -821,9 +822,9 @@ export function AspectRatioEditorView() {
                         aria-label={t('resizeHandle', { handle })}
                         onPointerDown={(event) => startFrameResize(event, handle)}
                         className={cn(
-                          'absolute h-4 w-4 rounded-full border-2 border-background bg-primary shadow',
-                          handle.includes('n') ? '-top-2' : '-bottom-2',
-                          handle.includes('w') ? '-left-2' : '-right-2',
+                          'absolute h-5 w-5 rounded-full border-2 border-background bg-primary shadow sm:h-4 sm:w-4',
+                          handle.includes('n') ? '-top-2.5 sm:-top-2' : '-bottom-2.5 sm:-bottom-2',
+                          handle.includes('w') ? '-left-2.5 sm:-left-2' : '-right-2.5 sm:-right-2',
                         )}
                       />
                     ))}
@@ -834,7 +835,7 @@ export function AspectRatioEditorView() {
           </div>
         </section>
 
-        <aside className="min-h-0 overflow-y-auto border-l border-border bg-card/70 p-4">
+        <aside className="order-1 min-h-0 border-b border-border bg-card/70 p-3 sm:p-4 lg:order-2 lg:overflow-y-auto lg:border-b-0 lg:border-l">
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-background p-3">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{t('source')}</p>
