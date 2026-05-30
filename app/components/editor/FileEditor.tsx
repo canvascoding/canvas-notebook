@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, MoreVertical, RefreshCw, Save, Share2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
 import { MarkdownEditor } from './MarkdownEditor';
@@ -88,6 +89,21 @@ const MEDIA_MIME_TYPES: Record<string, string> = {
   flac: 'audio/flac',
 };
 
+const DOCUMENT_SKELETON_EXTENSIONS = new Set([
+  'doc',
+  'docx',
+  'rtf',
+  'odt',
+  'txt',
+  'log',
+  'md',
+  'mdx',
+  'markdown',
+  'html',
+  'htm',
+  'pdf',
+]);
+
 function getExtension(path: string) {
   const parts = path.split('.');
   if (parts.length <= 1) return '';
@@ -134,13 +150,71 @@ function formatTimestamp(timestamp: number | null) {
   });
 }
 
+function shouldShowDocumentLoadingSkeleton(path: string | null) {
+  if (!path) return true;
+  const extension = getExtension(path);
+  return extension === '' || TEXT_EXTENSIONS.has(extension) || DOCUMENT_SKELETON_EXTENSIONS.has(extension);
+}
+
+function FileLoadingSkeleton({ path }: { path: string | null }) {
+  const t = useTranslations('notebook');
+  const fileName = path?.split('/').filter(Boolean).pop() || t('loadingPreview');
+
+  return (
+    <div data-testid="file-loading-skeleton" className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Skeleton className="h-4 w-10 shrink-0" />
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-foreground">{fileName}</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">{t('loadingPreview')}</div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Skeleton className="h-6 w-16" />
+          <Skeleton className="h-6 w-6" />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden p-4">
+        <div className="mx-auto flex h-full max-w-3xl flex-col gap-5">
+          <div className="space-y-3">
+            <Skeleton className="h-7 w-3/5" />
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-[92%]" />
+              <Skeleton className="h-4 w-[96%]" />
+              <Skeleton className="h-4 w-[84%]" />
+            </div>
+            <Skeleton className="hidden h-24 sm:block" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-[88%]" />
+            <Skeleton className="h-4 w-[94%]" />
+            <Skeleton className="h-4 w-[76%]" />
+          </div>
+          <div className="mt-auto grid grid-cols-3 gap-3">
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface FileEditorProps {
   onClosePreview?: () => void;
 }
 
 export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
-  const { currentFile, isLoadingFile, fileError, saveFile, downloadFile, loadFile, fileTree, currentDirectory } = useFileStore();
+  const { currentFile, isLoadingFile, loadingFilePath, fileError, saveFile, downloadFile, loadFile, fileTree, currentDirectory } = useFileStore();
   const {
     activePath,
     draft,
@@ -377,6 +451,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [handleImageNext, handleImagePrev, imagePaths.length, isImage]);
 
   if (isLoadingFile) {
+    const pendingPath = loadingFilePath ?? currentFile?.path ?? null;
+    if (shouldShowDocumentLoadingSkeleton(pendingPath)) {
+      return <FileLoadingSkeleton path={pendingPath} />;
+    }
+
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
