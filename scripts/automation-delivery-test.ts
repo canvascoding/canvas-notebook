@@ -6,6 +6,9 @@ import type { AutomationJobRecord } from '../app/lib/automations/types';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-automation-delivery-'));
 process.env.DATA = dataDir;
+process.env.CANVAS_DATA_ROOT = dataDir;
+process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+process.env.TELEGRAM_CHANNEL_ENABLED = 'true';
 
 async function main() {
   const { eq } = await import('drizzle-orm');
@@ -258,6 +261,26 @@ async function main() {
   });
   assert.equal(telegramDispatch.delivered, true);
   assert.deepEqual(delivered, [{ content: 'Telegram result', chatId: '42' }]);
+
+  process.env.TELEGRAM_CHANNEL_ENABLED = 'false';
+  const disabledTelegramDispatch = await dispatchAutomationResult({
+    job: {
+      ...baseJob,
+      deliveryMode: 'origin',
+      deliveryChannelId: 'telegram',
+      deliveryChannelSessionKey: 'telegram:42',
+    },
+    userId,
+    resolution: active,
+    text: 'Disabled Telegram result',
+  });
+  assert.equal(disabledTelegramDispatch.delivered, false);
+  assert.equal(disabledTelegramDispatch.attempted, false);
+  assert.equal(disabledTelegramDispatch.skippedReason, 'channel_disabled');
+  assert.deepEqual(delivered, [{ content: 'Telegram result', chatId: '42' }]);
+  assert.match(getAutomationDeliveryFailureMessage(active, disabledTelegramDispatch) || '', /channel is disabled/);
+  process.env.TELEGRAM_CHANNEL_ENABLED = 'true';
+
   getChannelRegistry().unregister('telegram');
 
   console.log('automation delivery tests passed');

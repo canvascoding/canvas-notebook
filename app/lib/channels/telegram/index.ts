@@ -5,6 +5,7 @@ import { TelegramPollingSession } from './polling';
 import { setupInboundHandler } from './inbound';
 import { deliverToTelegram, sendTypingAction } from './outbound';
 import { registerTelegramBotCommands } from './commands';
+import { getTelegramConfig } from './config';
 
 export class TelegramChannel implements ChannelPlugin {
   id: ChannelId = 'telegram';
@@ -17,11 +18,13 @@ export class TelegramChannel implements ChannelPlugin {
     typingIndicator: true,
   };
   private bot: Bot;
+  private botToken: string;
   private polling: TelegramPollingSession | null = null;
   private running = false;
   private lastError: string | undefined;
 
   constructor(botToken: string) {
+    this.botToken = botToken;
     this.bot = createTelegramBot(botToken);
   }
 
@@ -56,6 +59,11 @@ export class TelegramChannel implements ChannelPlugin {
 
   async deliver(message: OutboundMessage, target: DeliveryTarget): Promise<DeliveryResult> {
     try {
+      const disabledReason = await this.getDisabledDeliveryReason();
+      if (disabledReason) {
+        this.lastError = disabledReason;
+        return { ok: false, error: disabledReason };
+      }
       return await deliverToTelegram(this.bot, message, target);
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
@@ -64,6 +72,8 @@ export class TelegramChannel implements ChannelPlugin {
   }
 
   async sendTyping(target: DeliveryTarget): Promise<void> {
+    const disabledReason = await this.getDisabledDeliveryReason();
+    if (disabledReason) return;
     await sendTypingAction(this.bot, target.chatId);
   }
 
@@ -78,6 +88,20 @@ export class TelegramChannel implements ChannelPlugin {
 
   getBot(): Bot {
     return this.bot;
+  }
+
+  private async getDisabledDeliveryReason(): Promise<string | null> {
+    const config = await getTelegramConfig();
+    if (!config.botToken) {
+      return 'TELEGRAM_BOT_TOKEN not configured';
+    }
+    if (!config.channelEnabled) {
+      return 'TELEGRAM_CHANNEL_ENABLED is false';
+    }
+    if (config.botToken !== this.botToken) {
+      return 'TELEGRAM_BOT_TOKEN changed; restart Telegram channel before delivery';
+    }
+    return null;
   }
 }
 
