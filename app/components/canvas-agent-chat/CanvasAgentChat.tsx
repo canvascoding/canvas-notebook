@@ -60,8 +60,10 @@ import {
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
 import { extractFilePaths, isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
+import { extractStudioImageMediaUrls, rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -452,6 +454,68 @@ function contentToString(content: unknown): string {
       .join('\n');
   }
   return '';
+}
+
+const STUDIO_MEDIA_PATH_PREFIXES = [
+  'studio/',
+  'studio-gen-',
+  'user-uploads/studio-references/',
+  'presets/',
+  'products/',
+  'personas/',
+  'styles/',
+  'references/',
+];
+
+function isExternalOrApiMediaSrc(src: string): boolean {
+  return (
+    src.startsWith('/') ||
+    src.startsWith('#') ||
+    /^[a-z][a-z0-9+.-]*:/i.test(src)
+  );
+}
+
+function isStudioMediaPath(src: string): boolean {
+  const normalized = src.replace(/^\/+/, '');
+  return STUDIO_MEDIA_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function resolveMarkdownImageSrc(src: string): string {
+  const trimmed = src.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  if (isStudioMediaPath(trimmed)) {
+    return toMediaUrl(trimmed.replace(/^\/+/, ''));
+  }
+
+  if (isFilePath(trimmed)) {
+    return toWorkspaceMediaUrl(normalizeChatFilePath(trimmed));
+  }
+
+  if (isExternalOrApiMediaSrc(trimmed)) {
+    return trimmed;
+  }
+
+  return trimmed;
+}
+
+function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIndex: number): string[] {
+  const urls: string[] = [];
+
+  for (let index = messageIndex - 1; index >= 0; index -= 1) {
+    const previousMessage = messages[index];
+    if (previousMessage.role === 'user') {
+      break;
+    }
+
+    if (previousMessage.role === 'toolResult' && previousMessage.toolName === 'studio_generate_image') {
+      urls.unshift(...extractStudioImageMediaUrls(previousMessage.content));
+    }
+  }
+
+  return urls;
 }
 
 function getChatMessageTimestamp(message: ChatMessage | undefined): number | null {
@@ -1274,16 +1338,17 @@ function MarkdownMessage({
     ),
     img: ({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
+      const resolvedSrc = resolveMarkdownImageSrc(src);
       const clickable = Boolean(onMediaClick);
       return (
         <button
           type="button"
           className={`my-3 block overflow-hidden rounded-2xl border border-border/70 bg-background/70 ${clickable ? 'cursor-pointer transition hover:border-primary/40' : 'cursor-default'}`}
-          onClick={() => { if (onMediaClick) onMediaClick(src); }}
+          onClick={() => { if (onMediaClick) onMediaClick(resolvedSrc); }}
           disabled={!clickable}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={src} alt={alt || ''} className="max-h-[320px] w-auto max-w-full object-contain" />
+          <img src={resolvedSrc} alt={alt || ''} className="max-h-[320px] w-auto max-w-full object-contain" />
         </button>
       );
     },
@@ -5409,6 +5474,12 @@ export default function CanvasAgentChat({
                     : message.status === 'sending'
                       ? (isTool ? t('runningTool') : t('agentWorking'))
                       : '');
+            const displayBodyContent = isAssistant
+              ? rewriteRelativeStudioImageMarkdown(
+                  bodyContent,
+                  getRecentStudioImageMediaUrls(messages, messageIndex),
+                )
+              : bodyContent;
             const toolBodyVisible = isTool ? !message.isCollapsed : true;
             const toolStatusLabel = isTool ? getToolStatusLabel(message, t) : null;
 
@@ -5472,7 +5543,7 @@ export default function CanvasAgentChat({
                           <StreamingMessageIndicator />
                         ) : (
                           <>
-                            <MarkdownMessage content={bodyContent} variant="assistant" onMediaClick={onMediaClick} />
+                            <MarkdownMessage content={displayBodyContent} variant="assistant" onMediaClick={onMediaClick} />
                             {isStreamingAssistant ? (
                               <div className="mt-2 inline-flex items-center gap-1 text-muted-foreground/70">
                                 {[0, 160, 320].map((delay) => (
