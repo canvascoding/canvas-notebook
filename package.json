@@ -42,6 +42,7 @@
     "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",
     "test:automation:schedule": "tsx scripts/automation-schedule-test.ts",
     "test:automation:delivery": "tsx --conditions react-server scripts/automation-delivery-test.ts",
+    "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:channels": "tsx scripts/channel-architecture-test.ts",
     "test:channels:db": "tsx --conditions react-server scripts/channel-db-test.ts",
     "test:agents:runtime": "tsx --conditions react-server scripts/agent-runtime-config-test.ts",
