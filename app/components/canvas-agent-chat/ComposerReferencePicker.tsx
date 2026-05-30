@@ -1,6 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
+import { isImageFile } from '@/app/lib/files/file-icons';
 
 export interface ComposerReferencePickerItem<T = unknown> {
   id: string;
@@ -18,6 +20,51 @@ interface ComposerReferencePickerProps<T = unknown> {
   onSelect: (item: ComposerReferencePickerItem<T>) => void;
   pickerRef?: React.RefObject<HTMLDivElement | null>;
   selectedIndex: number;
+}
+
+type FileReferencePayload = {
+  isImage?: unknown;
+  name?: unknown;
+  path?: unknown;
+  type?: unknown;
+};
+
+function getImageReferencePayload(payload: unknown): { name: string; path: string } | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const file = payload as FileReferencePayload;
+  const name = typeof file.name === 'string' ? file.name : '';
+  const path = typeof file.path === 'string' ? file.path : '';
+  const type = typeof file.type === 'string' ? file.type : 'file';
+  const isImage = file.isImage === true || isImageFile(path) || isImageFile(name);
+
+  if (!path || type === 'directory' || !isImage) {
+    return null;
+  }
+
+  return {
+    name: name || path.split('/').pop() || path,
+    path,
+  };
+}
+
+function ReferencePickerIcon<T>({ item }: { item: ComposerReferencePickerItem<T> }) {
+  const imagePayload = item.kind === 'file' ? getImageReferencePayload(item.payload) : null;
+
+  if (imagePayload) {
+    return (
+      <ImageThumbnailIcon
+        path={imagePayload.path}
+        name={imagePayload.name}
+        className="h-8 w-8 rounded-sm"
+        fallbackIcon={item.icon}
+      />
+    );
+  }
+
+  return item.icon;
 }
 
 export function ComposerReferencePicker<T = unknown>({
@@ -48,8 +95,8 @@ export function ComposerReferencePicker<T = unknown>({
             index === selectedIndex ? 'bg-accent' : ''
           }`}
         >
-          <span data-testid="chat-reference-icon" className="flex h-4 w-4 items-center justify-center">
-            {item.icon}
+          <span data-testid="chat-reference-icon" className="flex h-8 w-8 shrink-0 items-center justify-center">
+            <ReferencePickerIcon item={item} />
           </span>
           <div className="min-w-0 flex-1">
             <div className="truncate">{item.label}</div>
