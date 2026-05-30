@@ -487,6 +487,36 @@ function decodeBase64Url(value: string) {
   return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
 }
 
+function sanitizeEmailHeaderValue(value: string) {
+  return value.replace(/[\r\n]+/gu, ' ').replace(/[ \t]+/gu, ' ').trim();
+}
+
+export function encodeMimeHeaderValue(value: string) {
+  const sanitized = sanitizeEmailHeaderValue(value);
+  if (/^[\x20-\x7e]*$/u.test(sanitized)) return sanitized;
+
+  const encodedWords: string[] = [];
+  let chunk = '';
+  let chunkBytes = 0;
+
+  for (const char of sanitized) {
+    const charBytes = Buffer.byteLength(char, 'utf8');
+    if (chunk && chunkBytes + charBytes > 45) {
+      encodedWords.push(`=?UTF-8?B?${Buffer.from(chunk, 'utf8').toString('base64')}?=`);
+      chunk = '';
+      chunkBytes = 0;
+    }
+    chunk += char;
+    chunkBytes += charBytes;
+  }
+
+  if (chunk) {
+    encodedWords.push(`=?UTF-8?B?${Buffer.from(chunk, 'utf8').toString('base64')}?=`);
+  }
+
+  return encodedWords.join('\r\n ');
+}
+
 function gmailBodyText(payload: Record<string, unknown> | undefined): string {
   if (!payload) return '';
   const body = payload.body as Record<string, unknown> | undefined;
@@ -500,10 +530,10 @@ function gmailBodyText(payload: Record<string, unknown> | undefined): string {
 function encodeRawEmail(input: EmailDraftInput) {
   const contentType = input.is_HTML ? 'text/html' : 'text/plain';
   const headers = [
-    `To: ${input.to.join(', ')}`,
-    ...(input.cc?.length ? [`Cc: ${input.cc.join(', ')}`] : []),
-    ...(input.bcc?.length ? [`Bcc: ${input.bcc.join(', ')}`] : []),
-    `Subject: ${input.subject}`,
+    `To: ${input.to.map(sanitizeEmailHeaderValue).join(', ')}`,
+    ...(input.cc?.length ? [`Cc: ${input.cc.map(sanitizeEmailHeaderValue).join(', ')}`] : []),
+    ...(input.bcc?.length ? [`Bcc: ${input.bcc.map(sanitizeEmailHeaderValue).join(', ')}`] : []),
+    `Subject: ${encodeMimeHeaderValue(input.subject)}`,
     'MIME-Version: 1.0',
     `Content-Type: ${contentType}; charset=UTF-8`,
   ];
